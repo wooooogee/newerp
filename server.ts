@@ -571,7 +571,6 @@ async function start() {
   }
 }
 
-export { app };
 
 // In AI Studio or local dev, we need to listen
 if (!process.env.NETLIFY) {
