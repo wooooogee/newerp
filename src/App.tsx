@@ -1,0 +1,3420 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, Plus, User, Briefcase, StickyNote } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+// @ts-ignore
+import XLSX from 'xlsx-js-style';
+// @ts-ignore
+import html2pdf from 'html2pdf.js';
+
+interface ERPDataItem {
+  uniqueKey: string;
+  originalRowIdx: number;
+  contractDate: string; // A(0)
+  memNo: string;        // C(2)
+  memName: string;      // D(3)
+  resNo: string;        // E(4)
+  phone: string;        // F(5)
+  prodName: string;     // G(6)
+  rentalProd: string;   // M(12)
+  rentalNo: string;     // K(10)
+  deliveryStatus: string; // L(11)
+  deliveryDate: string;   // N(13)
+  payDate: string;        // O(14)
+  hq: string;             // H(7)
+  branch: string;         // I(8)
+  empName: string;        // J(9)
+  hc: string;             // P,Q,R(15,16,17) combined
+  hcRegDate: string;      // S(18)
+  paymentStatus: string;  // T(19)? Let's check
+  memo: string;           // U(20)?
+  raw: any[];
+}
+
+interface SyncNotification {
+  message: string;
+  type: 'success' | 'info';
+}
+
+interface ProductRule {
+  productName: string;
+  totalAmount: number;   // 수수료 총액
+  salesAmount: number;   // 판매수수료 (나머지는 촉진비)
+  tier1Count: number;
+  tier1Price: number;
+  tier2Count: number;
+  tier2Price: number;
+  tier3Count: number;
+  tier3Price: number;
+}
+
+interface HQSetting {
+  id: string;
+  hqName: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+  paymentMethod: string;
+  
+  // 오버라이딩 활성화 여부 및 상세 설정
+  enableOverriding: boolean;
+  overriding: {
+    salesperson: number;
+    teamLeader: number;
+    branchManager: number;
+    hqManager: number;
+    mode: 'percent' | 'fixed';
+  };
+
+  productRules: ProductRule[];
+}
+
+// 샘플 시딩 값 (이곳에서 수정 가능)
+const PRODUCT_SEEDS: [string, number, number][] = [
+  ['더좋은하이브리드698', 650000, 300000],
+  ['더좋은통신결합540플러스', 500000, 300000],
+  ['더좋은통신결합360플러스', 250000, 190000],
+  ['더좋은헬스케어580 (1회차)', 60000, 45000],
+  ['더좋은라이즈498', 680000, 470000]
+];
+
+// 마스터 기초 데이터 (본부별 계좌 및 수수료 설정)
+const MASTER_HQ_DATA: Partial<HQSetting>[] = [
+  { hqName: '리치웰페어', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 770000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 160000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '한가득플러스', bankName: '우리', accountNumber: '1005304615801', accountHolder: '(주)한가득플러스', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 700000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합540플러스', totalAmount: 570000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합360플러스', totalAmount: 270000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '맥스', bankName: '우리', accountNumber: '1005603174407', accountHolder: '김학민(골프존파크', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '더라이프앤', bankName: '하나', accountNumber: '79391040692907', accountHolder: '박인천(더드림)', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '더원시스템', bankName: '하나', accountNumber: '17291002173204', accountHolder: '주식회사 더원시스템', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 700000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '위더스앤씨', bankName: '기업', accountNumber: '49707471104012', accountHolder: '주식회사 위더스앤씨', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 680000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은라이즈498', totalAmount: 680000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '커런시마켓', bankName: '하나', accountNumber: '77991002664704', accountHolder: '주식회사 커런시마켓', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 720000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '드라마플라워', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '파파쿡', bankName: 'MG새마을금고', accountNumber: '9003293506338', accountHolder: '박진우(파파쿡)', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '글로씨', bankName: '카카오뱅크', accountNumber: '3333133132556', accountHolder: '이동현', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '웰다잉라이프', bankName: '기업', accountNumber: '16417285904019', accountHolder: '박서영(웰다잉라이프)', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '뷰티가이', bankName: '기업', accountNumber: '116-132917-01-018', accountHolder: '서정일 (뷰티가이)', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '파란하늘', bankName: '기업', accountNumber: '185-096869-02-019', accountHolder: '파란하늘(노은경)', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '조민경', bankName: '카카오뱅크', accountNumber: '3333027476861', accountHolder: '조민경', productRules: [] },
+  { hqName: '조재윤', bankName: '수협', accountNumber: '206000673009', accountHolder: '조재윤', productRules: [] },
+  { hqName: '다이렉트', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 665000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+  { hqName: '어센틱(구)', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
+    { productName: '더좋은하이브리드698', totalAmount: 665000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+  ]},
+];
+
+const ERP_Dashboard = () => {
+  const [data, setData] = useState<ERPDataItem[]>([]);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [productFilter, setProductFilter] = useState('전체');
+  const [hqFilter, setHqFilter] = useState('전체');
+  const [branchFilter, setBranchFilter] = useState('전체');
+  const [deliveryFilter, setDeliveryFilter] = useState('전체');
+  const [payDateFilter, setPayDateFilter] = React.useState('');
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [dateFilterType, setDateFilterType] = useState<'payDate' | 'hcRegDate'>('payDate');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [lastUpdate, setLastUpdate] = useState('2026-04-17 05:30');
+  const [notification, setNotification] = useState<SyncNotification | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<ERPDataItem | null>(null);
+  const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isDailyDashboardModalOpen, setIsDailyDashboardModalOpen] = useState(false);
+  const [isMonthlyDashboardModalOpen, setIsMonthlyDashboardModalOpen] = useState(false);
+  const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
+  const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
+  const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
+  const [isHealthcareModalOpen, setIsHealthcareModalOpen] = useState(false);
+  const [activeHqId, setActiveHqId] = useState<string | null>(null);
+  const [calendarViewDate, setCalendarViewDate] = useState(new Date());
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const allDatesWithData = React.useMemo(() => {
+    return new Set(data.map(item => item.payDate.replace(/[-/]/g, '.')).filter(Boolean));
+  }, [data]);
+
+  // 셀 값 업데이트 (구글 시트 연동)
+  const updateCell = async (rowIdx: number, colIdx: number, newValue: string) => {
+    setIsUpdating(true);
+    try {
+      const res = await fetch('/api/sheets/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rowIdx, colIdx, newValue })
+      });
+      
+      if (!res.ok) {
+        if (res.status === 401) {
+          setIsAuthenticated(false);
+          throw new Error('인증 세션이 만료되었습니다. 다시 연동해 주세요.');
+        }
+        const errorData = await res.json();
+        throw new Error(errorData.error || '업데이트 실패');
+      }
+      
+      setNotification({ message: '시트가 성공적으로 업데이트되었습니다.', type: 'success' });
+      loadData(); // 데이터 새로고침
+    } catch (err) {
+      console.error(err);
+      alert('업데이트 중 오류가 발생했습니다.');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+
+  
+
+
+
+  // 정산 설정 상태 (본부별) - v2 키 사용으로 강제 리셋 (최신 데이터 반영)
+  const [hqSettings, setHqSettings] = useState<HQSetting[]>(() => {
+    const saved = localStorage.getItem('erp_hq_settings_v2');
+    if (saved) return JSON.parse(saved);
+
+    // 초기 데이터가 없는 경우 마스터 데이터로 시딩
+    return MASTER_HQ_DATA.map((m, idx) => ({
+      id: `hq-${idx + 1}`,
+      hqName: m.hqName || '신규본부',
+      bankName: m.bankName || '-',
+      accountNumber: m.accountNumber || '-',
+      accountHolder: m.accountHolder || '-',
+      paymentMethod: '계좌이체',
+      enableOverriding: false,
+      overriding: { salesperson: 70, teamLeader: 10, branchManager: 10, hqManager: 10, mode: 'percent' },
+      productRules: m.productRules || []
+    }));
+  });
+
+  // 설정 모달 열릴 때 첫 번째 본부 자동 선택
+  React.useEffect(() => {
+    if (isSettingsModalOpen && !activeHqId && hqSettings.length > 0) {
+      setActiveHqId(hqSettings[0].id);
+    }
+  }, [isSettingsModalOpen, activeHqId, hqSettings]);
+
+  const saveSettingsToCloud = async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await fetch('/api/sheets/settings/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: hqSettings })
+      });
+      if (!res.ok) throw new Error('Cloud save failed');
+      setNotification({ message: '본부 설정이 구글 시트에 안전하게 저장되었습니다.', type: 'success' });
+    } catch (err) {
+      console.error(err);
+      alert('설정 저장 중 오류가 발생했습니다.');
+    }
+  };
+
+  const loadSettingsFromCloud = async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await fetch('/api/sheets/settings/load');
+      const data = await res.json();
+      if (data.settings) {
+        setHqSettings(data.settings);
+        setNotification({ message: '구글 시트에서 본부 설정을 불러왔습니다.', type: 'success' });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadSettingsFromCloud();
+    }
+  }, [isAuthenticated]);
+
+  const [selectedHqIdForOv, setSelectedHqIdForOv] = useState<string | null>(null);
+  const [selectedHqIdForRules, setSelectedHqIdForRules] = useState<string | null>(null);
+  const [editingRuleInfo, setEditingRuleInfo] = useState<{ hqId: string, ruleIdx: number } | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('erp_hq_settings', JSON.stringify(hqSettings));
+  }, [hqSettings]);
+
+  // 구글 연동 상태 체크
+  const checkAuthStatus = async () => {
+    try {
+      const res = await fetch('/api/auth/status');
+      const { authenticated } = await res.json();
+      setIsAuthenticated(authenticated);
+    } catch (error) {
+      console.error('Auth check fail:', error);
+    }
+  };
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  // 구글 연동 팝업
+  const handleConnect = async () => {
+    try {
+      const res = await fetch('/api/auth/url');
+      const authData = await res.json();
+      
+      if (!res.ok) {
+        const errorInfo = authData.error || '알 수 없는 서버 오류';
+        alert(`[연동 준비 실패] ${errorInfo}\n\n리디렉션 URI 설정 문제일 수 있습니다.\n현재 앱의 리디렉션 URI: ${authData.redirectUri || '확인 불가'}`);
+        return;
+      }
+
+      const popup = window.open(authData.url, 'google_auth', 'width=600,height=700');
+      
+      if (!popup) {
+        alert('팝업 차단이 설정되어 있습니다. 팝업을 허용해 주세요.');
+        return;
+      }
+
+      const messageHandler = (event: MessageEvent) => {
+        if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+          setIsAuthenticated(true);
+          setNotification({ message: '구글 시트가 성공적으로 연동되었습니다!', type: 'success' });
+          loadData();
+          window.removeEventListener('message', messageHandler);
+        }
+      };
+      window.addEventListener('message', messageHandler);
+    } catch (error) {
+      console.error('Connection failed:', error);
+      alert('연동 과정에서 예상치 못한 오류가 발생했습니다.');
+    }
+  };
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setIsAuthenticated(false);
+    setData([]);
+  };
+
+  // 날짜 형식 체크 함수 (YYYY-MM-DD 또는 YYYY.MM.DD 등 유연하게 체크)
+  const isDate = (val: string) => {
+    if (!val) return false;
+    const datePattern = /^\d{2,4}[-./]\d{1,2}[-./]\d{1,2}/;
+    return datePattern.test(val);
+  };
+
+  // 구글 시트 데이터 로드
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      if (!isAuthenticated) {
+        // Mock data if not authenticated for preview
+        const initialData: ERPDataItem[] = [
+          { 
+            uniqueKey: 'mock-1',
+            originalRowIdx: 2,
+            contractDate: '2026-04-16', 
+            memNo: 'M12345',
+            memName: '홍길동',
+            resNo: '800101-1',
+            phone: '010-1234-5678',
+            prodName: '더좋은하이브리드698',
+            rentalProd: '브람스안마의자',
+            rentalNo: 'R99990',
+            deliveryStatus: '배송완료',
+            deliveryDate: '2026-04-17',
+            payDate: '2026-05-15',
+            hq: '경기본부',
+            branch: '수원지사',
+            empName: '김철수',
+            hc: '대상자, 보류, 기타',
+            paymentStatus: '',
+            hcRegDate: '2026-04-16',
+            memo: '',
+            raw: new Array(30).fill('보류 데이터') 
+          },
+        ];
+        setData(initialData);
+        setLoading(false);
+        return;
+      }
+
+      const res = await fetch('/api/sheets/data');
+      if (!res.ok) {
+        const errorData = await res.json();
+        if (res.status === 401) {
+          setIsAuthenticated(false);
+        }
+        throw new Error(errorData.error || 'Data fetch failed');
+      }
+      const sheetData = await res.json();
+      const sheetHeaders = sheetData[0] || [];
+      setHeaders(sheetHeaders);
+      
+      const formatted: ERPDataItem[] = sheetData.slice(1)
+        .map((row: any[], idx: number) => ({ row, idx: idx + 1 })) // 원래 인덱스 유지 (헤더 제외하므로 +1)
+        .filter(({ row }) => isDate(String(row[0])) && !String(row[1] || '').includes('취소')) // A열이 날짜이면서 B열에 '취소'가 없는 데이터만
+        .map(({ row, idx }) => {
+          let payDate = String(row[14] || '').trim();
+          let paymentStatus = String(row[19] || '');
+          
+          // O열 수수료지급일이 4월 23일 이전건은 모두 지급완료 처리 및 날짜 포맷팅
+          let normalizedPayDate = payDate.replace(/[./]/g, '-');
+          if (normalizedPayDate.length === 5) {
+            normalizedPayDate = `2026-${normalizedPayDate}`;
+          } else if (normalizedPayDate.length > 5 && !normalizedPayDate.startsWith('20')) {
+            const parts = normalizedPayDate.split('-');
+            if (parts.length === 3 && parts[0].length === 2) {
+              normalizedPayDate = `20${normalizedPayDate}`;
+            }
+          }
+          
+          if (normalizedPayDate && normalizedPayDate <= '2026-04-23' && payDate !== '') {
+            paymentStatus = '지급완료';
+          }
+          
+          // 일관된 날짜 비교를 위해 payDate 값을 포맷팅 (YYYY.MM.DD)
+          if (normalizedPayDate && normalizedPayDate.length >= 10) {
+            payDate = normalizedPayDate.replace(/-/g, '.');
+          }
+
+          return {
+            uniqueKey: `sheet-${row[0]}-${idx}`,
+            originalRowIdx: idx + 1, // Sheets API는 1부터 시작 (우리는 rawData[0]이 헤더이므로 row 2부터 데이터)
+            contractDate: String(row[0] || ''),     // A(0)
+            memNo: String(row[2] || ''),            // C(2)
+            memName: String(row[3] || ''),          // D(3)
+            resNo: String(row[4] || ''),            // E(4)
+            phone: String(row[5] || ''),            // F(5)
+            prodName: String(row[6] || ''),         // G(6)
+            rentalProd: String(row[12] || ''),      // M(12)
+            rentalNo: String(row[10] || ''),        // K(10)
+            deliveryStatus: String(row[11] || ''),  // L(11)
+            deliveryDate: String(row[13] || ''),    // N(13)
+            payDate,                                // O(14)
+            hq: String(row[7] || ''),               // H(7)
+            branch: String(row[8] || ''),           // I(8)
+            empName: String(row[9] || ''),          // J(9)
+            hc: [row[15], row[16], row[17]].filter(Boolean).join(', '), // P,Q,R
+            hcRegDate: String(row[18] || ''),       // S(18)
+            paymentStatus: String(row[19] || ''),   // T(19)
+            memo: String(row[20] || ''),            // U(20)
+            raw: row.length < 30 ? [...row, ...new Array(30 - row.length).fill('')] : row,
+          };
+        }).filter((item: ERPDataItem) => item.contractDate);
+
+      setData(formatted);
+      setLastUpdate(new Date().toLocaleString('ko-KR', { hour12: false }));
+    } catch (error: any) {
+      console.error('Load fail:', error);
+      const msg = error.message.includes('unauthorized_client') 
+        ? '인증 오류: Client ID/Secret를 확인하고 로그아웃 후 다시 연동해 주세요.' 
+        : '데이터 로드에 실패했습니다. 구글 시트 ID와 권한을 확인해 주세요.';
+      setNotification({ message: msg, type: 'info' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) loadData();
+  }, [isAuthenticated]);
+
+  // 일괄 업데이트 기능 (지급완료/취소 등)
+  const batchUpdateCells = async (updates: { rowIdx: number, colIdx: number, newValue: string }[]) => {
+    if (updates.length === 0) return;
+    setIsUpdating(true);
+    try {
+      const res = await fetch('/api/sheets/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates })
+      });
+      
+      if (!res.ok) {
+        if (res.status === 401) {
+          setIsAuthenticated(false);
+          throw new Error('인증 세션이 만료되었습니다.');
+        }
+        const errorData = await res.json();
+        throw new Error(errorData.error || '일괄 업데이트 실패');
+      }
+      
+      setNotification({ message: `${updates.length}건이 성공적으로 업데이트되었습니다.`, type: 'success' });
+      loadData();
+    } catch (err: any) {
+      console.error(err);
+      alert('일괄 업데이트 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // 공통 수수료 계산 로직
+  const calculateCommissionDetails = (item: ERPDataItem, hqTotalCountMap: Map<string, number>) => {
+    const setting = hqSettings.find(s => s.hqName === item.hq);
+    const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
+    
+    // 상품 매칭
+    let productRule = setting?.productRules?.find(r => normalize(r.productName) === normalize(item.prodName));
+    
+    // 헬스케어 580 유보적 매칭 및 폴백 로직
+    if (!productRule && normalize(item.prodName).includes('헬스케어580')) {
+      productRule = setting?.productRules?.find(r => normalize(r.productName).includes('유지')) || 
+                    setting?.productRules?.find(r => normalize(r.productName).includes('1회차')) || 
+                    setting?.productRules?.[0];
+    }
+    
+    // 최종 폴백: 여전히 없는데 상품 규칙이 1개뿐이면 그거라도 사용, 아니면 첫번째 규칙 사용
+    if (!productRule && setting?.productRules) {
+      if (setting.productRules.length === 1) productRule = setting.productRules[0];
+      else if (setting.productRules.length > 0) productRule = setting.productRules[0];
+    }
+
+    const count = hqTotalCountMap.get(`${item.hq}|${item.prodName}`) || 1;
+    let unitPrice = productRule?.totalAmount || 0;
+    let salesPart = productRule?.salesAmount || 0;
+    let isSpecialFixedProduct = false;
+
+    // 더좋은통신결합240, 360 특수 수수료 (건당 5만원 고정)
+    if (normalize(item.prodName).includes('통신결합240') || normalize(item.prodName).includes('결합360')) {
+      unitPrice = 50000;
+      salesPart = 50000;
+      isSpecialFixedProduct = true;
+    } 
+    // 특수 규칙: 조민경, 조재윤
+    else if (item.hq === '조민경') {
+      unitPrice = 5000;
+      salesPart = 5000;
+    } else if (item.hq === '조재윤') {
+      unitPrice = 10000;
+      salesPart = 10000;
+    } else if (productRule) {
+      const pRule = productRule as ProductRule;
+      if (pRule.tier3Count > 0 && count >= pRule.tier3Count) unitPrice = pRule.tier3Price;
+      else if (pRule.tier2Count > 0 && count >= pRule.tier2Count) unitPrice = pRule.tier2Price;
+      else if (pRule.tier1Count > 0 && count >= pRule.tier1Count) unitPrice = pRule.tier1Price;
+
+      // [FIXED SALES FEE LOGIC - USER REQUESTED]
+      const nProd = normalize(item.prodName);
+      if (nProd.includes('하이브리드698') || nProd.includes('라이즈498')) {
+        salesPart = 300000;
+      } else if (nProd.includes('통신결합540')) {
+        salesPart = 360000;
+      } else if (nProd.includes('통신결합360')) {
+        salesPart = 240000;
+      } else {
+        const ratio = pRule.totalAmount > 0 ? (pRule.salesAmount / pRule.totalAmount) : 1;
+        salesPart = unitPrice * ratio;
+      }
+    }
+
+    let totalCommission = unitPrice;
+    let salesComm = salesPart;
+
+    // 조재윤 최소 보장 로직 (개별 항목에 가중치 부여)
+    if (item.hq === '조재윤' && !isSpecialFixedProduct) {
+      // 조재윤은 hqTotalCountMap에서 해당 본부의 전체 건수를 합산해야 정확함
+      let jaeyunTotalCount = 0;
+      hqTotalCountMap.forEach((cnt, key) => {
+        if (key.startsWith('조재윤|')) jaeyunTotalCount += cnt;
+      });
+      
+      const jaeyunCalcTotal = jaeyunTotalCount * 10000;
+      if (jaeyunCalcTotal < 2000000 && jaeyunTotalCount > 0) {
+        const factor = 2000000 / jaeyunCalcTotal;
+        totalCommission = 10000 * factor;
+        salesComm = totalCommission; // 조재윤은 전체가 판매수수료 개념
+      }
+    }
+
+    const promoFee = Math.max(0, totalCommission - salesComm);
+    
+    // 지급일자 산출 (조재윤, 조민경용)
+    let displayPayDate = item.payDate;
+    if ((item.hq === '조민경' || item.hq === '조재윤') && item.deliveryStatus.includes('완료') && item.deliveryDate) {
+      const delivDate = item.deliveryDate.replace(/\./g, '-');
+      const [y, m] = delivDate.split('-').map(Number);
+      const nextM = m === 12 ? 1 : m + 1;
+      const nextY = m === 12 ? y + 1 : y;
+      displayPayDate = `${nextY}.${String(nextM).padStart(2, '0')}.25`;
+    }
+
+    return { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting };
+  };
+
+  // 엑셀 수수료 정산서 출력 기능
+  const exportCommissionToExcel = (targetMonth: string) => {
+    try {
+      // 1. 해당 월 데이터 필터링 
+      const [year, month] = targetMonth.split('-').map(Number);
+      const prevDate = new Date(year, month - 2, 1);
+      const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+
+      const filteredForSettlement = data.filter(item => {
+        const payMonth = item.payDate?.substring(0, 7);
+        const isStandardTarget = payMonth === targetMonth;
+        const isSpecialHq = (item.hq === '조민경' || item.hq === '조재윤');
+        const normalizedDeliveryDate = item.deliveryDate?.replace(/\./g, '-');
+        const isPrevDelivered = normalizedDeliveryDate?.startsWith(prevMonth) && item.deliveryStatus?.includes('완료');
+        return isStandardTarget || (isSpecialHq && isPrevDelivered);
+      });
+
+      if (filteredForSettlement.length === 0) {
+        alert(`${targetMonth} 데이터가 없습니다.`);
+        return;
+      }
+
+      const stats = new Map<string, number>(); 
+      filteredForSettlement.forEach(item => {
+        const key = `${item.hq}|${item.prodName}`;
+        stats.set(key, (stats.get(key) || 0) + 1);
+      });
+
+      const excelData = filteredForSettlement.map((item, idx) => {
+        const { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting } = calculateCommissionDetails(item, stats);
+        
+        const ov = setting?.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' };
+        const actualOv = setting?.enableOverriding ? ov : { salesperson: 100, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' };
+        
+        let salespersonShare, teamLeaderShare, branchManagerShare, hqManagerShare;
+        if (actualOv.mode === 'fixed') {
+          salespersonShare = actualOv.salesperson;
+          teamLeaderShare = actualOv.teamLeader;
+          branchManagerShare = actualOv.branchManager;
+          hqManagerShare = actualOv.hqManager;
+        } else {
+          salespersonShare = totalCommission * (actualOv.salesperson / 100);
+          teamLeaderShare = totalCommission * (actualOv.teamLeader / 100);
+          branchManagerShare = totalCommission * (actualOv.branchManager / 100);
+          hqManagerShare = totalCommission * (actualOv.hqManager / 100);
+        }
+
+        return {
+          '순번': idx + 1,
+          '본부명': item.hq,
+          '고객명': item.memName,
+          '상품명': item.prodName,
+          '계약일': item.contractDate,
+          '배송현황': item.deliveryStatus,
+          '수수료지급일': displayPayDate,
+          '당월 실적(건)': stats.get(`${item.hq}|${item.prodName}`) || 1,
+          '적용단가': Math.floor(unitPrice),
+          '전체수수료': Math.floor(totalCommission),
+          '판매수수료': Math.floor(salesComm),
+          '판매촉진비': Math.floor(promoFee),
+          '영업사원분': Math.floor(salespersonShare),
+          '팀장분': Math.floor(teamLeaderShare),
+          '지점장분': Math.floor(branchManagerShare),
+          '본부장분': Math.floor(hqManagerShare),
+          '지급방식': setting?.paymentMethod || '-',
+          '은행': setting?.bankName || '-',
+          '계좌번호': setting?.accountNumber || '-',
+          '예금주': setting?.accountHolder || '-'
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "수수료정산");
+      XLSX.writeFile(wb, `${targetMonth}_수수료정산서.xlsx`);
+      setNotification({ message: `${targetMonth} 정산서 다운로드 완료`, type: 'success' });
+    } catch (error) {
+      console.error('Export Error:', error);
+      alert('정산서 생성 중 오류가 발생했습니다.');
+    }
+  };
+
+  const filteredData = React.useMemo(() => {
+    const result = data
+      .filter(item => {
+        const matchesSearch = 
+          item.memName.includes(searchTerm) || 
+          item.contractDate.includes(searchTerm) || 
+          item.prodName.includes(searchTerm);
+          
+        const matchesProduct = productFilter === '전체' || item.prodName === productFilter;
+        const matchesHq = hqFilter === '전체' || item.hq === hqFilter;
+        const matchesBranch = branchFilter === '전체' || item.branch === branchFilter;
+        const matchesDelivery = deliveryFilter === '전체' || item.deliveryStatus === deliveryFilter;
+        
+        const isPaid = item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료'));
+        const matchesPaymentStatus = 
+          paymentStatusFilter === '전체' || 
+          (paymentStatusFilter === '지급완료' && isPaid) || 
+          (paymentStatusFilter === '지급예정' && !isPaid);
+        
+        // 지급일자 필터
+        let matchesPayDate = !payDateFilter;
+        if (payDateFilter) {
+          const targetDateClean = payDateFilter.replace(/[-./]/g, '');
+          const itemPayDateClean = (item.payDate || '').replace(/[-./]/g, '');
+          let normalizedPayFilter = payDateFilter.replace(/[-./]/g, '');
+          
+          if (/^\d{6}$/.test(normalizedPayFilter)) {
+            const fullYearFilter = `20${normalizedPayFilter}`;
+            matchesPayDate = itemPayDateClean === fullYearFilter || itemPayDateClean.includes(fullYearFilter);
+          } else {
+            matchesPayDate = itemPayDateClean.includes(normalizedPayFilter) || item.payDate.includes(payDateFilter);
+          }
+        }
+
+        return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesDelivery && matchesPayDate && matchesPaymentStatus;
+      })
+      .sort((a, b) => {
+        const parseDate = (d: string) => {
+          const normalized = d.replace(/[./]/g, '-');
+          const ts = new Date(normalized).getTime();
+          return isNaN(ts) ? 0 : ts;
+        };
+        const dateA = parseDate(a.contractDate);
+        const dateB = parseDate(b.contractDate);
+        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+      });
+    
+    // 필터 변경 시 페이지 리셋
+    return result;
+  }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, payDateFilter, paymentStatusFilter, sortOrder]);
+
+  // 필터 변경 시 페이지 리셋
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, payDateFilter, paymentStatusFilter]);
+
+  const settlementStats = React.useMemo(() => {
+    const summary: Record<string, { count: number, amount: number }> = {};
+    const hqSummary: Record<string, { count: number, amount: number }> = {};
+    const dailyMap: Record<string, { totalAmount: number, totalCount: number, products: Record<string, { count: number, amount: number }> }> = {};
+    const hqGroups: Record<string, ERPDataItem[]> = {};
+    let totalCount = 0;
+    let totalAmount = 0;
+    let totalPendingAmount = 0;
+    let totalPendingCount = 0;
+
+    filteredData.forEach(item => {
+      const date = item.payDate || '미지정';
+      const hqSetting = hqSettings.find(h => h.hqName === item.hq);
+      const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
+      let rule = hqSetting?.productRules?.find(r => normalize(r.productName) === normalize(item.prodName));
+      
+      if (!rule && normalize(item.prodName).includes('헬스케어580')) {
+        rule = hqSetting?.productRules?.find(r => 
+          normalize(r.productName).includes('유지')
+        ) || hqSetting?.productRules?.find(r => 
+          normalize(r.productName).includes('1회차')
+        ) || hqSetting?.productRules?.[0];
+      } else if (!rule && hqSetting?.productRules) {
+        if (hqSetting.productRules.length === 1) rule = hqSetting.productRules[0];
+        else if (hqSetting.productRules.length > 0) rule = hqSetting.productRules[0];
+      }
+
+      let amount = rule?.totalAmount || 0;
+      
+      const normalizedProd = normalize(item.prodName);
+      const isExcluded = normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360') || normalizedProd.includes('에이모바일');
+
+      if (normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360')) {
+        amount = 50000;
+      }
+
+      if (isExcluded) return;
+
+      const isPaid = item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료'));
+
+      if (!isPaid) {
+        totalPendingAmount += amount;
+        totalPendingCount += 1;
+      }
+
+      if (!summary[item.prodName]) summary[item.prodName] = { count: 0, amount: 0 };
+      summary[item.prodName].count += 1;
+      summary[item.prodName].amount += amount;
+
+      if (!hqSummary[item.hq]) hqSummary[item.hq] = { count: 0, amount: 0 };
+      hqSummary[item.hq].count += 1;
+      hqSummary[item.hq].amount += amount;
+
+      totalCount += 1;
+      totalAmount += amount;
+
+      if (!dailyMap[date]) {
+        dailyMap[date] = { totalAmount: 0, totalCount: 0, products: {} };
+      }
+      dailyMap[date].totalAmount += amount;
+      dailyMap[date].totalCount += 1;
+      if (!dailyMap[date].products[item.prodName]) dailyMap[date].products[item.prodName] = { count: 0, amount: 0 };
+      dailyMap[date].products[item.prodName].count += 1;
+      dailyMap[date].products[item.prodName].amount += amount;
+
+      const groupKey = item.hq || '미지정본부';
+      if (!hqGroups[groupKey]) hqGroups[groupKey] = [];
+      hqGroups[groupKey].push(item);
+    });
+
+    let globalIncentiveCount = 0;
+    const isSettlementDate = payDateFilter.includes('.25');
+    
+    if (isSettlementDate && payDateFilter.length >= 7) {
+      const filterClean = payDateFilter.replace(/[-./]/g, '');
+      if (filterClean.length >= 6) {
+        const year = parseInt(filterClean.substring(0, 4));
+        const month = parseInt(filterClean.substring(4, 6));
+        const prevDate = new Date(year, month - 2, 1);
+        const prevYearStr = String(prevDate.getFullYear());
+        const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
+        const targetPrefix1 = `${prevYearStr}-${prevMonthStr}`;
+        const targetPrefix2 = `${prevYearStr}.${prevMonthStr}`;
+
+        data.forEach(item => {
+          const delivDate = item.deliveryDate || '';
+          const isPrevDelivered = (delivDate.startsWith(targetPrefix1) || delivDate.startsWith(targetPrefix2)) && item.deliveryStatus?.includes('완료');
+          if (isPrevDelivered) {
+            const nProd = item.prodName.replace(/[\s()]/g, '').toLowerCase();
+            if (nProd.includes('하이브리드698') || nProd.includes('라이즈498') || nProd.includes('통신결합540') || nProd.includes('통신결합360')) {
+              globalIncentiveCount += 1;
+            }
+          }
+        });
+      }
+    }
+
+    const jaeyunIncentive = (isSettlementDate && globalIncentiveCount > 0) ? globalIncentiveCount * 10000 : 0;
+    const minkyungIncentive = (isSettlementDate && globalIncentiveCount > 0) ? globalIncentiveCount * 5000 : 0;
+
+    if (jaeyunIncentive > 0) {
+      if (!hqSummary['조재윤']) hqSummary['조재윤'] = { count: 0, amount: 0 };
+      hqSummary['조재윤'].amount += jaeyunIncentive;
+      totalAmount += jaeyunIncentive;
+      totalPendingAmount += jaeyunIncentive;
+    }
+    if (minkyungIncentive > 0) {
+      if (!hqSummary['조민경']) hqSummary['조민경'] = { count: 0, amount: 0 };
+      hqSummary['조민경'].amount += minkyungIncentive;
+      totalAmount += minkyungIncentive;
+      totalPendingAmount += minkyungIncentive;
+    }
+
+    let jaeyunGap = 0;
+    if (isSettlementDate) {
+      if (!hqSummary['조재윤']) hqSummary['조재윤'] = { count: 0, amount: 0 };
+      const jaeyunTotal = hqSummary['조재윤'].amount;
+      if (jaeyunTotal < 2000000) {
+        jaeyunGap = 2000000 - jaeyunTotal;
+        hqSummary['조재윤'].amount = 2000000;
+        totalAmount += jaeyunGap;
+        totalPendingAmount += jaeyunGap;
+      }
+    }
+
+    return { 
+      totalCount, 
+      totalAmount, 
+      totalPendingAmount,
+      totalPendingCount,
+      details: Object.entries(summary).sort((a, b) => b[1].amount - a[1].amount),
+      hqDetails: Object.entries(hqSummary).sort((a, b) => b[1].amount - a[1].amount),
+      daily: Object.entries(dailyMap).sort((a, b) => b[0].localeCompare(a[0])) as [string, { totalAmount: number, totalCount: number, products: Record<string, { count: number, amount: number }> }][],
+      hqGroups,
+      globalIncentiveCount,
+      jaeyunIncentive,
+      minkyungIncentive,
+      jaeyunGap
+    };
+  }, [filteredData, hqSettings]);
+
+  const monthlyStats = React.useMemo(() => {
+    const monthlyMap: Record<string, { 
+      totalAmount: number, 
+      totalCount: number, 
+      products: Record<string, { count: number, amount: number }>,
+      hqs: Record<string, { count: number, amount: number }>
+    }> = {};
+
+    data.forEach(item => {
+      const month = item.payDate?.substring(0, 7) || '미지정';
+      const hqSetting = hqSettings.find(h => h.hqName === item.hq);
+      const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
+      let rule = hqSetting?.productRules?.find(r => normalize(r.productName) === normalize(item.prodName));
+      
+      if (!rule && normalize(item.prodName).includes('헬스케어580')) {
+        rule = hqSetting?.productRules?.find(r => 
+          normalize(r.productName).includes('유지')
+        ) || hqSetting?.productRules?.find(r => 
+          normalize(r.productName).includes('1회차')
+        ) || hqSetting?.productRules?.[0];
+      } else if (!rule && hqSetting?.productRules) {
+        if (hqSetting.productRules.length === 1) rule = hqSetting.productRules[0];
+        else if (hqSetting.productRules.length > 0) rule = hqSetting.productRules[0];
+      }
+      
+      let amount = rule?.totalAmount || 0;
+      const normalizedProd = normalize(item.prodName);
+      const isExcluded = normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360') || normalizedProd.includes('에이모바일');
+
+      if (normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360')) {
+        amount = 50000;
+      } else if (item.hq === '조민경') amount = 5000;
+      else if (item.hq === '조재윤') amount = 10000;
+
+      if (isExcluded) return;
+
+      if (!monthlyMap[month]) {
+        monthlyMap[month] = { totalAmount: 0, totalCount: 0, products: {}, hqs: {} };
+      }
+
+      const stat = monthlyMap[month];
+      stat.totalAmount += amount;
+      stat.totalCount += 1;
+
+      if (!stat.products[item.prodName]) stat.products[item.prodName] = { count: 0, amount: 0 };
+      stat.products[item.prodName].count += 1;
+      stat.products[item.prodName].amount += amount;
+
+      if (!stat.hqs[item.hq]) stat.hqs[item.hq] = { count: 0, amount: 0 };
+      stat.hqs[item.hq].count += 1;
+      stat.hqs[item.hq].amount += amount;
+    });
+
+    Object.keys(monthlyMap).forEach(month => {
+      const stat = monthlyMap[month];
+      if (stat.hqs['조재윤']) {
+        const jaeyunTotal = stat.hqs['조재윤'].amount;
+        if (jaeyunTotal < 2000000 && stat.hqs['조재윤'].count > 0) {
+          const diff = 2000000 - jaeyunTotal;
+          stat.hqs['조재윤'].amount = 2000000;
+          stat.totalAmount += diff;
+        }
+      }
+    });
+
+    return Object.entries(monthlyMap).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [data, hqSettings]);
+
+  const exportIntegratedSettlement = () => {
+    try {
+      if (filteredData.length === 0) return alert('정산 대상 데이터가 없습니다.');
+      
+      const wb = XLSX.utils.book_new();
+      const rows: any[][] = [];
+      const payDateSample = filteredData[0].payDate || '';
+
+      rows[0] = ['', '', '[ 본사 통합 정산 종합 보고서 ]'];
+      rows[1] = ['', '', `보고일자: ${new Date().toISOString().split('T')[0]} | 지급기준: ${payDateSample.substring(0, 7) || '미상'}`];
+      rows[2] = [];
+
+      rows[3] = ['1. 전체 정산 개요'];
+      rows[4] = ['지급 기준일', '총 집계 본부수', '총 계약 구좌수', '총 지급 합계액'];
+      rows[5] = [
+        payDateSample || '다중지정', 
+        Object.keys(settlementStats.hqGroups).length, 
+        settlementStats.totalCount, 
+        { v: settlementStats.totalAmount, t: 'n', z: '#,##0' }
+      ];
+      rows[6] = [];
+
+      rows.push(['2. 본부별 정산 요약']);
+      rows.push(['본부명', '계약 건수', '판매수수료', '판매촉진비', '지급총액', '지급계좌']);
+      
+      const statsMap = new Map<string, number>();
+      filteredData.forEach(item => {
+        const key = `${item.hq}|${item.prodName}`;
+        statsMap.set(key, (statsMap.get(key) || 0) + 1);
+      });
+
+      (Object.entries(settlementStats.hqGroups) as [string, ERPDataItem[]][]).forEach(([hqName, items]) => {
+        let hqSales = 0;
+        let hqTotal = 0;
+
+        items.forEach(curr => {
+          const { totalCommission, salesComm } = calculateCommissionDetails(curr, statsMap);
+          hqTotal += totalCommission;
+          hqSales += salesComm;
+        });
+
+        const setting = hqSettings.find(h => h.hqName === hqName);
+        rows.push([
+          hqName, 
+          items.length, 
+          { v: hqSales, t: 'n', z: '#,##0' }, 
+          { v: Math.max(0, hqTotal - hqSales), t: 'n', z: '#,##0' }, 
+          { v: hqTotal, t: 'n', z: '#,##0' }, 
+          `${setting?.bankName || '-'} ${setting?.accountNumber || '-'}`
+        ]);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, "통합요약보고서");
+      XLSX.writeFile(wb, `${payDateSample.substring(0, 7)}_통합정산보고서.xlsx`);
+      setNotification({ message: '통합 정산 보고서 생성 완료', type: 'success' });
+    } catch (err) {
+      console.error(err);
+      alert('보고서 생성 중 오류가 발생했습니다.');
+    }
+  };
+
+  const exportProfessionalSettlement = (hqName: string) => {
+    try {
+      const items = settlementStats.hqGroups[hqName];
+      if (!items || items.length === 0) return;
+
+      const setting = hqSettings.find(h => h.hqName === hqName);
+      const wb = XLSX.utils.book_new();
+      
+      const stats = new Map<string, number>(); 
+      filteredData.forEach(item => {
+        const key = `${item.hq}|${item.prodName}`;
+        stats.set(key, (stats.get(key) || 0) + 1);
+      });
+
+      let totalSum = 0;
+      let salesSum = 0;
+      
+      items.forEach(item => {
+        const { totalCommission, salesComm } = calculateCommissionDetails(item, stats);
+        totalSum += totalCommission;
+        salesSum += salesComm;
+      });
+      
+      const promoSum = Math.max(0, totalSum - salesSum);
+      const { displayPayDate: payDateDisplay } = calculateCommissionDetails(items[0], stats);
+
+      const rows: any[][] = [];
+      
+      const targetMonth = payDateDisplay.substring(0, 7);
+      const [y, m] = targetMonth.split('.').length > 1 ? targetMonth.split('.') : targetMonth.split('-');
+      
+      rows[0] = [`${y}년 ${parseInt(m)}월 수수료 정산 내역서`];
+      rows[1] = [];
+
+      rows[2] = ['지급일자', '지사명', '은행', '계좌번호', '총지급 금액'];
+      rows[3] = [
+        payDateDisplay, 
+        hqName, 
+        setting?.bankName || '-', 
+        setting?.accountNumber || '-', 
+        { v: totalSum, t: 'n', z: '#,##0' }
+      ];
+      rows[4] = [];
+
+      rows[5] = ['세금계산서 발행', '공급가액', '부가세', '합계금액'];
+      rows[6] = [
+        '판매 수수료',
+        { v: Math.floor(salesSum / 1.1), t: 'n', z: '#,##0' },
+        { v: Math.floor(salesSum - (salesSum / 1.1)), t: 'n', z: '#,##0' },
+        { v: salesSum, t: 'n', z: '#,##0' }
+      ];
+      rows[7] = [
+        '판매 촉진비',
+        { v: Math.floor(promoSum / 1.1), t: 'n', z: '#,##0' },
+        { v: Math.floor(promoSum - (promoSum / 1.1)), t: 'n', z: '#,##0' },
+        { v: promoSum, t: 'n', z: '#,##0' }
+      ];
+      rows[8] = [];
+
+      rows[9] = ['렌탈사', '상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계'];
+      const productSummary: Record<string, { count: number, sales: number, promo: number, total: number }> = {};
+      items.forEach(item => {
+        const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, stats);
+        if (!productSummary[item.prodName]) productSummary[item.prodName] = { count: 0, sales: 0, promo: 0, total: 0 };
+        productSummary[item.prodName].count += 1;
+        productSummary[item.prodName].sales += salesComm;
+        productSummary[item.prodName].promo += promoFee;
+        productSummary[item.prodName].total += totalCommission;
+      });
+
+      Object.entries(productSummary).forEach(([pName, prStat]) => {
+        rows.push([
+          '-', 
+          pName, 
+          prStat.count, 
+          { v: Math.floor(prStat.sales), t: 'n', z: '#,##0' }, 
+          { v: Math.floor(prStat.promo), t: 'n', z: '#,##0' }, 
+          { v: Math.floor(prStat.total), t: 'n', z: '#,##0' }
+        ]);
+      });
+      rows.push([
+        '계', 
+        '', 
+        items.length, 
+        { v: Math.floor(salesSum), t: 'n', z: '#,##0' }, 
+        { v: Math.floor(promoSum), t: 'n', z: '#,##0' }, 
+        { v: Math.floor(totalSum), t: 'n', z: '#,##0' }
+      ]);
+      rows.push([]);
+
+      rows.push(['[상세 내역]']);
+      rows.push(['본부명', '지사명', '계약일자', '사원명(AP)', '고객명', '렌탈계약번호', '배송일자', '정산상품명', '정산기준일', '공급수수료(지급총계)']);
+      
+      items.forEach(item => {
+        const { totalCommission, displayPayDate } = calculateCommissionDetails(item, stats);
+        rows.push([
+          item.hq, 
+          item.branch, 
+          item.contractDate,
+          item.empName, 
+          item.memName, 
+          item.rentalNo, 
+          item.deliveryDate,
+          item.prodName, 
+          displayPayDate,
+          { v: Math.floor(totalCommission), t: 'n', z: '#,##0' }
+        ]);
+      });
+      
+      rows.push([
+        '합계', 
+        '', 
+        '', 
+        '', 
+        '', 
+        `${items.length}건`, 
+        '', 
+        '', 
+        '', 
+        { v: Math.floor(totalSum), t: 'n', z: '#,##0' }
+      ]);
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      
+      const headerStyle = {
+        fill: { fgColor: { rgb: "2F5597" } },
+        font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 },
+        alignment: { vertical: "center", horizontal: "center" },
+        border: {
+          top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }
+        }
+      };
+
+      const cellStyle = {
+        font: { sz: 9 },
+        alignment: { vertical: "center", horizontal: "center" },
+        border: {
+          top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }
+        }
+      };
+
+      const numberStyle = {
+        ...cellStyle,
+        alignment: { vertical: "center", horizontal: "right" },
+        numFmt: "#,##0"
+      };
+
+      const totalStyle = {
+        fill: { fgColor: { rgb: "FFF2CC" } },
+        font: { bold: true, sz: 10 },
+        alignment: { vertical: "center", horizontal: "center" },
+        border: {
+          top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }
+        }
+      };
+
+      const titleStyle = {
+        font: { bold: true, sz: 16 },
+        alignment: { vertical: "center", horizontal: "center" }
+      };
+
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:J100');
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws[addr]) continue;
+          ws[addr].s = cellStyle;
+          if (R === 0) ws[addr].s = titleStyle;
+          if (R === 2 || R === 5 || R === 9 || R === 14) ws[addr].s = headerStyle;
+          if (ws[addr].t === 'n') ws[addr].s = numberStyle;
+          const cellValue = String(ws[addr].v || '');
+          if (cellValue === '계' || cellValue === '합계' || (R === range.e.r && C === 9)) {
+            ws[addr].s = totalStyle;
+          }
+        }
+      }
+
+      ws['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 15 }];
+      ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
+
+      XLSX.utils.book_append_sheet(wb, ws, "정산내역");
+      XLSX.writeFile(wb, `${hqName}_수수료정산서_${payDateDisplay.replace(/[\./]/g, '')}.xlsx`);
+      setNotification({ message: `${hqName} 정산보고서 생성 완료`, type: 'success' });
+    } catch (err) {
+      console.error(err);
+      alert('보고서 생성 중 오류가 발생했습니다.');
+    }
+  };
+
+  const exportProfessionalSettlementPdf = async (hqName: string) => {
+    try {
+      const items = settlementStats.hqGroups[hqName];
+      if (!items || items.length === 0) return;
+
+      const setting = hqSettings.find(h => h.hqName === hqName);
+      const stats = new Map<string, number>(); 
+      filteredData.forEach(item => {
+        const key = `${item.hq}|${item.prodName}`;
+        stats.set(key, (stats.get(key) || 0) + 1);
+      });
+
+      let totalSum = 0;
+      let salesSum = 0;
+      items.forEach(item => {
+        const { totalCommission, salesComm } = calculateCommissionDetails(item, stats);
+        totalSum += totalCommission;
+        salesSum += salesComm;
+      });
+      const promoSum = Math.max(0, totalSum - salesSum);
+      const { displayPayDate: payDateDisplay } = calculateCommissionDetails(items[0], stats);
+      
+      const targetMonth = payDateDisplay.substring(0, 7);
+      const [y, m] = targetMonth.split('.').length > 1 ? targetMonth.split('.') : targetMonth.split('-');
+
+      const productSummary: Record<string, { count: number, sales: number, promo: number, total: number }> = {};
+      items.forEach(item => {
+        const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, stats);
+        if (!productSummary[item.prodName]) productSummary[item.prodName] = { count: 0, sales: 0, promo: 0, total: 0 };
+        productSummary[item.prodName].count += 1;
+        productSummary[item.prodName].sales += salesComm;
+        productSummary[item.prodName].promo += promoFee;
+        productSummary[item.prodName].total += totalCommission;
+      });
+
+      const container = document.createElement('div');
+      const page1 = `
+        <div style="padding: 40px; min-height: 1000px; position: relative; margin: 10px; border: 1px solid #ccc;">
+          <h1 style="text-align: center; font-size: 26px; font-weight: 800; margin-bottom: 30px;">${y}년 ${parseInt(m)}월 수수료 정산 내역서</h1>
+          
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 25px; border: 1px solid #2F5597;">
+            <tr style="background: #2F5597; color: #fff; text-align: center; font-weight: bold; font-size: 12px;">
+              <td style="border: 1px solid #2F5597; padding: 8px;">지급일자</td>
+              <td style="border: 1px solid #2F5597; padding: 8px;">지사명</td>
+              <td style="border: 1px solid #2F5597; padding: 8px;">은행</td>
+              <td style="border: 1px solid #2F5597; padding: 8px;">계좌번호</td>
+              <td style="border: 1px solid #2F5597; padding: 8px;">총지급 금액</td>
+            </tr>
+            <tr style="text-align: center; font-size: 14px; font-weight: bold;">
+              <td style="border: 1px solid #ccc; padding: 12px;">${payDateDisplay}</td>
+              <td style="border: 1px solid #ccc; padding: 12px;">${hqName}</td>
+              <td style="border: 1px solid #ccc; padding: 12px;">${setting?.bankName || '-'}</td>
+              <td style="border: 1px solid #ccc; padding: 12px;">${setting?.accountNumber || '-'}</td>
+              <td style="border: 1px solid #ccc; padding: 12px; color: #2F5597;">${totalSum.toLocaleString()}원</td>
+            </tr>
+          </table>
+
+          <div style="margin-bottom: 10px; font-weight: bold; font-size: 14px; color: #334155;">■ 세금계산서 발행 요약 (VAT 포함)</div>
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px; border: 1px solid #ccc;">
+            <tr style="background: #2F5597; color: #fff; text-align: center; font-size: 12px;">
+              <td style="border: 1px solid #2F5597; padding: 6px;">세금계산서 발행</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">공급가액</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">합계금액</td>
+            </tr>
+            <tr style="text-align: right; font-size: 12px;">
+              <td style="border: 1px solid #ccc; padding: 8px; text-align: center; background: #f8fafc;">판매 수수료</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${Math.floor(salesSum / 1.1).toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${Math.floor(salesSum - (salesSum / 1.1)).toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${salesSum.toLocaleString()}</td>
+            </tr>
+            <tr style="text-align: right; font-size: 12px;">
+              <td style="border: 1px solid #ccc; padding: 8px; text-align: center; background: #f8fafc;">판매 촉진비</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${Math.floor(promoSum / 1.1).toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${Math.floor(promoSum - (promoSum / 1.1)).toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${promoSum.toLocaleString()}</td>
+            </tr>
+          </table>
+
+          <div style="margin-bottom: 10px; font-weight: bold; font-size: 14px; color: #334155;">■ 상품별 정산 집계</div>
+          <table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc; margin-bottom: 40px;">
+            <tr style="background: #2F5597; color: #fff; text-align: center; font-size: 12px;">
+              <td style="border: 1px solid #2F5597; padding: 6px;">렌탈사</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">상품명</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">계약 건</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">판매수수료</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">판매촉진비</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">수수료계</td>
+            </tr>
+            ${Object.entries(productSummary).map(([pName, stat]) => `
+              <tr style="text-align: right; font-size: 11px;">
+                <td style="border: 1px solid #ccc; padding: 6px; text-align: center;">-</td>
+                <td style="border: 1px solid #ccc; padding: 6px; text-align: left;">${pName}</td>
+                <td style="border: 1px solid #ccc; padding: 6px; text-align: center;">${stat.count}</td>
+                <td style="border: 1px solid #ccc; padding: 6px;">${stat.sales.toLocaleString()}</td>
+                <td style="border: 1px solid #ccc; padding: 6px;">${stat.promo.toLocaleString()}</td>
+                <td style="border: 1px solid #ccc; padding: 6px; font-weight: bold;">${stat.total.toLocaleString()}</td>
+              </tr>
+            `).join('')}
+            <tr style="background: #FFF2CC; text-align: right; font-weight: bold; font-size: 12px;">
+              <td colspan="2" style="border: 1px solid #ccc; padding: 8px; text-align: center;">계</td>
+              <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${items.length}</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${salesSum.toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${promoSum.toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${totalSum.toLocaleString()}</td>
+            </tr>
+          </table>
+
+          <div style="margin-top: 50px; text-align: center; color: #94a3b8; font-size: 11px;">
+            ※ 다음 페이지에 상세 지급 명세가 이어집니다.
+          </div>
+        </div>
+      `;
+
+      const page2 = `
+        <div style="padding: 40px; min-height: 1000px; page-break-before: always; margin: 10px;">
+          <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 20px; border-left: 5px solid #2F5597; padding-left: 15px;">상세 지급 명세서 <span style="font-size: 12px; color: #666; font-weight: normal;">| ${hqName}</span></h2>
+          
+          <table style="width: 100%; border-collapse: collapse; font-size: 9px; border: 1px solid #ccc;">
+            <thead>
+              <tr style="background: #2F5597; color: #fff; text-align: center;">
+                <th style="border: 1px solid #ccc; padding: 6px;">순번</th>
+                <th style="border: 1px solid #ccc; padding: 6px;">본부명</th>
+                <th style="border: 1px solid #ccc; padding: 6px;">지사명</th>
+                <th style="border: 1px solid #ccc; padding: 6px;">계약일자</th>
+                <th style="border: 1px solid #ccc; padding: 6px;">사원명</th>
+                <th style="border: 1px solid #ccc; padding: 6px;">고객명</th>
+                <th style="border: 1px solid #ccc; padding: 6px;">렌탈계약번호</th>
+                <th style="border: 1px solid #ccc; padding: 6px;">배송일자</th>
+                <th style="border: 1px solid #ccc; padding: 6px;">정산상품명</th>
+                <th style="border: 1px solid #ccc; padding: 6px;">정산기준일</th>
+                <th style="border: 1px solid #ccc; padding: 6px;">총 수수료</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${items.map((item, idx) => {
+                const { totalCommission, displayPayDate } = calculateCommissionDetails(item, stats);
+                return `
+                  <tr style="text-align: center;">
+                    <td style="border: 1px solid #ccc; padding: 5px;">${idx + 1}</td>
+                    <td style="border: 1px solid #ccc; padding: 5px;">${item.hq}</td>
+                    <td style="border: 1px solid #ccc; padding: 5px;">${item.branch}</td>
+                    <td style="border: 1px solid #ccc; padding: 5px;">${item.contractDate}</td>
+                    <td style="border: 1px solid #ccc; padding: 5px;">${item.empName}</td>
+                    <td style="border: 1px solid #ccc; padding: 5px;">${item.memName}</td>
+                    <td style="border: 1px solid #ccc; padding: 5px;">${item.rentalNo}</td>
+                    <td style="border: 1px solid #ccc; padding: 5px;">${item.deliveryDate}</td>
+                    <td style="border: 1px solid #ccc; padding: 5px; text-align: left;">${item.prodName}</td>
+                    <td style="border: 1px solid #ccc; padding: 5px;">${displayPayDate}</td>
+                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right; font-weight: bold;">${Math.floor(totalCommission).toLocaleString()}</td>
+                  </tr>
+                `;
+              }).join('')}
+              <tr style="background: #FFF2CC; font-weight: bold; text-align: center;">
+                <td colspan="10" style="border: 1px solid #ccc; padding: 8px;">합 계</td>
+                <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${totalSum.toLocaleString()}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="margin-top: 30px; font-size: 11px; color: #666; text-align: right;">
+            * 본 정산서는 더좋은통신 ERP 시스템에 의해 자동 생성되었습니다.
+          </div>
+        </div>
+      `;
+
+      container.innerHTML = page1 + page2;
+      document.body.appendChild(container);
+
+      const opt = {
+        margin: 0,
+        filename: `${hqName}_정산보고서_${payDateDisplay.replace(/[\./]/g, '')}.pdf`,
+        image: { type: 'jpeg' as 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as 'portrait' }
+      };
+
+      await html2pdf().from(container).set(opt).save();
+      document.body.removeChild(container);
+
+      setNotification({ message: `${hqName} PDF 정산보고서 생성 완료`, type: 'success' });
+    } catch (err) {
+      console.error(err);
+      alert('PDF 생성 중 오류가 발생했습니다.');
+    }
+  };
+
+  const exportIntegratedSettlementPdf = async () => {
+    try {
+      if (filteredData.length === 0) return alert('정산 대상 데이터가 없습니다.');
+      
+      const statsMap = new Map<string, number>();
+      filteredData.forEach(item => {
+        const key = `${item.hq}|${item.prodName}`;
+        statsMap.set(key, (statsMap.get(key) || 0) + 1);
+      });
+
+      const hqProductStats: Record<string, Record<string, { count: number, amount: number }>> = {};
+      const hqBranchStats: Record<string, Record<string, { totalCount: number, totalAmount: number, items: Record<string, { count: number, amount: number }> }>> = {};
+      
+      filteredData.forEach(item => {
+        const { totalCommission } = calculateCommissionDetails(item, statsMap);
+        
+        if (!hqProductStats[item.hq]) hqProductStats[item.hq] = {};
+        if (!hqProductStats[item.hq][item.prodName]) hqProductStats[item.hq][item.prodName] = { count: 0, amount: 0 };
+        hqProductStats[item.hq][item.prodName].count += 1;
+        hqProductStats[item.hq][item.prodName].amount += totalCommission;
+
+        if (!hqBranchStats[item.hq]) hqBranchStats[item.hq] = {};
+        if (!hqBranchStats[item.hq][item.branch]) {
+          hqBranchStats[item.hq][item.branch] = { totalCount: 0, totalAmount: 0, items: {} };
+        }
+        const bStat = hqBranchStats[item.hq][item.branch];
+        bStat.totalCount += 1;
+        bStat.totalAmount += totalCommission;
+        if (!bStat.items[item.prodName]) bStat.items[item.prodName] = { count: 0, amount: 0 };
+        bStat.items[item.prodName].count += 1;
+        bStat.items[item.prodName].amount += totalCommission;
+      });
+
+      if ((settlementStats.jaeyunIncentive || 0) > 0 || (settlementStats.jaeyunGap || 0) > 0) {
+        if (!hqProductStats['조재윤']) hqProductStats['조재윤'] = {};
+        const totalJaeyunAmt = (settlementStats.jaeyunIncentive || 0) + (settlementStats.jaeyunGap || 0);
+        hqProductStats['조재윤']['홍보모델비용'] = { 
+          count: settlementStats.globalIncentiveCount || 0, 
+          amount: totalJaeyunAmt 
+        };
+      }
+      if ((settlementStats.minkyungIncentive || 0) > 0) {
+        if (!hqProductStats['조민경']) hqProductStats['조민경'] = {};
+        hqProductStats['조민경']['(추가) 컨설팅 비용'] = { count: settlementStats.globalIncentiveCount || 0, amount: settlementStats.minkyungIncentive };
+      }
+      if (filteredData.length === 0) {
+        alert('정산 대상 데이터가 없습니다. 먼저 지급일 등 필터를 선택해 주세요.');
+        return;
+      }
+      const payDateSample = filteredData[0].payDate || '';
+      const today = new Date().toISOString().split('T')[0];
+
+      const container = document.createElement('div');
+      container.style.backgroundColor = '#fff';
+      container.style.color = '#000';
+      container.style.fontFamily = "'Malgun Gothic', 'Dotum', sans-serif";
+
+      const html = `
+        <div style="padding: 25px; border: 1px solid #334155; margin: 5px; background: #fff;">
+          <div style="text-align: right; font-size: 10px; color: #64748b; margin-bottom: 10px;">문서번호: TBL-ERP-${today.replace(/-/g, '')}</div>
+          <h1 style="text-align: center; font-size: 24px; font-weight: 900; color: #0f172a; margin-bottom: 20px; border-bottom: 3px solid #0f172a; padding-bottom: 10px;">전사 정산 종합 보고서</h1>
+          
+          <div style="display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 20px;">
+            <div style="text-align: center;">
+              <div style="border: 1.5px solid #334155; width: 65px; height: 65px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; margin-bottom: 2px;">담당자</div>
+              <div style="font-size: 9px;">(인)</div>
+            </div>
+            <div style="text-align: center;">
+              <div style="border: 1.5px solid #334155; width: 65px; height: 65px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; margin-bottom: 2px;">대표이사</div>
+              <div style="font-size: 9px;">(인)</div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 20px;">
+            <h3 style="font-size: 15px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 10px;">1. 정산 요약</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+              <div style="text-align: center;">
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 3px;">기준월</div>
+                <div style="font-size: 16px; font-weight: 900;">${payDateSample.substring(0, 7)}</div>
+              </div>
+              <div style="text-align: center; border-left: 1.5px solid #cbd5e1; border-right: 1.5px solid #cbd5e1;">
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 3px;">총 구좌수</div>
+                <div style="font-size: 16px; font-weight: 900;">${settlementStats.totalCount.toLocaleString()}건</div>
+              </div>
+              <div style="text-align: center;">
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 3px;">총 집행액</div>
+                <div style="font-size: 16px; font-weight: 900; color: #2563eb;">${settlementStats.totalAmount.toLocaleString()}원</div>
+              </div>
+            </div>
+
+            <h3 style="font-size: 15px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 8px;">2. 본부별 실적</h3>
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #0f172a; font-size: 11px; margin-bottom: 20px;">
+              <thead>
+                <tr style="background: #0f172a; color: #fff; text-align: center; font-weight: 900;">
+                  <th style="border: 1px solid #334155; padding: 8px; width: 130px;">본사명(본부)</th>
+                  <th style="border: 1px solid #334155; padding: 8px;">상품명</th>
+                  <th style="border: 1px solid #334155; padding: 8px; width: 60px;">판매수량</th>
+                  <th style="border: 1px solid #334155; padding: 8px; width: 120px;">총 수수료계</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${Object.entries(hqProductStats).map(([hq, prods]) => {
+                  const productEntries = Object.entries(prods);
+                  let hqTotalAmt = 0;
+                  let hqTotalQty = 0;
+                  productEntries.forEach(([_, s]) => { hqTotalAmt += s.amount; hqTotalQty += s.count; });
+                  return `
+                    ${productEntries.map(([pName, pStat], pIdx) => `
+                      <tr style="text-align: center;">
+                        ${pIdx === 0 ? `<td rowspan="${productEntries.length}" style="border: 1px solid #e2e8f0; padding: 8px; font-weight: 900; background: #f8fafc;">${hq}</td>` : ''}
+                        <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: left;">${pName}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 8px;">${pStat.count}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: right; font-weight: bold;">${pStat.amount.toLocaleString()}</td>
+                      </tr>
+                    `).join('')}
+                    <tr style="background: #f1f5f9; font-weight: 900; text-align: center;">
+                      <td colspan="2" style="border: 1px solid #e2e8f0; padding: 6px;">${hq} 소계</td>
+                      <td style="border: 1px solid #e2e8f0; padding: 6px;">${hqTotalQty}</td>
+                      <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: right; color: #2563eb;">${hqTotalAmt.toLocaleString()}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+
+            <h3 style="font-size: 15px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 8px; page-break-before: always; padding-top: 20px;">3. 상세 명세</h3>
+            ${Object.entries(hqBranchStats).map(([hq, branches]) => `
+              <div style="margin-bottom: 15px;">
+                <div style="background: #2563eb; color: #fff; padding: 6px 12px; font-size: 12px; font-weight: 900; border-radius: 4px 4px 0 0; display: inline-block;">
+                  ■ ${hq} 상세
+                </div>
+                <table style="width: 100%; border-collapse: collapse; border: 1.2px solid #2563eb; font-size: 10px; table-layout: fixed;">
+                  <thead>
+                    <tr style="background: #eff6ff; text-align: center; font-weight: 900; color: #1e40af;">
+                      <th style="border: 1px solid #bfdbfe; padding: 6px; width: 110px;">지사명</th>
+                      <th style="border: 1px solid #bfdbfe; padding: 6px;">상품명</th>
+                      <th style="border: 1px solid #bfdbfe; padding: 6px; width: 45px;">수량</th>
+                      <th style="border: 1px solid #bfdbfe; padding: 6px; width: 110px;">수수료계</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${Object.entries(branches).map(([branch, bStat]) => {
+                      const productEntries = Object.entries(bStat.items);
+                      return `
+                        ${productEntries.map(([pName, pStat], pIdx) => `
+                          <tr style="text-align: center;">
+                            ${pIdx === 0 ? `<td rowspan="${productEntries.length}" style="border: 1px solid #bfdbfe; padding: 6px; font-weight: 800; background: #f8fafc;">${branch}</td>` : ''}
+                            <td style="border: 1px solid #bfdbfe; padding: 6px; text-align: left; word-break: keep-all;">${pName}</td>
+                            <td style="border: 1px solid #bfdbfe; padding: 6px;">${pStat.count}</td>
+                            <td style="border: 1px solid #bfdbfe; padding: 6px; text-align: right;">${pStat.amount.toLocaleString()}</td>
+                          </tr>
+                        `).join('')}
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            `).join('')}
+          </div>
+
+          <div style="margin-top: 20px; text-align: center; font-size: 15px; font-weight: bold; color: #0f172a; border-top: 1.5px solid #eee; padding-top: 15px;">더좋은라이프 주식회사</div>
+        </div>
+      `;
+      container.innerHTML = html;
+      document.body.appendChild(container);
+
+      const opt = {
+        margin: 0,
+        filename: `전사_통합정산보고서_${today.replace(/-/g, '')}.pdf`,
+        image: { type: 'jpeg' as 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as 'portrait' }
+      };
+
+      await html2pdf().from(container).set(opt).save();
+      document.body.removeChild(container);
+
+      setNotification({ message: '전사 통합 정산 보고서(PDF) 생성 완료', type: 'success' });
+    } catch (err) {
+      console.error(err);
+      alert('PDF 보고서 생성 중 오류가 발생했습니다.');
+    }
+  };
+
+  const exportHealthcareExcel = (targetValue: string | number, type: 'date' | 'month' = 'date', targetYear?: number) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      const productCodeMap: Record<string, string> = {
+        '더좋은하이브리드698': 'A070',
+        '더좋은라이즈498': 'A072',
+        '더좋은하이브리드': 'A070',
+        '더좋은라이즈': 'A072',
+        '하이브리드698': 'A070',
+        '라이즈498': 'A072'
+      };
+
+      const parseResNo = (resNo: string) => {
+        const clean = resNo.replace(/-/g, '');
+        if (clean.length < 7) return { birth: '', gender: '' };
+        let year = clean.substring(0, 2);
+        const monthDay = clean.substring(2, 6);
+        const genderDigit = clean.charAt(6);
+        let prefix = '19';
+        let gender = '1';
+        if (['3', '4', '7', '8'].includes(genderDigit)) prefix = '20';
+        if (['2', '4', '6', '8'].includes(genderDigit)) gender = '2';
+        return { birth: `${prefix}${year}${monthDay}`, gender };
+      };
+
+      const filtered = data.filter(item => {
+        const hcRegDate = String(item.raw[18] || '');
+        if (!hcRegDate || hcRegDate.trim() === '') return false;
+        
+        const normalized = hcRegDate.replace(/[./]/g, '-');
+        const parts = normalized.split('-');
+        if (parts.length < 2) return false;
+        
+        const year = parts[0].length === 2 ? `20${parts[0]}` : parts[0];
+        const month = parseInt(parts[1]);
+        const day = parts[2] ? parseInt(parts[2]) : null;
+
+        if (type === 'date') {
+          const targetDateNormalized = String(targetValue).replace(/[./]/g, '-');
+          const [tY, tM, tD] = targetDateNormalized.split('-');
+          const fullTY = tY.length === 2 ? `20${tY}` : tY;
+          return parseInt(year) === parseInt(fullTY) && month === parseInt(tM) && day === parseInt(tD);
+        } else {
+          return parseInt(year) === (targetYear || 2026) && month === (targetValue as number);
+        }
+      });
+
+      if (filtered.length === 0) {
+        alert('추출할 헬스케어 대상자가 없습니다.');
+        return;
+      }
+
+      const rows = filtered.map((item, idx) => {
+        const insuredName = item.raw[15] ? String(item.raw[15]) : '';
+        const insuredResNo = item.raw[16] ? String(item.raw[16]) : '';
+        const insuredPhone = item.raw[17] ? String(item.raw[17]) : '';
+        const serviceStartDate = item.raw[18] ? String(item.raw[18]).replace(/[./]/g, '-') : '';
+
+        const { birth, gender } = parseResNo(insuredResNo);
+        const matchedProd = Object.keys(productCodeMap).find(name => item.prodName.includes(name));
+        const prodCode = productCodeMap[matchedProd || ''] || 'A070';
+        const displayProdName = matchedProd || item.prodName;
+
+        return [
+          idx + 1, item.memNo, prodCode, displayProdName, insuredName,
+          birth, gender, insuredPhone, '', '', serviceStartDate, '01'
+        ];
+      });
+
+      const headers = ['순번', '고객가입코드', '가입상품코드', '가입상품명', '피보험자명', '생년월일(YYYYMMDD)', '성별(남:1, 여:2)', '휴대폰번호', '계약시작일', '계약종료일', '서비스시작일', '상태코드(회원:01, 탈퇴:02)'];
+      const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      
+      const headerStyle = {
+        fill: { fgColor: { rgb: "E7E6E6" } },
+        font: { bold: true, size: 10, name: '맑은 고딕' },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: {
+          top: { style: "thin" }, bottom: { style: "thin" },
+          left: { style: "thin" }, right: { style: "thin" }
+        }
+      };
+
+      const bodyStyle = {
+        font: { size: 10, name: '맑은 고딕' },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: {
+          top: { style: "thin" }, bottom: { style: "thin" },
+          left: { style: "thin" }, right: { style: "thin" }
+        }
+      };
+
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const cellAddress = XLSX.utils.encode_cell({ r, c });
+          if (!worksheet[cellAddress]) continue;
+          worksheet[cellAddress].s = r === 0 ? headerStyle : bodyStyle;
+        }
+      }
+
+      worksheet['!cols'] = [
+        { wch: 6 }, { wch: 15 }, { wch: 12 }, { wch: 20 }, { wch: 12 },
+        { wch: 15 }, { wch: 6 }, { wch: 15 }, { wch: 12 }, { wch: 12 },
+        { wch: 12 }, { wch: 12 }
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Healthcare');
+      
+      const fileNameSuffix = type === 'date' ? targetValue : `${targetYear}_${String(targetValue).padStart(2, '0')}`;
+      XLSX.writeFile(workbook, `헬스케어_명단_${fileNameSuffix}_${today}.xlsx`);
+      
+      setNotification({ message: '헬스케어 명단 추출 완료', type: 'success' });
+    } catch (err) {
+      console.error(err);
+      alert('엑셀 추출 중 오류가 발생했습니다.');
+    }
+  };
+
+  const uniqueProducts = React.useMemo(() => {
+    const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
+    const allProds = Array.from(new Set<string>(data.map(item => String(item.prodName || '')).filter(Boolean)));
+    const filteredProds = allProds.filter((p: string) => {
+      const n = normalize(p);
+      return !n.includes('통신결합240') && !n.includes('결합360') && !n.includes('에이모바일');
+    });
+    return ['전체', ...filteredProds];
+  }, [data]);
+  
+  const uniqueHqs = React.useMemo(() => 
+    ['전체', ...Array.from(new Set(data.map(item => item.hq).filter(Boolean)))],
+    [data]
+  );
+
+  const uniqueBranches = React.useMemo(() => {
+    const filteredByHq = hqFilter === '전체' 
+      ? data 
+      : data.filter(item => item.hq === hqFilter);
+    return ['전체', ...Array.from(new Set(filteredByHq.map(item => item.branch).filter(Boolean)))];
+  }, [data, hqFilter]);
+
+  const uniqueDeliveryStatus = React.useMemo(() => 
+    Array.from(new Set(data.map(item => item.deliveryStatus).filter(Boolean))),
+    [data]
+  );
+
+  const uniqueHcRegDates = React.useMemo(() => 
+    Array.from(new Set<string>(data.map(item => String(item.hcRegDate || '')).filter(d => d && d.length >= 8))).sort((a: string, b: string) => a.localeCompare(b)).reverse(),
+    [data]
+  );
+
+  const uniqueHcMonths = React.useMemo(() => 
+    Array.from(new Set<string>(data.map(item => String(item.hcRegDate || '').substring(0, 7)).filter(d => d && d.length >= 7))).sort((a: string, b: string) => a.localeCompare(b)).reverse(),
+    [data]
+  );
+
+  const uniquePayDates = React.useMemo(() => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0].replace(/-/g, '.');
+    
+    // 시트 데이터의 지급일 중 오늘 이후인 것들
+    const existingDates = data
+      .map(item => item.payDate)
+      .filter(d => d && d.trim() !== '' && d >= todayStr);
+
+    return ['전체', ...Array.from(new Set(existingDates)).sort((a, b) => a.localeCompare(b))];
+  }, [data]);
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setProductFilter('전체');
+    setHqFilter('전체');
+    setBranchFilter('전체');
+    setDeliveryFilter('전체');
+    setPayDateFilter('');
+    setPaymentStatusFilter('전체');
+    setCurrentPage(1);
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-[#f1f5f9] font-sans selection:bg-blue-100 overflow-hidden relative">
+      <AnimatePresence>
+        {notification && (
+          <motion.div 
+            initial={{ opacity: 0, y: -100 }}
+            animate={{ opacity: 1, y: 20 }}
+            exit={{ opacity: 0, y: -100 }}
+            className="absolute top-0 left-1/2 -translate-x-1/2 z-50 pointer-events-none"
+          >
+            <div className="bg-white border-l-4 border-emerald-500 shadow-2xl rounded-lg px-6 py-4 flex items-center gap-4 pointer-events-auto">
+              <div className="bg-emerald-100 p-2 rounded-full">
+                <CheckCircle size={20} className="text-emerald-600" />
+              </div>
+              <p className="text-sm font-bold text-slate-800 pr-4">{notification.message}</p>
+              <button onClick={() => setNotification(null)} className="text-slate-400 hover:text-slate-600">
+                <X size={16} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <motion.header 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="h-14 bg-[#0f172a] text-white px-6 flex justify-between items-center shadow-md z-50 shrink-0"
+      >
+        <div className="flex items-center gap-3">
+          <motion.div 
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/10"
+          >
+            <Save size={18} className="text-white" strokeWidth={2.5} />
+          </motion.div>
+          <h1 className="text-lg font-bold tracking-tight">
+            The Better Life ERP 
+            <span className="text-[11px] font-normal text-slate-400 ml-2">v2.1.0</span>
+          </h1>
+        </div>
+        
+        <div className="hidden md:flex items-center gap-5 text-[12px] text-slate-400">
+          <div className="flex items-center gap-1.5">
+            <div className={`w-2 h-2 ${loading ? 'bg-orange-400 animate-pulse' : 'bg-emerald-500'} rounded-full shadow-[0_0_6px_rgba(16,185,129,0.4)]`} />
+            <span className="font-medium text-slate-200">{loading ? 'Processing...' : 'DB 연결됨'}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span>마지막 업데이트:</span>
+            <span className="text-slate-200 font-mono tracking-tight">{lastUpdate}</span>
+          </div>
+        </div>
+      </motion.header>
+
+      <div className="flex flex-1 overflow-hidden">
+        <motion.aside 
+          initial={{ x: -20, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          className="w-[240px] bg-white border-r border-slate-200 p-5 flex flex-col gap-6 shadow-sm z-40 shrink-0 overflow-y-auto"
+        >
+          <section>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Google Integration</p>
+            <div className="grid gap-2">
+              {!isAuthenticated ? (
+                <div className="space-y-2">
+                  <motion.button 
+                    onClick={handleConnect}
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.99 }}
+                    className="w-full flex items-center justify-center gap-2.5 bg-emerald-600 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-emerald-700"
+                  >
+                    <CheckCircle size={16} /> 구글 시트 연동하기
+                  </motion.button>
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/auth/debug');
+                        const debug = await res.json();
+                        if (navigator.clipboard) {
+                          await navigator.clipboard.writeText(debug.expectedRedirectUri);
+                          alert(`[구글 연동 진단 및 가이드]\n\n1. 리디렉션 URI (클립보드에 복사됨):\n${debug.expectedRedirectUri}\n\n2. 조치 사항:\n- Google Cloud Console > 사용자 인증 정보 > OAuth 클라이언트 ID 편집\n- '승인된 리디렉션 URI' 항목에 위 주소를 추가하세요.\n- 클라이언트 ID 유형이 '웹 애플리케이션'인지 반드시 확인하세요.\n\n[진단 결과]\n- ID 상태: ${debug.clientIdStatus}\n- Secret 상태: ${debug.clientSecretStatus}\n- 형식 확인: ${debug.clientIdFormat}`);
+                        } else {
+                          alert(`[리디렉션 URI]\n${debug.expectedRedirectUri}\n\n위 주소를 구글 콘솔에 등록하세요.`);
+                        }
+                      } catch (e) {
+                        alert('연동 진단 정보를 불러올 수 없습니다.');
+                      }
+                    }}
+                    className="w-full text-center text-[10px] text-slate-400 hover:text-blue-500 transition-colors flex items-center justify-center gap-1 py-1"
+                  >
+                    <Settings size={10} /> 연동 해결 방법 확인
+                  </button>
+                  
+                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter mb-1">Cloud Sync</p>
+                    <button 
+                      onClick={() => {
+                        if(!isAuthenticated) return alert('먼저 [구글 시트 연동하기]를 진행해 주세요.');
+                        saveSettingsToCloud();
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg text-[11px] font-bold hover:bg-blue-600 hover:text-white transition-all border border-blue-100"
+                    >
+                      <Save size={12} /> 설정 클라우드 저장
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if(!isAuthenticated) return alert('먼저 [구글 시트 연동하기]를 진행해 주세요.');
+                        loadSettingsFromCloud();
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 bg-slate-50 text-slate-600 rounded-lg text-[11px] font-bold hover:bg-slate-200 transition-all border border-slate-200"
+                    >
+                      <RefreshCw size={12} /> 설정 클라우드 불러오기
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <motion.button 
+                  onClick={handleLogout}
+                  whileHover={{ backgroundColor: '#fee2e2' }}
+                  whileTap={{ scale: 0.99 }}
+                  className="flex items-center justify-center gap-2.5 border border-rose-200 text-rose-600 py-2.5 rounded-md text-[13px] font-medium transition-all"
+                >
+                  <X size={16} /> 연동 해제
+                </motion.button>
+              )}
+            </div>
+          </section>
+
+          <section>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">본부 및 정산 관리</p>
+            <div className="grid gap-2">
+              <motion.button 
+                onClick={() => setIsSettingsModalOpen(true)}
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
+                className="flex items-center justify-center gap-2.5 bg-slate-800 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-slate-900"
+              >
+                <Save size={16} /> 본부별 정산 설정
+              </motion.button>
+              
+              <motion.button 
+                onClick={loadData}
+                whileHover={{ backgroundColor: '#f8fafc' }}
+                whileTap={{ scale: 0.99 }}
+                className="flex items-center justify-center gap-2.5 border border-slate-200 text-slate-700 py-2.5 rounded-md text-[13px] font-medium hover:border-slate-300 transition-all font-bold"
+              >
+                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> 
+                실시간 새로고침
+              </motion.button>
+            </div>
+          </section>
+
+          <section>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">정산 및 리포트</p>
+            <div className="grid gap-2">
+              <nav className="flex flex-col gap-1">
+                {[
+                  { dot: 'bg-blue-600', label: '월별 실적 대시보드', action: () => setIsMonthlyDashboardModalOpen(true) },
+                  { dot: 'bg-green-500', label: '헬스케어 명단 추출', action: () => setIsHealthcareModalOpen(true) },
+                  { dot: 'bg-yellow-500', label: '날짜별 메모 확인', action: () => setIsMemoHistoryModalOpen(true) },
+                ].map((item, idx) => (
+                  <motion.button 
+                    key={idx}
+                    onClick={item.action}
+                    whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                  >
+                    <span className={`w-2 h-2 rounded-full ${item.dot}`} />
+                    <span className="font-medium">{item.label}</span>
+                  </motion.button>
+                ))}
+              </nav>
+            </div>
+          </section>
+
+          <div className="mt-auto pt-4 border-t border-slate-100 text-[11px] text-slate-400 leading-relaxed">
+            운영자: 관리자 (Admin)<br />
+            IP: 192.168.0.104
+          </div>
+        </motion.aside>
+
+        <main className="flex-1 p-6 overflow-auto bg-[#f8fafc]">
+          <div className="flex flex-col gap-5 mb-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+                관리대장 현황
+                {payDateFilter && (
+                  <span className="text-[12px] font-bold px-3 py-1 bg-blue-600 text-white rounded-full flex items-center gap-1.5 shadow-sm">
+                    <Calendar size={13} />
+                    {payDateFilter} 지급예정
+                  </span>
+                )}
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsSettingsModalOpen(true)}
+                  className="p-2 bg-slate-200 text-slate-600 rounded-full hover:bg-slate-300 transition-colors shadow-sm"
+                  title="정산 마스터 설정"
+                >
+                  <Settings size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* 정산 요약 대시보드 */}
+            {(payDateFilter || filteredData.length > 0) && (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col gap-4"
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                  <div className="lg:col-span-1 bg-slate-900 p-6 rounded-2xl shadow-xl border border-slate-800 text-white relative overflow-hidden group">
+                    <button 
+                      onClick={() => setIsSettlementModalOpen(true)}
+                      className="absolute top-2 right-2 p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors z-20"
+                      title="정산서 생성하기"
+                    >
+                      <Download size={16} className="text-orange-400 group-hover:scale-110 transition-transform" />
+                    </button>
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                      <FileText size={80} />
+                    </div>
+                    <div className="relative z-10">
+                      <div className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">지급 예정 합계</div>
+                      <div className="text-3xl font-black mb-1">{settlementStats.totalPendingAmount.toLocaleString()}원</div>
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-[12px] font-bold">
+                        미지급 {settlementStats.totalPendingCount}구좌
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="lg:col-span-3 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4 flex justify-between items-center">
+                      <div className="flex items-center gap-6">
+                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                          <button 
+                            onClick={() => setDashboardView('product')}
+                            className={`px-3 py-1 rounded-md text-[10px] font-black transition-all ${dashboardView === 'product' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+                          >
+                            상품별
+                          </button>
+                          <button 
+                            onClick={() => setDashboardView('hq')}
+                            className={`px-3 py-1 rounded-md text-[10px] font-black transition-all ${dashboardView === 'hq' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+                          >
+                            본부별
+                          </button>
+                        </div>
+                        <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                          {dashboardView === 'product' ? `품목 ${settlementStats.details.length}종` : `본부 ${settlementStats.hqDetails.length}개`}
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="relative">
+                          <button 
+                            onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
+                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold transition-all shadow-md flex items-center gap-1.5"
+                          >
+                            <FileText size={12} />
+                            정산서 출력(PDF)
+                          </button>
+                          {isExportDropdownOpen && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="absolute right-0 top-full mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 py-2 overflow-hidden"
+                            >
+                              <div className="px-3 py-1.5 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 mb-1 flex justify-between items-center">
+                                <span>정산서 선택 다운로드</span>
+                                <button onClick={() => setIsExportDropdownOpen(false)} className="hover:text-slate-600"><X size={10} /></button>
+                              </div>
+                              <div className="max-h-60 overflow-y-auto">
+                                <button
+                                  onClick={() => {
+                                    exportIntegratedSettlementPdf();
+                                    setIsExportDropdownOpen(false);
+                                  }}
+                                  className="w-full text-left px-4 py-2 hover:bg-blue-50 text-[12px] font-black text-blue-700 border-b border-slate-50 flex justify-between items-center bg-blue-50/20"
+                                >
+                                  <span>전사 통합 정산 보고서 (PDF)</span>
+                                  <FileText size={12} />
+                                </button>
+                                {Object.keys(settlementStats.hqGroups).map(hq => (
+                                  <div key={hq} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 flex items-center pr-3 group">
+                                    <button
+                                      onClick={() => {
+                                        exportProfessionalSettlementPdf(hq);
+                                        setIsExportDropdownOpen(false);
+                                      }}
+                                      className="flex-1 text-left px-4 py-2 text-[12px] font-bold text-slate-700 flex justify-between items-center"
+                                    >
+                                      <span>{hq}</span>
+                                      <div className="flex gap-1.5 opacity-40 group-hover:opacity-100">
+                                        <FileText size={12} className="text-red-600" />
+                                      </div>
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        exportProfessionalSettlement(hq);
+                                        setIsExportDropdownOpen(false);
+                                      }}
+                                      className="p-1.5 hover:bg-emerald-50 text-emerald-500 rounded-md transition-colors"
+                                    >
+                                      <Download size={14} />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </motion.div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-6 overflow-x-auto pb-2 scrollbar-hide">
+                      {dashboardView === 'product' ? (
+                        settlementStats.details.map(([name, stat]) => (
+                          <div key={name} className="flex flex-col min-w-[160px] border-l-3 border-blue-50 pl-4 py-1">
+                            <div className="text-[12px] font-bold text-slate-500 truncate mb-1" title={name}>{name}</div>
+                            <div className="flex flex-col">
+                              <span className="text-lg font-black text-slate-900">{stat.amount.toLocaleString()}원</span>
+                              <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded w-fit">{stat.count}구좌</span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        settlementStats.hqDetails.map(([name, stat]) => (
+                          <div key={name} className="flex flex-col min-w-[160px] border-l-3 border-emerald-50 pl-4 py-1">
+                            <div className="text-[12px] font-bold text-slate-500 truncate mb-1" title={name}>{name}</div>
+                            <div className="flex flex-col">
+                              <span className="text-lg font-black text-emerald-700">{stat.amount.toLocaleString()}원</span>
+                              <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded w-fit">{stat.count}구좌</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-5">
+              <div className="flex flex-col md:flex-row md:items-center gap-4 pb-4 border-b border-slate-50">
+                  <div className="flex items-center gap-3 min-w-max">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">배송현황</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['전체', ...uniqueDeliveryStatus].map(status => (
+                        <button
+                          key={status}
+                          onClick={() => setDeliveryFilter(status)}
+                          className={`px-4 py-1.5 rounded-full text-[12px] font-bold transition-all ${
+                            deliveryFilter === status 
+                              ? 'bg-slate-900 text-white shadow-sm' 
+                              : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                <div className="flex items-center gap-3 min-w-max ml-4">
+                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">지급상태</div>
+                  <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                    {['전체', '지급완료', '지급예정'].map(status => (
+                      <button
+                        key={status}
+                        onClick={() => setPaymentStatusFilter(status)}
+                        className={`px-3 py-1 rounded-md text-[11px] font-black transition-all ${
+                          paymentStatusFilter === status 
+                            ? 'bg-white text-blue-600 shadow-sm' 
+                            : 'text-slate-400 hover:text-slate-600'
+                        }`}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="md:ml-auto flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg">
+                    <span className="text-[11px] font-bold text-slate-400">상품</span>
+                    <select value={productFilter} onChange={(e) => setProductFilter(e.target.value)} className="bg-transparent text-[12px] font-bold text-slate-700 outline-none max-w-[120px]">
+                      {uniqueProducts.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg">
+                    <span className="text-[11px] font-bold text-slate-400">본부</span>
+                    <select value={hqFilter} onChange={(e) => setHqFilter(e.target.value)} className="bg-transparent text-[12px] font-bold text-slate-700 outline-none max-w-[120px]">
+                      {uniqueHqs.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg">
+                    <span className="text-[11px] font-bold text-slate-400">지사</span>
+                    <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="bg-transparent text-[12px] font-bold text-slate-700 outline-none max-w-[120px]">
+                      {uniqueBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row md:items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm">
+                    <span className="text-[11px] font-bold text-slate-400">정렬</span>
+                    <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as any)} className="bg-transparent text-[12px] font-bold text-slate-700 outline-none">
+                      <option value="desc">최신순</option>
+                      <option value="asc">오래순</option>
+                    </select>
+                  </div>
+                  <button 
+                    onClick={() => setIsCalendarModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 transition-all group"
+                    title="전체 지급일 달력 보기"
+                  >
+                    <Calendar size={13} className="text-slate-400 group-hover:text-blue-600" />
+                    <span className="bg-slate-100 text-[10px] font-black text-blue-600 rounded px-1.5 py-0.5 group-hover:bg-blue-600 group-hover:text-white transition-colors">지급일</span>
+                  </button>
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm">
+                    <select 
+                      value={payDateFilter}
+                      onChange={(e) => setPayDateFilter(e.target.value === '전체' ? '' : e.target.value)}
+                      className="bg-transparent text-[12px] font-bold text-slate-700 outline-none"
+                    >
+                      {uniquePayDates.map(date => <option key={date} value={date}>{date}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={resetFilters} className="p-2 border border-slate-200 rounded-lg text-slate-400 hover:text-blue-600 bg-white transition-all shadow-sm">
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
+
+                <div className="md:ml-auto relative flex-1 max-w-md flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                    <input 
+                      type="text" placeholder="회원명, 상품명, 계약일 검색..." value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
+                    />
+                  </div>
+                  {filteredData.length > 0 && (
+                    <button 
+                      onClick={() => {
+                        if (confirm(`현재 필터링된 ${filteredData.length}건을 모두 '지급완료' 처리하시겠습니까?\n\n(참고: 취소된 건은 제외됩니다)`)) {
+                          const validItems = filteredData.filter(item => !item.deliveryStatus.includes('취소'));
+                          const updates = validItems.map(item => ({
+                            rowIdx: item.originalRowIdx,
+                            colIdx: 19,
+                            newValue: '지급완료'
+                          }));
+                          batchUpdateCells(updates);
+                        }
+                      }}
+                      className="px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl text-[12px] font-black transition-all shadow-lg flex items-center gap-2 shrink-0"
+                    >
+                      <CheckCircle size={14} />
+                      일괄 지급완료
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <motion.div 
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden"
+          >
+            <div className="overflow-auto">
+              <table className="w-full text-left border-collapse text-[11px] min-w-[1200px]">
+                <thead>
+                  <tr className="bg-slate-800 text-white border-b border-slate-700">
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">계약일자</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원번호</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원명</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">상품명</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">렌탈번호</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송현황</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송일자</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700 text-blue-300">지급일자</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">지급상태</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700 w-[110px]">본부명</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700 w-[110px]">지사명</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">사원명</th>
+                    <th className="px-3 py-3 font-bold text-center">관리</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(() => {
+                    const PAGE_SIZE = 20;
+                    const paginatedData = filteredData.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+                    
+                    return paginatedData.map((item, idx) => (
+                      <motion.tr 
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.01 }}
+                        key={item.uniqueKey} 
+                        className="hover:bg-blue-50/50 transition-colors group cursor-pointer border-b border-slate-50 text-[12px]"
+                        onClick={() => setSelectedItem(item)}
+                      >
+                        <td className="px-3 py-3.5 text-slate-500 font-mono text-center border-r border-slate-50 whitespace-nowrap">{item.contractDate}</td>
+                        <td className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold">{item.memNo}</td>
+                        <td className="px-3 py-3.5 border-r border-slate-50 font-black text-slate-900">{item.memName}</td>
+                        <td className="px-3 py-3.5 border-r border-slate-50 font-bold text-slate-600 truncate max-w-[150px]" title={item.prodName}>{item.prodName}</td>
+                        <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-500">{item.rentalNo}</td>
+                        <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
+                          <span className={`px-2 py-1 rounded-md text-[10px] font-black border ${
+                            item.deliveryStatus.includes('완료') ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                            item.deliveryStatus.includes('취소') ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-orange-50 text-orange-600 border-orange-100'
+                          }`}>
+                            {item.deliveryStatus}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-400 whitespace-nowrap">{item.deliveryDate || '-'}</td>
+                        <td className="px-3 py-3.5 border-r border-slate-50 text-center font-black text-indigo-600 bg-indigo-50/20 whitespace-nowrap">
+                          {item.payDate || '-'}
+                        </td>
+                        <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
+                          <span className={`px-2 py-1 rounded text-[10px] font-black ${
+                            (item.paymentStatus === '지급완료' || item.hc.includes('지급완료'))
+                              ? 'bg-emerald-500 text-white' 
+                              : 'bg-slate-100 text-slate-400'
+                          }`}>
+                            {(item.paymentStatus === '지급완료' || item.hc.includes('지급완료')) ? '지급완료' : '지급예정'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-600 truncate max-w-[100px]">{item.hq}</td>
+                        <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-600 truncate max-w-[100px]">{item.branch}</td>
+                        <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-400 whitespace-nowrap">{item.empName}</td>
+                        <td className="px-3 py-3.5 text-center">
+                          <button className="p-1 hover:bg-slate-200 rounded text-slate-300 hover:text-slate-600">
+                            <MoreVertical size={14} />
+                          </button>
+                        </td>
+                      </motion.tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+              
+              {filteredData.length === 0 && (
+                <div className="py-20 flex flex-col items-center justify-center text-slate-400 bg-slate-50/50">
+                  <Search size={32} className="mb-3 opacity-20" />
+                  <p className="text-sm font-bold">검색 결과가 없습니다.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Pagination UI */}
+            {filteredData.length > 0 && (
+              <div className="px-8 py-4 bg-white border-t border-slate-100 flex items-center justify-between">
+                <div className="text-xs font-bold text-slate-400">
+                  전체 <span className="text-blue-600">{filteredData.length.toLocaleString()}</span>건 중 {((currentPage - 1) * 20 + 1).toLocaleString()}-{Math.min(currentPage * 20, filteredData.length).toLocaleString()}건 표시
+                </div>
+                <div className="flex items-center gap-1">
+                  <button 
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    className="p-2 border border-slate-200 rounded-xl disabled:opacity-30 hover:bg-slate-50 transition-all"
+                  >
+                    <ChevronRight size={16} className="rotate-180" />
+                  </button>
+                  {(() => {
+                    const totalPages = Math.ceil(filteredData.length / 20);
+                    const pages = [];
+                    let start = Math.max(1, currentPage - 2);
+                    let end = Math.min(totalPages, start + 4);
+                    if (end === totalPages) start = Math.max(1, end - 4);
+                    
+                    for (let i = start; i <= end; i++) {
+                      if (i < 1) continue;
+                      pages.push(
+                        <button
+                          key={i}
+                          onClick={() => setCurrentPage(i)}
+                          className={`w-8 h-8 rounded-xl text-xs font-bold transition-all ${currentPage === i ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-slate-600 hover:bg-slate-100'}`}
+                        >
+                          {i}
+                        </button>
+                      );
+                    }
+                    return pages;
+                  })()}
+                  <button 
+                    disabled={currentPage === Math.ceil(filteredData.length / 20)}
+                    onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredData.length / 20), prev + 1))}
+                    className="p-2 border border-slate-200 rounded-xl disabled:opacity-30 hover:bg-slate-50 transition-all"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </main>
+
+        {/* 4. 상세 정보 모달 */}
+        <AnimatePresence>
+          {selectedItem && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedItem(null)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="relative bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+              >
+                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <FileText size={18} className="text-accent-blue" />
+                    회원 상세 정보
+                  </h3>
+                  <button 
+                    onClick={() => setSelectedItem(null)}
+                    className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-auto p-6 space-y-8">
+                  {/* 정산 요약 - 실시간 계산 결과 */}
+                  <section className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
+                    <h4 className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <TrendingUp size={14} /> 실시간 정산 분석 (본부 설정 기준)
+                    </h4>
+                    <div className="grid grid-cols-3 gap-3">
+                      {(() => {
+                        const setting = hqSettings.find(s => s.hqName === selectedItem.hq);
+                        const productRule = setting?.productRules.find(r => r.productName === selectedItem.prodName);
+                        
+                        // 현재 필터링된 데이터에서 해당 본부/상품의 실적 건수 파악 (구간 수수료용)
+                        const count = data.filter(i => i.hq === selectedItem.hq && i.prodName === selectedItem.prodName).length;
+                        
+                        let unitPrice = productRule?.totalAmount || 0;
+                        let salesPart = productRule?.salesAmount || 0;
+
+                        if (selectedItem.hq === '조민경') {
+                          unitPrice = 5000;
+                          salesPart = 5000;
+                        } else if (selectedItem.hq === '조재윤') {
+                          unitPrice = 10000;
+                          salesPart = 10000;
+                        } else if (productRule) {
+                          if (productRule.tier3Count > 0 && count >= productRule.tier3Count) unitPrice = productRule.tier3Price;
+                          else if (productRule.tier2Count > 0 && count >= productRule.tier2Count) unitPrice = productRule.tier2Price;
+                          else if (productRule.tier1Count > 0 && count >= productRule.tier1Count) unitPrice = productRule.tier1Price;
+                          
+                          const salesRatio = productRule.totalAmount > 0 ? (productRule.salesAmount / productRule.totalAmount) : 1;
+                          salesPart = unitPrice * salesRatio;
+                        }
+
+                        const totalComm = unitPrice;
+                        const promo = Math.max(0, totalComm - salesPart);
+
+                        return (
+                          <>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[10px] font-bold text-slate-400">전체 수수료</span>
+                              <span className="text-sm font-black text-slate-900">{Math.floor(totalComm).toLocaleString()}원</span>
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[10px] font-bold text-slate-400">판매 수수료</span>
+                              <span className="text-sm font-black text-blue-600">{Math.floor(salesPart).toLocaleString()}원</span>
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[10px] font-bold text-slate-400">판매촉진비</span>
+                              <span className="text-sm font-black text-orange-600">{Math.floor(promo).toLocaleString()}원</span>
+                            </div>
+                            {(selectedItem.hq === '조재윤' || selectedItem.hq === '조민경') && (
+                              <div className="col-span-3 mt-2 p-2 bg-white rounded border border-blue-100 text-[10px] font-bold text-blue-500 italic">
+                                * {selectedItem.hq} 특수 규칙 적용됨: {selectedItem.hq === '조재윤' ? '건당 1만원 (월 최소 200만 보장)' : '건당 5천원'}
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </section>
+
+                  {/* 회원정보 */}
+                  <section>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <div className="w-1 h-3 bg-blue-500 rounded-full" />
+                      회원 정보
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <DetailItem label="계약일자" value={selectedItem.contractDate} />
+                      <DetailItem label="회원번호" value={selectedItem.memNo} />
+                      <DetailItem label="회원명" value={selectedItem.memName} />
+                      <DetailItem label="주민등록번호" value={selectedItem.resNo} />
+                      <DetailItem label="핸드폰" value={selectedItem.phone} />
+                    </div>
+                  </section>
+
+                  {/* 상품정보 */}
+                  <section>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <div className="w-1 h-3 bg-emerald-500 rounded-full" />
+                      상품 정보
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <DetailItem label="상품명" value={selectedItem.prodName} />
+                      <DetailItem label="렌탈상품명" value={selectedItem.rentalProd} />
+                      <DetailItem label="렌탈계약번호" value={selectedItem.rentalNo} />
+                      <DetailItem label="배송현황" value={selectedItem.deliveryStatus.replace('완료', ' 완료')} />
+                      <DetailItem label="배송일자" value={selectedItem.deliveryDate} />
+                    </div>
+                  </section>
+
+                  {/* 수수료정보 및 메모 */}
+                  <section>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <div className="w-1 h-3 bg-orange-500 rounded-full" />
+                      수수료 정보 및 메모
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex flex-col gap-1">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">수수료지급일자</div>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text"
+                            defaultValue={selectedItem.payDate}
+                            id="editPayDate"
+                            className="flex-1 text-[13px] font-bold bg-white border border-slate-200 px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          />
+                          <button 
+                            onClick={() => {
+                              const val = (document.getElementById('editPayDate') as HTMLInputElement).value;
+                              updateCell(selectedItem.originalRowIdx, 14, val);
+                            }}
+                            className="p-1 px-2 bg-blue-600 text-white text-[10px] font-bold rounded"
+                          >
+                            저장
+                          </button>
+                        </div>
+                      </div>
+                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex flex-col gap-1">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase">지급상태</div>
+                        <div className="flex gap-2">
+                          <select 
+                            defaultValue={selectedItem.paymentStatus}
+                            id="editPaymentStatus"
+                            className="flex-1 text-[13px] font-bold bg-white border border-slate-200 px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          >
+                            <option value="">지급 예정</option>
+                            <option value="지급완료">지급 완료</option>
+                          </select>
+                          <button 
+                            onClick={() => {
+                              const val = (document.getElementById('editPaymentStatus') as HTMLSelectElement).value;
+                              updateCell(selectedItem.originalRowIdx, 19, val);
+                            }}
+                            className="p-1 px-2 bg-emerald-600 text-white text-[10px] font-bold rounded"
+                          >
+                            저장
+                          </button>
+                        </div>
+                      </div>
+                      <div className="col-span-2 p-3 bg-yellow-50 border border-yellow-100 rounded-lg flex flex-col gap-1">
+                        <div className="text-[10px] font-bold text-yellow-600 uppercase tracking-tight flex items-center gap-1.5">
+                          <FileText size={10} /> 정산 및 지급 관련 메모
+                        </div>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text"
+                            defaultValue={selectedItem.memo}
+                            id="editMemo"
+                            placeholder="메모를 입력하세요..."
+                            className="flex-1 text-[13px] font-medium bg-white border border-yellow-200 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-yellow-200"
+                          />
+                          <button 
+                            onClick={() => {
+                              const val = (document.getElementById('editMemo') as HTMLInputElement).value;
+                              updateCell(selectedItem.originalRowIdx, 20, val);
+                            }}
+                            className="px-4 bg-yellow-500 text-white text-[12px] font-bold rounded-lg shadow-sm hover:bg-yellow-600 transition-colors"
+                          >
+                            메모 저장
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* 영업자정보 */}
+                  <section>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <div className="w-1 h-3 bg-indigo-500 rounded-full" />
+                      영업자 정보
+                    </h4>
+                    <div className="grid grid-cols-3 gap-4">
+                      <DetailItem label="본부명" value={selectedItem.hq} />
+                      <DetailItem label="지사명" value={selectedItem.branch} />
+                      <DetailItem label="사원명" value={selectedItem.empName} />
+                    </div>
+                  </section>
+
+                  {/* 기타 */}
+                  <section>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <div className="w-1 h-3 bg-purple-500 rounded-full" />
+                      기타 지원 정보
+                    </h4>
+                    <div className="grid grid-cols-1 gap-4">
+                      <DetailItem label="헬스케어 대상자(PQR)" value={selectedItem.hc} />
+                    </div>
+                  </section>
+                </div>
+
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+                  <div>
+                    {(selectedItem.paymentStatus === '지급완료' || selectedItem.hc.includes('지급완료')) && (
+                      <button 
+                        onClick={() => {
+                          if (confirm('해당 건의 지급 완료 처리를 취소하시겠습니까?')) {
+                            updateCell(selectedItem.originalRowIdx, 18, '');
+                            setSelectedItem(null);
+                          }
+                        }}
+                        className="px-4 py-2 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-lg text-[12px] font-bold transition-all border border-rose-100 flex items-center gap-1.5"
+                      >
+                        <X size={14} />
+                        지급 취소 (데이터 복구)
+                      </button>
+                    )}
+                  </div>
+                  <button 
+                    onClick={() => setSelectedItem(null)}
+                    className="px-8 py-2 bg-slate-900 text-white rounded-xl text-sm font-black shadow-lg"
+                  >
+                    확인
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+        {/* 4-1. 지급일 선택 달력 모달 */}
+        <AnimatePresence>
+          {isCalendarModalOpen && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsCalendarModalOpen(false)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+              >
+                <div className="p-6">
+                  {(() => {
+                    const year = calendarViewDate.getFullYear();
+                    const month = calendarViewDate.getMonth();
+                    
+                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                    const firstDay = new Date(year, month, 1).getDay();
+                    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+                    
+                    const prevMonthLastDay = new Date(year, month, 0).getDate();
+                    const prevMonthDays = Array.from({ length: firstDay }, (_, i) => prevMonthLastDay - firstDay + i + 1);
+                    
+                    return (
+                      <>
+                        <div className="flex justify-between items-center mb-6">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Select Payment Date</span>
+                            <h3 className="text-xl font-black text-slate-900">{year}년 {month + 1}월</h3>
+                          </div>
+                          <div className="flex gap-1">
+                            <button 
+                              onClick={() => setCalendarViewDate(new Date(year, month - 1, 1))}
+                              className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"
+                            >
+                              <ChevronRight size={20} className="rotate-180" />
+                            </button>
+                            <button 
+                              onClick={() => setCalendarViewDate(new Date(year, month + 1, 1))}
+                              className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"
+                            >
+                              <ChevronRight size={20} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                          {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
+                            <span key={d} className={`text-[10px] font-bold ${i === 0 ? 'text-rose-500' : i === 6 ? 'text-blue-500' : 'text-slate-400'}`}>
+                              {d}
+                            </span>
+                          ))}
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1">
+                          {prevMonthDays.map(d => (
+                            <div key={`prev-${d}`} className="h-10 flex items-center justify-center text-[13px] text-slate-200">
+                              {d}
+                            </div>
+                          ))}
+                          {days.map(d => {
+                            const dateStr = `${year}.${String(month + 1).padStart(2, '0')}.${String(d).padStart(2, '0')}`;
+                            const hasData = allDatesWithData.has(dateStr);
+                            const isSelected = payDateFilter === dateStr;
+                            
+                            return (
+                              <motion.button
+                                key={d}
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => {
+                                  setPayDateFilter(dateStr);
+                                  setIsCalendarModalOpen(false);
+                                }}
+                                className={`
+                                  h-10 rounded-xl flex flex-col items-center justify-center text-[13px] relative transition-all
+                                  ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 font-black' : 
+                                    hasData ? 'text-slate-900 font-black hover:bg-slate-100' : 'text-slate-300 hover:bg-slate-50'}
+                                `}
+                              >
+                                {d}
+                                {hasData && !isSelected && (
+                                  <div className="absolute bottom-1.5 w-1 h-1 bg-blue-500 rounded-full" />
+                                )}
+                              </motion.button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="mt-6 flex flex-col gap-2">
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full" />
+                            <span>점 표시: 데이터가 있는 날짜 (검정색)</span>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              setPayDateFilter('');
+                              setIsCalendarModalOpen(false);
+                            }}
+                            className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[13px] font-bold transition-colors"
+                          >
+                            필터 해제 (전체 보기)
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {isHealthcareModalOpen && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsHealthcareModalOpen(false)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+              >
+                <div className="p-8">
+                  <div className="flex justify-between items-center mb-6">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-black text-green-600 uppercase tracking-widest">Excel Export</span>
+                      <h3 className="text-xl font-black text-slate-900">헬스케어 명단 추출</h3>
+                    </div>
+                    <button onClick={() => setIsHealthcareModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
+                      <p className="text-[12px] text-green-800 font-medium leading-relaxed">
+                        관리대장 <span className="font-bold underline">S열(헬스케어등록일)</span>에 입력된 날짜를 기준으로 월별 명단을 생성합니다.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4">
+                      <div className="flex flex-col gap-2">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase ml-1">특정 일자 선택 (등록일 기준)</label>
+                        <div className="flex gap-2">
+                          <select 
+                            id="hcSpecificDate"
+                            className="flex-1 bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-[14px] font-bold focus:outline-none focus:ring-2 focus:ring-green-200"
+                          >
+                            {uniqueHcRegDates.length > 0 ? (
+                              uniqueHcRegDates.map(date => (
+                                <option key={date} value={date}>{date}</option>
+                              ))
+                            ) : (
+                              <option disabled>데이터 없음</option>
+                            )}
+                          </select>
+                          <button 
+                            onClick={() => {
+                              const date = (document.getElementById('hcSpecificDate') as HTMLSelectElement).value;
+                              if (date && date !== '데이터 없음') exportHealthcareExcel(date, 'date');
+                            }}
+                            className="px-6 bg-green-600 text-white rounded-xl font-black text-[13px] hover:bg-green-700 shadow-lg shadow-green-500/20 transition-all"
+                          >
+                            추출
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="relative py-2">
+                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100" /></div>
+                        <div className="relative flex justify-center text-[10px] font-bold uppercase"><span className="bg-white px-2 text-slate-300">OR 월별 선택</span></div>
+                      </div>
+
+                      <div className="flex items-center justify-between px-1">
+                        <label className="text-[11px] font-bold text-slate-400 uppercase">대상 연도</label>
+                        <select id="healthcareYear" className="bg-transparent text-sm font-black text-slate-900 focus:outline-none">
+                          <option value="2026">2026년</option>
+                          <option value="2025">2025년</option>
+                          <option value="2024">2024년</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
+                          <button
+                            key={m}
+                            onClick={() => {
+                              const year = parseInt((document.getElementById('healthcareYear') as HTMLSelectElement).value);
+                              exportHealthcareExcel(m, 'month', year);
+                            }}
+                            className="py-3 bg-slate-50 hover:bg-green-600 hover:text-white border border-slate-200 rounded-xl text-[14px] font-black transition-all"
+                          >
+                            {m}월
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 text-[11px] text-slate-400 text-center italic">
+                      * S열에 유효한 날짜가 입력된 데이터만 추출됩니다.
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* 5. 정산 설정 모달 */}
+        <AnimatePresence>
+          {isSettingsModalOpen && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsSettingsModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                exit={{ opacity: 0, y: 20 }}
+                className="relative bg-white w-full max-w-6xl h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+              >
+                {/* Modal Header */}
+                <div className="px-8 py-5 border-b border-slate-100 bg-slate-900 text-white flex justify-between items-center">
+                  <div>
+                    <h3 className="text-xl font-bold flex items-center gap-2"><Settings size={22} className="text-accent-blue" /> 본부별 정산 및 수수료 마스터 설정</h3>
+                    <p className="text-xs text-slate-400 mt-1">각 거래처별 상품 수수료 및 오버라이딩 구조를 관리합니다.</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 mr-4 border-r border-slate-700 pr-5">
+                       <button 
+                        onClick={() => {
+                          if(!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
+                          saveSettingsToCloud();
+                        }}
+                        title="구글 시트에 현재 설정 반영"
+                        className="px-3 py-1.5 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded-lg text-xs font-bold hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2"
+                      >
+                        <Save size={14} /> 설정 클라우드 저장
+                      </button>
+                      <button 
+                        onClick={() => {
+                          if(!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
+                          loadSettingsFromCloud();
+                        }}
+                        title="구글 시트에서 최신 설정 가져오기"
+                        className="px-3 py-1.5 bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold hover:bg-slate-700 transition-all flex items-center gap-2"
+                      >
+                        <RefreshCw size={14} /> 설정 불러오기
+                      </button>
+                    </div>
+                    <button onClick={() => setIsSettingsModalOpen(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={24} /></button>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-hidden flex bg-white">
+                  {/* Left Sidebar: HQ List */}
+                  <div className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col">
+                    <div className="p-4 border-b border-slate-200 bg-white">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">본부 목록</p>
+                    </div>
+                    <div className="flex-1 overflow-auto p-2 space-y-1">
+                      {hqSettings.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => setActiveHqId(s.id)}
+                          className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between group ${
+                            activeHqId === s.id 
+                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+                              : 'text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          <div className="flex flex-col">
+                            <span className="text-[13px] font-bold truncate">{s.hqName}</span>
+                            <span className={`text-[10px] ${activeHqId === s.id ? 'text-blue-100' : 'text-slate-400'}`}>
+                              상품 {s.productRules.length}개
+                            </span>
+                          </div>
+                          <ChevronRight size={14} className={activeHqId === s.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} />
+                        </button>
+                      ))}
+                    </div>
+                    <div className="p-4 border-t border-slate-200">
+                      <button 
+                        onClick={() => {
+                          const name = prompt('새로운 본부/거래처명을 입력하세요');
+                          if (!name) return;
+                          const newId = `hq-${Date.now()}`;
+                          const newHq: HQSetting = {
+                            id: newId,
+                            hqName: name,
+                            bankName: '-', accountNumber: '-', accountHolder: '-',
+                            paymentMethod: '계좌이체',
+                            enableOverriding: false,
+                            overriding: { salesperson: 100, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' },
+                            productRules: []
+                          };
+                          setHqSettings([...hqSettings, newHq]);
+                          setActiveHqId(newId);
+                        }}
+                        className="w-full py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-black transition-all"
+                      >
+                        <Plus size={14} /> 본부 추가
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Right Content: Details & Rules */}
+                  <div className="flex-1 flex flex-col overflow-hidden bg-white">
+                    {activeHqId ? (
+                      (() => {
+                        const s = hqSettings.find(h => h.id === activeHqId);
+                        if (!s) return <div className="flex-1 flex items-center justify-center text-slate-400">본부를 선택해 주세요.</div>;
+                        return (
+                          <div className="flex-1 flex flex-col overflow-hidden">
+                            {/* HQ Header & Bank Info */}
+                            <div className="p-8 border-b border-slate-100 bg-slate-50/50">
+                              <div className="flex justify-between items-start mb-6">
+                                <div>
+                                  <h4 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+                                    {s.hqName}
+                                    <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-600 rounded uppercase tracking-tighter">정산 마스터</span>
+                                  </h4>
+                                  <p className="text-xs text-slate-400 mt-1">ID: {s.id} | 거래처별 맞춤 정산 규칙을 설정합니다.</p>
+                                </div>
+                                <button 
+                                  onClick={() => {
+                                    if(confirm(`${s.hqName} 설정을 삭제하시겠습니까?`)) {
+                                      setHqSettings(hqSettings.filter(h => h.id !== s.id));
+                                      setActiveHqId(null);
+                                    }
+                                  }}
+                                  className="px-3 py-1.5 text-rose-500 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all border border-rose-100"
+                                >
+                                  본부 삭제
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-6">
+                                <div className="flex flex-col gap-1.5">
+                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">입금은행</label>
+                                  <input 
+                                    type="text" value={s.bankName}
+                                    onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, bankName: e.target.value } : h))}
+                                    className="p-3 bg-white border border-slate-200 rounded-xl text-[13px] font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">계좌번호</label>
+                                  <input 
+                                    type="text" value={s.accountNumber}
+                                    onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, accountNumber: e.target.value } : h))}
+                                    className="p-3 bg-white border border-slate-200 rounded-xl text-[13px] font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">수취인성명</label>
+                                  <input 
+                                    type="text" value={s.accountHolder}
+                                    onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, accountHolder: e.target.value } : h))}
+                                    className="p-3 bg-white border border-slate-200 rounded-xl text-[13px] font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Product Rules Unified Table */}
+                            <div className="flex-1 overflow-auto p-8">
+                              <div className="flex justify-between items-center mb-4">
+                                <h5 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                                  <Package size={16} className="text-blue-500" />
+                                  상품별 수수료 및 구간 설정
+                                </h5>
+                                <button 
+                                  onClick={() => {
+                                    const name = prompt('추가할 상품명을 입력하세요');
+                                    if (!name) return;
+                                    const newRule: ProductRule = {
+                                      productName: name, totalAmount: 0, salesAmount: 0,
+                                      tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0
+                                    };
+                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: [...h.productRules, newRule] } : h));
+                                  }}
+                                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-slate-900 transition-all flex items-center gap-2"
+                                >
+                                  <Plus size={14} /> 상품 추가
+                                </button>
+                              </div>
+
+                              <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm bg-white">
+                                <table className="w-full text-[12px] border-collapse">
+                                  <thead>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black uppercase tracking-tighter">
+                                      <th className="px-4 py-3 text-left w-[20%]">상품명</th>
+                                      <th className="px-4 py-3 text-right">전체</th>
+                                      <th className="px-4 py-3 text-right">판매</th>
+                                      <th className="px-4 py-3 text-right text-orange-600">촉진</th>
+                                      <th className="px-4 py-3 text-center border-l border-slate-100 bg-blue-50/30">구간별 수수료 설정 (건 / 단가)</th>
+                                      <th className="px-4 py-3 text-center">삭제</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {s.productRules.map((pr, pIdx) => (
+                                      <tr key={pIdx} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-4 py-3 font-bold text-slate-700">
+                                          <input 
+                                            type="text" value={pr.productName}
+                                            onChange={(e) => {
+                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, productName: e.target.value } : r);
+                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                            }}
+                                            className="w-full bg-transparent border-0 font-bold outline-none focus:text-blue-600"
+                                          />
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <input 
+                                            type="number" value={pr.totalAmount}
+                                            onChange={(e) => {
+                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, totalAmount: parseInt(e.target.value) || 0 } : r);
+                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                            }}
+                                            className="w-full bg-transparent border-0 text-right font-black outline-none"
+                                          />
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <input 
+                                            type="number" value={pr.salesAmount}
+                                            onChange={(e) => {
+                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, salesAmount: parseInt(e.target.value) || 0 } : r);
+                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                            }}
+                                            className="w-full bg-transparent border-0 text-right font-bold text-blue-600 outline-none"
+                                          />
+                                        </td>
+                                        <td className="px-4 py-3 text-right font-bold text-orange-500">
+                                          {(pr.totalAmount - pr.salesAmount).toLocaleString()}
+                                        </td>
+                                        <td className="px-2 py-3 border-l border-slate-100 bg-blue-50/10">
+                                          <div className="flex flex-col gap-1.5">
+                                            {[1, 2, 3].map(t => (
+                                              <div key={t} className="flex items-center gap-1 bg-white p-1 rounded border border-slate-100 shadow-sm">
+                                                <span className="text-[9px] font-black text-indigo-400 min-w-[12px]">{t}</span>
+                                                <input 
+                                                  type="number" value={(pr as any)[`tier${t}Count`]}
+                                                  onChange={(e) => {
+                                                    const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Count`]: parseInt(e.target.value) || 0 } : r);
+                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                  }}
+                                                  className="w-8 text-[10px] text-center outline-none"
+                                                  placeholder="건"
+                                                />
+                                                <span className="text-[8px] text-slate-300">↑</span>
+                                                <input 
+                                                  type="number" value={(pr as any)[`tier${t}Price`]}
+                                                  onChange={(e) => {
+                                                    const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: parseInt(e.target.value) || 0 } : r);
+                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                  }}
+                                                  className="w-14 text-[10px] text-right outline-none font-bold text-indigo-600"
+                                                  placeholder="단가"
+                                                />
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                          <button 
+                                            onClick={() => {
+                                              if(confirm('삭제하시겠습니까?')) {
+                                                const updated = s.productRules.filter((_, i) => i !== pIdx);
+                                                setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                              }
+                                            }}
+                                            className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded transition-colors"
+                                          >
+                                            <X size={14} />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                {s.productRules.length === 0 && (
+                                  <div className="py-12 text-center text-slate-300 text-xs font-bold">등록된 상품이 없습니다.</div>
+                                )}
+                              </div>
+
+                              {/* Overriding Configuration */}
+                              <div className="mt-8 p-6 bg-indigo-50 rounded-2xl border border-indigo-100">
+                                <div className="flex items-center justify-between mb-4">
+                                  <div className="flex flex-col">
+                                    <h5 className="text-sm font-black text-indigo-900 flex items-center gap-2">
+                                      <Users size={16} /> 오버라이딩 배분 구조
+                                    </h5>
+                                    <p className="text-[10px] text-indigo-400 mt-0.5">수수료를 각 직급별로 나누어 정산하는 구조를 설정합니다.</p>
+                                  </div>
+                                  <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-indigo-200">
+                                      <span className="text-[11px] font-bold text-indigo-600">방식</span>
+                                      <select 
+                                        value={s.overriding.mode || 'percent'}
+                                        onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, overriding: { ...h.overriding, mode: e.target.value as any } } : h))}
+                                        className="bg-transparent text-[11px] font-black text-slate-700 focus:outline-none cursor-pointer"
+                                      >
+                                        <option value="percent">퍼센트 (%)</option>
+                                        <option value="fixed">고정금액 (₩)</option>
+                                      </select>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] font-bold text-indigo-400">활성화</span>
+                                      <input 
+                                        type="checkbox" checked={s.enableOverriding}
+                                        onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, enableOverriding: e.target.checked } : h))}
+                                        className="w-4 h-4 rounded text-indigo-600 cursor-pointer"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-4 gap-4">
+                                  {[
+                                    { key: 'salesperson', label: '영업사원' },
+                                    { key: 'teamLeader', label: '팀장' },
+                                    { key: 'branchManager', label: '지점장' },
+                                    { key: 'hqManager', label: '본부장' }
+                                  ].map(f => (
+                                    <div key={f.key} className="flex flex-col gap-1">
+                                      <label className="text-[10px] font-bold text-indigo-400">
+                                        {f.label} ({s.overriding.mode === 'fixed' ? '₩' : '%'})
+                                      </label>
+                                      <input 
+                                        type="number" step={s.overriding.mode === 'fixed' ? "1000" : "0.1"} value={(s.overriding as any)[f.key]}
+                                        onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, overriding: { ...h.overriding, [f.key]: parseFloat(e.target.value) || 0 } } : h))}
+                                        className="p-2.5 bg-white border border-indigo-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-300 transition-all"
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400">
+                        <Building size={48} className="mb-4 opacity-20" />
+                        <p className="font-bold">좌측 리스트에서 본부를 선택하여 설정을 시작하세요.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* 7. 정산서 생성 모달 */}
+        <AnimatePresence>
+          {isSettlementModalOpen && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsSettlementModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+                <div className="px-6 py-4 border-b border-slate-100 bg-orange-50 text-orange-900 flex justify-between items-center">
+                  <h3 className="text-base font-bold flex items-center gap-2"><Download size={18} /> 수수료 정산서 생성 (XLSX)</h3>
+                  <button onClick={() => setIsSettlementModalOpen(false)} className="p-2 hover:bg-orange-100 rounded-full transition-colors"><X size={20} /></button>
+                </div>
+                <div className="p-8 flex flex-col items-center gap-6">
+                  <div className="w-full">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">정산 대상 월 선택</label>
+                    <input 
+                      type="month" 
+                      id="settlementMonth"
+                      defaultValue={new Date().toISOString().slice(0, 7)}
+                      className="w-full p-3 border border-slate-200 rounded-xl text-lg font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-400 transition-all font-mono"
+                    />
+                  </div>
+                  <div className="p-4 bg-amber-50 rounded-lg text-[12px] text-amber-800 border border-amber-100 leading-relaxed italic">
+                    * 수수료지급일(O열) 기준으로 데이터를 필터링하여 엑셀 파일을 생성합니다. 본부별 정산 설정이 완료되어 있어야 정확한 금액이 산출됩니다.
+                  </div>
+                  <motion.button 
+                    whileHover={{ scale: 1.02, backgroundColor: '#ea580c' }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      const monthInput = document.getElementById('settlementMonth') as HTMLInputElement;
+                      exportCommissionToExcel(monthInput.value);
+                      setIsSettlementModalOpen(false);
+                    }}
+                    className="w-full py-4 bg-orange-500 text-white rounded-xl shadow-lg shadow-orange-500/20 text-base font-bold flex items-center justify-center gap-2"
+                  >
+                    <Download size={18} />
+                    정산서(XLSX) 생성하기
+                  </motion.button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {isMonthlyDashboardModalOpen && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMonthlyDashboardModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="relative bg-slate-50 w-full max-w-6xl rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[90vh]"
+              >
+                <div className="px-8 py-6 bg-white border-b border-slate-200 flex justify-between items-center">
+                  <div className="flex items-center gap-4">
+                    <div className="bg-indigo-600 p-2.5 rounded-2xl shadow-lg shadow-indigo-200 text-white">
+                      <TrendingUp size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-900 leading-tight">월별 통합 정산 내역</h3>
+                      <p className="text-[12px] font-bold text-slate-400 tracking-tight">월별 지급 현황 및 상품/본부별 상세 통계</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setIsMonthlyDashboardModalOpen(false)} className="p-3 hover:bg-slate-100 rounded-full text-slate-400">
+                    <X size={24} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-auto p-8 space-y-12">
+                  {monthlyStats.map(([month, stat]) => (
+                    <section key={month} className="space-y-6">
+                      <div className="flex items-center justify-between border-b-2 border-slate-200 pb-3">
+                        <div className="flex items-center gap-3">
+                          <h4 className="text-2xl font-black text-slate-900">{month} 정산 Summary</h4>
+                          <span className="px-3 py-1 bg-indigo-100 text-indigo-700 text-[11px] font-black rounded-lg">{stat.totalCount}건 집계됨</span>
+                        </div>
+                        <div className="text-3xl font-black text-indigo-600">{stat.totalAmount.toLocaleString()}원</div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* 상품별 요약 */}
+                        <div className="space-y-4">
+                          <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                            <CreditCard size={14} className="text-emerald-500" /> 상품별 지급 통계
+                          </h5>
+                          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className="bg-slate-50 border-b border-slate-100">
+                                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">상품명</th>
+                                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase text-center">건수</th>
+                                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase text-right">총액</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                { (Object.entries(stat.products) as [string, { count: number, amount: number }][]).map(([pName, pStat]) => (
+                                  <tr key={pName} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                    <td className="px-4 py-3 text-xs font-bold text-slate-700">{pName}</td>
+                                    <td className="px-4 py-3 text-xs text-center text-slate-500 font-bold">{pStat.count}</td>
+                                    <td className="px-4 py-3 text-xs text-right font-black text-slate-900">{pStat.amount.toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* 본부별 요약 */}
+                        <div className="space-y-4">
+                          <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                            <Users size={14} className="text-blue-500" /> 본부별 지급 통계
+                          </h5>
+                          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className="bg-slate-50 border-b border-slate-100">
+                                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">본부명</th>
+                                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase text-center">건수</th>
+                                  <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase text-right">총액</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                { (Object.entries(stat.hqs) as [string, { count: number, amount: number }][]).map(([hqName, hStat]) => (
+                                  <tr key={hqName} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                    <td className="px-4 py-3 text-xs font-bold text-slate-700">{hqName}</td>
+                                    <td className="px-4 py-3 text-xs text-center text-slate-500 font-bold">{hStat.count}</td>
+                                    <td className="px-4 py-3 text-xs text-right font-black text-slate-900">{hStat.amount.toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  ))}
+                  
+                  {monthlyStats.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-20 opacity-20">
+                      <Search size={64} className="mb-4" />
+                      <p className="font-bold">정산 데이터가 없습니다.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="px-8 py-5 bg-white border-t border-slate-200 flex justify-end">
+                  <button onClick={() => setIsMonthlyDashboardModalOpen(false)} className="px-8 py-3 bg-slate-900 text-white rounded-xl text-sm font-black shadow-lg">확인 완료</button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {isMemoHistoryModalOpen && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMemoHistoryModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="relative bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[80vh]"
+              >
+                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-yellow-50">
+                  <h3 className="text-base font-bold text-yellow-900 flex items-center gap-2">
+                    <StickyNote size={18} className="text-yellow-600" /> 날짜별 메모 히스토리
+                  </h3>
+                  <button 
+                    onClick={() => setIsMemoHistoryModalOpen(false)}
+                    className="p-2 hover:bg-yellow-100 rounded-full transition-colors text-yellow-800"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-auto p-6">
+                  {(() => {
+                    const itemsWithMemo = data.filter(item => item.memo && item.memo.trim() !== '');
+                    const groupedByDate: { [key: string]: ERPDataItem[] } = {};
+                    
+                    itemsWithMemo.forEach(item => {
+                      const date = item.payDate || '지급일 미상';
+                      if (!groupedByDate[date]) groupedByDate[date] = [];
+                      groupedByDate[date].push(item);
+                    });
+
+                    const sortedDates = Object.keys(groupedByDate).sort((a, b) => b.localeCompare(a));
+
+                    if (sortedDates.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center justify-center h-full py-20 text-slate-400">
+                          <StickyNote size={48} className="mb-4 opacity-20" />
+                          <p className="text-sm font-bold">등록된 메모가 없습니다.</p>
+                        </div>
+                      );
+                    }
+
+                    return sortedDates.map(date => (
+                      <div key={date} className="mb-8 last:mb-0">
+                        <div className="flex items-center gap-3 mb-4 sticky top-0 bg-white py-2 z-10 border-b border-slate-50">
+                          <div className="w-1.5 h-6 bg-yellow-400 rounded-full" />
+                          <span className="text-lg font-black text-slate-900">{date}</span>
+                          <span className="text-[11px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100">
+                            {groupedByDate[date].length}건의 메모
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {groupedByDate[date].map(item => (
+                            <div 
+                              key={item.uniqueKey} 
+                              className="p-4 bg-yellow-50/50 border border-yellow-100 rounded-2xl hover:border-yellow-300 transition-all cursor-pointer group"
+                              onClick={() => {
+                                setSelectedItem(item);
+                                setIsMemoHistoryModalOpen(false);
+                              }}
+                            >
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="text-[12px] font-black text-slate-800">{item.memName} <span className="text-slate-400 font-normal">({item.hq})</span></span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-white text-slate-500 rounded border border-yellow-100">{item.prodName}</span>
+                              </div>
+                              <p className="text-[13px] text-yellow-800 font-medium leading-relaxed bg-white/60 p-2.5 rounded-xl border border-yellow-100 group-hover:bg-white transition-colors">
+                                {item.memo}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+                  <button 
+                    onClick={() => setIsMemoHistoryModalOpen(false)}
+                    className="px-6 py-2 bg-slate-900 text-white rounded-xl text-sm font-bold shadow-md"
+                  >
+                    닫기
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+      </div>
+    </div>
+  );
+};
+
+const DetailItem = ({ label, value, className = "" }: { label: string, value: any, className?: string }) => (
+  <div className={`p-3 bg-slate-50 border border-slate-100 rounded-lg ${className}`}>
+    <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">{label}</div>
+    <div className="text-[13px] text-slate-700 font-medium truncate">{value || '-'}</div>
+  </div>
+);
+
+export default ERP_Dashboard;
