@@ -191,6 +191,32 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Settings Operations
+
+// 구글 시트의 시스템설정 탭 완전 초기화 (꼬인 데이터 복구용)
+app.post('/api/sheets/settings/reset', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: sheetId,
+      range: '시스템설정',
+    });
+    console.log('[CloudSync] 시스템설정 탭 초기화 완료');
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('[CloudSync] Reset error:', error.message);
+    return handleGoogleError(error, res);
+  }
+});
+
 app.post('/api/sheets/settings/save', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
@@ -228,7 +254,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     // Flatten HQ settings into tabular data
     // Header: ID, 본부명, 은행, 계좌, 예금주, 지급방식, 오버라이딩Y/N, 영업%, 팀장%, 지사%, 본부%, 상품명, 전체수수료, 판매수수료, 판매촉진비, 구간1건, 단가1, 구간2건, 단가2, 구간3건, 단가3
     const headers = [
-      '본부ID', '본부명', '은행', '계좌번호', '예금주', '지급방식', '오버라이딩활성', 
+      '본부ID', '본부명', '정산유형', '은행', '계좌번호', '예금주', '지급방식', '오버라이딩활성', 
       '비율(영업)', '비율(팀장)', '비율(지사)', '비율(본부)', 
       '상품명', '전체수수료', '판매수수료', '판매촉진비', '구간1건', '구간1단가', '구간2건', '구간2단가', '구간3건', '구간3단가'
     ];
@@ -239,6 +265,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       const baseInfo = [
         hq.id,
         hq.hqName,
+        hq.settlementType || '사업자',  // 정산유형 추가
         hq.bankName,
         hq.accountNumber,
         hq.accountHolder,
@@ -346,44 +373,79 @@ app.get('/api/sheets/settings/load', async (req, res) => {
       return res.json({ settings: null });
     }
 
-    // Skip headers and build hqMap
+    // 헤더 행을 읽어 열 인덱스를 동적으로 파악 (열 순서 변경에 강건하게 처리)
+    const headerRow = (rows[0] || []).map((h: any) => (String(h) || '').trim());
+    const col = (name: string) => headerRow.indexOf(name);
+
+    const idCol = col('본부ID');
+    const hqNameCol = col('본부명');
+    
+    // 필수 헤더가 없으면 데이터가 꼬인 것으로 간주하고 로드 중단
+    if (idCol === -1 || hqNameCol === -1) {
+      console.error("[CloudSync] Essential headers (본부ID, 본부명) missing. Reset required.");
+      return res.status(422).json({ error: '구글 시트의 데이터 구조가 올바르지 않습니다. 설정 초기화가 필요합니다.' });
+    }
+
+    const settlementTypeCol = col('정산유형');
+    const bankCol = col('은행');
+    const accountNumberCol = col('계좌번호');
+    const accountHolderCol = col('예금주');
+    const paymentMethodCol = col('지급방식');
+    const overridingCol = col('오버라이딩활성');
+    const salespersonCol = col('비율(영업)');
+    const teamLeaderCol = col('비율(팀장)');
+    const branchManagerCol = col('비율(지사)');
+    const hqManagerCol = col('비율(본부)');
+    const productNameCol = col('상품명');
+    const totalAmountCol = col('전체수수료');
+    const salesAmountCol = col('판매수수료');
+    const tier1CountCol = col('구간1건');
+    const tier1PriceCol = col('구간1단가');
+    const tier2CountCol = col('구간2건');
+    const tier2PriceCol = col('구간2단가');
+    const tier3CountCol = col('구간3건');
+    const tier3PriceCol = col('구간3단가');
+
+    console.log(`[CloudSync] Header detected: id=${idCol}, settlementType=${settlementTypeCol}, bank=${bankCol}`);
+
     const hqMap = new Map<string, any>();
     
-    rows.slice(1).forEach(row => {
-      const id = row[0];
+    rows.slice(1).forEach((row: string[]) => {
+      const id = idCol >= 0 ? row[idCol] : row[0];
       if (!id) return;
 
       if (!hqMap.has(id)) {
         hqMap.set(id, {
           id,
-          hqName: row[1] || '',
-          bankName: row[2] || '',
-          accountNumber: row[3] || '',
-          accountHolder: row[4] || '',
-          paymentMethod: row[5] || '',
-          enableOverriding: row[6] === 'Y',
+          hqName: hqNameCol >= 0 ? (row[hqNameCol] || '') : (row[1] || ''),
+          settlementType: settlementTypeCol >= 0 ? (row[settlementTypeCol] || '사업자') : '사업자',
+          bankName: bankCol >= 0 ? (row[bankCol] || '') : '',
+          accountNumber: accountNumberCol >= 0 ? (row[accountNumberCol] || '') : '',
+          accountHolder: accountHolderCol >= 0 ? (row[accountHolderCol] || '') : '',
+          paymentMethod: paymentMethodCol >= 0 ? (row[paymentMethodCol] || '') : '',
+          enableOverriding: overridingCol >= 0 ? row[overridingCol] === 'Y' : false,
           overriding: {
-            salesperson: Number(row[7]) || 0,
-            teamLeader: Number(row[8]) || 0,
-            branchManager: Number(row[9]) || 0,
-            hqManager: Number(row[10]) || 0
+            salesperson: salespersonCol >= 0 ? (Number(row[salespersonCol]) || 0) : 0,
+            teamLeader: teamLeaderCol >= 0 ? (Number(row[teamLeaderCol]) || 0) : 0,
+            branchManager: branchManagerCol >= 0 ? (Number(row[branchManagerCol]) || 0) : 0,
+            hqManager: hqManagerCol >= 0 ? (Number(row[hqManagerCol]) || 0) : 0,
           },
           productRules: []
         });
       }
 
-      const productName = row[11];
+      const productName = productNameCol >= 0 ? row[productNameCol] : undefined;
       if (productName && productName !== '-') {
         hqMap.get(id).productRules.push({
           productName,
-          totalAmount: Number(row[12]) || 0,
-          salesAmount: Number(row[13]) || 0,
-          tier1Count: Number(row[15]) || 0,
-          tier1Price: Number(row[16]) || 0,
-          tier2Count: Number(row[17]) || 0,
-          tier2Price: Number(row[18]) || 0,
-          tier3Count: Number(row[19]) || 0,
-          tier3Price: Number(row[20]) || 0
+          totalAmount: totalAmountCol >= 0 ? (Number(row[totalAmountCol]) || 0) : 0,
+          salesAmount: salesAmountCol >= 0 ? (Number(row[salesAmountCol]) || 0) : 0,
+          tier1Count: tier1CountCol >= 0 ? (Number(row[tier1CountCol]) || 0) : 0,
+          tier1Price: tier1PriceCol >= 0 ? (Number(row[tier1PriceCol]) || 0) : 0,
+          tier2Count: tier2CountCol >= 0 ? (Number(row[tier2CountCol]) || 0) : 0,
+          tier2Price: tier2PriceCol >= 0 ? (Number(row[tier2PriceCol]) || 0) : 0,
+          tier3Count: tier3CountCol >= 0 ? (Number(row[tier3CountCol]) || 0) : 0,
+          tier3Price: tier3PriceCol >= 0 ? (Number(row[tier3PriceCol]) || 0) : 0,
         });
       }
     });

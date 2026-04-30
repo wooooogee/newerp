@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, Plus, User, Briefcase, StickyNote } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-// @ts-ignore
-import XLSX from 'xlsx-js-style';
-// @ts-ignore
-import html2pdf from 'html2pdf.js';
+// @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
+// window.XLSX는 index.html의 CDN 스크립트에서 로드됨
+const XLSX = (window as any).XLSX;
+
+// 전역 window 객체에서 html2pdf 참조 (CDN 방식 호환)
+const getHtml2Pdf = () => (window as any).html2pdf;
 
 interface ERPDataItem {
   uniqueKey: string;
@@ -25,7 +27,8 @@ interface ERPDataItem {
   empName: string;        // J(9)
   hc: string;             // P,Q,R(15,16,17) combined
   hcRegDate: string;      // S(18)
-  paymentStatus: string;  // T(19)? Let's check
+  paymentStatus: string;  // T(19)
+  status: string;         // B(1)
   memo: string;           // U(20)?
   raw: any[];
 }
@@ -54,7 +57,7 @@ interface HQSetting {
   accountNumber: string;
   accountHolder: string;
   paymentMethod: string;
-  
+
   // 오버라이딩 활성화 여부 및 상세 설정
   enableOverriding: boolean;
   overriding: {
@@ -65,6 +68,7 @@ interface HQSetting {
     mode: 'percent' | 'fixed';
   };
 
+  settlementType: '사업자' | '개인';
   productRules: ProductRule[];
 }
 
@@ -79,85 +83,117 @@ const PRODUCT_SEEDS: [string, number, number][] = [
 
 // 마스터 기초 데이터 (본부별 계좌 및 수수료 설정)
 const MASTER_HQ_DATA: Partial<HQSetting>[] = [
-  { hqName: '리치웰페어', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 770000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 160000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '한가득플러스', bankName: '우리', accountNumber: '1005304615801', accountHolder: '(주)한가득플러스', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 700000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합540플러스', totalAmount: 570000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합360플러스', totalAmount: 270000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '맥스', bankName: '우리', accountNumber: '1005603174407', accountHolder: '김학민(골프존파크', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '더라이프앤', bankName: '하나', accountNumber: '79391040692907', accountHolder: '박인천(더드림)', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '더원시스템', bankName: '하나', accountNumber: '17291002173204', accountHolder: '주식회사 더원시스템', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 700000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '위더스앤씨', bankName: '기업', accountNumber: '49707471104012', accountHolder: '주식회사 위더스앤씨', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 680000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은라이즈498', totalAmount: 680000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '커런시마켓', bankName: '하나', accountNumber: '77991002664704', accountHolder: '주식회사 커런시마켓', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 720000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '드라마플라워', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '파파쿡', bankName: 'MG새마을금고', accountNumber: '9003293506338', accountHolder: '박진우(파파쿡)', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '글로씨', bankName: '카카오뱅크', accountNumber: '3333133132556', accountHolder: '이동현', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '웰다잉라이프', bankName: '기업', accountNumber: '16417285904019', accountHolder: '박서영(웰다잉라이프)', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '뷰티가이', bankName: '기업', accountNumber: '116-132917-01-018', accountHolder: '서정일 (뷰티가이)', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '파란하늘', bankName: '기업', accountNumber: '185-096869-02-019', accountHolder: '파란하늘(노은경)', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
+  {
+    hqName: '리치웰페어', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 770000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (1회차)', totalAmount: 160000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '한가득플러스', bankName: '우리', accountNumber: '1005304615801', accountHolder: '(주)한가득플러스', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 700000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합540플러스', totalAmount: 570000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합360플러스', totalAmount: 270000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '맥스', bankName: '우리', accountNumber: '1005603174407', accountHolder: '김학민(골프존파크', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '더라이프앤', bankName: '하나', accountNumber: '79391040692907', accountHolder: '박인천(더드림)', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '더원시스템', bankName: '하나', accountNumber: '17291002173204', accountHolder: '주식회사 더원시스템', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 700000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '위더스앤씨', bankName: '기업', accountNumber: '49707471104012', accountHolder: '주식회사 위더스앤씨', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 680000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은라이즈498', totalAmount: 680000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '커런시마켓', bankName: '하나', accountNumber: '77991002664704', accountHolder: '주식회사 커런시마켓', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 720000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '드라마플라워', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '파파쿡', bankName: 'MG새마을금고', accountNumber: '9003293506338', accountHolder: '박진우(파파쿡)', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '글로씨', bankName: '카카오뱅크', accountNumber: '3333133132556', accountHolder: '이동현',
+    settlementType: '개인/프리랜서', // 원천세 3.3% 대상
+    productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 595000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '웰다잉라이프', bankName: '기업', accountNumber: '16417285904019', accountHolder: '박서영(웰다잉라이프)', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '뷰티가이', bankName: '기업', accountNumber: '116-132917-01-018', accountHolder: '서정일 (뷰티가이)', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '파란하늘', bankName: '기업', accountNumber: '185-096869-02-019', accountHolder: '파란하늘(노은경)', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 650000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (1회차)', totalAmount: 60000, salesAmount: 60000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은헬스케어580 (유지)', totalAmount: 10000, salesAmount: 0, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
   { hqName: '조민경', bankName: '카카오뱅크', accountNumber: '3333027476861', accountHolder: '조민경', productRules: [] },
   { hqName: '조재윤', bankName: '수협', accountNumber: '206000673009', accountHolder: '조재윤', productRules: [] },
-  { hqName: '다이렉트', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 665000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-    { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
-  { hqName: '어센틱(구)', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
-    { productName: '더좋은하이브리드698', totalAmount: 665000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-  ]},
+  {
+    hqName: '다이렉트', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 665000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
+  {
+    hqName: '어센틱(구)', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 665000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
 ];
 
 const ERP_Dashboard = () => {
@@ -179,6 +215,8 @@ const ERP_Dashboard = () => {
   const [selectedItem, setSelectedItem] = useState<ERPDataItem | null>(null);
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [saveSettingsStatus, setSaveSettingsStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [isDailyDashboardModalOpen, setIsDailyDashboardModalOpen] = useState(false);
   const [isMonthlyDashboardModalOpen, setIsMonthlyDashboardModalOpen] = useState(false);
   const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
@@ -191,7 +229,7 @@ const ERP_Dashboard = () => {
   const [activeHqId, setActiveHqId] = useState<string | null>(null);
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const allDatesWithData = React.useMemo(() => {
     return new Set(data.map(item => item.payDate.replace(/[-/]/g, '.')).filter(Boolean));
   }, [data]);
@@ -205,7 +243,7 @@ const ERP_Dashboard = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rowIdx, colIdx, newValue })
       });
-      
+
       if (!res.ok) {
         if (res.status === 401) {
           setIsAuthenticated(false);
@@ -214,7 +252,7 @@ const ERP_Dashboard = () => {
         const errorData = await res.json();
         throw new Error(errorData.error || '업데이트 실패');
       }
-      
+
       setNotification({ message: '시트가 성공적으로 업데이트되었습니다.', type: 'success' });
       loadData(); // 데이터 새로고침
     } catch (err) {
@@ -226,7 +264,7 @@ const ERP_Dashboard = () => {
   };
 
 
-  
+
 
 
 
@@ -245,6 +283,7 @@ const ERP_Dashboard = () => {
       paymentMethod: '계좌이체',
       enableOverriding: false,
       overriding: { salesperson: 70, teamLeader: 10, branchManager: 10, hqManager: 10, mode: 'percent' },
+      settlementType: m.settlementType || '사업자',
       productRules: m.productRules || []
     }));
   });
@@ -258,6 +297,7 @@ const ERP_Dashboard = () => {
 
   const saveSettingsToCloud = async () => {
     if (!isAuthenticated) return;
+    setSaveSettingsStatus('saving');
     try {
       const res = await fetch('/api/sheets/settings/save', {
         method: 'POST',
@@ -265,10 +305,14 @@ const ERP_Dashboard = () => {
         body: JSON.stringify({ settings: hqSettings })
       });
       if (!res.ok) throw new Error('Cloud save failed');
-      setNotification({ message: '본부 설정이 구글 시트에 안전하게 저장되었습니다.', type: 'success' });
+      setSaveSettingsStatus('success');
+      setNotification({ message: '본부 설정이 구글 시트에 저장되었습니다.', type: 'success' });
+      setTimeout(() => setSaveSettingsStatus('idle'), 3000);
     } catch (err) {
       console.error(err);
+      setSaveSettingsStatus('error');
       alert('설정 저장 중 오류가 발생했습니다.');
+      setTimeout(() => setSaveSettingsStatus('idle'), 3000);
     }
   };
 
@@ -291,6 +335,42 @@ const ERP_Dashboard = () => {
       loadSettingsFromCloud();
     }
   }, [isAuthenticated]);
+
+  // 구글 시트 + 로컬 설정을 완전 초기화하고 MASTER_HQ_DATA로 재설정
+  const resetSettingsToDefault = async () => {
+    if (!window.confirm('⚠️ 주의: 모든 본부 설정(계좌정보, 수수료 등)이 초기값으로 리셋됩니다.\n기존에 저장된 모든 데이터가 삭제됩니다. 계속하시겠습니까?')) return;
+
+    // 즉각적인 로컬 UI 초기화
+    const defaultSettings = MASTER_HQ_DATA.map((m, idx) => ({
+      id: `hq-${idx + 1}`,
+      hqName: m.hqName || '신규본부',
+      bankName: m.bankName || '-',
+      accountNumber: m.accountNumber || '-',
+      accountHolder: m.accountHolder || '-',
+      paymentMethod: '계좌이체',
+      enableOverriding: false,
+      overriding: { salesperson: 70, teamLeader: 10, branchManager: 10, hqManager: 10, mode: 'percent' },
+      settlementType: m.settlementType || '사업자',
+      productRules: m.productRules || []
+    }));
+
+    setHqSettings(defaultSettings);
+    localStorage.removeItem('erp_hq_settings');
+    setActiveHqId('hq-1'); // 첫 번째 본부로 선택 이동
+
+    try {
+      // 서버 데이터 초기화 요청
+      if (isAuthenticated) {
+        await fetch('/api/sheets/settings/reset', { method: 'POST' });
+        setNotification({ message: '구글 시트와 로컬 설정이 모두 초기화되었습니다.', type: 'success' });
+      } else {
+        setNotification({ message: '로컬 설정이 초기화되었습니다. (구글 연동 안됨)', type: 'success' });
+      }
+    } catch (err) {
+      console.error('Reset error:', err);
+      setNotification({ message: '로컬은 초기화되었으나 구글 시트 삭제 중 오류가 발생했습니다.', type: 'error' });
+    }
+  };
 
   const [selectedHqIdForOv, setSelectedHqIdForOv] = useState<string | null>(null);
   const [selectedHqIdForRules, setSelectedHqIdForRules] = useState<string | null>(null);
@@ -320,7 +400,7 @@ const ERP_Dashboard = () => {
     try {
       const res = await fetch('/api/auth/url');
       const authData = await res.json();
-      
+
       if (!res.ok) {
         const errorInfo = authData.error || '알 수 없는 서버 오류';
         alert(`[연동 준비 실패] ${errorInfo}\n\n리디렉션 URI 설정 문제일 수 있습니다.\n현재 앱의 리디렉션 URI: ${authData.redirectUri || '확인 불가'}`);
@@ -328,7 +408,7 @@ const ERP_Dashboard = () => {
       }
 
       const popup = window.open(authData.url, 'google_auth', 'width=600,height=700');
-      
+
       if (!popup) {
         alert('팝업 차단이 설정되어 있습니다. 팝업을 허용해 주세요.');
         return;
@@ -369,10 +449,10 @@ const ERP_Dashboard = () => {
       if (!isAuthenticated) {
         // Mock data if not authenticated for preview
         const initialData: ERPDataItem[] = [
-          { 
+          {
             uniqueKey: 'mock-1',
             originalRowIdx: 2,
-            contractDate: '2026-04-16', 
+            contractDate: '2026-04-16',
             memNo: 'M12345',
             memName: '홍길동',
             resNo: '800101-1',
@@ -390,7 +470,7 @@ const ERP_Dashboard = () => {
             paymentStatus: '',
             hcRegDate: '2026-04-16',
             memo: '',
-            raw: new Array(30).fill('보류 데이터') 
+            raw: new Array(30).fill('보류 데이터')
           },
         ];
         setData(initialData);
@@ -409,14 +489,14 @@ const ERP_Dashboard = () => {
       const sheetData = await res.json();
       const sheetHeaders = sheetData[0] || [];
       setHeaders(sheetHeaders);
-      
+
       const formatted: ERPDataItem[] = sheetData.slice(1)
         .map((row: any[], idx: number) => ({ row, idx: idx + 1 })) // 원래 인덱스 유지 (헤더 제외하므로 +1)
-        .filter(({ row }) => isDate(String(row[0])) && !String(row[1] || '').includes('취소')) // A열이 날짜이면서 B열에 '취소'가 없는 데이터만
+        .filter(({ row }) => isDate(String(row[0]))) // A열이 날짜인 데이터만 (B열 취소 필터 제거)
         .map(({ row, idx }) => {
           let payDate = String(row[14] || '').trim();
           let paymentStatus = String(row[19] || '');
-          
+
           // O열 수수료지급일이 4월 23일 이전건은 모두 지급완료 처리 및 날짜 포맷팅
           let normalizedPayDate = payDate.replace(/[./]/g, '-');
           if (normalizedPayDate.length === 5) {
@@ -427,11 +507,11 @@ const ERP_Dashboard = () => {
               normalizedPayDate = `20${normalizedPayDate}`;
             }
           }
-          
+
           if (normalizedPayDate && normalizedPayDate <= '2026-04-23' && payDate !== '') {
             paymentStatus = '지급완료';
           }
-          
+
           // 일관된 날짜 비교를 위해 payDate 값을 포맷팅 (YYYY.MM.DD)
           if (normalizedPayDate && normalizedPayDate.length >= 10) {
             payDate = normalizedPayDate.replace(/-/g, '.');
@@ -451,6 +531,7 @@ const ERP_Dashboard = () => {
             deliveryStatus: String(row[11] || ''),  // L(11)
             deliveryDate: String(row[13] || ''),    // N(13)
             payDate,                                // O(14)
+            status: String(row[1] || '').trim() || '가입', // B(1) 공란이면 '가입'
             hq: String(row[7] || ''),               // H(7)
             branch: String(row[8] || ''),           // I(8)
             empName: String(row[9] || ''),          // J(9)
@@ -466,8 +547,8 @@ const ERP_Dashboard = () => {
       setLastUpdate(new Date().toLocaleString('ko-KR', { hour12: false }));
     } catch (error: any) {
       console.error('Load fail:', error);
-      const msg = error.message.includes('unauthorized_client') 
-        ? '인증 오류: Client ID/Secret를 확인하고 로그아웃 후 다시 연동해 주세요.' 
+      const msg = error.message.includes('unauthorized_client')
+        ? '인증 오류: Client ID/Secret를 확인하고 로그아웃 후 다시 연동해 주세요.'
         : '데이터 로드에 실패했습니다. 구글 시트 ID와 권한을 확인해 주세요.';
       setNotification({ message: msg, type: 'info' });
     } finally {
@@ -489,7 +570,7 @@ const ERP_Dashboard = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates })
       });
-      
+
       if (!res.ok) {
         if (res.status === 401) {
           setIsAuthenticated(false);
@@ -498,7 +579,7 @@ const ERP_Dashboard = () => {
         const errorData = await res.json();
         throw new Error(errorData.error || '일괄 업데이트 실패');
       }
-      
+
       setNotification({ message: `${updates.length}건이 성공적으로 업데이트되었습니다.`, type: 'success' });
       loadData();
     } catch (err: any) {
@@ -513,17 +594,17 @@ const ERP_Dashboard = () => {
   const calculateCommissionDetails = (item: ERPDataItem, hqTotalCountMap: Map<string, number>) => {
     const setting = hqSettings.find(s => s.hqName === item.hq);
     const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
-    
+
     // 상품 매칭
     let productRule = setting?.productRules?.find(r => normalize(r.productName) === normalize(item.prodName));
-    
+
     // 헬스케어 580 유보적 매칭 및 폴백 로직
     if (!productRule && normalize(item.prodName).includes('헬스케어580')) {
-      productRule = setting?.productRules?.find(r => normalize(r.productName).includes('유지')) || 
-                    setting?.productRules?.find(r => normalize(r.productName).includes('1회차')) || 
-                    setting?.productRules?.[0];
+      productRule = setting?.productRules?.find(r => normalize(r.productName).includes('유지')) ||
+        setting?.productRules?.find(r => normalize(r.productName).includes('1회차')) ||
+        setting?.productRules?.[0];
     }
-    
+
     // 최종 폴백: 여전히 없는데 상품 규칙이 1개뿐이면 그거라도 사용, 아니면 첫번째 규칙 사용
     if (!productRule && setting?.productRules) {
       if (setting.productRules.length === 1) productRule = setting.productRules[0];
@@ -540,7 +621,7 @@ const ERP_Dashboard = () => {
       unitPrice = 50000;
       salesPart = 50000;
       isSpecialFixedProduct = true;
-    } 
+    }
     // 특수 규칙: 조민경, 조재윤
     else if (item.hq === '조민경') {
       unitPrice = 5000;
@@ -578,7 +659,7 @@ const ERP_Dashboard = () => {
       hqTotalCountMap.forEach((cnt, key) => {
         if (key.startsWith('조재윤|')) jaeyunTotalCount += cnt;
       });
-      
+
       const jaeyunCalcTotal = jaeyunTotalCount * 10000;
       if (jaeyunCalcTotal < 2000000 && jaeyunTotalCount > 0) {
         const factor = 2000000 / jaeyunCalcTotal;
@@ -588,7 +669,7 @@ const ERP_Dashboard = () => {
     }
 
     const promoFee = Math.max(0, totalCommission - salesComm);
-    
+
     // 지급일자 산출 (조재윤, 조민경용)
     let displayPayDate = item.payDate;
     if ((item.hq === '조민경' || item.hq === '조재윤') && item.deliveryStatus.includes('완료') && item.deliveryDate) {
@@ -599,7 +680,69 @@ const ERP_Dashboard = () => {
       displayPayDate = `${nextY}.${String(nextM).padStart(2, '0')}.25`;
     }
 
-    return { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting };
+    let settlementType = setting?.settlementType || '사업자';
+    if (item.hq === '글로씨') settlementType = '개인/프리랜서';
+
+    let vat = 0;
+    let withholdingTax = 0;
+    let supplyAmount = totalCommission; // 기본값은 전체수수료
+
+    if (settlementType.includes('개인')) {
+      // 개인: 설정액에서 3.3% 공제
+      withholdingTax = Math.floor(totalCommission * 0.033);
+      vat = 0;
+      supplyAmount = totalCommission;
+    } else {
+      // 사업자: 설정액이 부가세 포함된 '최종액'이므로 공급가액과 부가세를 역산함
+      supplyAmount = Math.round(totalCommission / 1.1); // 공급가액
+      vat = totalCommission - supplyAmount; // 부가세
+      withholdingTax = 0;
+    }
+
+    const finalPayable = totalCommission - withholdingTax; // 사업자는 totalCommission 그대로, 개인은 원천세 차감
+
+    return {
+      totalCommission,
+      salesComm,
+      promoFee,
+      unitPrice,
+      displayPayDate,
+      setting,
+      settlementType,
+      vat,
+      withholdingTax,
+      finalPayable,
+      supplyAmount
+    };
+  };
+
+  // 바이너리 데이터 변환 유틸리티 (다운로드 호환성 해결)
+  const s2ab = (s: string) => {
+    const buf = new ArrayBuffer(s.length);
+    const view = new Uint8Array(buf);
+    for (let i = 0; i !== s.length; ++i) view[i] = s.charCodeAt(i) & 0xFF;
+    return buf;
+  };
+
+  const executeDownload = (blob: Blob, filename: string) => {
+    // FileSaver.js의 saveAs 함수 사용 (파일명 보존 표준 방식)
+    const saveAs = (window as any).saveAs;
+    if (saveAs) {
+      saveAs(blob, filename);
+    } else {
+      // FileSaver.js 미로드 시 폴백
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      }, 100);
+    }
   };
 
   // 엑셀 수수료 정산서 출력 기능
@@ -616,7 +759,8 @@ const ERP_Dashboard = () => {
         const isSpecialHq = (item.hq === '조민경' || item.hq === '조재윤');
         const normalizedDeliveryDate = item.deliveryDate?.replace(/\./g, '-');
         const isPrevDelivered = normalizedDeliveryDate?.startsWith(prevMonth) && item.deliveryStatus?.includes('완료');
-        return isStandardTarget || (isSpecialHq && isPrevDelivered);
+        const isNotCancelled = !item.status.includes('취소');
+        return (isStandardTarget || (isSpecialHq && isPrevDelivered)) && isNotCancelled;
       });
 
       if (filteredForSettlement.length === 0) {
@@ -624,18 +768,18 @@ const ERP_Dashboard = () => {
         return;
       }
 
-      const stats = new Map<string, number>(); 
+      const stats = new Map<string, number>();
       filteredForSettlement.forEach(item => {
         const key = `${item.hq}|${item.prodName}`;
         stats.set(key, (stats.get(key) || 0) + 1);
       });
 
       const excelData = filteredForSettlement.map((item, idx) => {
-        const { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting } = calculateCommissionDetails(item, stats);
-        
+        const { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting, settlementType, vat, withholdingTax, finalPayable } = calculateCommissionDetails(item, stats);
+
         const ov = setting?.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' };
         const actualOv = setting?.enableOverriding ? ov : { salesperson: 100, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' };
-        
+
         let salespersonShare, teamLeaderShare, branchManagerShare, hqManagerShare;
         if (actualOv.mode === 'fixed') {
           salespersonShare = actualOv.salesperson;
@@ -662,6 +806,11 @@ const ERP_Dashboard = () => {
           '전체수수료': Math.floor(totalCommission),
           '판매수수료': Math.floor(salesComm),
           '판매촉진비': Math.floor(promoFee),
+          '정산유형': settlementType,
+          '정산금액(총액)': Math.floor(totalCommission),
+          '부가세(사업자용)': settlementType === '사업자' ? '포함' : '-',
+          '원천세(3.3%)': withholdingTax > 0 ? withholdingTax : '-',
+          '최종지급액': finalPayable,
           '영업사원분': Math.floor(salespersonShare),
           '팀장분': Math.floor(teamLeaderShare),
           '지점장분': Math.floor(branchManagerShare),
@@ -676,7 +825,11 @@ const ERP_Dashboard = () => {
       const ws = XLSX.utils.json_to_sheet(excelData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "수수료정산");
-      XLSX.writeFile(wb, `${targetMonth}_수수료정산서.xlsx`);
+
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+      const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+      executeDownload(blob, `${targetMonth}_수수료정산서.xlsx`);
+
       setNotification({ message: `${targetMonth} 정산서 다운로드 완료`, type: 'success' });
     } catch (error) {
       console.error('Export Error:', error);
@@ -687,29 +840,29 @@ const ERP_Dashboard = () => {
   const filteredData = React.useMemo(() => {
     const result = data
       .filter(item => {
-        const matchesSearch = 
-          item.memName.includes(searchTerm) || 
-          item.contractDate.includes(searchTerm) || 
+        const matchesSearch =
+          item.memName.includes(searchTerm) ||
+          item.contractDate.includes(searchTerm) ||
           item.prodName.includes(searchTerm);
-          
+
         const matchesProduct = productFilter === '전체' || item.prodName === productFilter;
         const matchesHq = hqFilter === '전체' || item.hq === hqFilter;
         const matchesBranch = branchFilter === '전체' || item.branch === branchFilter;
         const matchesDelivery = deliveryFilter === '전체' || item.deliveryStatus === deliveryFilter;
-        
+
         const isPaid = item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료'));
-        const matchesPaymentStatus = 
-          paymentStatusFilter === '전체' || 
-          (paymentStatusFilter === '지급완료' && isPaid) || 
+        const matchesPaymentStatus =
+          paymentStatusFilter === '전체' ||
+          (paymentStatusFilter === '지급완료' && isPaid) ||
           (paymentStatusFilter === '지급예정' && !isPaid);
-        
+
         // 지급일자 필터
         let matchesPayDate = !payDateFilter;
         if (payDateFilter) {
           const targetDateClean = payDateFilter.replace(/[-./]/g, '');
           const itemPayDateClean = (item.payDate || '').replace(/[-./]/g, '');
           let normalizedPayFilter = payDateFilter.replace(/[-./]/g, '');
-          
+
           if (/^\d{6}$/.test(normalizedPayFilter)) {
             const fullYearFilter = `20${normalizedPayFilter}`;
             matchesPayDate = itemPayDateClean === fullYearFilter || itemPayDateClean.includes(fullYearFilter);
@@ -730,7 +883,7 @@ const ERP_Dashboard = () => {
         const dateB = parseDate(b.contractDate);
         return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
       });
-    
+
     // 필터 변경 시 페이지 리셋
     return result;
   }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, payDateFilter, paymentStatusFilter, sortOrder]);
@@ -751,15 +904,16 @@ const ERP_Dashboard = () => {
     let totalPendingCount = 0;
 
     filteredData.forEach(item => {
+      if (item.status.includes('취소')) return; // B열(status)에 '취소'가 포함된 경우 제외
       const date = item.payDate || '미지정';
       const hqSetting = hqSettings.find(h => h.hqName === item.hq);
       const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
       let rule = hqSetting?.productRules?.find(r => normalize(r.productName) === normalize(item.prodName));
-      
+
       if (!rule && normalize(item.prodName).includes('헬스케어580')) {
-        rule = hqSetting?.productRules?.find(r => 
+        rule = hqSetting?.productRules?.find(r =>
           normalize(r.productName).includes('유지')
-        ) || hqSetting?.productRules?.find(r => 
+        ) || hqSetting?.productRules?.find(r =>
           normalize(r.productName).includes('1회차')
         ) || hqSetting?.productRules?.[0];
       } else if (!rule && hqSetting?.productRules) {
@@ -768,7 +922,7 @@ const ERP_Dashboard = () => {
       }
 
       let amount = rule?.totalAmount || 0;
-      
+
       const normalizedProd = normalize(item.prodName);
       const isExcluded = normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360') || normalizedProd.includes('에이모바일');
 
@@ -812,7 +966,7 @@ const ERP_Dashboard = () => {
 
     let globalIncentiveCount = 0;
     const isSettlementDate = payDateFilter.includes('.25');
-    
+
     if (isSettlementDate && payDateFilter.length >= 7) {
       const filterClean = payDateFilter.replace(/[-./]/g, '');
       if (filterClean.length >= 6) {
@@ -865,9 +1019,9 @@ const ERP_Dashboard = () => {
       }
     }
 
-    return { 
-      totalCount, 
-      totalAmount, 
+    return {
+      totalCount,
+      totalAmount,
       totalPendingAmount,
       totalPendingCount,
       details: Object.entries(summary).sort((a, b) => b[1].amount - a[1].amount),
@@ -882,30 +1036,31 @@ const ERP_Dashboard = () => {
   }, [filteredData, hqSettings]);
 
   const monthlyStats = React.useMemo(() => {
-    const monthlyMap: Record<string, { 
-      totalAmount: number, 
-      totalCount: number, 
+    const monthlyMap: Record<string, {
+      totalAmount: number,
+      totalCount: number,
       products: Record<string, { count: number, amount: number }>,
       hqs: Record<string, { count: number, amount: number }>
     }> = {};
 
     data.forEach(item => {
+      if (item.status.includes('취소')) return; // B열(status)에 '취소'가 포함된 경우 제외
       const month = item.payDate?.substring(0, 7) || '미지정';
       const hqSetting = hqSettings.find(h => h.hqName === item.hq);
       const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
       let rule = hqSetting?.productRules?.find(r => normalize(r.productName) === normalize(item.prodName));
-      
+
       if (!rule && normalize(item.prodName).includes('헬스케어580')) {
-        rule = hqSetting?.productRules?.find(r => 
+        rule = hqSetting?.productRules?.find(r =>
           normalize(r.productName).includes('유지')
-        ) || hqSetting?.productRules?.find(r => 
+        ) || hqSetting?.productRules?.find(r =>
           normalize(r.productName).includes('1회차')
         ) || hqSetting?.productRules?.[0];
       } else if (!rule && hqSetting?.productRules) {
         if (hqSetting.productRules.length === 1) rule = hqSetting.productRules[0];
         else if (hqSetting.productRules.length > 0) rule = hqSetting.productRules[0];
       }
-      
+
       let amount = rule?.totalAmount || 0;
       const normalizedProd = normalize(item.prodName);
       const isExcluded = normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360') || normalizedProd.includes('에이모바일');
@@ -952,7 +1107,7 @@ const ERP_Dashboard = () => {
   const exportIntegratedSettlement = () => {
     try {
       if (filteredData.length === 0) return alert('정산 대상 데이터가 없습니다.');
-      
+
       const wb = XLSX.utils.book_new();
       const rows: any[][] = [];
       const payDateSample = filteredData[0].payDate || '';
@@ -964,16 +1119,16 @@ const ERP_Dashboard = () => {
       rows[3] = ['1. 전체 정산 개요'];
       rows[4] = ['지급 기준일', '총 집계 본부수', '총 계약 구좌수', '총 지급 합계액'];
       rows[5] = [
-        payDateSample || '다중지정', 
-        Object.keys(settlementStats.hqGroups).length, 
-        settlementStats.totalCount, 
+        payDateSample || '다중지정',
+        Object.keys(settlementStats.hqGroups).length,
+        settlementStats.totalCount,
         { v: settlementStats.totalAmount, t: 'n', z: '#,##0' }
       ];
       rows[6] = [];
 
       rows.push(['2. 본부별 정산 요약']);
       rows.push(['본부명', '계약 건수', '판매수수료', '판매촉진비', '지급총액', '지급계좌']);
-      
+
       const statsMap = new Map<string, number>();
       filteredData.forEach(item => {
         const key = `${item.hq}|${item.prodName}`;
@@ -992,18 +1147,22 @@ const ERP_Dashboard = () => {
 
         const setting = hqSettings.find(h => h.hqName === hqName);
         rows.push([
-          hqName, 
-          items.length, 
-          { v: hqSales, t: 'n', z: '#,##0' }, 
-          { v: Math.max(0, hqTotal - hqSales), t: 'n', z: '#,##0' }, 
-          { v: hqTotal, t: 'n', z: '#,##0' }, 
+          hqName,
+          items.length,
+          { v: hqSales, t: 'n', z: '#,##0' },
+          { v: Math.max(0, hqTotal - hqSales), t: 'n', z: '#,##0' },
+          { v: hqTotal, t: 'n', z: '#,##0' },
           `${setting?.bankName || '-'} ${setting?.accountNumber || '-'}`
         ]);
       });
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
       XLSX.utils.book_append_sheet(wb, ws, "통합요약보고서");
-      XLSX.writeFile(wb, `${payDateSample.substring(0, 7)}_통합정산보고서.xlsx`);
+
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+      const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+      executeDownload(blob, `${payDateSample.substring(0, 7)}_통합정산보고서.xlsx`);
+
       setNotification({ message: '통합 정산 보고서 생성 완료', type: 'success' });
     } catch (err) {
       console.error(err);
@@ -1018,59 +1177,89 @@ const ERP_Dashboard = () => {
 
       const setting = hqSettings.find(h => h.hqName === hqName);
       const wb = XLSX.utils.book_new();
-      
-      const stats = new Map<string, number>(); 
+
+      const stats = new Map<string, number>();
       filteredData.forEach(item => {
+        if (item.status.includes('취소')) return;
         const key = `${item.hq}|${item.prodName}`;
         stats.set(key, (stats.get(key) || 0) + 1);
       });
 
       let totalSum = 0;
       let salesSum = 0;
-      
+
       items.forEach(item => {
         const { totalCommission, salesComm } = calculateCommissionDetails(item, stats);
         totalSum += totalCommission;
         salesSum += salesComm;
       });
-      
+
       const promoSum = Math.max(0, totalSum - salesSum);
       const { displayPayDate: payDateDisplay } = calculateCommissionDetails(items[0], stats);
 
       const rows: any[][] = [];
-      
+
       const targetMonth = payDateDisplay.substring(0, 7);
       const [y, m] = targetMonth.split('.').length > 1 ? targetMonth.split('.') : targetMonth.split('-');
-      
+
       rows[0] = [`${y}년 ${parseInt(m)}월 수수료 정산 내역서`];
       rows[1] = [];
 
       rows[2] = ['지급일자', '지사명', '은행', '계좌번호', '총지급 금액'];
       rows[3] = [
-        payDateDisplay, 
-        hqName, 
-        setting?.bankName || '-', 
-        setting?.accountNumber || '-', 
+        payDateDisplay,
+        hqName,
+        setting?.bankName || '-',
+        setting?.accountNumber || '-',
         { v: totalSum, t: 'n', z: '#,##0' }
       ];
       rows[4] = [];
 
-      rows[5] = ['세금계산서 발행', '공급가액', '부가세', '합계금액'];
-      rows[6] = [
-        '판매 수수료',
-        { v: Math.floor(salesSum / 1.1), t: 'n', z: '#,##0' },
-        { v: Math.floor(salesSum - (salesSum / 1.1)), t: 'n', z: '#,##0' },
-        { v: salesSum, t: 'n', z: '#,##0' }
-      ];
-      rows[7] = [
-        '판매 촉진비',
-        { v: Math.floor(promoSum / 1.1), t: 'n', z: '#,##0' },
-        { v: Math.floor(promoSum - (promoSum / 1.1)), t: 'n', z: '#,##0' },
-        { v: promoSum, t: 'n', z: '#,##0' }
-      ];
-      rows[8] = [];
-
-      rows[9] = ['렌탈사', '상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계'];
+      if (setting?.settlementType === '개인') {
+        rows[5] = ['원천징수 영수 요약 (3.3% 공제)'];
+        rows[6] = ['구분', '정산금액', '원천세(3.3%)', '실지급액'];
+        rows[7] = [
+          '판매 수수료',
+          { v: salesSum, t: 'n', z: '#,##0' },
+          { v: Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' },
+          { v: salesSum - Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }
+        ];
+        rows[8] = [
+          '판매 촉진비',
+          { v: promoSum, t: 'n', z: '#,##0' },
+          { v: Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' },
+          { v: promoSum - Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }
+        ];
+        rows[9] = [
+          '합계',
+          { v: totalSum, t: 'n', z: '#,##0' },
+          { v: Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' },
+          { v: totalSum - Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }
+        ];
+      } else {
+        rows[5] = ['세금계산서 발행 요약 (부가세 10% 별도)'];
+        rows[6] = ['구분', '공급가액', '부가세(10%)', '합계금액'];
+        rows[7] = [
+          '판매 수수료',
+          { v: salesSum, t: 'n', z: '#,##0' },
+          { v: Math.floor(salesSum * 0.1), t: 'n', z: '#,##0' },
+          { v: Math.floor(salesSum * 1.1), t: 'n', z: '#,##0' }
+        ];
+        rows[8] = [
+          '판매 촉진비',
+          { v: promoSum, t: 'n', z: '#,##0' },
+          { v: Math.floor(promoSum * 0.1), t: 'n', z: '#,##0' },
+          { v: Math.floor(promoSum * 1.1), t: 'n', z: '#,##0' }
+        ];
+        rows[9] = [
+          '합계',
+          { v: totalSum, t: 'n', z: '#,##0' },
+          { v: Math.floor(totalSum * 0.1), t: 'n', z: '#,##0' },
+          { v: Math.floor(totalSum * 1.1), t: 'n', z: '#,##0' }
+        ];
+      }
+      rows[10] = [];
+      rows[11] = ['렌탈사', '상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계'];
       const productSummary: Record<string, { count: number, sales: number, promo: number, total: number }> = {};
       items.forEach(item => {
         const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, stats);
@@ -1083,58 +1272,58 @@ const ERP_Dashboard = () => {
 
       Object.entries(productSummary).forEach(([pName, prStat]) => {
         rows.push([
-          '-', 
-          pName, 
-          prStat.count, 
-          { v: Math.floor(prStat.sales), t: 'n', z: '#,##0' }, 
-          { v: Math.floor(prStat.promo), t: 'n', z: '#,##0' }, 
+          '-',
+          pName,
+          prStat.count,
+          { v: Math.floor(prStat.sales), t: 'n', z: '#,##0' },
+          { v: Math.floor(prStat.promo), t: 'n', z: '#,##0' },
           { v: Math.floor(prStat.total), t: 'n', z: '#,##0' }
         ]);
       });
       rows.push([
-        '계', 
-        '', 
-        items.length, 
-        { v: Math.floor(salesSum), t: 'n', z: '#,##0' }, 
-        { v: Math.floor(promoSum), t: 'n', z: '#,##0' }, 
+        '계',
+        '',
+        items.length,
+        { v: Math.floor(salesSum), t: 'n', z: '#,##0' },
+        { v: Math.floor(promoSum), t: 'n', z: '#,##0' },
         { v: Math.floor(totalSum), t: 'n', z: '#,##0' }
       ]);
       rows.push([]);
 
       rows.push(['[상세 내역]']);
       rows.push(['본부명', '지사명', '계약일자', '사원명(AP)', '고객명', '렌탈계약번호', '배송일자', '정산상품명', '정산기준일', '공급수수료(지급총계)']);
-      
+
       items.forEach(item => {
         const { totalCommission, displayPayDate } = calculateCommissionDetails(item, stats);
         rows.push([
-          item.hq, 
-          item.branch, 
+          item.hq,
+          item.branch,
           item.contractDate,
-          item.empName, 
-          item.memName, 
-          item.rentalNo, 
+          item.empName,
+          item.memName,
+          item.rentalNo,
           item.deliveryDate,
-          item.prodName, 
+          item.prodName,
           displayPayDate,
           { v: Math.floor(totalCommission), t: 'n', z: '#,##0' }
         ]);
       });
-      
+
       rows.push([
-        '합계', 
-        '', 
-        '', 
-        '', 
-        '', 
-        `${items.length}건`, 
-        '', 
-        '', 
-        '', 
+        '합계',
+        '',
+        '',
+        '',
+        '',
+        `${items.length}건`,
+        '',
+        '',
+        '',
         { v: Math.floor(totalSum), t: 'n', z: '#,##0' }
       ]);
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
-      
+
       const headerStyle = {
         fill: { fgColor: { rgb: "2F5597" } },
         font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 },
@@ -1192,7 +1381,11 @@ const ERP_Dashboard = () => {
       ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
 
       XLSX.utils.book_append_sheet(wb, ws, "정산내역");
-      XLSX.writeFile(wb, `${hqName}_수수료정산서_${payDateDisplay.replace(/[\./]/g, '')}.xlsx`);
+
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+      const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+      executeDownload(blob, `${hqName}_수수료정산서_${payDateDisplay.replace(/[\./]/g, '')}.xlsx`);
+
       setNotification({ message: `${hqName} 정산보고서 생성 완료`, type: 'success' });
     } catch (err) {
       console.error(err);
@@ -1206,8 +1399,9 @@ const ERP_Dashboard = () => {
       if (!items || items.length === 0) return;
 
       const setting = hqSettings.find(h => h.hqName === hqName);
-      const stats = new Map<string, number>(); 
+      const stats = new Map<string, number>();
       filteredData.forEach(item => {
+        if (item.status.includes('취소')) return;
         const key = `${item.hq}|${item.prodName}`;
         stats.set(key, (stats.get(key) || 0) + 1);
       });
@@ -1221,7 +1415,7 @@ const ERP_Dashboard = () => {
       });
       const promoSum = Math.max(0, totalSum - salesSum);
       const { displayPayDate: payDateDisplay } = calculateCommissionDetails(items[0], stats);
-      
+
       const targetMonth = payDateDisplay.substring(0, 7);
       const [y, m] = targetMonth.split('.').length > 1 ? targetMonth.split('.') : targetMonth.split('-');
 
@@ -1246,35 +1440,48 @@ const ERP_Dashboard = () => {
               <td style="border: 1px solid #2F5597; padding: 8px;">지사명</td>
               <td style="border: 1px solid #2F5597; padding: 8px;">은행</td>
               <td style="border: 1px solid #2F5597; padding: 8px;">계좌번호</td>
-              <td style="border: 1px solid #2F5597; padding: 8px;">총지급 금액</td>
+              <td style="border: 1px solid #2F5597; padding: 8px;">${setting?.settlementType?.includes('개인') ? '총 실지급액' : '총지급 금액(VAT포함)'}</td>
             </tr>
             <tr style="text-align: center; font-size: 14px; font-weight: bold;">
               <td style="border: 1px solid #ccc; padding: 12px;">${payDateDisplay}</td>
               <td style="border: 1px solid #ccc; padding: 12px;">${hqName}</td>
               <td style="border: 1px solid #ccc; padding: 12px;">${setting?.bankName || '-'}</td>
               <td style="border: 1px solid #ccc; padding: 12px;">${setting?.accountNumber || '-'}</td>
-              <td style="border: 1px solid #ccc; padding: 12px; color: #2F5597;">${totalSum.toLocaleString()}원</td>
+              <td style="border: 1px solid #ccc; padding: 12px; color: #2F5597;">
+                ${(setting?.settlementType?.includes('개인')
+          ? (totalSum - Math.floor(totalSum * 0.033))
+          : totalSum).toLocaleString()}원
+              </td>
             </tr>
           </table>
 
-          <div style="margin-bottom: 10px; font-weight: bold; font-size: 14px; color: #334155;">■ 세금계산서 발행 요약 (VAT 포함)</div>
+          <div style="margin-bottom: 10px; font-weight: bold; font-size: 14px; color: #334155;">
+            ■ ${setting?.settlementType?.includes('개인') ? '원천징수 영수 요약 (3.3% 공제)' : '정산 요약 (부가세 포함)'}
+          </div>
           <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px; border: 1px solid #ccc;">
             <tr style="background: #2F5597; color: #fff; text-align: center; font-size: 12px;">
-              <td style="border: 1px solid #2F5597; padding: 6px;">세금계산서 발행</td>
-              <td style="border: 1px solid #2F5597; padding: 6px;">공급가액</td>
-              <td style="border: 1px solid #2F5597; padding: 6px;">합계금액</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">구분</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">공급가액(정산금액)</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">${setting?.settlementType?.includes('개인') ? '원천세(3.3%)' : '부가세(10%)'}</td>
+              <td style="border: 1px solid #2F5597; padding: 6px;">실지급액(합계)</td>
             </tr>
             <tr style="text-align: right; font-size: 12px;">
               <td style="border: 1px solid #ccc; padding: 8px; text-align: center; background: #f8fafc;">판매 수수료</td>
-              <td style="border: 1px solid #ccc; padding: 8px;">${Math.floor(salesSum / 1.1).toLocaleString()}</td>
-              <td style="border: 1px solid #ccc; padding: 8px;">${Math.floor(salesSum - (salesSum / 1.1)).toLocaleString()}</td>
-              <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${salesSum.toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('개인') ? salesSum : Math.round(salesSum / 1.1)).toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('개인') ? Math.floor(salesSum * 0.033) : (salesSum - Math.round(salesSum / 1.1))).toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${(setting?.settlementType?.includes('개인') ? (salesSum - Math.floor(salesSum * 0.033)) : salesSum).toLocaleString()}</td>
             </tr>
             <tr style="text-align: right; font-size: 12px;">
               <td style="border: 1px solid #ccc; padding: 8px; text-align: center; background: #f8fafc;">판매 촉진비</td>
-              <td style="border: 1px solid #ccc; padding: 8px;">${Math.floor(promoSum / 1.1).toLocaleString()}</td>
-              <td style="border: 1px solid #ccc; padding: 8px;">${Math.floor(promoSum - (promoSum / 1.1)).toLocaleString()}</td>
-              <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${promoSum.toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('개인') ? promoSum : Math.round(promoSum / 1.1)).toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('개인') ? Math.floor(promoSum * 0.033) : (promoSum - Math.round(promoSum / 1.1))).toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${(setting?.settlementType?.includes('개인') ? (promoSum - Math.floor(promoSum * 0.033)) : promoSum).toLocaleString()}</td>
+            </tr>
+            <tr style="text-align: right; font-size: 12px; background: #FFF2CC; font-weight: bold;">
+              <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">합계</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('개인') ? totalSum : Math.round(totalSum / 1.1)).toLocaleString()}</td>
+              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('개인') ? '-' + Math.floor(totalSum * 0.033).toLocaleString() : (totalSum - Math.round(totalSum / 1.1)).toLocaleString())}</td>
+              <td style="border: 1px solid #ccc; padding: 8px; font-size: 14px; color: #2F5597;">${(setting?.settlementType?.includes('개인') ? (totalSum - Math.floor(totalSum * 0.033)) : totalSum).toLocaleString()}원</td>
             </tr>
           </table>
 
@@ -1335,8 +1542,8 @@ const ERP_Dashboard = () => {
             </thead>
             <tbody>
               ${items.map((item, idx) => {
-                const { totalCommission, displayPayDate } = calculateCommissionDetails(item, stats);
-                return `
+        const { totalCommission, displayPayDate } = calculateCommissionDetails(item, stats);
+        return `
                   <tr style="text-align: center;">
                     <td style="border: 1px solid #ccc; padding: 5px;">${idx + 1}</td>
                     <td style="border: 1px solid #ccc; padding: 5px;">${item.hq}</td>
@@ -1351,7 +1558,7 @@ const ERP_Dashboard = () => {
                     <td style="border: 1px solid #ccc; padding: 5px; text-align: right; font-weight: bold;">${Math.floor(totalCommission).toLocaleString()}</td>
                   </tr>
                 `;
-              }).join('')}
+      }).join('')}
               <tr style="background: #FFF2CC; font-weight: bold; text-align: center;">
                 <td colspan="10" style="border: 1px solid #ccc; padding: 8px;">합 계</td>
                 <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${totalSum.toLocaleString()}</td>
@@ -1375,10 +1582,21 @@ const ERP_Dashboard = () => {
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as 'portrait' }
       };
 
-      await html2pdf().from(container).set(opt).save();
-      document.body.removeChild(container);
+      const h2p = getHtml2Pdf();
+      if (!h2p) {
+        alert('PDF 라이브러리를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
+        return;
+      }
 
-      setNotification({ message: `${hqName} PDF 정산보고서 생성 완료`, type: 'success' });
+      // .save() 대신 .output('blob')으로 데이터를 직접 받아 executeDownload 사용
+      h2p().from(container).set(opt).output('blob').then((blob: Blob) => {
+        executeDownload(blob, `${hqName}_정산보고서_${payDateDisplay.replace(/[\./]/g, '')}.pdf`);
+        document.body.removeChild(container);
+        setNotification({ message: `${hqName} PDF 정산보고서 생성 완료`, type: 'success' });
+      }).catch((err: any) => {
+        console.error(err);
+        alert('PDF 생성 중 오류가 발생했습니다.');
+      });
     } catch (err) {
       console.error(err);
       alert('PDF 생성 중 오류가 발생했습니다.');
@@ -1388,52 +1606,70 @@ const ERP_Dashboard = () => {
   const exportIntegratedSettlementPdf = async () => {
     try {
       if (filteredData.length === 0) return alert('정산 대상 데이터가 없습니다.');
-      
+
       const statsMap = new Map<string, number>();
       filteredData.forEach(item => {
         const key = `${item.hq}|${item.prodName}`;
         statsMap.set(key, (statsMap.get(key) || 0) + 1);
       });
 
-      const hqProductStats: Record<string, Record<string, { count: number, amount: number }>> = {};
-      const hqBranchStats: Record<string, Record<string, { totalCount: number, totalAmount: number, items: Record<string, { count: number, amount: number }> }>> = {};
+      // 1. 본부별 실적 상세 집계 (본부/지사/영업자/상품별로 그룹화하여 합산)
+      const hqPerfMap = new Map<string, any>();
       
       filteredData.forEach(item => {
-        const { totalCommission } = calculateCommissionDetails(item, statsMap);
+        if (item.status.includes('취소')) return;
+        const { finalPayable, unitPrice } = calculateCommissionDetails(item, statsMap);
         
-        if (!hqProductStats[item.hq]) hqProductStats[item.hq] = {};
-        if (!hqProductStats[item.hq][item.prodName]) hqProductStats[item.hq][item.prodName] = { count: 0, amount: 0 };
-        hqProductStats[item.hq][item.prodName].count += 1;
-        hqProductStats[item.hq][item.prodName].amount += totalCommission;
+        const setting = hqSettings.find(s => s.hqName === item.hq);
+        const isIndiv = setting?.settlementType?.includes('개인') || item.hq === '글로씨';
+        const netUnitPrice = isIndiv ? Math.floor(unitPrice * 0.967) : unitPrice;
 
-        if (!hqBranchStats[item.hq]) hqBranchStats[item.hq] = {};
-        if (!hqBranchStats[item.hq][item.branch]) {
-          hqBranchStats[item.hq][item.branch] = { totalCount: 0, totalAmount: 0, items: {} };
+        // 그룹화 키: 본부|지사|영업자|상품
+        const groupKey = `${item.hq}|${item.branch || '-'}|${item.salesperson || '-'}|${item.prodName}`;
+        
+        if (!hqPerfMap.has(groupKey)) {
+          hqPerfMap.set(groupKey, {
+            hq: item.hq,
+            branch: item.branch || '-',
+            salesperson: item.salesperson || '-',
+            prodName: item.prodName,
+            unitPrice: netUnitPrice,
+            count: 0,
+            total: 0
+          });
         }
-        const bStat = hqBranchStats[item.hq][item.branch];
-        bStat.totalCount += 1;
-        bStat.totalAmount += totalCommission;
-        if (!bStat.items[item.prodName]) bStat.items[item.prodName] = { count: 0, amount: 0 };
-        bStat.items[item.prodName].count += 1;
-        bStat.items[item.prodName].amount += totalCommission;
+        
+        const group = hqPerfMap.get(groupKey);
+        group.count += 1;
+        group.total += finalPayable;
       });
 
-      if ((settlementStats.jaeyunIncentive || 0) > 0 || (settlementStats.jaeyunGap || 0) > 0) {
-        if (!hqProductStats['조재윤']) hqProductStats['조재윤'] = {};
-        const totalJaeyunAmt = (settlementStats.jaeyunIncentive || 0) + (settlementStats.jaeyunGap || 0);
-        hqProductStats['조재윤']['홍보모델비용'] = { 
-          count: settlementStats.globalIncentiveCount || 0, 
-          amount: totalJaeyunAmt 
-        };
-      }
-      if ((settlementStats.minkyungIncentive || 0) > 0) {
-        if (!hqProductStats['조민경']) hqProductStats['조민경'] = {};
-        hqProductStats['조민경']['(추가) 컨설팅 비용'] = { count: settlementStats.globalIncentiveCount || 0, amount: settlementStats.minkyungIncentive };
-      }
-      if (filteredData.length === 0) {
-        alert('정산 대상 데이터가 없습니다. 먼저 지급일 등 필터를 선택해 주세요.');
-        return;
-      }
+      const hqPerfData = Array.from(hqPerfMap.values());
+
+      // 2. 상세 명세용 본부별 집계 (기존 유지)
+      const hqDetailedStats: Record<string, any> = {};
+      filteredData.forEach(item => {
+        if (item.status.includes('취소')) return;
+        const details = calculateCommissionDetails(item, statsMap);
+        
+        if (!hqDetailedStats[item.hq]) {
+          hqDetailedStats[item.hq] = {
+            items: [],
+            stats: new Map<string, number>(),
+            totalSum: 0,
+            salesSum: 0,
+            promoSum: 0
+          };
+        }
+        const hqData = hqDetailedStats[item.hq];
+        hqData.items.push(item);
+        const key = `${item.hq}|${item.prodName}`;
+        hqData.stats.set(key, (hqData.stats.get(key) || 0) + 1);
+        hqData.totalSum += details.totalCommission;
+        hqData.salesSum += details.salesComm;
+        hqData.promoSum += details.promoFee;
+      });
+
       const payDateSample = filteredData[0].payDate || '';
       const today = new Date().toISOString().split('T')[0];
 
@@ -1442,144 +1678,275 @@ const ERP_Dashboard = () => {
       container.style.color = '#000';
       container.style.fontFamily = "'Malgun Gothic', 'Dotum', sans-serif";
 
-      const html = `
-        <div style="padding: 25px; border: 1px solid #334155; margin: 5px; background: #fff;">
-          <div style="text-align: right; font-size: 10px; color: #64748b; margin-bottom: 10px;">문서번호: TBL-ERP-${today.replace(/-/g, '')}</div>
-          <h1 style="text-align: center; font-size: 24px; font-weight: 900; color: #0f172a; margin-bottom: 20px; border-bottom: 3px solid #0f172a; padding-bottom: 10px;">전사 정산 종합 보고서</h1>
+      let html = `
+        <div style="padding: 25px; background: #fff;">
+          <div style="text-align: right; font-size: 10px; color: #64748b; margin-bottom: 10px;">문서번호: TBL-ERP-INTEGRATED-${today.replace(/-/g, '')}</div>
+          <h1 style="text-align: center; font-size: 26px; font-weight: 900; color: #0f172a; margin-bottom: 20px; border-bottom: 3px solid #0f172a; padding-bottom: 10px;">전사 통합 정산 보고서</h1>
           
           <div style="display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 20px;">
             <div style="text-align: center;">
-              <div style="border: 1.5px solid #334155; width: 65px; height: 65px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; margin-bottom: 2px;">담당자</div>
-              <div style="font-size: 9px;">(인)</div>
+              <div style="border: 1.5px solid #334155; width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; margin-bottom: 2px;">담당자</div>
             </div>
             <div style="text-align: center;">
-              <div style="border: 1.5px solid #334155; width: 65px; height: 65px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; margin-bottom: 2px;">대표이사</div>
-              <div style="font-size: 9px;">(인)</div>
+              <div style="border: 1.5px solid #334155; width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; margin-bottom: 2px;">대표이사</div>
             </div>
           </div>
 
-          <div style="margin-bottom: 20px;">
-            <h3 style="font-size: 15px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 10px;">1. 정산 요약</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+          <div style="margin-bottom: 30px;">
+            <h3 style="font-size: 16px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 10px;">1. 정산 요약</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0;">
               <div style="text-align: center;">
-                <div style="font-size: 11px; color: #64748b; margin-bottom: 3px;">기준월</div>
-                <div style="font-size: 16px; font-weight: 900;">${payDateSample.substring(0, 7)}</div>
+                <div style="font-size: 12px; color: #64748b;">기준월</div>
+                <div style="font-size: 18px; font-weight: 900;">${payDateSample.substring(0, 7)}</div>
               </div>
-              <div style="text-align: center; border-left: 1.5px solid #cbd5e1; border-right: 1.5px solid #cbd5e1;">
-                <div style="font-size: 11px; color: #64748b; margin-bottom: 3px;">총 구좌수</div>
-                <div style="font-size: 16px; font-weight: 900;">${settlementStats.totalCount.toLocaleString()}건</div>
+              <div style="text-align: center; border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;">
+                <div style="font-size: 12px; color: #64748b;">총 정산 구좌</div>
+                <div style="font-size: 18px; font-weight: 900;">${settlementStats.totalCount.toLocaleString()}건</div>
               </div>
               <div style="text-align: center;">
-                <div style="font-size: 11px; color: #64748b; margin-bottom: 3px;">총 집행액</div>
-                <div style="font-size: 16px; font-weight: 900; color: #2563eb;">${settlementStats.totalAmount.toLocaleString()}원</div>
+                <div style="font-size: 12px; color: #64748b;">총 집행금액(실지급액)</div>
+                <div style="font-size: 18px; font-weight: 900; color: #2563eb;">
+                  ${Object.values(hqDetailedStats).reduce((acc, hq) => {
+                    const isIndiv = hq.items[0]?.hq === '글로씨' || hqSettings.find(s => s.hqName === hq.items[0]?.hq)?.settlementType?.includes('개인');
+                    const net = isIndiv ? (hq.totalSum - Math.floor(hq.totalSum * 0.033)) : hq.totalSum;
+                    return acc + net;
+                  }, 0).toLocaleString()}원
+                </div>
               </div>
             </div>
+          </div>
 
-            <h3 style="font-size: 15px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 8px;">2. 본부별 실적</h3>
-            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #0f172a; font-size: 11px; margin-bottom: 20px;">
+          <div style="margin-bottom: 30px;">
+            <h3 style="font-size: 16px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 10px;">2. 본부별 실적 상세 (실지급액 기준)</h3>
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #0f172a; font-size: 10px;">
               <thead>
                 <tr style="background: #0f172a; color: #fff; text-align: center; font-weight: 900;">
-                  <th style="border: 1px solid #334155; padding: 8px; width: 130px;">본사명(본부)</th>
+                  <th style="border: 1px solid #334155; padding: 8px;">본부명</th>
+                  <th style="border: 1px solid #334155; padding: 8px;">지사명</th>
+                  <th style="border: 1px solid #334155; padding: 8px;">영업자</th>
                   <th style="border: 1px solid #334155; padding: 8px;">상품명</th>
-                  <th style="border: 1px solid #334155; padding: 8px; width: 60px;">판매수량</th>
-                  <th style="border: 1px solid #334155; padding: 8px; width: 120px;">총 수수료계</th>
+                  <th style="border: 1px solid #334155; padding: 8px;">건별 실지급액</th>
+                  <th style="border: 1px solid #334155; padding: 8px;">구좌</th>
+                  <th style="border: 1px solid #334155; padding: 8px;">최종 합계</th>
                 </tr>
               </thead>
               <tbody>
-                ${Object.entries(hqProductStats).map(([hq, prods]) => {
-                  const productEntries = Object.entries(prods);
-                  let hqTotalAmt = 0;
-                  let hqTotalQty = 0;
-                  productEntries.forEach(([_, s]) => { hqTotalAmt += s.amount; hqTotalQty += s.count; });
-                  return `
-                    ${productEntries.map(([pName, pStat], pIdx) => `
-                      <tr style="text-align: center;">
-                        ${pIdx === 0 ? `<td rowspan="${productEntries.length}" style="border: 1px solid #e2e8f0; padding: 8px; font-weight: 900; background: #f8fafc;">${hq}</td>` : ''}
-                        <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: left;">${pName}</td>
-                        <td style="border: 1px solid #e2e8f0; padding: 8px;">${pStat.count}</td>
-                        <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: right; font-weight: bold;">${pStat.amount.toLocaleString()}</td>
-                      </tr>
-                    `).join('')}
-                    <tr style="background: #f1f5f9; font-weight: 900; text-align: center;">
-                      <td colspan="2" style="border: 1px solid #e2e8f0; padding: 6px;">${hq} 소계</td>
-                      <td style="border: 1px solid #e2e8f0; padding: 6px;">${hqTotalQty}</td>
-                      <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: right; color: #2563eb;">${hqTotalAmt.toLocaleString()}</td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
+                ${(() => {
+                  // 1. 본부명 기준으로 정렬
+                  const sortedData = [...hqPerfData].sort((a, b) => a.hq.localeCompare(b.hq));
+                  
+                  // 2. 본부별로 그룹화하여 HTML 생성
+                  const rows: string[] = [];
+                  let currentHq = '';
+                  let hqStartIndex = 0;
+                  
+                  // 본부별 집계를 위한 임시 변수
+                  let hqSubtotalCount = 0;
+                  let hqSubtotalAmt = 0;
 
-            <h3 style="font-size: 15px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 8px; page-break-before: always; padding-top: 20px;">3. 상세 명세</h3>
-            ${Object.entries(hqBranchStats).map(([hq, branches]) => `
-              <div style="margin-bottom: 15px;">
-                <div style="background: #2563eb; color: #fff; padding: 6px 12px; font-size: 12px; font-weight: 900; border-radius: 4px 4px 0 0; display: inline-block;">
-                  ■ ${hq} 상세
-                </div>
-                <table style="width: 100%; border-collapse: collapse; border: 1.2px solid #2563eb; font-size: 10px; table-layout: fixed;">
-                  <thead>
-                    <tr style="background: #eff6ff; text-align: center; font-weight: 900; color: #1e40af;">
-                      <th style="border: 1px solid #bfdbfe; padding: 6px; width: 110px;">지사명</th>
-                      <th style="border: 1px solid #bfdbfe; padding: 6px;">상품명</th>
-                      <th style="border: 1px solid #bfdbfe; padding: 6px; width: 45px;">수량</th>
-                      <th style="border: 1px solid #bfdbfe; padding: 6px; width: 110px;">수수료계</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${Object.entries(branches).map(([branch, bStat]) => {
-                      const productEntries = Object.entries(bStat.items);
-                      return `
-                        ${productEntries.map(([pName, pStat], pIdx) => `
-                          <tr style="text-align: center;">
-                            ${pIdx === 0 ? `<td rowspan="${productEntries.length}" style="border: 1px solid #bfdbfe; padding: 6px; font-weight: 800; background: #f8fafc;">${branch}</td>` : ''}
-                            <td style="border: 1px solid #bfdbfe; padding: 6px; text-align: left; word-break: keep-all;">${pName}</td>
-                            <td style="border: 1px solid #bfdbfe; padding: 6px;">${pStat.count}</td>
-                            <td style="border: 1px solid #bfdbfe; padding: 6px; text-align: right;">${pStat.amount.toLocaleString()}</td>
+                  sortedData.forEach((p, index) => {
+                    const setting = hqSettings.find(s => s.hqName === p.hq);
+                    const isIndiv = setting?.settlementType?.includes('개인') || p.hq === '글로씨';
+                    
+                    if (currentHq !== p.hq) {
+                      // 이전 본부의 소계 행 추가 (첫 번째가 아닐 때만)
+                      if (currentHq !== '') {
+                        rows.push(`
+                          <tr style="background: #f8fafc; font-weight: bold; text-align: right;">
+                            <td colspan="5" style="border: 1px solid #e2e8f0; padding: 6px; text-align: center; color: #64748b;">[${currentHq}] 본부 소계</td>
+                            <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">${hqSubtotalCount}</td>
+                            <td style="border: 1px solid #e2e8f0; padding: 6px; color: #2563eb;">${hqSubtotalAmt.toLocaleString()}</td>
                           </tr>
-                        `).join('')}
-                      `;
-                    }).join('')}
-                  </tbody>
-                </table>
-              </div>
-            `).join('')}
+                        `);
+                      }
+                      
+                      currentHq = p.hq;
+                      hqSubtotalCount = 0;
+                      hqSubtotalAmt = 0;
+                      
+                      // 새로운 본부의 시작 인덱스 계산 (rowspan용)
+                      const hqCount = sortedData.filter(d => d.hq === p.hq).length;
+                      
+                      rows.push(`
+                        <tr style="text-align: center; border-bottom: 1px solid #eee;">
+                          <td rowspan="${hqCount}" style="border: 1px solid #e2e8f0; padding: 6px; font-weight: bold; background: #fff;">
+                            ${p.hq} <br/>
+                            <span style="font-size: 8px; color: #64748b; font-weight: normal;">${isIndiv ? '(개인)' : '(법인)'}</span>
+                          </td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.branch}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.salesperson}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: left;">${p.prodName}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: right;">${p.unitPrice.toLocaleString()}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.count}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: right; font-weight: bold;">${p.total.toLocaleString()}</td>
+                        </tr>
+                      `);
+                    } else {
+                      rows.push(`
+                        <tr style="text-align: center; border-bottom: 1px solid #eee;">
+                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.branch}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.salesperson}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: left;">${p.prodName}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: right;">${p.unitPrice.toLocaleString()}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.count}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: right; font-weight: bold;">${p.total.toLocaleString()}</td>
+                        </tr>
+                      `);
+                    }
+                    
+                    hqSubtotalCount += p.count;
+                    hqSubtotalAmt += p.total;
+
+                    // 마지막 행인 경우 마지막 본부 소계 추가
+                    if (index === sortedData.length - 1) {
+                      rows.push(`
+                        <tr style="background: #f8fafc; font-weight: bold; text-align: right;">
+                          <td colspan="5" style="border: 1px solid #e2e8f0; padding: 6px; text-align: center; color: #64748b;">[${currentHq}] 본부 소계</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">${hqSubtotalCount}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 6px; color: #2563eb;">${hqSubtotalAmt.toLocaleString()}</td>
+                        </tr>
+                      `);
+                    }
+                  });
+                  return rows.join('');
+                })()}
+              </tbody>
+              <tfoot style="background: #f1f5f9; font-weight: 900; text-align: right;">
+                <tr>
+                  <td colspan="5" style="border: 1px solid #334155; padding: 8px; text-align: center;">전체 합계</td>
+                  <td style="border: 1px solid #334155; padding: 8px; text-align: center;">${settlementStats.totalCount}</td>
+                  <td style="border: 1px solid #334155; padding: 8px; color: #2563eb;">${settlementStats.totalAmount.toLocaleString()}원</td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
 
-          <div style="margin-top: 20px; text-align: center; font-size: 15px; font-weight: bold; color: #0f172a; border-top: 1.5px solid #eee; padding-top: 15px;">더좋은라이프 주식회사</div>
+          <div style="page-break-before: always;">
+            <h3 style="font-size: 16px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 20px;">3. 본부별 상세 지급 명세서</h3>
+            ${Object.entries(hqDetailedStats).map(([hq, data]: [string, any]) => {
+              const setting = hqSettings.find(s => s.hqName === hq);
+              const isIndiv = setting?.settlementType?.includes('개인') || hq === '글로씨';
+              
+              const productSummary: Record<string, any> = {};
+              data.items.forEach((item: any) => {
+                const details = calculateCommissionDetails(item, data.stats);
+                if (!productSummary[item.prodName]) productSummary[item.prodName] = { count: 0, sales: 0, promo: 0, total: 0 };
+                productSummary[item.prodName].count += 1;
+                productSummary[item.prodName].sales += details.salesComm;
+                productSummary[item.prodName].promo += details.promoFee;
+                productSummary[item.prodName].total += details.totalCommission;
+              });
+
+              return `
+                <div style="margin-bottom: 40px; border: 1px solid #eee; padding: 15px; border-radius: 8px; page-break-inside: avoid;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #2563eb; padding-bottom: 5px;">
+                    <span style="font-size: 16px; font-weight: 900; color: #2563eb;">■ ${hq} ${isIndiv ? '(개인/프리랜서)' : '(법인/사업자)'} 정산 내역</span>
+                    <span style="font-size: 12px; font-weight: bold;">최종 실지급액: <span style="color: #2563eb;">${(isIndiv ? (data.totalSum - Math.floor(data.totalSum * 0.033)) : data.totalSum).toLocaleString()}원</span></span>
+                  </div>
+                  
+                  <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 15px;">
+                    <thead>
+                      <tr style="background: #f8fafc; text-align: center; font-weight: bold;">
+                        <th style="border: 1px solid #e2e8f0; padding: 6px;">항목</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 6px;">공급가액(정산금액)</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 6px;">${isIndiv ? '원천세(3.3%)' : '부가세(10%)'}</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 6px;">실지급액(합계)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style="text-align: right;">
+                        <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">판매수수료</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 6px;">${(isIndiv ? data.salesSum : Math.round(data.salesSum/1.1)).toLocaleString()}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 6px;">${(isIndiv ? Math.floor(data.salesSum*0.033) : (data.salesSum-Math.round(data.salesSum/1.1))).toLocaleString()}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 6px; font-weight: bold;">${(isIndiv ? (data.salesSum-Math.floor(data.salesSum*0.033)) : data.salesSum).toLocaleString()}</td>
+                      </tr>
+                      <tr style="text-align: right;">
+                        <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">판매촉진비</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 6px;">${(isIndiv ? data.promoSum : Math.round(data.promoSum/1.1)).toLocaleString()}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 6px;">${(isIndiv ? Math.floor(data.promoSum*0.033) : (data.promoSum-Math.round(data.promoSum/1.1))).toLocaleString()}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 6px; font-weight: bold;">${(isIndiv ? (data.promoSum-Math.floor(data.promoSum*0.033)) : data.promoSum).toLocaleString()}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <table style="width: 100%; border-collapse: collapse; font-size: 9px;">
+                    <thead>
+                      <tr style="background: #0f172a; color: #fff; text-align: center;">
+                        <th style="border: 1px solid #334155; padding: 4px;">상품명</th>
+                        <th style="border: 1px solid #334155; padding: 4px; width: 40px;">건수</th>
+                        <th style="border: 1px solid #334155; padding: 4px; width: 80px;">판매수수료</th>
+                        <th style="border: 1px solid #334155; padding: 4px; width: 80px;">판매촉진비</th>
+                        <th style="border: 1px solid #334155; padding: 4px; width: 90px;">총수수료</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${Object.entries(productSummary).map(([pName, pData]: [string, any]) => `
+                        <tr style="text-align: center; border-bottom: 1px solid #eee;">
+                          <td style="border: 1px solid #e2e8f0; padding: 4px; text-align: left;">${pName}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 4px;">${pData.count}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 4px; text-align: right;">${pData.sales.toLocaleString()}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 4px; text-align: right;">${pData.promo.toLocaleString()}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 4px; text-align: right; font-weight: bold;">${pData.total.toLocaleString()}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <div style="margin-top: 40px; text-align: center; font-size: 15px; font-weight: bold; color: #0f172a; border-top: 2px solid #0f172a; padding-top: 20px;">
+            위와 같이 정산 내용을 보고함 <br/>
+            <span style="font-size: 12px; color: #64748b;">${today.split('-')[0]}년 ${today.split('-')[1]}월 ${today.split('-')[2]}일</span><br/><br/>
+            더좋은라이프 주식회사
+          </div>
         </div>
       `;
+
       container.innerHTML = html;
       document.body.appendChild(container);
 
       const opt = {
-        margin: 0,
+        margin: [10, 5, 10, 5],
         filename: `전사_통합정산보고서_${today.replace(/-/g, '')}.pdf`,
-        image: { type: 'jpeg' as 'jpeg', quality: 0.98 },
+        image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, logging: false },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as 'portrait' }
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
-      await html2pdf().from(container).set(opt).save();
-      document.body.removeChild(container);
+      const h2p = getHtml2Pdf();
+      if (!h2p) return alert('PDF 라이브러리 로드 중...');
 
-      setNotification({ message: '전사 통합 정산 보고서(PDF) 생성 완료', type: 'success' });
+      h2p().from(container).set(opt).toPdf().get('pdf').then((pdf: any) => {
+        const totalPages = pdf.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+          pdf.setPage(i);
+          pdf.setFontSize(8);
+          pdf.setTextColor(150);
+          pdf.text(`Page ${i} / ${totalPages}`, pdf.internal.pageSize.getWidth() - 25, pdf.internal.pageSize.getHeight() - 10);
+        }
+      }).save().then(() => {
+        document.body.removeChild(container);
+        setNotification({ message: '전사 통합 정산 보고서 생성 완료', type: 'success' });
+      });
     } catch (err) {
       console.error(err);
-      alert('PDF 보고서 생성 중 오류가 발생했습니다.');
+      alert('보고서 생성 중 오류 발생');
     }
   };
 
   const exportHealthcareExcel = (targetValue: string | number, type: 'date' | 'month' = 'date', targetYear?: number) => {
     try {
       const today = new Date().toISOString().split('T')[0];
-      
+
       const productCodeMap: Record<string, string> = {
         '더좋은하이브리드698': 'A070',
-        '더좋은라이즈498': 'A072',
+        '더좋은라이즈498': 'A071',
         '더좋은하이브리드': 'A070',
-        '더좋은라이즈': 'A072',
+        '더좋은라이즈': 'A071',
         '하이브리드698': 'A070',
-        '라이즈498': 'A072'
+        '라이즈498': 'A071'
       };
 
       const parseResNo = (resNo: string) => {
@@ -1598,11 +1965,11 @@ const ERP_Dashboard = () => {
       const filtered = data.filter(item => {
         const hcRegDate = String(item.raw[18] || '');
         if (!hcRegDate || hcRegDate.trim() === '') return false;
-        
+
         const normalized = hcRegDate.replace(/[./]/g, '-');
         const parts = normalized.split('-');
         if (parts.length < 2) return false;
-        
+
         const year = parts[0].length === 2 ? `20${parts[0]}` : parts[0];
         const month = parseInt(parts[1]);
         const day = parts[2] ? parseInt(parts[2]) : null;
@@ -1641,7 +2008,7 @@ const ERP_Dashboard = () => {
 
       const headers = ['순번', '고객가입코드', '가입상품코드', '가입상품명', '피보험자명', '생년월일(YYYYMMDD)', '성별(남:1, 여:2)', '휴대폰번호', '계약시작일', '계약종료일', '서비스시작일', '상태코드(회원:01, 탈퇴:02)'];
       const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-      
+
       const headerStyle = {
         fill: { fgColor: { rgb: "E7E6E6" } },
         font: { bold: true, size: 10, name: '맑은 고딕' },
@@ -1678,10 +2045,12 @@ const ERP_Dashboard = () => {
 
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Healthcare');
-      
+
       const fileNameSuffix = type === 'date' ? targetValue : `${targetYear}_${String(targetValue).padStart(2, '0')}`;
-      XLSX.writeFile(workbook, `헬스케어_명단_${fileNameSuffix}_${today}.xlsx`);
-      
+      const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'binary' });
+      const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+      executeDownload(blob, `헬스케어_명단_${fileNameSuffix}_${today}.xlsx`);
+
       setNotification({ message: '헬스케어 명단 추출 완료', type: 'success' });
     } catch (err) {
       console.error(err);
@@ -1698,30 +2067,30 @@ const ERP_Dashboard = () => {
     });
     return ['전체', ...filteredProds];
   }, [data]);
-  
-  const uniqueHqs = React.useMemo(() => 
+
+  const uniqueHqs = React.useMemo(() =>
     ['전체', ...Array.from(new Set(data.map(item => item.hq).filter(Boolean)))],
     [data]
   );
 
   const uniqueBranches = React.useMemo(() => {
-    const filteredByHq = hqFilter === '전체' 
-      ? data 
+    const filteredByHq = hqFilter === '전체'
+      ? data
       : data.filter(item => item.hq === hqFilter);
     return ['전체', ...Array.from(new Set(filteredByHq.map(item => item.branch).filter(Boolean)))];
   }, [data, hqFilter]);
 
-  const uniqueDeliveryStatus = React.useMemo(() => 
+  const uniqueDeliveryStatus = React.useMemo(() =>
     Array.from(new Set(data.map(item => item.deliveryStatus).filter(Boolean))),
     [data]
   );
 
-  const uniqueHcRegDates = React.useMemo(() => 
+  const uniqueHcRegDates = React.useMemo(() =>
     Array.from(new Set<string>(data.map(item => String(item.hcRegDate || '')).filter(d => d && d.length >= 8))).sort((a: string, b: string) => a.localeCompare(b)).reverse(),
     [data]
   );
 
-  const uniqueHcMonths = React.useMemo(() => 
+  const uniqueHcMonths = React.useMemo(() =>
     Array.from(new Set<string>(data.map(item => String(item.hcRegDate || '').substring(0, 7)).filter(d => d && d.length >= 7))).sort((a: string, b: string) => a.localeCompare(b)).reverse(),
     [data]
   );
@@ -1729,7 +2098,7 @@ const ERP_Dashboard = () => {
   const uniquePayDates = React.useMemo(() => {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0].replace(/-/g, '.');
-    
+
     // 시트 데이터의 지급일 중 오늘 이후인 것들
     const existingDates = data
       .map(item => item.payDate)
@@ -1753,7 +2122,7 @@ const ERP_Dashboard = () => {
     <div className="flex flex-col h-screen bg-[#f1f5f9] font-sans selection:bg-blue-100 overflow-hidden relative">
       <AnimatePresence>
         {notification && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: -100 }}
             animate={{ opacity: 1, y: 20 }}
             exit={{ opacity: 0, y: -100 }}
@@ -1772,13 +2141,13 @@ const ERP_Dashboard = () => {
         )}
       </AnimatePresence>
 
-      <motion.header 
+      <motion.header
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         className="h-14 bg-[#0f172a] text-white px-6 flex justify-between items-center shadow-md z-50 shrink-0"
       >
         <div className="flex items-center gap-3">
-          <motion.div 
+          <motion.div
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/10"
@@ -1786,11 +2155,11 @@ const ERP_Dashboard = () => {
             <Save size={18} className="text-white" strokeWidth={2.5} />
           </motion.div>
           <h1 className="text-lg font-bold tracking-tight">
-            The Better Life ERP 
+            The Better Life ERP
             <span className="text-[11px] font-normal text-slate-400 ml-2">v2.1.0</span>
           </h1>
         </div>
-        
+
         <div className="hidden md:flex items-center gap-5 text-[12px] text-slate-400">
           <div className="flex items-center gap-1.5">
             <div className={`w-2 h-2 ${loading ? 'bg-orange-400 animate-pulse' : 'bg-emerald-500'} rounded-full shadow-[0_0_6px_rgba(16,185,129,0.4)]`} />
@@ -1804,7 +2173,7 @@ const ERP_Dashboard = () => {
       </motion.header>
 
       <div className="flex flex-1 overflow-hidden">
-        <motion.aside 
+        <motion.aside
           initial={{ x: -20, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           className="w-[240px] bg-white border-r border-slate-200 p-5 flex flex-col gap-6 shadow-sm z-40 shrink-0 overflow-y-auto"
@@ -1814,7 +2183,7 @@ const ERP_Dashboard = () => {
             <div className="grid gap-2">
               {!isAuthenticated ? (
                 <div className="space-y-2">
-                  <motion.button 
+                  <motion.button
                     onClick={handleConnect}
                     whileHover={{ scale: 1.01 }}
                     whileTap={{ scale: 0.99 }}
@@ -1822,7 +2191,7 @@ const ERP_Dashboard = () => {
                   >
                     <CheckCircle size={16} /> 구글 시트 연동하기
                   </motion.button>
-                  <button 
+                  <button
                     onClick={async () => {
                       try {
                         const res = await fetch('/api/auth/debug');
@@ -1841,21 +2210,21 @@ const ERP_Dashboard = () => {
                   >
                     <Settings size={10} /> 연동 해결 방법 확인
                   </button>
-                  
+
                   <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter mb-1">Cloud Sync</p>
-                    <button 
+                    <button
                       onClick={() => {
-                        if(!isAuthenticated) return alert('먼저 [구글 시트 연동하기]를 진행해 주세요.');
+                        if (!isAuthenticated) return alert('먼저 [구글 시트 연동하기]를 진행해 주세요.');
                         saveSettingsToCloud();
                       }}
                       className="w-full flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg text-[11px] font-bold hover:bg-blue-600 hover:text-white transition-all border border-blue-100"
                     >
                       <Save size={12} /> 설정 클라우드 저장
                     </button>
-                    <button 
+                    <button
                       onClick={() => {
-                        if(!isAuthenticated) return alert('먼저 [구글 시트 연동하기]를 진행해 주세요.');
+                        if (!isAuthenticated) return alert('먼저 [구글 시트 연동하기]를 진행해 주세요.');
                         loadSettingsFromCloud();
                       }}
                       className="w-full flex items-center gap-2 px-3 py-2 bg-slate-50 text-slate-600 rounded-lg text-[11px] font-bold hover:bg-slate-200 transition-all border border-slate-200"
@@ -1865,7 +2234,7 @@ const ERP_Dashboard = () => {
                   </div>
                 </div>
               ) : (
-                <motion.button 
+                <motion.button
                   onClick={handleLogout}
                   whileHover={{ backgroundColor: '#fee2e2' }}
                   whileTap={{ scale: 0.99 }}
@@ -1880,7 +2249,7 @@ const ERP_Dashboard = () => {
           <section>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">본부 및 정산 관리</p>
             <div className="grid gap-2">
-              <motion.button 
+              <motion.button
                 onClick={() => setIsSettingsModalOpen(true)}
                 whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.99 }}
@@ -1888,14 +2257,14 @@ const ERP_Dashboard = () => {
               >
                 <Save size={16} /> 본부별 정산 설정
               </motion.button>
-              
-              <motion.button 
+
+              <motion.button
                 onClick={loadData}
                 whileHover={{ backgroundColor: '#f8fafc' }}
                 whileTap={{ scale: 0.99 }}
                 className="flex items-center justify-center gap-2.5 border border-slate-200 text-slate-700 py-2.5 rounded-md text-[13px] font-medium hover:border-slate-300 transition-all font-bold"
               >
-                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> 
+                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
                 실시간 새로고침
               </motion.button>
             </div>
@@ -1910,7 +2279,7 @@ const ERP_Dashboard = () => {
                   { dot: 'bg-green-500', label: '헬스케어 명단 추출', action: () => setIsHealthcareModalOpen(true) },
                   { dot: 'bg-yellow-500', label: '날짜별 메모 확인', action: () => setIsMemoHistoryModalOpen(true) },
                 ].map((item, idx) => (
-                  <motion.button 
+                  <motion.button
                     key={idx}
                     onClick={item.action}
                     whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
@@ -1955,14 +2324,14 @@ const ERP_Dashboard = () => {
 
             {/* 정산 요약 대시보드 */}
             {(payDateFilter || filteredData.length > 0) && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="flex flex-col gap-4"
               >
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
                   <div className="lg:col-span-1 bg-slate-900 p-6 rounded-2xl shadow-xl border border-slate-800 text-white relative overflow-hidden group">
-                    <button 
+                    <button
                       onClick={() => setIsSettlementModalOpen(true)}
                       className="absolute top-2 right-2 p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors z-20"
                       title="정산서 생성하기"
@@ -1985,13 +2354,13 @@ const ERP_Dashboard = () => {
                     <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4 flex justify-between items-center">
                       <div className="flex items-center gap-6">
                         <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                          <button 
+                          <button
                             onClick={() => setDashboardView('product')}
                             className={`px-3 py-1 rounded-md text-[10px] font-black transition-all ${dashboardView === 'product' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
                           >
                             상품별
                           </button>
-                          <button 
+                          <button
                             onClick={() => setDashboardView('hq')}
                             className={`px-3 py-1 rounded-md text-[10px] font-black transition-all ${dashboardView === 'hq' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
                           >
@@ -2004,7 +2373,7 @@ const ERP_Dashboard = () => {
                       </div>
                       <div className="flex gap-2">
                         <div className="relative">
-                          <button 
+                          <button
                             onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
                             className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold transition-all shadow-md flex items-center gap-1.5"
                           >
@@ -2012,7 +2381,7 @@ const ERP_Dashboard = () => {
                             정산서 출력(PDF)
                           </button>
                           {isExportDropdownOpen && (
-                            <motion.div 
+                            <motion.div
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
                               className="absolute right-0 top-full mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 py-2 overflow-hidden"
@@ -2093,24 +2462,23 @@ const ERP_Dashboard = () => {
 
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-5">
               <div className="flex flex-col md:flex-row md:items-center gap-4 pb-4 border-b border-slate-50">
-                  <div className="flex items-center gap-3 min-w-max">
-                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">배송현황</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {['전체', ...uniqueDeliveryStatus].map(status => (
-                        <button
-                          key={status}
-                          onClick={() => setDeliveryFilter(status)}
-                          className={`px-4 py-1.5 rounded-full text-[12px] font-bold transition-all ${
-                            deliveryFilter === status 
-                              ? 'bg-slate-900 text-white shadow-sm' 
-                              : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                <div className="flex items-center gap-3 min-w-max">
+                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">배송현황</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {['전체', ...uniqueDeliveryStatus].map(status => (
+                      <button
+                        key={status}
+                        onClick={() => setDeliveryFilter(status)}
+                        className={`px-4 py-1.5 rounded-full text-[12px] font-bold transition-all ${deliveryFilter === status
+                          ? 'bg-slate-900 text-white shadow-sm'
+                          : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
                           }`}
-                        >
-                          {status}
-                        </button>
-                      ))}
-                    </div>
+                      >
+                        {status}
+                      </button>
+                    ))}
                   </div>
+                </div>
 
                 <div className="flex items-center gap-3 min-w-max ml-4">
                   <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">지급상태</div>
@@ -2119,18 +2487,17 @@ const ERP_Dashboard = () => {
                       <button
                         key={status}
                         onClick={() => setPaymentStatusFilter(status)}
-                        className={`px-3 py-1 rounded-md text-[11px] font-black transition-all ${
-                          paymentStatusFilter === status 
-                            ? 'bg-white text-blue-600 shadow-sm' 
-                            : 'text-slate-400 hover:text-slate-600'
-                        }`}
+                        className={`px-3 py-1 rounded-md text-[11px] font-black transition-all ${paymentStatusFilter === status
+                          ? 'bg-white text-blue-600 shadow-sm'
+                          : 'text-slate-400 hover:text-slate-600'
+                          }`}
                       >
                         {status}
                       </button>
                     ))}
                   </div>
                 </div>
-                
+
                 <div className="md:ml-auto flex items-center gap-2">
                   <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg">
                     <span className="text-[11px] font-bold text-slate-400">상품</span>
@@ -2162,7 +2529,7 @@ const ERP_Dashboard = () => {
                       <option value="asc">오래순</option>
                     </select>
                   </div>
-                  <button 
+                  <button
                     onClick={() => setIsCalendarModalOpen(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 transition-all group"
                     title="전체 지급일 달력 보기"
@@ -2171,7 +2538,7 @@ const ERP_Dashboard = () => {
                     <span className="bg-slate-100 text-[10px] font-black text-blue-600 rounded px-1.5 py-0.5 group-hover:bg-blue-600 group-hover:text-white transition-colors">지급일</span>
                   </button>
                   <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm">
-                    <select 
+                    <select
                       value={payDateFilter}
                       onChange={(e) => setPayDateFilter(e.target.value === '전체' ? '' : e.target.value)}
                       className="bg-transparent text-[12px] font-bold text-slate-700 outline-none"
@@ -2187,14 +2554,14 @@ const ERP_Dashboard = () => {
                 <div className="md:ml-auto relative flex-1 max-w-md flex items-center gap-2">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                    <input 
+                    <input
                       type="text" placeholder="회원명, 상품명, 계약일 검색..." value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
                     />
                   </div>
                   {filteredData.length > 0 && (
-                    <button 
+                    <button
                       onClick={() => {
                         if (confirm(`현재 필터링된 ${filteredData.length}건을 모두 '지급완료' 처리하시겠습니까?\n\n(참고: 취소된 건은 제외됩니다)`)) {
                           const validItems = filteredData.filter(item => !item.deliveryStatus.includes('취소'));
@@ -2217,7 +2584,7 @@ const ERP_Dashboard = () => {
             </div>
           </div>
 
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden"
@@ -2227,6 +2594,7 @@ const ERP_Dashboard = () => {
                 <thead>
                   <tr className="bg-slate-800 text-white border-b border-slate-700">
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">계약일자</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">상태</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원명</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">상품명</th>
@@ -2245,26 +2613,34 @@ const ERP_Dashboard = () => {
                   {(() => {
                     const PAGE_SIZE = 20;
                     const paginatedData = filteredData.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-                    
+
                     return paginatedData.map((item, idx) => (
-                      <motion.tr 
+                      <motion.tr
                         initial={{ opacity: 0, y: 5 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: idx * 0.01 }}
-                        key={item.uniqueKey} 
-                        className="hover:bg-blue-50/50 transition-colors group cursor-pointer border-b border-slate-50 text-[12px]"
+                        key={item.uniqueKey}
+                        className={`hover:bg-blue-50/50 transition-colors group cursor-pointer border-b border-slate-50 text-[12px] ${item.status.includes('취소') ? 'text-red-500' : ''}`}
                         onClick={() => setSelectedItem(item)}
                       >
                         <td className="px-3 py-3.5 text-slate-500 font-mono text-center border-r border-slate-50 whitespace-nowrap">{item.contractDate}</td>
+                        <td className="px-3 py-3.5 text-center border-r border-slate-50 font-bold">
+                          {item.status.includes('취소') ? (
+                            <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded-md">취소</span>
+                          ) : (
+                            <span className={`px-2 py-0.5 rounded-md ${item.status === '가입' ? 'text-blue-600 bg-blue-50' : 'text-slate-400'}`}>
+                              {item.status}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold">{item.memNo}</td>
                         <td className="px-3 py-3.5 border-r border-slate-50 font-black text-slate-900">{item.memName}</td>
                         <td className="px-3 py-3.5 border-r border-slate-50 font-bold text-slate-600 truncate max-w-[150px]" title={item.prodName}>{item.prodName}</td>
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-500">{item.rentalNo}</td>
                         <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded-md text-[10px] font-black border ${
-                            item.deliveryStatus.includes('완료') ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                          <span className={`px-2 py-1 rounded-md text-[10px] font-black border ${item.deliveryStatus.includes('완료') ? 'bg-blue-50 text-blue-600 border-blue-100' :
                             item.deliveryStatus.includes('취소') ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-orange-50 text-orange-600 border-orange-100'
-                          }`}>
+                            }`}>
                             {item.deliveryStatus}
                           </span>
                         </td>
@@ -2273,11 +2649,10 @@ const ERP_Dashboard = () => {
                           {item.payDate || '-'}
                         </td>
                         <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded text-[10px] font-black ${
-                            (item.paymentStatus === '지급완료' || item.hc.includes('지급완료'))
-                              ? 'bg-emerald-500 text-white' 
-                              : 'bg-slate-100 text-slate-400'
-                          }`}>
+                          <span className={`px-2 py-1 rounded text-[10px] font-black ${(item.paymentStatus === '지급완료' || item.hc.includes('지급완료'))
+                            ? 'bg-emerald-500 text-white'
+                            : 'bg-slate-100 text-slate-400'
+                            }`}>
                             {(item.paymentStatus === '지급완료' || item.hc.includes('지급완료')) ? '지급완료' : '지급예정'}
                           </span>
                         </td>
@@ -2294,7 +2669,7 @@ const ERP_Dashboard = () => {
                   })()}
                 </tbody>
               </table>
-              
+
               {filteredData.length === 0 && (
                 <div className="py-20 flex flex-col items-center justify-center text-slate-400 bg-slate-50/50">
                   <Search size={32} className="mb-3 opacity-20" />
@@ -2310,7 +2685,7 @@ const ERP_Dashboard = () => {
                   전체 <span className="text-blue-600">{filteredData.length.toLocaleString()}</span>건 중 {((currentPage - 1) * 20 + 1).toLocaleString()}-{Math.min(currentPage * 20, filteredData.length).toLocaleString()}건 표시
                 </div>
                 <div className="flex items-center gap-1">
-                  <button 
+                  <button
                     disabled={currentPage === 1}
                     onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                     className="p-2 border border-slate-200 rounded-xl disabled:opacity-30 hover:bg-slate-50 transition-all"
@@ -2323,7 +2698,7 @@ const ERP_Dashboard = () => {
                     let start = Math.max(1, currentPage - 2);
                     let end = Math.min(totalPages, start + 4);
                     if (end === totalPages) start = Math.max(1, end - 4);
-                    
+
                     for (let i = start; i <= end; i++) {
                       if (i < 1) continue;
                       pages.push(
@@ -2338,7 +2713,7 @@ const ERP_Dashboard = () => {
                     }
                     return pages;
                   })()}
-                  <button 
+                  <button
                     disabled={currentPage === Math.ceil(filteredData.length / 20)}
                     onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredData.length / 20), prev + 1))}
                     className="p-2 border border-slate-200 rounded-xl disabled:opacity-30 hover:bg-slate-50 transition-all"
@@ -2355,14 +2730,14 @@ const ERP_Dashboard = () => {
         <AnimatePresence>
           {selectedItem && (
             <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setSelectedItem(null)}
                 className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
               />
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -2373,7 +2748,7 @@ const ERP_Dashboard = () => {
                     <FileText size={18} className="text-accent-blue" />
                     회원 상세 정보
                   </h3>
-                  <button 
+                  <button
                     onClick={() => setSelectedItem(null)}
                     className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
                   >
@@ -2391,10 +2766,10 @@ const ERP_Dashboard = () => {
                       {(() => {
                         const setting = hqSettings.find(s => s.hqName === selectedItem.hq);
                         const productRule = setting?.productRules.find(r => r.productName === selectedItem.prodName);
-                        
+
                         // 현재 필터링된 데이터에서 해당 본부/상품의 실적 건수 파악 (구간 수수료용)
                         const count = data.filter(i => i.hq === selectedItem.hq && i.prodName === selectedItem.prodName).length;
-                        
+
                         let unitPrice = productRule?.totalAmount || 0;
                         let salesPart = productRule?.salesAmount || 0;
 
@@ -2408,7 +2783,7 @@ const ERP_Dashboard = () => {
                           if (productRule.tier3Count > 0 && count >= productRule.tier3Count) unitPrice = productRule.tier3Price;
                           else if (productRule.tier2Count > 0 && count >= productRule.tier2Count) unitPrice = productRule.tier2Price;
                           else if (productRule.tier1Count > 0 && count >= productRule.tier1Count) unitPrice = productRule.tier1Price;
-                          
+
                           const salesRatio = productRule.totalAmount > 0 ? (productRule.salesAmount / productRule.totalAmount) : 1;
                           salesPart = unitPrice * salesRatio;
                         }
@@ -2481,13 +2856,13 @@ const ERP_Dashboard = () => {
                       <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex flex-col gap-1">
                         <div className="text-[10px] font-bold text-slate-400 uppercase">수수료지급일자</div>
                         <div className="flex gap-2">
-                          <input 
+                          <input
                             type="text"
                             defaultValue={selectedItem.payDate}
                             id="editPayDate"
                             className="flex-1 text-[13px] font-bold bg-white border border-slate-200 px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
                           />
-                          <button 
+                          <button
                             onClick={() => {
                               const val = (document.getElementById('editPayDate') as HTMLInputElement).value;
                               updateCell(selectedItem.originalRowIdx, 14, val);
@@ -2501,7 +2876,7 @@ const ERP_Dashboard = () => {
                       <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex flex-col gap-1">
                         <div className="text-[10px] font-bold text-slate-400 uppercase">지급상태</div>
                         <div className="flex gap-2">
-                          <select 
+                          <select
                             defaultValue={selectedItem.paymentStatus}
                             id="editPaymentStatus"
                             className="flex-1 text-[13px] font-bold bg-white border border-slate-200 px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -2509,7 +2884,7 @@ const ERP_Dashboard = () => {
                             <option value="">지급 예정</option>
                             <option value="지급완료">지급 완료</option>
                           </select>
-                          <button 
+                          <button
                             onClick={() => {
                               const val = (document.getElementById('editPaymentStatus') as HTMLSelectElement).value;
                               updateCell(selectedItem.originalRowIdx, 19, val);
@@ -2525,14 +2900,14 @@ const ERP_Dashboard = () => {
                           <FileText size={10} /> 정산 및 지급 관련 메모
                         </div>
                         <div className="flex gap-2">
-                          <input 
+                          <input
                             type="text"
                             defaultValue={selectedItem.memo}
                             id="editMemo"
                             placeholder="메모를 입력하세요..."
                             className="flex-1 text-[13px] font-medium bg-white border border-yellow-200 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-yellow-200"
                           />
-                          <button 
+                          <button
                             onClick={() => {
                               const val = (document.getElementById('editMemo') as HTMLInputElement).value;
                               updateCell(selectedItem.originalRowIdx, 20, val);
@@ -2574,7 +2949,7 @@ const ERP_Dashboard = () => {
                 <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
                   <div>
                     {(selectedItem.paymentStatus === '지급완료' || selectedItem.hc.includes('지급완료')) && (
-                      <button 
+                      <button
                         onClick={() => {
                           if (confirm('해당 건의 지급 완료 처리를 취소하시겠습니까?')) {
                             updateCell(selectedItem.originalRowIdx, 18, '');
@@ -2588,7 +2963,7 @@ const ERP_Dashboard = () => {
                       </button>
                     )}
                   </div>
-                  <button 
+                  <button
                     onClick={() => setSelectedItem(null)}
                     className="px-8 py-2 bg-slate-900 text-white rounded-xl text-sm font-black shadow-lg"
                   >
@@ -2603,14 +2978,14 @@ const ERP_Dashboard = () => {
         <AnimatePresence>
           {isCalendarModalOpen && (
             <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setIsCalendarModalOpen(false)}
                 className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
               />
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -2620,14 +2995,14 @@ const ERP_Dashboard = () => {
                   {(() => {
                     const year = calendarViewDate.getFullYear();
                     const month = calendarViewDate.getMonth();
-                    
+
                     const daysInMonth = new Date(year, month + 1, 0).getDate();
                     const firstDay = new Date(year, month, 1).getDay();
                     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-                    
+
                     const prevMonthLastDay = new Date(year, month, 0).getDate();
                     const prevMonthDays = Array.from({ length: firstDay }, (_, i) => prevMonthLastDay - firstDay + i + 1);
-                    
+
                     return (
                       <>
                         <div className="flex justify-between items-center mb-6">
@@ -2636,13 +3011,13 @@ const ERP_Dashboard = () => {
                             <h3 className="text-xl font-black text-slate-900">{year}년 {month + 1}월</h3>
                           </div>
                           <div className="flex gap-1">
-                            <button 
+                            <button
                               onClick={() => setCalendarViewDate(new Date(year, month - 1, 1))}
                               className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"
                             >
                               <ChevronRight size={20} className="rotate-180" />
                             </button>
-                            <button 
+                            <button
                               onClick={() => setCalendarViewDate(new Date(year, month + 1, 1))}
                               className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"
                             >
@@ -2669,7 +3044,7 @@ const ERP_Dashboard = () => {
                             const dateStr = `${year}.${String(month + 1).padStart(2, '0')}.${String(d).padStart(2, '0')}`;
                             const hasData = allDatesWithData.has(dateStr);
                             const isSelected = payDateFilter === dateStr;
-                            
+
                             return (
                               <motion.button
                                 key={d}
@@ -2681,7 +3056,7 @@ const ERP_Dashboard = () => {
                                 }}
                                 className={`
                                   h-10 rounded-xl flex flex-col items-center justify-center text-[13px] relative transition-all
-                                  ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 font-black' : 
+                                  ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 font-black' :
                                     hasData ? 'text-slate-900 font-black hover:bg-slate-100' : 'text-slate-300 hover:bg-slate-50'}
                                 `}
                               >
@@ -2699,7 +3074,7 @@ const ERP_Dashboard = () => {
                             <div className="w-2 h-2 bg-blue-500 rounded-full" />
                             <span>점 표시: 데이터가 있는 날짜 (검정색)</span>
                           </div>
-                          <button 
+                          <button
                             onClick={() => {
                               setPayDateFilter('');
                               setIsCalendarModalOpen(false);
@@ -2721,14 +3096,14 @@ const ERP_Dashboard = () => {
         <AnimatePresence>
           {isHealthcareModalOpen && (
             <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setIsHealthcareModalOpen(false)}
                 className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
               />
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -2756,7 +3131,7 @@ const ERP_Dashboard = () => {
                       <div className="flex flex-col gap-2">
                         <label className="text-[11px] font-bold text-slate-400 uppercase ml-1">특정 일자 선택 (등록일 기준)</label>
                         <div className="flex gap-2">
-                          <select 
+                          <select
                             id="hcSpecificDate"
                             className="flex-1 bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-[14px] font-bold focus:outline-none focus:ring-2 focus:ring-green-200"
                           >
@@ -2768,7 +3143,7 @@ const ERP_Dashboard = () => {
                               <option disabled>데이터 없음</option>
                             )}
                           </select>
-                          <button 
+                          <button
                             onClick={() => {
                               const date = (document.getElementById('hcSpecificDate') as HTMLSelectElement).value;
                               if (date && date !== '데이터 없음') exportHealthcareExcel(date, 'date');
@@ -2825,9 +3200,9 @@ const ERP_Dashboard = () => {
           {isSettingsModalOpen && (
             <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsSettingsModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }} 
-                animate={{ opacity: 1, y: 0 }} 
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 20 }}
                 className="relative bg-white w-full max-w-6xl h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
               >
@@ -2839,25 +3214,45 @@ const ERP_Dashboard = () => {
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2 mr-4 border-r border-slate-700 pr-5">
-                       <button 
+                      <button
                         onClick={() => {
-                          if(!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
+                          if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
                           saveSettingsToCloud();
                         }}
+                        disabled={saveSettingsStatus === 'saving'}
                         title="구글 시트에 현재 설정 반영"
-                        className="px-3 py-1.5 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded-lg text-xs font-bold hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2"
+                        className={`px-3 py-1.5 border rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${saveSettingsStatus === 'saving' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-not-allowed' :
+                            saveSettingsStatus === 'success' ? 'bg-emerald-600/20 text-emerald-400 border-emerald-600/30' :
+                              saveSettingsStatus === 'error' ? 'bg-red-600/20 text-red-400 border-red-600/30' :
+                                'bg-blue-600/20 text-blue-400 border-blue-600/30 hover:bg-blue-600 hover:text-white'
+                          }`}
                       >
-                        <Save size={14} /> 설정 클라우드 저장
+                        {saveSettingsStatus === 'saving' ? (
+                          <><RefreshCw size={14} className="animate-spin" /> 저장 중...</>
+                        ) : saveSettingsStatus === 'success' ? (
+                          <><CheckCircle size={14} /> 저장 완료!</>
+                        ) : saveSettingsStatus === 'error' ? (
+                          <><AlertCircle size={14} /> 저장 실패</>
+                        ) : (
+                          <><Save size={14} /> 설정 클라우드 저장</>
+                        )}
                       </button>
-                      <button 
+                      <button
                         onClick={() => {
-                          if(!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
+                          if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
                           loadSettingsFromCloud();
                         }}
                         title="구글 시트에서 최신 설정 가져오기"
                         className="px-3 py-1.5 bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold hover:bg-slate-700 transition-all flex items-center gap-2"
                       >
                         <RefreshCw size={14} /> 설정 불러오기
+                      </button>
+                      <button
+                        onClick={resetSettingsToDefault}
+                        title="꼬인 데이터 복구 - 모든 설정을 초기값으로 리셋"
+                        className="px-3 py-1.5 bg-red-900/30 text-red-400 border border-red-700/40 rounded-lg text-xs font-bold hover:bg-red-700 hover:text-white transition-all flex items-center gap-2"
+                      >
+                        <AlertCircle size={14} /> 설정 초기화
                       </button>
                     </div>
                     <button onClick={() => setIsSettingsModalOpen(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={24} /></button>
@@ -2875,11 +3270,10 @@ const ERP_Dashboard = () => {
                         <button
                           key={s.id}
                           onClick={() => setActiveHqId(s.id)}
-                          className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between group ${
-                            activeHqId === s.id 
-                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
-                              : 'text-slate-600 hover:bg-slate-200'
-                          }`}
+                          className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between group ${activeHqId === s.id
+                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
+                            : 'text-slate-600 hover:bg-slate-200'
+                            }`}
                         >
                           <div className="flex flex-col">
                             <span className="text-[13px] font-bold truncate">{s.hqName}</span>
@@ -2892,7 +3286,7 @@ const ERP_Dashboard = () => {
                       ))}
                     </div>
                     <div className="p-4 border-t border-slate-200">
-                      <button 
+                      <button
                         onClick={() => {
                           const name = prompt('새로운 본부/거래처명을 입력하세요');
                           if (!name) return;
@@ -2902,6 +3296,7 @@ const ERP_Dashboard = () => {
                             hqName: name,
                             bankName: '-', accountNumber: '-', accountHolder: '-',
                             paymentMethod: '계좌이체',
+                            settlementType: '사업자',
                             enableOverriding: false,
                             overriding: { salesperson: 100, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' },
                             productRules: []
@@ -2934,9 +3329,9 @@ const ERP_Dashboard = () => {
                                   </h4>
                                   <p className="text-xs text-slate-400 mt-1">ID: {s.id} | 거래처별 맞춤 정산 규칙을 설정합니다.</p>
                                 </div>
-                                <button 
+                                <button
                                   onClick={() => {
-                                    if(confirm(`${s.hqName} 설정을 삭제하시겠습니까?`)) {
+                                    if (confirm(`${s.hqName} 설정을 삭제하시겠습니까?`)) {
                                       setHqSettings(hqSettings.filter(h => h.id !== s.id));
                                       setActiveHqId(null);
                                     }
@@ -2950,7 +3345,7 @@ const ERP_Dashboard = () => {
                               <div className="grid grid-cols-3 gap-6">
                                 <div className="flex flex-col gap-1.5">
                                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">입금은행</label>
-                                  <input 
+                                  <input
                                     type="text" value={s.bankName}
                                     onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, bankName: e.target.value } : h))}
                                     className="p-3 bg-white border border-slate-200 rounded-xl text-[13px] font-bold focus:ring-2 focus:ring-blue-100 outline-none"
@@ -2958,7 +3353,7 @@ const ERP_Dashboard = () => {
                                 </div>
                                 <div className="flex flex-col gap-1.5">
                                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">계좌번호</label>
-                                  <input 
+                                  <input
                                     type="text" value={s.accountNumber}
                                     onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, accountNumber: e.target.value } : h))}
                                     className="p-3 bg-white border border-slate-200 rounded-xl text-[13px] font-bold focus:ring-2 focus:ring-blue-100 outline-none"
@@ -2966,11 +3361,42 @@ const ERP_Dashboard = () => {
                                 </div>
                                 <div className="flex flex-col gap-1.5">
                                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">수취인성명</label>
-                                  <input 
+                                  <input
                                     type="text" value={s.accountHolder}
                                     onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, accountHolder: e.target.value } : h))}
                                     className="p-3 bg-white border border-slate-200 rounded-xl text-[13px] font-bold focus:ring-2 focus:ring-blue-100 outline-none"
                                   />
+                                </div>
+                              </div>
+                              <div className="mt-4 p-4 bg-white border border-slate-100 rounded-xl flex items-center justify-between">
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                                    정산 유형 설정
+                                  </label>
+                                  <p className="text-[11px] text-slate-400">사업자 유무에 따른 세무 신고 기준을 선택하세요.</p>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, settlementType: '사업자' } : h))}
+                                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all flex flex-col items-center gap-1 border ${s.settlementType === '사업자'
+                                      ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-100'
+                                      : 'bg-white text-slate-400 border-slate-100 hover:border-slate-200'
+                                      }`}
+                                  >
+                                    사업자대리점
+                                    <span className={`text-[9px] font-medium ${s.settlementType === '사업자' ? 'text-blue-100' : 'text-slate-300'}`}>세금계산서 발행</span>
+                                  </button>
+                                  <button
+                                    onClick={() => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, settlementType: '개인' } : h))}
+                                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all flex flex-col items-center gap-1 border ${s.settlementType === '개인'
+                                      ? 'bg-purple-600 text-white border-purple-600 shadow-lg shadow-purple-100'
+                                      : 'bg-white text-slate-400 border-slate-100 hover:border-slate-200'
+                                      }`}
+                                  >
+                                    개인/프리랜서
+                                    <span className={`text-[9px] font-medium ${s.settlementType === '개인' ? 'text-purple-100' : 'text-slate-300'}`}>원천세 3.3% 공제</span>
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -2982,7 +3408,7 @@ const ERP_Dashboard = () => {
                                   <Package size={16} className="text-blue-500" />
                                   상품별 수수료 및 구간 설정
                                 </h5>
-                                <button 
+                                <button
                                   onClick={() => {
                                     const name = prompt('추가할 상품명을 입력하세요');
                                     if (!name) return;
@@ -3014,7 +3440,7 @@ const ERP_Dashboard = () => {
                                     {s.productRules.map((pr, pIdx) => (
                                       <tr key={pIdx} className="hover:bg-slate-50 transition-colors">
                                         <td className="px-4 py-3 font-bold text-slate-700">
-                                          <input 
+                                          <input
                                             type="text" value={pr.productName}
                                             onChange={(e) => {
                                               const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, productName: e.target.value } : r);
@@ -3024,7 +3450,7 @@ const ERP_Dashboard = () => {
                                           />
                                         </td>
                                         <td className="px-4 py-3">
-                                          <input 
+                                          <input
                                             type="number" value={pr.totalAmount}
                                             onChange={(e) => {
                                               const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, totalAmount: parseInt(e.target.value) || 0 } : r);
@@ -3034,7 +3460,7 @@ const ERP_Dashboard = () => {
                                           />
                                         </td>
                                         <td className="px-4 py-3">
-                                          <input 
+                                          <input
                                             type="number" value={pr.salesAmount}
                                             onChange={(e) => {
                                               const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, salesAmount: parseInt(e.target.value) || 0 } : r);
@@ -3051,7 +3477,7 @@ const ERP_Dashboard = () => {
                                             {[1, 2, 3].map(t => (
                                               <div key={t} className="flex items-center gap-1 bg-white p-1 rounded border border-slate-100 shadow-sm">
                                                 <span className="text-[9px] font-black text-indigo-400 min-w-[12px]">{t}</span>
-                                                <input 
+                                                <input
                                                   type="number" value={(pr as any)[`tier${t}Count`]}
                                                   onChange={(e) => {
                                                     const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Count`]: parseInt(e.target.value) || 0 } : r);
@@ -3061,7 +3487,7 @@ const ERP_Dashboard = () => {
                                                   placeholder="건"
                                                 />
                                                 <span className="text-[8px] text-slate-300">↑</span>
-                                                <input 
+                                                <input
                                                   type="number" value={(pr as any)[`tier${t}Price`]}
                                                   onChange={(e) => {
                                                     const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: parseInt(e.target.value) || 0 } : r);
@@ -3075,9 +3501,9 @@ const ERP_Dashboard = () => {
                                           </div>
                                         </td>
                                         <td className="px-4 py-3 text-center">
-                                          <button 
+                                          <button
                                             onClick={() => {
-                                              if(confirm('삭제하시겠습니까?')) {
+                                              if (confirm('삭제하시겠습니까?')) {
                                                 const updated = s.productRules.filter((_, i) => i !== pIdx);
                                                 setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                               }
@@ -3108,7 +3534,7 @@ const ERP_Dashboard = () => {
                                   <div className="flex items-center gap-4">
                                     <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-indigo-200">
                                       <span className="text-[11px] font-bold text-indigo-600">방식</span>
-                                      <select 
+                                      <select
                                         value={s.overriding.mode || 'percent'}
                                         onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, overriding: { ...h.overriding, mode: e.target.value as any } } : h))}
                                         className="bg-transparent text-[11px] font-black text-slate-700 focus:outline-none cursor-pointer"
@@ -3119,7 +3545,7 @@ const ERP_Dashboard = () => {
                                     </div>
                                     <div className="flex items-center gap-2">
                                       <span className="text-[11px] font-bold text-indigo-400">활성화</span>
-                                      <input 
+                                      <input
                                         type="checkbox" checked={s.enableOverriding}
                                         onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, enableOverriding: e.target.checked } : h))}
                                         className="w-4 h-4 rounded text-indigo-600 cursor-pointer"
@@ -3138,7 +3564,7 @@ const ERP_Dashboard = () => {
                                       <label className="text-[10px] font-bold text-indigo-400">
                                         {f.label} ({s.overriding.mode === 'fixed' ? '₩' : '%'})
                                       </label>
-                                      <input 
+                                      <input
                                         type="number" step={s.overriding.mode === 'fixed' ? "1000" : "0.1"} value={(s.overriding as any)[f.key]}
                                         onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, overriding: { ...h.overriding, [f.key]: parseFloat(e.target.value) || 0 } } : h))}
                                         className="p-2.5 bg-white border border-indigo-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-300 transition-all"
@@ -3177,8 +3603,8 @@ const ERP_Dashboard = () => {
                 <div className="p-8 flex flex-col items-center gap-6">
                   <div className="w-full">
                     <label className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">정산 대상 월 선택</label>
-                    <input 
-                      type="month" 
+                    <input
+                      type="month"
                       id="settlementMonth"
                       defaultValue={new Date().toISOString().slice(0, 7)}
                       className="w-full p-3 border border-slate-200 rounded-xl text-lg font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-400 transition-all font-mono"
@@ -3187,7 +3613,7 @@ const ERP_Dashboard = () => {
                   <div className="p-4 bg-amber-50 rounded-lg text-[12px] text-amber-800 border border-amber-100 leading-relaxed italic">
                     * 수수료지급일(O열) 기준으로 데이터를 필터링하여 엑셀 파일을 생성합니다. 본부별 정산 설정이 완료되어 있어야 정확한 금액이 산출됩니다.
                   </div>
-                  <motion.button 
+                  <motion.button
                     whileHover={{ scale: 1.02, backgroundColor: '#ea580c' }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => {
@@ -3209,9 +3635,9 @@ const ERP_Dashboard = () => {
           {isMonthlyDashboardModalOpen && (
             <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMonthlyDashboardModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }} 
-                animate={{ opacity: 1, scale: 1 }} 
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="relative bg-slate-50 w-full max-w-6xl rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[90vh]"
               >
@@ -3257,7 +3683,7 @@ const ERP_Dashboard = () => {
                                 </tr>
                               </thead>
                               <tbody>
-                                { (Object.entries(stat.products) as [string, { count: number, amount: number }][]).map(([pName, pStat]) => (
+                                {(Object.entries(stat.products) as [string, { count: number, amount: number }][]).map(([pName, pStat]) => (
                                   <tr key={pName} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                                     <td className="px-4 py-3 text-xs font-bold text-slate-700">{pName}</td>
                                     <td className="px-4 py-3 text-xs text-center text-slate-500 font-bold">{pStat.count}</td>
@@ -3284,7 +3710,7 @@ const ERP_Dashboard = () => {
                                 </tr>
                               </thead>
                               <tbody>
-                                { (Object.entries(stat.hqs) as [string, { count: number, amount: number }][]).map(([hqName, hStat]) => (
+                                {(Object.entries(stat.hqs) as [string, { count: number, amount: number }][]).map(([hqName, hStat]) => (
                                   <tr key={hqName} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                                     <td className="px-4 py-3 text-xs font-bold text-slate-700">{hqName}</td>
                                     <td className="px-4 py-3 text-xs text-center text-slate-500 font-bold">{hStat.count}</td>
@@ -3298,7 +3724,7 @@ const ERP_Dashboard = () => {
                       </div>
                     </section>
                   ))}
-                  
+
                   {monthlyStats.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-20 opacity-20">
                       <Search size={64} className="mb-4" />
@@ -3318,9 +3744,9 @@ const ERP_Dashboard = () => {
           {isMemoHistoryModalOpen && (
             <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMemoHistoryModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }} 
-                animate={{ opacity: 1, scale: 1 }} 
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="relative bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[80vh]"
               >
@@ -3328,7 +3754,7 @@ const ERP_Dashboard = () => {
                   <h3 className="text-base font-bold text-yellow-900 flex items-center gap-2">
                     <StickyNote size={18} className="text-yellow-600" /> 날짜별 메모 히스토리
                   </h3>
-                  <button 
+                  <button
                     onClick={() => setIsMemoHistoryModalOpen(false)}
                     className="p-2 hover:bg-yellow-100 rounded-full transition-colors text-yellow-800"
                   >
@@ -3340,7 +3766,7 @@ const ERP_Dashboard = () => {
                   {(() => {
                     const itemsWithMemo = data.filter(item => item.memo && item.memo.trim() !== '');
                     const groupedByDate: { [key: string]: ERPDataItem[] } = {};
-                    
+
                     itemsWithMemo.forEach(item => {
                       const date = item.payDate || '지급일 미상';
                       if (!groupedByDate[date]) groupedByDate[date] = [];
@@ -3369,8 +3795,8 @@ const ERP_Dashboard = () => {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {groupedByDate[date].map(item => (
-                            <div 
-                              key={item.uniqueKey} 
+                            <div
+                              key={item.uniqueKey}
                               className="p-4 bg-yellow-50/50 border border-yellow-100 rounded-2xl hover:border-yellow-300 transition-all cursor-pointer group"
                               onClick={() => {
                                 setSelectedItem(item);
@@ -3393,7 +3819,7 @@ const ERP_Dashboard = () => {
                 </div>
 
                 <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-                  <button 
+                  <button
                     onClick={() => setIsMemoHistoryModalOpen(false)}
                     className="px-6 py-2 bg-slate-900 text-white rounded-xl text-sm font-bold shadow-md"
                   >
