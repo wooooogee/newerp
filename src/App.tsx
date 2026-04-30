@@ -1109,64 +1109,133 @@ const ERP_Dashboard = () => {
       if (filteredData.length === 0) return alert('정산 대상 데이터가 없습니다.');
 
       const wb = XLSX.utils.book_new();
-      const rows: any[][] = [];
-      const payDateSample = filteredData[0].payDate || '';
-
-      rows[0] = ['', '', '[ 본사 통합 정산 종합 보고서 ]'];
-      rows[1] = ['', '', `보고일자: ${new Date().toISOString().split('T')[0]} | 지급기준: ${payDateSample.substring(0, 7) || '미상'}`];
-      rows[2] = [];
-
-      rows[3] = ['1. 전체 정산 개요'];
-      rows[4] = ['지급 기준일', '총 집계 본부수', '총 계약 구좌수', '총 지급 합계액'];
-      rows[5] = [
-        payDateSample || '다중지정',
-        Object.keys(settlementStats.hqGroups).length,
-        settlementStats.totalCount,
-        { v: settlementStats.totalAmount, t: 'n', z: '#,##0' }
-      ];
-      rows[6] = [];
-
-      rows.push(['2. 본부별 정산 요약']);
-      rows.push(['본부명', '계약 건수', '판매수수료', '판매촉진비', '지급총액', '지급계좌']);
-
       const statsMap = new Map<string, number>();
       filteredData.forEach(item => {
         const key = `${item.hq}|${item.prodName}`;
         statsMap.set(key, (statsMap.get(key) || 0) + 1);
       });
 
-      (Object.entries(settlementStats.hqGroups) as [string, ERPDataItem[]][]).forEach(([hqName, items]) => {
-        let hqSales = 0;
-        let hqTotal = 0;
+      const payDateSample = filteredData[0].payDate || '';
+      const today = new Date().toISOString().split('T')[0];
 
-        items.forEach(curr => {
-          const { totalCommission, salesComm } = calculateCommissionDetails(curr, statsMap);
-          hqTotal += totalCommission;
-          hqSales += salesComm;
+      // --- SHEET 1: 전체 요약 ---
+      const summaryRows: any[][] = [
+        ['[ 전사 통합 정산 종합 보고서 ]'],
+        [`보고일자: ${today} | 지급기준: ${payDateSample.substring(0, 7)}`],
+        [],
+        ['1. 전체 정산 개요'],
+        ['지급 기준일', '총 집계 본부수', '총 계약 구좌수', '총 실지급 합계액'],
+      ];
+
+      // 실지급액 합계 계산
+      let totalNetPay = 0;
+      Object.entries(settlementStats.hqGroups).forEach(([hq, items]: [string, any]) => {
+        let hqGross = 0;
+        items.forEach((item: any) => {
+          const { totalCommission } = calculateCommissionDetails(item, statsMap);
+          hqGross += totalCommission;
+        });
+        const setting = hqSettings.find(s => s.hqName === hq);
+        const isIndiv = setting?.settlementType?.includes('개인') || hq === '글로씨';
+        totalNetPay += isIndiv ? (hqGross - Math.floor(hqGross * 0.033)) : hqGross;
+      });
+
+      summaryRows.push([
+        payDateSample.substring(0, 7),
+        Object.keys(settlementStats.hqGroups).length,
+        settlementStats.totalCount,
+        { v: totalNetPay, t: 'n', z: '#,##0' }
+      ]);
+      summaryRows.push([]);
+      summaryRows.push(['2. 본부별 정산 현황']);
+      summaryRows.push(['본부명', '유형', '계약건수', '공급가액(정산액)', '부가세/원천세', '최종 실지급액', '지급계좌']);
+
+      Object.entries(settlementStats.hqGroups).forEach(([hqName, items]: [string, any]) => {
+        let hqGross = 0;
+        items.forEach((item: any) => {
+          const { totalCommission } = calculateCommissionDetails(item, statsMap);
+          hqGross += totalCommission;
         });
 
         const setting = hqSettings.find(h => h.hqName === hqName);
-        rows.push([
+        const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+        const supply = isIndiv ? hqGross : Math.round(hqGross / 1.1);
+        const tax = isIndiv ? Math.floor(hqGross * 0.033) : (hqGross - supply);
+        const net = hqGross - (isIndiv ? tax : 0);
+
+        summaryRows.push([
           hqName,
+          isIndiv ? '개인' : '법인',
           items.length,
-          { v: hqSales, t: 'n', z: '#,##0' },
-          { v: Math.max(0, hqTotal - hqSales), t: 'n', z: '#,##0' },
-          { v: hqTotal, t: 'n', z: '#,##0' },
+          { v: supply, t: 'n', z: '#,##0' },
+          { v: isIndiv ? -tax : tax, t: 'n', z: '#,##0' },
+          { v: net, t: 'n', z: '#,##0' },
           `${setting?.bankName || '-'} ${setting?.accountNumber || '-'}`
         ]);
       });
 
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      XLSX.utils.book_append_sheet(wb, ws, "통합요약보고서");
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+      XLSX.utils.book_append_sheet(wb, wsSummary, "전체요약");
 
+      // --- SHEET 2: 본부별 실적 상세 (PDF 섹션 2) ---
+      const perfRows: any[][] = [
+        ['본부명', '지사명', '영업자', '상품명', '건별 실지급액', '구좌', '최종 합계(실지급)']
+      ];
+
+      const hqPerfMap = new Map<string, any>();
+      filteredData.forEach(item => {
+        if (item.status.includes('취소')) return;
+        const { finalPayable, unitPrice } = calculateCommissionDetails(item, statsMap);
+        const setting = hqSettings.find(s => s.hqName === item.hq);
+        const isIndiv = setting?.settlementType?.includes('개인') || item.hq === '글로씨';
+        const netUnitPrice = isIndiv ? Math.floor(unitPrice * 0.967) : unitPrice;
+
+        const groupKey = `${item.hq}|${item.branch || '-'}|${item.salesperson || '-'}|${item.prodName}`;
+        if (!hqPerfMap.has(groupKey)) {
+          hqPerfMap.set(groupKey, { hq: item.hq, branch: item.branch, sales: item.salesperson, prod: item.prodName, up: netUnitPrice, qty: 0, total: 0 });
+        }
+        const g = hqPerfMap.get(groupKey);
+        g.qty += 1;
+        g.total += finalPayable;
+      });
+
+      Array.from(hqPerfMap.values()).sort((a, b) => a.hq.localeCompare(b.hq)).forEach(p => {
+        perfRows.push([
+          p.hq, p.branch, p.sales, p.prod,
+          { v: p.up, t: 'n', z: '#,##0' },
+          p.qty,
+          { v: p.total, t: 'n', z: '#,##0' }
+        ]);
+      });
+
+      const wsPerf = XLSX.utils.aoa_to_sheet(perfRows);
+      XLSX.utils.book_append_sheet(wb, wsPerf, "본부별실적상세");
+
+      // --- SHEET 3: 전체 지급 명세 (Raw Data) ---
+      const detailRows: any[][] = [
+        ['지급일', '본부', '지사', '영업자', '고객명', '상품명', '상태', '수수료계', '유형']
+      ];
+
+      filteredData.forEach(item => {
+        const { totalCommission, settlementType } = calculateCommissionDetails(item, statsMap);
+        detailRows.push([
+          item.payDate, item.hq, item.branch, item.salesperson, item.customerName,
+          item.prodName, item.status, { v: totalCommission, t: 'n', z: '#,##0' }, settlementType
+        ]);
+      });
+
+      const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+      XLSX.utils.book_append_sheet(wb, wsDetail, "전체상세명세");
+
+      // 파일 생성 및 다운로드
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
       executeDownload(blob, `${payDateSample.substring(0, 7)}_통합정산보고서.xlsx`);
 
-      setNotification({ message: '통합 정산 보고서 생성 완료', type: 'success' });
+      setNotification({ message: '통합 정산 보고서(Excel) 생성 완료', type: 'success' });
     } catch (err) {
       console.error(err);
-      alert('보고서 생성 중 오류가 발생했습니다.');
+      alert('엑셀 보고서 생성 중 오류가 발생했습니다.');
     }
   };
 
