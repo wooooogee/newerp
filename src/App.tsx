@@ -2236,9 +2236,9 @@ const ERP_Dashboard = () => {
               </tbody>
               <tfoot style="background: #e2e8f0; font-weight: 900; text-align: right;">
                 <tr>
-                  <td colspan="3" style="border: 1px solid #1e3a8a; padding: 12px; text-align: center; font-size: 13px;">전 체 합 계</td>
+                  <td colspan="3" style="border: 1px solid #1e3a8a; padding: 12px; text-align: center; font-size: 13px;">실 지 급 기 준 합 계</td>
                   <td style="border: 1px solid #1e3a8a; padding: 12px; text-align: center; font-size: 13px;">${settlementStats.totalCount}</td>
-                  <td style="border: 1px solid #1e3a8a; padding: 12px; color: #1e3a8a; font-size: 14px;">${settlementStats.totalAmount.toLocaleString()}원</td>
+                  <td style="border: 1px solid #1e3a8a; padding: 12px; color: #1e3a8a; font-size: 14px;">${hqPerfData.reduce((acc, p) => acc + p.total, 0).toLocaleString()}원</td>
                 </tr>
               </tfoot>
             </table>
