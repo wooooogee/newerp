@@ -183,7 +183,10 @@ const MASTER_HQ_DATA: Partial<HQSetting>[] = [
   { hqName: '조민경', bankName: '카카오뱅크', accountNumber: '3333027476861', accountHolder: '조민경', productRules: [] },
   { hqName: '조재윤', bankName: '수협', accountNumber: '206000673009', accountHolder: '조재윤', productRules: [] },
   {
-    hqName: '다이렉트', bankName: '-', accountNumber: '-', accountHolder: '-', productRules: [
+    hqName: '다이렉트', bankName: '-', accountNumber: '-', accountHolder: '-',
+    enableOverriding: true,
+    overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'fixed' },
+    productRules: [
       { productName: '더좋은하이브리드698', totalAmount: 665000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
       { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
       { productName: '더좋은통신결합360플러스', totalAmount: 250000, salesAmount: 240000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
@@ -280,9 +283,9 @@ const ERP_Dashboard = () => {
       bankName: m.bankName || '-',
       accountNumber: m.accountNumber || '-',
       accountHolder: m.accountHolder || '-',
-      paymentMethod: '계좌이체',
-      enableOverriding: false,
-      overriding: { salesperson: 70, teamLeader: 10, branchManager: 10, hqManager: 10, mode: 'percent' },
+      paymentMethod: m.paymentMethod || '계좌이체',
+      enableOverriding: m.enableOverriding ?? false,
+      overriding: m.overriding || { salesperson: 70, teamLeader: 10, branchManager: 10, hqManager: 10, mode: 'percent' },
       settlementType: m.settlementType || '사업자',
       productRules: m.productRules || []
     }));
@@ -347,15 +350,15 @@ const ERP_Dashboard = () => {
       bankName: m.bankName || '-',
       accountNumber: m.accountNumber || '-',
       accountHolder: m.accountHolder || '-',
-      paymentMethod: '계좌이체',
-      enableOverriding: false,
-      overriding: { salesperson: 70, teamLeader: 10, branchManager: 10, hqManager: 10, mode: 'percent' },
+      paymentMethod: m.paymentMethod || '계좌이체',
+      enableOverriding: m.enableOverriding ?? false,
+      overriding: m.overriding || { salesperson: 70, teamLeader: 10, branchManager: 10, hqManager: 10, mode: 'percent' },
       settlementType: m.settlementType || '사업자',
       productRules: m.productRules || []
     }));
 
     setHqSettings(defaultSettings);
-    localStorage.removeItem('erp_hq_settings');
+    localStorage.removeItem('erp_hq_settings_v2');
     setActiveHqId('hq-1'); // 첫 번째 본부로 선택 이동
 
     try {
@@ -377,7 +380,7 @@ const ERP_Dashboard = () => {
   const [editingRuleInfo, setEditingRuleInfo] = useState<{ hqId: string, ruleIdx: number } | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('erp_hq_settings', JSON.stringify(hqSettings));
+    localStorage.setItem('erp_hq_settings_v2', JSON.stringify(hqSettings));
   }, [hqSettings]);
 
   // 구글 연동 상태 체크
@@ -1104,9 +1107,56 @@ const ERP_Dashboard = () => {
     return Object.entries(monthlyMap).sort((a, b) => b[0].localeCompare(a[0]));
   }, [data, hqSettings]);
 
-  const exportIntegratedSettlement = () => {
+  const exportIntegratedSettlement = async () => {
     try {
       if (filteredData.length === 0) return alert('정산 대상 데이터가 없습니다.');
+
+      setNotification({ message: '엑셀 보고서 생성을 위한 데이터를 불러오는 중...', type: 'info' });
+      
+      let employeeData: any[] = [];
+      let orgData: any[] = [];
+      try {
+        const [resEmp, resOrg] = await Promise.all([
+          fetch('/api/sheets/sheetData?sheetName=사원정보'),
+          fetch('/api/sheets/sheetData?sheetName=다이렉트조직도')
+        ]);
+        if (resEmp.ok) employeeData = await resEmp.json();
+        if (resOrg.ok) orgData = await resOrg.json();
+      } catch (e) {
+        console.error('Failed to load sheets', e);
+      }
+
+      const directOrgMap = new Map<string, { teamLeader: string, branchManager: string, hqManager: string }>();
+      if (orgData.length > 0) {
+        const headers: string[] = orgData[0];
+        const hqIdx = headers.findIndex(h => h.includes('본부장'));
+        const brIdx = headers.findIndex(h => h.includes('지점장'));
+        const tmIdx = headers.findIndex(h => h.includes('팀장'));
+        const empIdx = headers.findIndex(h => h.includes('사원') || h.includes('영업'));
+        orgData.slice(1).forEach(row => {
+          const empName = row[empIdx];
+          if (empName) {
+            directOrgMap.set(empName, {
+              hqManager: hqIdx >= 0 ? row[hqIdx] : '',
+              branchManager: brIdx >= 0 ? row[brIdx] : '',
+              teamLeader: tmIdx >= 0 ? row[tmIdx] : ''
+            });
+          }
+        });
+      }
+
+      const employeeBankMap = new Map<string, { bank: string, account: string, holder: string }>();
+      if (employeeData.length > 1) {
+        employeeData.slice(1).forEach((row: any[]) => {
+          const hq = row[2]; const branch = row[3]; const name = row[5]; 
+          const holder = row[12]; const bank = row[14]; const account = row[15];
+          if (hq === '다이렉트' && name) {
+            const bInfo = { bank: bank || '', account: account || '', holder: holder || '' };
+            employeeBankMap.set(`${branch}_${name}`, bInfo);
+            employeeBankMap.set(name, bInfo);
+          }
+        });
+      }
 
       const wb = XLSX.utils.book_new();
       const statsMap = new Map<string, number>();
@@ -1118,16 +1168,6 @@ const ERP_Dashboard = () => {
       const payDateSample = filteredData[0].payDate || '';
       const today = new Date().toISOString().split('T')[0];
 
-      // --- SHEET 1: 전체 요약 ---
-      const summaryRows: any[][] = [
-        ['[ 전사 통합 정산 종합 보고서 ]'],
-        [`보고일자: ${today} | 지급기준: ${payDateSample.substring(0, 7)}`],
-        [],
-        ['1. 전체 정산 개요'],
-        ['지급 기준일', '총 집계 본부수', '총 계약 구좌수', '총 실지급 합계액'],
-      ];
-
-      // 실지급액 합계 계산
       let totalNetPay = 0;
       Object.entries(settlementStats.hqGroups).forEach(([hq, items]: [string, any]) => {
         let hqGross = 0;
@@ -1140,15 +1180,18 @@ const ERP_Dashboard = () => {
         totalNetPay += isIndiv ? (hqGross - Math.floor(hqGross * 0.033)) : hqGross;
       });
 
-      summaryRows.push([
-        payDateSample.substring(0, 7),
-        Object.keys(settlementStats.hqGroups).length,
-        settlementStats.totalCount,
-        { v: totalNetPay, t: 'n', z: '#,##0' }
-      ]);
-      summaryRows.push([]);
-      summaryRows.push(['2. 본부별 정산 현황']);
-      summaryRows.push(['본부명', '유형', '계약건수', '공급가액(정산액)', '부가세/원천세', '최종 실지급액', '지급계좌']);
+      // --- 리포트용 통합 시트 데이터 ---
+      const reportRows: any[][] = [
+        ['[ 전사 통합 정산 종합 보고서 ]'],
+        [`보고일자: ${today} | 지급기준: ${payDateSample.substring(0, 7)}`],
+        [],
+        ['1. 전체 정산 개요'],
+        ['지급 기준일', '총 집계 본부수', '총 계약 구좌수', '총 실지급 합계액'],
+        [payDateSample.substring(0, 7), Object.keys(settlementStats.hqGroups).length, settlementStats.totalCount, { v: totalNetPay, t: 'n', z: '#,##0' }],
+        [],
+        ['2. 본부별 정산 현황'],
+        ['본부명', '유형', '계약건수', '공급가액(정산액)', '부가세/원천세', '최종 실지급액', '지급계좌'],
+      ];
 
       Object.entries(settlementStats.hqGroups).forEach(([hqName, items]: [string, any]) => {
         let hqGross = 0;
@@ -1156,31 +1199,66 @@ const ERP_Dashboard = () => {
           const { totalCommission } = calculateCommissionDetails(item, statsMap);
           hqGross += totalCommission;
         });
-
         const setting = hqSettings.find(h => h.hqName === hqName);
         const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
         const supply = isIndiv ? hqGross : Math.round(hqGross / 1.1);
         const tax = isIndiv ? Math.floor(hqGross * 0.033) : (hqGross - supply);
         const net = hqGross - (isIndiv ? tax : 0);
-
-        summaryRows.push([
-          hqName,
-          isIndiv ? '개인' : '법인',
-          items.length,
+        reportRows.push([
+          hqName, isIndiv ? '개인' : '법인', items.length,
           { v: supply, t: 'n', z: '#,##0' },
           { v: isIndiv ? -tax : tax, t: 'n', z: '#,##0' },
           { v: net, t: 'n', z: '#,##0' },
-          `${setting?.bankName || '-'} ${setting?.accountNumber || '-'}`
+          `${setting?.bankName || '-'} ${setting?.accountNumber || '-'} (${setting?.accountHolder || '-'})`
         ]);
       });
 
-      const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
-      XLSX.utils.book_append_sheet(wb, wsSummary, "전체요약");
+      reportRows.push([]);
+      reportRows.push(['1-1. 사원별 지급 요약 (Overriding 포함)']);
+      reportRows.push(['본부', '지사', '성명', '역할', '은행', '계좌번호', '예금주', '지급액(실지급)']);
 
-      // --- SHEET 2: 본부별 실적 상세 (PDF 섹션 2) ---
-      const perfRows: any[][] = [
-        ['본부명', '지사명', '영업자', '상품명', '건별 실지급액', '구좌', '최종 합계(실지급)']
-      ];
+      const hqEmpSummaryMap = new Map<string, any>();
+      filteredData.forEach(item => {
+        if (item.status.includes('취소')) return;
+        const { totalCommission, finalPayable } = calculateCommissionDetails(item, statsMap);
+        const setting = hqSettings.find(s => s.hqName === item.hq);
+        if (setting?.enableOverriding || item.hq === '다이렉트') {
+          const ov = setting?.overriding || { salesperson: 100, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' };
+          let sh = { sp: 0, tl: 0, bm: 0, hm: 0 };
+          if (ov.mode === 'fixed') { sh.sp = ov.salesperson; sh.tl = ov.teamLeader; sh.bm = ov.branchManager; sh.hm = ov.hqManager; }
+          else { sh.sp = totalCommission * (ov.salesperson / 100); sh.tl = totalCommission * (ov.teamLeader / 100); sh.bm = totalCommission * (ov.branchManager / 100); sh.hm = totalCommission * (ov.hqManager / 100); }
+          const isIndiv = setting?.settlementType?.includes('개인') || item.hq === '글로씨';
+          const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+          const org = directOrgMap.get(item.empName) || { teamLeader: '', branchManager: '', hqManager: '' };
+          const add = (name: string, role: string, amount: number) => {
+            if (amount <= 0 || !name) return;
+            const netAmount = calcNet(amount);
+            const key = `${item.hq}|${item.branch || '-'}|${name}|${role}`;
+            if (!hqEmpSummaryMap.has(key)) hqEmpSummaryMap.set(key, { hq: item.hq, branch: role === '영업사원' ? (item.branch || '-') : '-', empName: name, role, total: 0 });
+            hqEmpSummaryMap.get(key).total += netAmount;
+          };
+          add(item.empName, '영업사원', sh.sp); add(org.teamLeader, '팀장', sh.tl); add(org.branchManager, '지점장', sh.bm); add(org.hqManager, '본부장', sh.hm);
+        } else {
+          const key = `${item.hq}|-|-|본부`;
+          if (!hqEmpSummaryMap.has(key)) hqEmpSummaryMap.set(key, { hq: item.hq, branch: '-', empName: '본부지급', role: '본부', total: 0 });
+          hqEmpSummaryMap.get(key).total += finalPayable;
+        }
+      });
+
+      const roleWeight = (r: string) => ({ '영업사원': 1, '팀장': 2, '지점장': 3, '본부장': 4 }[r] || 5);
+      Array.from(hqEmpSummaryMap.values()).sort((a, b) => a.hq.localeCompare(b.hq) || a.branch.localeCompare(b.branch) || roleWeight(a.role) - roleWeight(b.role) || a.empName.localeCompare(b.empName)).forEach(p => {
+        const setting = hqSettings.find(s => s.hqName === p.hq);
+        let b = '-', a = '-', h = '-';
+        if (p.hq === '다이렉트') {
+          const bi = employeeBankMap.get(`${p.branch}_${p.empName}`) || employeeBankMap.get(p.empName);
+          if (bi) { b = bi.bank; a = bi.account; h = bi.holder; }
+        } else { b = setting?.bankName || '-'; a = setting?.accountNumber || '-'; h = setting?.accountHolder || '-'; }
+        reportRows.push([p.hq, p.branch, p.empName, p.role, b, a, h, { v: p.total, t: 'n', z: '#,##0' }]);
+      });
+
+      reportRows.push([]);
+      reportRows.push(['2. 본부별 실적 상세']);
+      reportRows.push(['본부명', '상품명', '건별 실지급액', '구좌', '최종 합계(실지급)']);
 
       const hqPerfMap = new Map<string, any>();
       filteredData.forEach(item => {
@@ -1188,50 +1266,84 @@ const ERP_Dashboard = () => {
         const { finalPayable, unitPrice } = calculateCommissionDetails(item, statsMap);
         const setting = hqSettings.find(s => s.hqName === item.hq);
         const isIndiv = setting?.settlementType?.includes('개인') || item.hq === '글로씨';
-        const netUnitPrice = isIndiv ? Math.floor(unitPrice * 0.967) : unitPrice;
-
-        const groupKey = `${item.hq}|${item.branch || '-'}|${item.salesperson || '-'}|${item.prodName}`;
-        if (!hqPerfMap.has(groupKey)) {
-          hqPerfMap.set(groupKey, { hq: item.hq, branch: item.branch, sales: item.salesperson, prod: item.prodName, up: netUnitPrice, qty: 0, total: 0 });
-        }
-        const g = hqPerfMap.get(groupKey);
-        g.qty += 1;
-        g.total += finalPayable;
+        const netUp = isIndiv ? Math.floor(unitPrice * 0.967) : unitPrice;
+        const key = `${item.hq}|${item.prodName}`;
+        if (!hqPerfMap.has(key)) hqPerfMap.set(key, { hq: item.hq, prod: item.prodName, up: netUp, qty: 0, total: 0 });
+        const g = hqPerfMap.get(key); g.qty += 1; g.total += finalPayable;
       });
-
       Array.from(hqPerfMap.values()).sort((a, b) => a.hq.localeCompare(b.hq)).forEach(p => {
-        perfRows.push([
-          p.hq, p.branch, p.sales, p.prod,
-          { v: p.up, t: 'n', z: '#,##0' },
-          p.qty,
-          { v: p.total, t: 'n', z: '#,##0' }
-        ]);
+        reportRows.push([p.hq, p.prod, { v: p.up, t: 'n', z: '#,##0' }, p.qty, { v: p.total, t: 'n', z: '#,##0' }]);
       });
 
-      const wsPerf = XLSX.utils.aoa_to_sheet(perfRows);
-      XLSX.utils.book_append_sheet(wb, wsPerf, "본부별실적상세");
+      const wsReport = XLSX.utils.aoa_to_sheet(reportRows);
+      
+      // 자동 너비 조절
+      const colWidths = reportRows.reduce((acc, row) => {
+        row.forEach((cell, i) => {
+          let str = '';
+          if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+          else if (cell !== null && cell !== undefined) str = cell.toString();
+          const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+          if (!acc[i] || len > acc[i]) acc[i] = len;
+        });
+        return acc;
+      }, [] as number[]);
+      wsReport['!cols'] = colWidths.map(w => ({ wch: Math.min(w + 4, 40) }));
 
-      // --- SHEET 3: 전체 지급 명세 (Raw Data) ---
-      const detailRows: any[][] = [
-        ['지급일', '본부', '지사', '영업자', '고객명', '상품명', '상태', '수수료계', '유형']
-      ];
+      // --- 스타일 정의 및 적용 ---
+      const headerStyle = {
+        fill: { fgColor: { rgb: "2F5597" } },
+        font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 },
+        alignment: { vertical: "center", horizontal: "center" },
+        border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+      };
+      const cellStyle = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+      const titleStyle = { font: { bold: true, sz: 16 }, alignment: { vertical: "center", horizontal: "center" } };
 
+      const applySheetStyles = (ws: any) => {
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const addr = XLSX.utils.encode_cell({ r: R, c: C });
+            if (!ws[addr]) continue;
+            ws[addr].s = { ...cellStyle };
+            if (R === 0) ws[addr].s = titleStyle;
+            const val = String(ws[addr].v || '');
+            const isHeader = ['지급 기준일', '본부명', '성명', '상품명', '지급일'].some(h => val === h) || (val.includes('1.') || val.includes('2.') || (val.startsWith('[') && val.endsWith(']')));
+            if (isHeader) ws[addr].s = headerStyle;
+            if (ws[addr].t === 'n') ws[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+          }
+        }
+      };
+
+      applySheetStyles(wsReport);
+      XLSX.utils.book_append_sheet(wb, wsReport, "통합정산보고서");
+
+      // --- SHEET 2: 전체 상세 명세 ---
+      const detailRows: any[][] = [['지급일', '본부', '지사', '사원명', '고객명', '상품명', '상태', '수수료계', '실지급액']];
       filteredData.forEach(item => {
-        const { totalCommission, settlementType } = calculateCommissionDetails(item, statsMap);
-        detailRows.push([
-          item.payDate, item.hq, item.branch, item.salesperson, item.customerName,
-          item.prodName, item.status, { v: totalCommission, t: 'n', z: '#,##0' }, settlementType
-        ]);
+        const { totalCommission, finalPayable } = calculateCommissionDetails(item, statsMap);
+        detailRows.push([item.payDate, item.hq, item.branch, item.empName, item.memName, item.prodName, item.status, { v: totalCommission, t: 'n', z: '#,##0' }, { v: finalPayable, t: 'n', z: '#,##0' }]);
       });
-
       const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+      const detailWidths = detailRows.reduce((acc, row) => {
+        row.forEach((cell, i) => {
+          let str = '';
+          if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+          else if (cell !== null && cell !== undefined) str = cell.toString();
+          const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+          if (!acc[i] || len > acc[i]) acc[i] = len;
+        });
+        return acc;
+      }, [] as number[]);
+      wsDetail['!cols'] = detailWidths.map(w => ({ wch: Math.min(w + 2, 40) }));
+      applySheetStyles(wsDetail);
+
       XLSX.utils.book_append_sheet(wb, wsDetail, "전체상세명세");
 
-      // 파일 생성 및 다운로드
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
       executeDownload(blob, `${payDateSample.substring(0, 7)}_통합정산보고서.xlsx`);
-
       setNotification({ message: '통합 정산 보고서(Excel) 생성 완료', type: 'success' });
     } catch (err) {
       console.error(err);
@@ -1239,14 +1351,61 @@ const ERP_Dashboard = () => {
     }
   };
 
-  const exportProfessionalSettlement = (hqName: string) => {
+  const exportProfessionalSettlement = async (hqName: string) => {
     try {
       const items = settlementStats.hqGroups[hqName];
       if (!items || items.length === 0) return;
 
+      setNotification({ message: `${hqName} 정산 데이터를 불러오는 중...`, type: 'info' });
+
+      // 오버라이딩 정보 로딩
+      let employeeData: any[] = [];
+      let orgData: any[] = [];
+      try {
+        const [resEmp, resOrg] = await Promise.all([
+          fetch('/api/sheets/sheetData?sheetName=사원정보'),
+          fetch('/api/sheets/sheetData?sheetName=다이렉트조직도')
+        ]);
+        if (resEmp.ok) employeeData = await resEmp.json();
+        if (resOrg.ok) orgData = await resOrg.json();
+      } catch (e) {
+        console.error('Failed to load sheets', e);
+      }
+
+      const directOrgMap = new Map<string, { teamLeader: string, branchManager: string, hqManager: string }>();
+      if (orgData.length > 0) {
+        const headers: string[] = orgData[0];
+        const hqIdx = headers.findIndex(h => h.includes('본부장'));
+        const brIdx = headers.findIndex(h => h.includes('지점장'));
+        const tmIdx = headers.findIndex(h => h.includes('팀장'));
+        const empIdx = headers.findIndex(h => h.includes('사원') || h.includes('영업'));
+        orgData.slice(1).forEach(row => {
+          const empName = row[empIdx];
+          if (empName) {
+            directOrgMap.set(empName, {
+              hqManager: hqIdx >= 0 ? row[hqIdx] : '',
+              branchManager: brIdx >= 0 ? row[brIdx] : '',
+              teamLeader: tmIdx >= 0 ? row[tmIdx] : ''
+            });
+          }
+        });
+      }
+
+      const employeeBankMap = new Map<string, { bank: string, account: string, holder: string }>();
+      if (employeeData.length > 1) {
+        employeeData.slice(1).forEach((row: any[]) => {
+          const hq = row[2]; const branch = row[3]; const name = row[5]; 
+          const holder = row[12]; const bank = row[14]; const account = row[15];
+          if (hq === '다이렉트' && name) {
+            const bInfo = { bank: bank || '', account: account || '', holder: holder || '' };
+            employeeBankMap.set(`${branch}_${name}`, bInfo);
+            employeeBankMap.set(name, bInfo);
+          }
+        });
+      }
+
       const setting = hqSettings.find(h => h.hqName === hqName);
       const wb = XLSX.utils.book_new();
-
       const stats = new Map<string, number>();
       filteredData.forEach(item => {
         if (item.status.includes('취소')) return;
@@ -1256,7 +1415,6 @@ const ERP_Dashboard = () => {
 
       let totalSum = 0;
       let salesSum = 0;
-
       items.forEach(item => {
         const { totalCommission, salesComm } = calculateCommissionDetails(item, stats);
         totalSum += totalCommission;
@@ -1265,67 +1423,94 @@ const ERP_Dashboard = () => {
 
       const promoSum = Math.max(0, totalSum - salesSum);
       const { displayPayDate: payDateDisplay } = calculateCommissionDetails(items[0], stats);
-
       const rows: any[][] = [];
-
       const targetMonth = payDateDisplay.substring(0, 7);
       const [y, m] = targetMonth.split('.').length > 1 ? targetMonth.split('.') : targetMonth.split('-');
 
-      rows[0] = [`${y}년 ${parseInt(m)}월 수수료 정산 내역서`];
+      rows[0] = [`${y}년 ${parseInt(m)}월 [${hqName}] 수수료 정산 내역서`];
       rows[1] = [];
 
-      rows[2] = ['지급일자', '지사명', '은행', '계좌번호', '총지급 금액'];
-      rows[3] = [
-        payDateDisplay,
-        hqName,
-        setting?.bankName || '-',
-        setting?.accountNumber || '-',
-        { v: totalSum, t: 'n', z: '#,##0' }
-      ];
-      rows[4] = [];
+      // --- 오버라이딩 대상 여부 확인 및 요약 행 구성 ---
+      if (setting?.enableOverriding || hqName === '다이렉트') {
+        rows[2] = ['지급일자', '성명', '역할', '은행', '계좌번호', '예금주', '지급액(실지급)'];
+        
+        // 사원별 집계 (해당 본부만)
+        const empMap = new Map<string, any>();
+        items.forEach(item => {
+          if (item.status.includes('취소')) return;
+          const { totalCommission } = calculateCommissionDetails(item, stats);
+          const ov = setting?.overriding || { salesperson: 100, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' };
+          let shares = { '영업사원': 0, '팀장': 0, '지점장': 0, '본부장': 0 };
+          
+          if (ov.mode === 'fixed') {
+            shares['영업사원'] = ov.salesperson;
+            shares['팀장'] = ov.teamLeader;
+            shares['지점장'] = ov.branchManager;
+            shares['본부장'] = ov.hqManager;
+          } else {
+            shares['영업사원'] = totalCommission * (ov.salesperson / 100);
+            shares['팀장'] = totalCommission * (ov.teamLeader / 100);
+            shares['지점장'] = totalCommission * (ov.branchManager / 100);
+            shares['본부장'] = totalCommission * (ov.hqManager / 100);
+          }
+          
+          const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+          const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+          const org = directOrgMap.get(item.empName) || { teamLeader: '', branchManager: '', hqManager: '' };
+          
+          const add = (name: string, role: string, amount: number) => {
+            if (amount <= 0 || !name) return;
+            const netAmount = calcNet(amount);
+            const key = `${name}|${role}`;
+            if (!empMap.has(key)) empMap.set(key, { name, role, total: 0 });
+            empMap.get(key).total += netAmount;
+          };
 
-      if (setting?.settlementType === '개인') {
-        rows[5] = ['원천징수 영수 요약 (3.3% 공제)'];
-        rows[6] = ['구분', '정산금액', '원천세(3.3%)', '실지급액'];
-        rows[7] = [
-          '판매 수수료',
-          { v: salesSum, t: 'n', z: '#,##0' },
-          { v: Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' },
-          { v: salesSum - Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }
-        ];
-        rows[8] = [
-          '판매 촉진비',
-          { v: promoSum, t: 'n', z: '#,##0' },
-          { v: Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' },
-          { v: promoSum - Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }
-        ];
-        rows[9] = [
-          '합계',
-          { v: totalSum, t: 'n', z: '#,##0' },
-          { v: Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' },
-          { v: totalSum - Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }
-        ];
+          add(item.empName, '영업사원', shares['영업사원']);
+          add(org.teamLeader, '팀장', shares['팀장']);
+          add(org.branchManager, '지점장', shares['지점장']);
+          add(org.hqManager, '본부장', shares['본부장']);
+        });
+
+        const roleWeight = (r: string) => ({ '영업사원': 1, '팀장': 2, '지점장': 3, '본부장': 4 }[r] || 5);
+        const sorted = Array.from(empMap.values()).sort((a, b) => roleWeight(a.role) - roleWeight(b.role) || a.name.localeCompare(b.name));
+        
+        sorted.forEach(p => {
+          let b = '-', a = '-', h = '-';
+          if (hqName === '다이렉트') {
+            const bInfo = employeeBankMap.get(p.name);
+            if (bInfo) { b = bInfo.bank; a = bInfo.account; h = bInfo.holder; }
+          } else {
+            b = setting?.bankName || '-'; a = setting?.accountNumber || '-'; h = setting?.accountHolder || '-';
+          }
+          rows.push([payDateDisplay, p.name, p.role, b, a, h, { v: p.total, t: 'n', z: '#,##0' }]);
+        });
       } else {
-        rows[5] = ['세금계산서 발행 요약 (부가세 10% 별도)'];
-        rows[6] = ['구분', '공급가액', '부가세(10%)', '합계금액'];
-        rows[7] = [
-          '판매 수수료',
-          { v: salesSum, t: 'n', z: '#,##0' },
-          { v: Math.floor(salesSum * 0.1), t: 'n', z: '#,##0' },
-          { v: Math.floor(salesSum * 1.1), t: 'n', z: '#,##0' }
+        rows[2] = ['지급일자', '지사명', '은행', '계좌번호', '예금주', '총지급 금액'];
+        rows[3] = [
+          payDateDisplay,
+          hqName,
+          setting?.bankName || '-',
+          setting?.accountNumber || '-',
+          setting?.accountHolder || '-',
+          { v: totalSum, t: 'n', z: '#,##0' }
         ];
-        rows[8] = [
-          '판매 촉진비',
-          { v: promoSum, t: 'n', z: '#,##0' },
-          { v: Math.floor(promoSum * 0.1), t: 'n', z: '#,##0' },
-          { v: Math.floor(promoSum * 1.1), t: 'n', z: '#,##0' }
-        ];
-        rows[9] = [
-          '합계',
-          { v: totalSum, t: 'n', z: '#,##0' },
-          { v: Math.floor(totalSum * 0.1), t: 'n', z: '#,##0' },
-          { v: Math.floor(totalSum * 1.1), t: 'n', z: '#,##0' }
-        ];
+      }
+      rows.push([]);
+
+      // 세금 요약 섹션
+      if (setting?.settlementType === '개인') {
+        rows.push(['원천징수 영수 요약 (3.3% 공제)']);
+        rows.push(['구분', '정산금액', '원천세(3.3%)', '실지급액']);
+        rows.push(['판매 수수료', { v: salesSum, t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }, { v: salesSum - Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }]);
+        rows.push(['판매 촉진비', { v: promoSum, t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }, { v: promoSum - Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }]);
+        rows.push(['합계', { v: totalSum, t: 'n', z: '#,##0' }, { v: Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }, { v: totalSum - Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }]);
+      } else {
+        rows.push(['세금계산서 발행 요약 (부가세 10% 별도)']);
+        rows.push(['구분', '공급가액', '부가세(10%)', '합계금액']);
+        rows.push(['판매 수수료', { v: salesSum, t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 0.1), t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 1.1), t: 'n', z: '#,##0' }]);
+        rows.push(['판매 촉진비', { v: promoSum, t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 0.1), t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 1.1), t: 'n', z: '#,##0' }]);
+        rows.push(['합계', { v: totalSum, t: 'n', z: '#,##0' }, { v: Math.floor(totalSum * 0.1), t: 'n', z: '#,##0' }, { v: Math.floor(totalSum * 1.1), t: 'n', z: '#,##0' }]);
       }
       rows[10] = [];
       rows[11] = ['렌탈사', '상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계'];
@@ -1392,61 +1577,46 @@ const ERP_Dashboard = () => {
       ]);
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
+      
+      // 자동 너비 조절
+      const colWidths = rows.reduce((acc, row) => {
+        row.forEach((cell, i) => {
+          let str = '';
+          if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+          else if (cell !== null && cell !== undefined) str = cell.toString();
+          const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+          if (!acc[i] || len > acc[i]) acc[i] = len;
+        });
+        return acc;
+      }, [] as number[]);
+      ws['!cols'] = colWidths.map(w => ({ wch: Math.min(w + 4, 40) }));
 
       const headerStyle = {
         fill: { fgColor: { rgb: "2F5597" } },
         font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 },
         alignment: { vertical: "center", horizontal: "center" },
-        border: {
-          top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }
-        }
+        border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
       };
+      const cellStyle = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+      const numberStyle = { ...cellStyle, alignment: { vertical: "center", horizontal: "right" }, numFmt: "#,##0" };
+      const totalStyle = { fill: { fgColor: { rgb: "FFF2CC" } }, font: { bold: true, sz: 10 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+      const titleStyle = { font: { bold: true, sz: 16 }, alignment: { vertical: "center", horizontal: "center" } };
 
-      const cellStyle = {
-        font: { sz: 9 },
-        alignment: { vertical: "center", horizontal: "center" },
-        border: {
-          top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }
-        }
-      };
-
-      const numberStyle = {
-        ...cellStyle,
-        alignment: { vertical: "center", horizontal: "right" },
-        numFmt: "#,##0"
-      };
-
-      const totalStyle = {
-        fill: { fgColor: { rgb: "FFF2CC" } },
-        font: { bold: true, sz: 10 },
-        alignment: { vertical: "center", horizontal: "center" },
-        border: {
-          top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" }
-        }
-      };
-
-      const titleStyle = {
-        font: { bold: true, sz: 16 },
-        alignment: { vertical: "center", horizontal: "center" }
-      };
-
-      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:J100');
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
       for (let R = range.s.r; R <= range.e.r; ++R) {
         for (let C = range.s.c; C <= range.e.c; ++C) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (!ws[addr]) continue;
-          ws[addr].s = cellStyle;
+          ws[addr].s = { ...cellStyle };
           if (R === 0) ws[addr].s = titleStyle;
-          if (R === 2 || R === 5 || R === 9 || R === 14) ws[addr].s = headerStyle;
+          const val = String(ws[addr].v || '');
+          const isHeader = ['지급일자', '성명', '역할', '지사명', '은행', '원천징수', '세금계산서', '렌탈사', '상품명', '본부명', '[상세 내역]'].some(h => val.includes(h));
+          if (isHeader) ws[addr].s = headerStyle;
           if (ws[addr].t === 'n') ws[addr].s = numberStyle;
-          const cellValue = String(ws[addr].v || '');
-          if (cellValue === '계' || cellValue === '합계' || (R === range.e.r && C === 9)) {
-            ws[addr].s = totalStyle;
-          }
+          if (val === '계' || val === '합계' || val.includes('건')) ws[addr].s = totalStyle;
         }
       }
 
-      ws['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 15 }];
       ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
 
       XLSX.utils.book_append_sheet(wb, ws, "정산내역");
@@ -1676,15 +1846,131 @@ const ERP_Dashboard = () => {
     try {
       if (filteredData.length === 0) return alert('정산 대상 데이터가 없습니다.');
 
+      setNotification({ message: '보고서 생성을 위한 데이터를 불러오는 중...', type: 'info' });
+      let employeeData: any[] = [];
+      let orgData: any[] = [];
+      try {
+        const [resEmp, resOrg] = await Promise.all([
+          fetch('/api/sheets/sheetData?sheetName=사원정보'),
+          fetch('/api/sheets/sheetData?sheetName=다이렉트조직도')
+        ]);
+        if (resEmp.ok) employeeData = await resEmp.json();
+        if (resOrg.ok) orgData = await resOrg.json();
+      } catch (e) {
+        console.error('Failed to load sheets', e);
+      }
+
+      const directOrgMap = new Map<string, { teamLeader: string, branchManager: string, hqManager: string }>();
+      if (orgData.length > 0) {
+        const headers: string[] = orgData[0];
+        const hqIdx = headers.findIndex(h => h.includes('본부장'));
+        const brIdx = headers.findIndex(h => h.includes('지점장'));
+        const tmIdx = headers.findIndex(h => h.includes('팀장'));
+        const empIdx = headers.findIndex(h => h.includes('사원') || h.includes('영업'));
+        
+        orgData.slice(1).forEach(row => {
+          const empName = row[empIdx];
+          if (empName) {
+            directOrgMap.set(empName, {
+              hqManager: hqIdx >= 0 ? row[hqIdx] : '',
+              branchManager: brIdx >= 0 ? row[brIdx] : '',
+              teamLeader: tmIdx >= 0 ? row[tmIdx] : ''
+            });
+          }
+        });
+      }
+
+      const employeeBankMap = new Map<string, { bank: string, account: string, holder: string }>();
+      if (employeeData.length > 1) { // Skip header
+        employeeData.slice(1).forEach((row: any[]) => {
+          const hq = row[2]; // C - 소속본부
+          const branch = row[3]; // D - 소속지사
+          const name = row[5]; // F - 사원명
+          const holder = row[12]; // M - 예금주
+          const bank = row[14]; // O - 은행명
+          const account = row[15]; // P - 계좌번호
+          if (hq === '다이렉트' && name) {
+            const bInfo = { bank: bank || '', account: account || '', holder: holder || '' };
+            employeeBankMap.set(`${branch}_${name}`, bInfo);
+            employeeBankMap.set(name, bInfo); // Fallback by name only
+          }
+        });
+      }
+
       const statsMap = new Map<string, number>();
       filteredData.forEach(item => {
         const key = `${item.hq}|${item.prodName}`;
         statsMap.set(key, (statsMap.get(key) || 0) + 1);
       });
 
-      // 1. 본부별 실적 상세 집계 (본부/지사/영업자/상품별로 그룹화하여 합산)
+      // 1-1. 사원별 지급 요약 집계
+      const hqEmpSummaryMap = new Map<string, any>();
+      filteredData.forEach(item => {
+        if (item.status.includes('취소')) return;
+        const { totalCommission, finalPayable } = calculateCommissionDetails(item, statsMap);
+        
+        const setting = hqSettings.find(s => s.hqName === item.hq);
+        
+        if (setting?.enableOverriding || item.hq === '다이렉트') {
+          const ov = setting?.overriding || { salesperson: 100, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' };
+          let spShare = 0, tlShare = 0, bmShare = 0, hqShare = 0;
+          
+          if (ov.mode === 'fixed') {
+            spShare = ov.salesperson;
+            tlShare = ov.teamLeader;
+            bmShare = ov.branchManager;
+            hqShare = ov.hqManager;
+          } else {
+            spShare = totalCommission * (ov.salesperson / 100);
+            tlShare = totalCommission * (ov.teamLeader / 100);
+            bmShare = totalCommission * (ov.branchManager / 100);
+            hqShare = totalCommission * (ov.hqManager / 100);
+          }
+          
+          const isIndiv = setting?.settlementType?.includes('개인') || item.hq === '글로씨';
+          const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+          
+          const org = directOrgMap.get(item.empName) || { teamLeader: '', branchManager: '', hqManager: '' };
+          
+          const addShare = (name: string, role: string, amount: number) => {
+            if (amount <= 0 || !name) return;
+            const netAmount = calcNet(amount);
+            const groupKey = `${item.hq}|${item.branch || '-'}|${name}|${role}`;
+            if (!hqEmpSummaryMap.has(groupKey)) {
+              hqEmpSummaryMap.set(groupKey, {
+                hq: item.hq,
+                branch: role === '영업사원' ? (item.branch || '-') : '-',
+                empName: name,
+                role: role,
+                total: 0
+              });
+            }
+            hqEmpSummaryMap.get(groupKey).total += netAmount;
+          };
+
+          addShare(item.empName, '영업사원', spShare);
+          addShare(org.teamLeader, '팀장', tlShare);
+          addShare(org.branchManager, '지점장', bmShare);
+          addShare(org.hqManager, '본부장', hqShare);
+        } else {
+          // 나머지는 등록된 계좌번호 한번만 나타나면 돼
+          const groupKey = `${item.hq}`;
+          if (!hqEmpSummaryMap.has(groupKey)) {
+            hqEmpSummaryMap.set(groupKey, {
+              hq: item.hq,
+              branch: '-',
+              empName: '본부지급',
+              role: '본부',
+              total: 0
+            });
+          }
+          hqEmpSummaryMap.get(groupKey).total += finalPayable;
+        }
+      });
+      const hqEmpSummaryData = Array.from(hqEmpSummaryMap.values());
+
+      // 1-2. 본부별 실적 상세 집계
       const hqPerfMap = new Map<string, any>();
-      
       filteredData.forEach(item => {
         if (item.status.includes('취소')) return;
         const { finalPayable, unitPrice } = calculateCommissionDetails(item, statsMap);
@@ -1693,14 +1979,11 @@ const ERP_Dashboard = () => {
         const isIndiv = setting?.settlementType?.includes('개인') || item.hq === '글로씨';
         const netUnitPrice = isIndiv ? Math.floor(unitPrice * 0.967) : unitPrice;
 
-        // 그룹화 키: 본부|지사|영업자|상품
-        const groupKey = `${item.hq}|${item.branch || '-'}|${item.salesperson || '-'}|${item.prodName}`;
+        const groupKey = `${item.hq}|${item.prodName}`;
         
         if (!hqPerfMap.has(groupKey)) {
           hqPerfMap.set(groupKey, {
             hq: item.hq,
-            branch: item.branch || '-',
-            salesperson: item.salesperson || '-',
             prodName: item.prodName,
             unitPrice: netUnitPrice,
             count: 0,
@@ -1715,7 +1998,7 @@ const ERP_Dashboard = () => {
 
       const hqPerfData = Array.from(hqPerfMap.values());
 
-      // 2. 상세 명세용 본부별 집계 (기존 유지)
+      // 2. 상세 명세용 본부별 집계
       const hqDetailedStats: Record<string, any> = {};
       filteredData.forEach(item => {
         if (item.status.includes('취소')) return;
@@ -1741,40 +2024,52 @@ const ERP_Dashboard = () => {
 
       const payDateSample = filteredData[0].payDate || '';
       const today = new Date().toISOString().split('T')[0];
+      const todayFormatted = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
 
       const container = document.createElement('div');
       container.style.backgroundColor = '#fff';
       container.style.color = '#000';
       container.style.fontFamily = "'Malgun Gothic', 'Dotum', sans-serif";
+      container.style.width = '210mm';
 
       let html = `
-        <div style="padding: 25px; background: #fff;">
-          <div style="text-align: right; font-size: 10px; color: #64748b; margin-bottom: 10px;">문서번호: TBL-ERP-INTEGRATED-${today.replace(/-/g, '')}</div>
-          <h1 style="text-align: center; font-size: 26px; font-weight: 900; color: #0f172a; margin-bottom: 20px; border-bottom: 3px solid #0f172a; padding-bottom: 10px;">전사 통합 정산 보고서</h1>
+        <div style="padding: 40px; background: #fff; min-height: 297mm; position: relative;">
+          <!-- Header Header -->
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+            <div style="flex: 1;"></div>
+            <div style="text-align: right; font-size: 10px; color: #64748b; font-family: monospace;">문서번호: TBL-ERP-INTEGRATED-${today.replace(/-/g, '')}</div>
+          </div>
+
+          <h1 style="text-align: center; font-size: 32px; font-weight: 900; color: #000; margin-bottom: 30px; letter-spacing: 2px;">전 사 통 합 정 산 보 고 서</h1>
+          <div style="width: 100%; height: 3px; background: #1e3a8a; margin-bottom: 40px;"></div>
           
-          <div style="display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 20px;">
-            <div style="text-align: center;">
-              <div style="border: 1.5px solid #334155; width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; margin-bottom: 2px;">담당자</div>
+          <!-- Approval Box -->
+          <div style="display: flex; justify-content: flex-end; gap: 0; margin-bottom: 50px;">
+            <div style="border: 1px solid #334155; width: 80px; height: 100px; display: flex; flex-direction: column;">
+              <div style="height: 30%; border-bottom: 1px solid #334155; background: #f8fafc; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">담당자</div>
+              <div style="flex: 1;"></div>
             </div>
-            <div style="text-align: center;">
-              <div style="border: 1.5px solid #334155; width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; margin-bottom: 2px;">대표이사</div>
+            <div style="border: 1px solid #334155; border-left: none; width: 80px; height: 100px; display: flex; flex-direction: column;">
+              <div style="height: 30%; border-bottom: 1px solid #334155; background: #f8fafc; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">대표이사</div>
+              <div style="flex: 1;"></div>
             </div>
           </div>
 
-          <div style="margin-bottom: 30px;">
-            <h3 style="font-size: 16px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 10px;">1. 정산 요약</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0;">
+          <!-- Section 1: Summary -->
+          <div style="margin-bottom: 40px;">
+            <h3 style="font-size: 18px; font-weight: 800; border-left: 5px solid #1e3a8a; padding-left: 15px; margin-bottom: 20px; color: #1e3a8a;">1. 정산 요약</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; background: #f8fafc; padding: 25px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
               <div style="text-align: center;">
-                <div style="font-size: 12px; color: #64748b;">기준월</div>
-                <div style="font-size: 18px; font-weight: 900;">${payDateSample.substring(0, 7)}</div>
+                <div style="font-size: 13px; color: #64748b; margin-bottom: 8px;">기준월</div>
+                <div style="font-size: 22px; font-weight: 900; color: #1e293b;">${payDateSample.substring(0, 7)}</div>
               </div>
               <div style="text-align: center; border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;">
-                <div style="font-size: 12px; color: #64748b;">총 정산 구좌</div>
-                <div style="font-size: 18px; font-weight: 900;">${settlementStats.totalCount.toLocaleString()}건</div>
+                <div style="font-size: 13px; color: #64748b; margin-bottom: 8px;">총 정산 구좌</div>
+                <div style="font-size: 22px; font-weight: 900; color: #1e293b;">${settlementStats.totalCount.toLocaleString()}건</div>
               </div>
               <div style="text-align: center;">
-                <div style="font-size: 12px; color: #64748b;">총 집행금액(실지급액)</div>
-                <div style="font-size: 18px; font-weight: 900; color: #2563eb;">
+                <div style="font-size: 13px; color: #64748b; margin-bottom: 8px;">총 집행금액(실지급액)</div>
+                <div style="font-size: 22px; font-weight: 900; color: #2563eb;">
                   ${Object.values(hqDetailedStats).reduce((acc, hq) => {
                     const isIndiv = hq.items[0]?.hq === '글로씨' || hqSettings.find(s => s.hqName === hq.items[0]?.hq)?.settlementType?.includes('개인');
                     const net = isIndiv ? (hq.totalSum - Math.floor(hq.totalSum * 0.033)) : hq.totalSum;
@@ -1785,46 +2080,111 @@ const ERP_Dashboard = () => {
             </div>
           </div>
 
-          <div style="margin-bottom: 30px;">
-            <h3 style="font-size: 16px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 10px;">2. 본부별 실적 상세 (실지급액 기준)</h3>
-            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #0f172a; font-size: 10px;">
+          <!-- Section 1-1: Employee Summary -->
+          <div style="margin-bottom: 40px;">
+            <h3 style="font-size: 18px; font-weight: 800; border-left: 5px solid #1e3a8a; padding-left: 15px; margin-bottom: 20px; color: #1e3a8a;">1-1. 사원별 지급 요약</h3>
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #1e3a8a; font-size: 11px;">
               <thead>
-                <tr style="background: #0f172a; color: #fff; text-align: center; font-weight: 900;">
-                  <th style="border: 1px solid #334155; padding: 8px;">본부명</th>
-                  <th style="border: 1px solid #334155; padding: 8px;">지사명</th>
-                  <th style="border: 1px solid #334155; padding: 8px;">영업자</th>
-                  <th style="border: 1px solid #334155; padding: 8px;">상품명</th>
-                  <th style="border: 1px solid #334155; padding: 8px;">건별 실지급액</th>
-                  <th style="border: 1px solid #334155; padding: 8px;">구좌</th>
-                  <th style="border: 1px solid #334155; padding: 8px;">최종 합계</th>
+                <tr style="background: #1e3a8a; color: #fff; text-align: center; font-weight: bold; page-break-inside: avoid;">
+                  <th style="border: 1px solid #334155; padding: 10px;">본부</th>
+                  <th style="border: 1px solid #334155; padding: 10px;">지사</th>
+                  <th style="border: 1px solid #334155; padding: 10px;">사원</th>
+                  <th style="border: 1px solid #334155; padding: 10px;">계좌</th>
+                  <th style="border: 1px solid #334155; padding: 10px; text-align: right;">지급액</th>
                 </tr>
               </thead>
               <tbody>
                 ${(() => {
-                  // 1. 본부명 기준으로 정렬
+                  const roleWeight = (role: string) => {
+                    if (role === '영업사원') return 1;
+                    if (role === '팀장') return 2;
+                    if (role === '지점장') return 3;
+                    if (role === '본부장') return 4;
+                    return 5;
+                  };
+                  const sortedData = [...hqEmpSummaryData].sort((a, b) => {
+                    const hqDiff = a.hq.localeCompare(b.hq);
+                    if (hqDiff !== 0) return hqDiff;
+                    
+                    const branchDiff = a.branch.localeCompare(b.branch);
+                    if (branchDiff !== 0) return branchDiff;
+                    
+                    const roleDiff = roleWeight(a.role) - roleWeight(b.role);
+                    if (roleDiff !== 0) return roleDiff;
+                    
+                    return a.empName.localeCompare(b.empName);
+                  });
+                  let sum = 0;
+                  const rows = sortedData.map(p => {
+                    sum += p.total;
+                    const setting = hqSettings.find(s => s.hqName === p.hq);
+                    let bankInfoStr = '-';
+                    if (p.hq === '다이렉트') {
+                      const bankInfo = employeeBankMap.get(`${p.branch}_${p.empName}`) || employeeBankMap.get(p.empName);
+                      if (bankInfo && bankInfo.bank) {
+                        bankInfoStr = `[${bankInfo.bank}] ${bankInfo.account} (${bankInfo.holder})`;
+                      } else {
+                        bankInfoStr = '<span style="color:#ef4444;">사원정보 없음</span>';
+                      }
+                    } else {
+                      if (setting && setting.bankName && setting.bankName !== '-') {
+                        bankInfoStr = `[${setting.bankName}] ${setting.accountNumber} (${setting.accountHolder})`;
+                      }
+                    }
+                    return `
+                      <tr style="text-align: center; page-break-inside: avoid;">
+                        <td style="border: 1px solid #e2e8f0; padding: 8px;">${p.hq}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 8px;">${p.branch}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 8px;">${p.empName}${p.role && p.role !== '본부' ? ' <span style="font-size: 9px; color: #64748b;">(' + p.role + ')</span>' : ''}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 8px;">${bankInfoStr}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: right; font-weight: bold; color: #2563eb;">${p.total.toLocaleString()}</td>
+                      </tr>
+                    `;
+                  });
+                  rows.push(`
+                    <tr style="background: #e2e8f0; font-weight: 900; text-align: right; page-break-inside: avoid;">
+                      <td colspan="4" style="border: 1px solid #1e3a8a; padding: 10px; text-align: center; font-size: 13px;">총 지 급 액 합 계</td>
+                      <td style="border: 1px solid #1e3a8a; padding: 10px; color: #1e3a8a; font-size: 13px;">${sum.toLocaleString()}원</td>
+                    </tr>
+                  `);
+                  return rows.join('');
+                })()}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Section 2: Detailed Performance -->
+          <div style="margin-bottom: 40px;">
+            <h3 style="font-size: 18px; font-weight: 800; border-left: 5px solid #1e3a8a; padding-left: 15px; margin-bottom: 20px; color: #1e3a8a;">2. 본부별 실적 상세 (실지급액 기준)</h3>
+            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #1e3a8a; font-size: 11px;">
+              <thead>
+                <tr style="background: #1e3a8a; color: #fff; text-align: center; font-weight: bold; page-break-inside: avoid;">
+                  <th style="border: 1px solid #334155; padding: 12px;">본부명</th>
+                  <th style="border: 1px solid #334155; padding: 12px;">상품명</th>
+                  <th style="border: 1px solid #334155; padding: 12px; text-align: right;">건별 실지급액</th>
+                  <th style="border: 1px solid #334155; padding: 12px; width: 50px;">구좌</th>
+                  <th style="border: 1px solid #334155; padding: 12px; text-align: right;">최종 합계</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(() => {
                   const sortedData = [...hqPerfData].sort((a, b) => a.hq.localeCompare(b.hq));
-                  
-                  // 2. 본부별로 그룹화하여 HTML 생성
                   const rows: string[] = [];
                   let currentHq = '';
-                  let hqStartIndex = 0;
-                  
-                  // 본부별 집계를 위한 임시 변수
                   let hqSubtotalCount = 0;
                   let hqSubtotalAmt = 0;
 
                   sortedData.forEach((p, index) => {
                     const setting = hqSettings.find(s => s.hqName === p.hq);
                     const isIndiv = setting?.settlementType?.includes('개인') || p.hq === '글로씨';
-                    
+
                     if (currentHq !== p.hq) {
-                      // 이전 본부의 소계 행 추가 (첫 번째가 아닐 때만)
                       if (currentHq !== '') {
                         rows.push(`
-                          <tr style="background: #f8fafc; font-weight: bold; text-align: right;">
-                            <td colspan="5" style="border: 1px solid #e2e8f0; padding: 6px; text-align: center; color: #64748b;">[${currentHq}] 본부 소계</td>
-                            <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">${hqSubtotalCount}</td>
-                            <td style="border: 1px solid #e2e8f0; padding: 6px; color: #2563eb;">${hqSubtotalAmt.toLocaleString()}</td>
+                          <tr style="background: #f1f5f9; font-weight: bold; text-align: right; page-break-inside: avoid;">
+                            <td colspan="3" style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; color: #475569;">[${currentHq}] 본부 소계</td>
+                            <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center;">${hqSubtotalCount}</td>
+                            <td style="border: 1px solid #e2e8f0; padding: 10px; color: #2563eb;">${hqSubtotalAmt.toLocaleString()}</td>
                           </tr>
                         `);
                       }
@@ -1833,32 +2193,27 @@ const ERP_Dashboard = () => {
                       hqSubtotalCount = 0;
                       hqSubtotalAmt = 0;
                       
-                      // 새로운 본부의 시작 인덱스 계산 (rowspan용)
                       const hqCount = sortedData.filter(d => d.hq === p.hq).length;
                       
                       rows.push(`
-                        <tr style="text-align: center; border-bottom: 1px solid #eee;">
-                          <td rowspan="${hqCount}" style="border: 1px solid #e2e8f0; padding: 6px; font-weight: bold; background: #fff;">
-                            ${p.hq} <br/>
-                            <span style="font-size: 8px; color: #64748b; font-weight: normal;">${isIndiv ? '(개인)' : '(법인)'}</span>
+                        <tr style="text-align: center; page-break-inside: avoid;">
+                          <td rowspan="${hqCount}" style="border: 1px solid #e2e8f0; padding: 10px; font-weight: bold; background: #fff; vertical-align: middle;">
+                            <span style="font-size: 13px;">${p.hq}</span><br/>
+                            <span style="font-size: 9px; color: #64748b; font-weight: normal;">${isIndiv ? '(개인)' : '(법인)'}</span>
                           </td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.branch}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.salesperson}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: left;">${p.prodName}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: right;">${p.unitPrice.toLocaleString()}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.count}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: right; font-weight: bold;">${p.total.toLocaleString()}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: left;">${p.prodName}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: right;">${p.unitPrice.toLocaleString()}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 10px;">${p.count}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: right; font-weight: bold;">${p.total.toLocaleString()}</td>
                         </tr>
                       `);
                     } else {
                       rows.push(`
-                        <tr style="text-align: center; border-bottom: 1px solid #eee;">
-                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.branch}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.salesperson}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: left;">${p.prodName}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: right;">${p.unitPrice.toLocaleString()}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px;">${p.count}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: right; font-weight: bold;">${p.total.toLocaleString()}</td>
+                        <tr style="text-align: center; page-break-inside: avoid;">
+                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: left;">${p.prodName}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: right;">${p.unitPrice.toLocaleString()}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 10px;">${p.count}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: right; font-weight: bold;">${p.total.toLocaleString()}</td>
                         </tr>
                       `);
                     }
@@ -1866,13 +2221,12 @@ const ERP_Dashboard = () => {
                     hqSubtotalCount += p.count;
                     hqSubtotalAmt += p.total;
 
-                    // 마지막 행인 경우 마지막 본부 소계 추가
                     if (index === sortedData.length - 1) {
                       rows.push(`
-                        <tr style="background: #f8fafc; font-weight: bold; text-align: right;">
-                          <td colspan="5" style="border: 1px solid #e2e8f0; padding: 6px; text-align: center; color: #64748b;">[${currentHq}] 본부 소계</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">${hqSubtotalCount}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 6px; color: #2563eb;">${hqSubtotalAmt.toLocaleString()}</td>
+                        <tr style="background: #f1f5f9; font-weight: bold; text-align: right; page-break-inside: avoid;">
+                          <td colspan="3" style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; color: #475569;">[${currentHq}] 본부 소계</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center;">${hqSubtotalCount}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 10px; color: #2563eb;">${hqSubtotalAmt.toLocaleString()}</td>
                         </tr>
                       `);
                     }
@@ -1880,18 +2234,19 @@ const ERP_Dashboard = () => {
                   return rows.join('');
                 })()}
               </tbody>
-              <tfoot style="background: #f1f5f9; font-weight: 900; text-align: right;">
+              <tfoot style="background: #e2e8f0; font-weight: 900; text-align: right;">
                 <tr>
-                  <td colspan="5" style="border: 1px solid #334155; padding: 8px; text-align: center;">전체 합계</td>
-                  <td style="border: 1px solid #334155; padding: 8px; text-align: center;">${settlementStats.totalCount}</td>
-                  <td style="border: 1px solid #334155; padding: 8px; color: #2563eb;">${settlementStats.totalAmount.toLocaleString()}원</td>
+                  <td colspan="3" style="border: 1px solid #1e3a8a; padding: 12px; text-align: center; font-size: 13px;">전 체 합 계</td>
+                  <td style="border: 1px solid #1e3a8a; padding: 12px; text-align: center; font-size: 13px;">${settlementStats.totalCount}</td>
+                  <td style="border: 1px solid #1e3a8a; padding: 12px; color: #1e3a8a; font-size: 14px;">${settlementStats.totalAmount.toLocaleString()}원</td>
                 </tr>
               </tfoot>
             </table>
           </div>
 
-          <div style="page-break-before: always;">
-            <h3 style="font-size: 16px; font-weight: 800; border-left: 5px solid #0f172a; padding-left: 10px; margin-bottom: 20px;">3. 본부별 상세 지급 명세서</h3>
+          <!-- Page 2 Header (forced by content) -->
+          <div style="page-break-before: always; padding-top: 20px;">
+            <h3 style="font-size: 18px; font-weight: 800; border-left: 5px solid #1e3a8a; padding-left: 15px; margin-bottom: 25px; color: #1e3a8a;">3. 본부별 상세 지급 명세서</h3>
             ${Object.entries(hqDetailedStats).map(([hq, data]: [string, any]) => {
               const setting = hqSettings.find(s => s.hqName === hq);
               const isIndiv = setting?.settlementType?.includes('개인') || hq === '글로씨';
@@ -1907,55 +2262,55 @@ const ERP_Dashboard = () => {
               });
 
               return `
-                <div style="margin-bottom: 40px; border: 1px solid #eee; padding: 15px; border-radius: 8px; page-break-inside: avoid;">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #2563eb; padding-bottom: 5px;">
-                    <span style="font-size: 16px; font-weight: 900; color: #2563eb;">■ ${hq} ${isIndiv ? '(개인/프리랜서)' : '(법인/사업자)'} 정산 내역</span>
-                    <span style="font-size: 12px; font-weight: bold;">최종 실지급액: <span style="color: #2563eb;">${(isIndiv ? (data.totalSum - Math.floor(data.totalSum * 0.033)) : data.totalSum).toLocaleString()}원</span></span>
+                <div style="margin-bottom: 50px; page-break-inside: avoid;">
+                  <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px; border-bottom: 2px solid #2563eb; padding-bottom: 8px;">
+                    <span style="font-size: 17px; font-weight: 900; color: #1e3a8a;">■ ${hq} ${isIndiv ? '(개인/프리랜서)' : '(법인/사업자)'} 정산 내역</span>
+                    <span style="font-size: 13px; font-weight: bold; color: #475569;">최종 실지급액: <span style="color: #2563eb; font-size: 16px;">${(isIndiv ? (data.totalSum - Math.floor(data.totalSum * 0.033)) : data.totalSum).toLocaleString()}원</span></span>
                   </div>
                   
-                  <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 15px;">
+                  <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 15px; border: 1px solid #e2e8f0;">
                     <thead>
-                      <tr style="background: #f8fafc; text-align: center; font-weight: bold;">
-                        <th style="border: 1px solid #e2e8f0; padding: 6px;">항목</th>
-                        <th style="border: 1px solid #e2e8f0; padding: 6px;">공급가액(정산금액)</th>
-                        <th style="border: 1px solid #e2e8f0; padding: 6px;">${isIndiv ? '원천세(3.3%)' : '부가세(10%)'}</th>
-                        <th style="border: 1px solid #e2e8f0; padding: 6px;">실지급액(합계)</th>
+                      <tr style="background: #f8fafc; text-align: center; font-weight: bold; color: #475569;">
+                        <th style="border: 1px solid #e2e8f0; padding: 10px;">항목</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px;">공급가액(정산금액)</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px;">${isIndiv ? '원천세(3.3%)' : '부가세(10%)'}</th>
+                        <th style="border: 1px solid #e2e8f0; padding: 10px;">실지급액(합계)</th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr style="text-align: right;">
-                        <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">판매수수료</td>
-                        <td style="border: 1px solid #e2e8f0; padding: 6px;">${(isIndiv ? data.salesSum : Math.round(data.salesSum/1.1)).toLocaleString()}</td>
-                        <td style="border: 1px solid #e2e8f0; padding: 6px;">${(isIndiv ? Math.floor(data.salesSum*0.033) : (data.salesSum-Math.round(data.salesSum/1.1))).toLocaleString()}</td>
-                        <td style="border: 1px solid #e2e8f0; padding: 6px; font-weight: bold;">${(isIndiv ? (data.salesSum-Math.floor(data.salesSum*0.033)) : data.salesSum).toLocaleString()}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; background: #fbfcfd;">판매수수료</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px;">${(isIndiv ? data.salesSum : Math.round(data.salesSum/1.1)).toLocaleString()}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px;">${(isIndiv ? Math.floor(data.salesSum*0.033) : (data.salesSum-Math.round(data.salesSum/1.1))).toLocaleString()}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; font-weight: bold;">${(isIndiv ? (data.salesSum-Math.floor(data.salesSum*0.033)) : data.salesSum).toLocaleString()}</td>
                       </tr>
                       <tr style="text-align: right;">
-                        <td style="border: 1px solid #e2e8f0; padding: 6px; text-align: center;">판매촉진비</td>
-                        <td style="border: 1px solid #e2e8f0; padding: 6px;">${(isIndiv ? data.promoSum : Math.round(data.promoSum/1.1)).toLocaleString()}</td>
-                        <td style="border: 1px solid #e2e8f0; padding: 6px;">${(isIndiv ? Math.floor(data.promoSum*0.033) : (data.promoSum-Math.round(data.promoSum/1.1))).toLocaleString()}</td>
-                        <td style="border: 1px solid #e2e8f0; padding: 6px; font-weight: bold;">${(isIndiv ? (data.promoSum-Math.floor(data.promoSum*0.033)) : data.promoSum).toLocaleString()}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; background: #fbfcfd;">판매촉진비</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px;">${(isIndiv ? data.promoSum : Math.round(data.promoSum/1.1)).toLocaleString()}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px;">${(isIndiv ? Math.floor(data.promoSum*0.033) : (data.promoSum-Math.round(data.promoSum/1.1))).toLocaleString()}</td>
+                        <td style="border: 1px solid #e2e8f0; padding: 10px; font-weight: bold;">${(isIndiv ? (data.promoSum-Math.floor(data.promoSum*0.033)) : data.promoSum).toLocaleString()}</td>
                       </tr>
                     </tbody>
                   </table>
 
-                  <table style="width: 100%; border-collapse: collapse; font-size: 9px;">
+                  <table style="width: 100%; border-collapse: collapse; font-size: 10px; border: 1.5px solid #334155;">
                     <thead>
-                      <tr style="background: #0f172a; color: #fff; text-align: center;">
-                        <th style="border: 1px solid #334155; padding: 4px;">상품명</th>
-                        <th style="border: 1px solid #334155; padding: 4px; width: 40px;">건수</th>
-                        <th style="border: 1px solid #334155; padding: 4px; width: 80px;">판매수수료</th>
-                        <th style="border: 1px solid #334155; padding: 4px; width: 80px;">판매촉진비</th>
-                        <th style="border: 1px solid #334155; padding: 4px; width: 90px;">총수수료</th>
+                      <tr style="background: #334155; color: #fff; text-align: center;">
+                        <th style="border: 1px solid #475569; padding: 8px;">상품명</th>
+                        <th style="border: 1px solid #475569; padding: 8px; width: 50px;">건수</th>
+                        <th style="border: 1px solid #475569; padding: 8px; width: 100px;">판매수수료</th>
+                        <th style="border: 1px solid #475569; padding: 8px; width: 100px;">판매촉진비</th>
+                        <th style="border: 1px solid #475569; padding: 8px; width: 120px;">총수수료</th>
                       </tr>
                     </thead>
                     <tbody>
                       ${Object.entries(productSummary).map(([pName, pData]: [string, any]) => `
-                        <tr style="text-align: center; border-bottom: 1px solid #eee;">
-                          <td style="border: 1px solid #e2e8f0; padding: 4px; text-align: left;">${pName}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 4px;">${pData.count}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 4px; text-align: right;">${pData.sales.toLocaleString()}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 4px; text-align: right;">${pData.promo.toLocaleString()}</td>
-                          <td style="border: 1px solid #e2e8f0; padding: 4px; text-align: right; font-weight: bold;">${pData.total.toLocaleString()}</td>
+                        <tr style="text-align: center; border-bottom: 1px solid #e2e8f0;">
+                          <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: left;">${pName}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 8px;">${pData.count}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: right;">${pData.sales.toLocaleString()}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: right;">${pData.promo.toLocaleString()}</td>
+                          <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: right; font-weight: bold; background: #f8fafc;">${pData.total.toLocaleString()}</td>
                         </tr>
                       `).join('')}
                     </tbody>
@@ -1965,10 +2320,11 @@ const ERP_Dashboard = () => {
             }).join('')}
           </div>
 
-          <div style="margin-top: 40px; text-align: center; font-size: 15px; font-weight: bold; color: #0f172a; border-top: 2px solid #0f172a; padding-top: 20px;">
-            위와 같이 정산 내용을 보고함 <br/>
-            <span style="font-size: 12px; color: #64748b;">${today.split('-')[0]}년 ${today.split('-')[1]}월 ${today.split('-')[2]}일</span><br/><br/>
-            더좋은라이프 주식회사
+          <!-- Footer Signature -->
+          <div style="margin-top: 80px; text-align: center; font-family: 'Malgun Gothic';">
+            <div style="font-size: 20px; font-weight: 900; color: #1e293b; margin-bottom: 15px;">위와 같이 정산 내용을 보고함</div>
+            <div style="font-size: 16px; color: #64748b; margin-bottom: 40px;">${todayFormatted}</div>
+            <div style="font-size: 24px; font-weight: 900; color: #000; letter-spacing: 4px;">더좋은라이프 주식회사</div>
           </div>
         </div>
       `;
@@ -1977,10 +2333,10 @@ const ERP_Dashboard = () => {
       document.body.appendChild(container);
 
       const opt = {
-        margin: [10, 5, 10, 5],
+        margin: [0, 0, 0, 0],
         filename: `전사_통합정산보고서_${today.replace(/-/g, '')}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
+        html2canvas: { scale: 2, useCORS: true, logging: false, letterRendering: true },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
@@ -1989,15 +2345,18 @@ const ERP_Dashboard = () => {
 
       h2p().from(container).set(opt).toPdf().get('pdf').then((pdf: any) => {
         const totalPages = pdf.internal.getNumberOfPages();
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        
         for (let i = 1; i <= totalPages; i++) {
           pdf.setPage(i);
-          pdf.setFontSize(8);
+          pdf.setFontSize(9);
           pdf.setTextColor(150);
-          pdf.text(`Page ${i} / ${totalPages}`, pdf.internal.pageSize.getWidth() - 25, pdf.internal.pageSize.getHeight() - 10);
+          pdf.text(`Page ${i} / ${totalPages}`, pageWidth - 25, pageHeight - 10);
         }
       }).save().then(() => {
         document.body.removeChild(container);
-        setNotification({ message: '전사 통합 정산 보고서 생성 완료', type: 'success' });
+        setNotification({ message: '전사 통합 정산 보고서 PDF 생성 완료', type: 'success' });
       });
     } catch (err) {
       console.error(err);
@@ -2469,6 +2828,16 @@ const ERP_Dashboard = () => {
                                 >
                                   <span>전사 통합 정산 보고서 (PDF)</span>
                                   <FileText size={12} />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    exportIntegratedSettlement();
+                                    setIsExportDropdownOpen(false);
+                                  }}
+                                  className="w-full text-left px-4 py-2 hover:bg-emerald-50 text-[12px] font-black text-emerald-700 border-b border-slate-50 flex justify-between items-center bg-emerald-50/20"
+                                >
+                                  <span>전사 통합 정산 보고서 (Excel)</span>
+                                  <Download size={12} />
                                 </button>
                                 {Object.keys(settlementStats.hqGroups).map(hq => (
                                   <div key={hq} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 flex items-center pr-3 group">

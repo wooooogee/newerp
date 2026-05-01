@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
@@ -610,6 +610,44 @@ app.get('/api/sheets/data', async (req, res) => {
 
     res.json(rows);
   } catch (error: any) {
+    return handleGoogleError(error, res);
+  }
+});
+
+app.get('/api/sheets/sheetData', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID;
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  if (sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+
+  const sheetName = req.query.sheetName as string;
+  if (!sheetName) return res.status(400).json({ error: 'sheetName is required' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `${sheetName}!A:Z`,
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      return res.json([]);
+    }
+
+    res.json(rows);
+  } catch (error: any) {
+    if (error.code === 400 || (error.message && error.message.includes('Unable to parse range'))) {
+       // Sheet might not exist
+       return res.json([]);
+    }
     return handleGoogleError(error, res);
   }
 });
