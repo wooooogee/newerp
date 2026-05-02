@@ -65,7 +65,6 @@ interface HQSetting {
     teamLeader: number;
     branchManager: number;
     hqManager: number;
-    mode: 'percent' | 'fixed';
   };
 
   settlementType: '사업자' | '개인';
@@ -185,7 +184,7 @@ const MASTER_HQ_DATA: Partial<HQSetting>[] = [
   {
     hqName: '다이렉트', bankName: '-', accountNumber: '-', accountHolder: '-',
     enableOverriding: true,
-    overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'fixed' },
+    overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
     productRules: [
       { productName: '더좋은하이브리드698', totalAmount: 665000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
       { productName: '더좋은통신결합540플러스', totalAmount: 500000, salesAmount: 360000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
@@ -285,7 +284,7 @@ const ERP_Dashboard = () => {
       accountHolder: m.accountHolder || '-',
       paymentMethod: m.paymentMethod || '계좌이체',
       enableOverriding: m.enableOverriding ?? false,
-      overriding: m.overriding || { salesperson: 70, teamLeader: 10, branchManager: 10, hqManager: 10, mode: 'percent' },
+      overriding: m.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
       settlementType: m.settlementType || '사업자',
       productRules: m.productRules || []
     }));
@@ -352,7 +351,7 @@ const ERP_Dashboard = () => {
       accountHolder: m.accountHolder || '-',
       paymentMethod: m.paymentMethod || '계좌이체',
       enableOverriding: m.enableOverriding ?? false,
-      overriding: m.overriding || { salesperson: 70, teamLeader: 10, branchManager: 10, hqManager: 10, mode: 'percent' },
+      overriding: m.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
       settlementType: m.settlementType || '사업자',
       productRules: m.productRules || []
     }));
@@ -780,21 +779,14 @@ const ERP_Dashboard = () => {
       const excelData = filteredForSettlement.map((item, idx) => {
         const { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting, settlementType, vat, withholdingTax, finalPayable } = calculateCommissionDetails(item, stats);
 
-        const ov = setting?.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' };
-        const actualOv = setting?.enableOverriding ? ov : { salesperson: 100, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' };
+        const ov = setting?.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 };
+        const actualOv = setting?.enableOverriding ? ov : { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
 
         let salespersonShare, teamLeaderShare, branchManagerShare, hqManagerShare;
-        if (actualOv.mode === 'fixed') {
-          salespersonShare = actualOv.salesperson;
-          teamLeaderShare = actualOv.teamLeader;
-          branchManagerShare = actualOv.branchManager;
-          hqManagerShare = actualOv.hqManager;
-        } else {
-          salespersonShare = totalCommission * (actualOv.salesperson / 100);
-          teamLeaderShare = totalCommission * (actualOv.teamLeader / 100);
-          branchManagerShare = totalCommission * (actualOv.branchManager / 100);
-          hqManagerShare = totalCommission * (actualOv.hqManager / 100);
-        }
+        salespersonShare = actualOv.salesperson;
+        teamLeaderShare = actualOv.teamLeader;
+        branchManagerShare = actualOv.branchManager;
+        hqManagerShare = actualOv.hqManager;
 
         return {
           '순번': idx + 1,
@@ -1439,19 +1431,19 @@ const ERP_Dashboard = () => {
         items.forEach(item => {
           if (item.status.includes('취소')) return;
           const { totalCommission } = calculateCommissionDetails(item, stats);
-          const ov = setting?.overriding || { salesperson: 100, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' };
+          const ov = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
           let shares = { '영업사원': 0, '팀장': 0, '지점장': 0, '본부장': 0 };
           
-          if (ov.mode === 'fixed') {
+          if (setting?.enableOverriding) {
             shares['영업사원'] = ov.salesperson;
             shares['팀장'] = ov.teamLeader;
             shares['지점장'] = ov.branchManager;
             shares['본부장'] = ov.hqManager;
           } else {
-            shares['영업사원'] = totalCommission * (ov.salesperson / 100);
-            shares['팀장'] = totalCommission * (ov.teamLeader / 100);
-            shares['지점장'] = totalCommission * (ov.branchManager / 100);
-            shares['본부장'] = totalCommission * (ov.hqManager / 100);
+            shares['영업사원'] = totalCommission;
+            shares['팀장'] = 0;
+            shares['지점장'] = 0;
+            shares['본부장'] = 0;
           }
           
           const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
@@ -3736,7 +3728,7 @@ const ERP_Dashboard = () => {
                             paymentMethod: '계좌이체',
                             settlementType: '사업자',
                             enableOverriding: false,
-                            overriding: { salesperson: 100, teamLeader: 0, branchManager: 0, hqManager: 0, mode: 'percent' },
+                            overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
                             productRules: []
                           };
                           setHqSettings([...hqSettings, newHq]);
@@ -3970,16 +3962,8 @@ const ERP_Dashboard = () => {
                                     <p className="text-[10px] text-indigo-400 mt-0.5">수수료를 각 직급별로 나누어 정산하는 구조를 설정합니다.</p>
                                   </div>
                                   <div className="flex items-center gap-4">
-                                    <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-indigo-200">
-                                      <span className="text-[11px] font-bold text-indigo-600">방식</span>
-                                      <select
-                                        value={s.overriding.mode || 'percent'}
-                                        onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, overriding: { ...h.overriding, mode: e.target.value as any } } : h))}
-                                        className="bg-transparent text-[11px] font-black text-slate-700 focus:outline-none cursor-pointer"
-                                      >
-                                        <option value="percent">퍼센트 (%)</option>
-                                        <option value="fixed">고정금액 (₩)</option>
-                                      </select>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] font-bold text-indigo-600">지급방식: 고정금액(₩)</span>
                                     </div>
                                     <div className="flex items-center gap-2">
                                       <span className="text-[11px] font-bold text-indigo-400">활성화</span>
@@ -4000,10 +3984,10 @@ const ERP_Dashboard = () => {
                                   ].map(f => (
                                     <div key={f.key} className="flex flex-col gap-1">
                                       <label className="text-[10px] font-bold text-indigo-400">
-                                        {f.label} ({s.overriding.mode === 'fixed' ? '₩' : '%'})
+                                        {f.label} (₩)
                                       </label>
                                       <input
-                                        type="number" step={s.overriding.mode === 'fixed' ? "1000" : "0.1"} value={(s.overriding as any)[f.key]}
+                                        type="number" value={(s.overriding as any)[f.key]}
                                         onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, overriding: { ...h.overriding, [f.key]: parseFloat(e.target.value) || 0 } } : h))}
                                         className="p-2.5 bg-white border border-indigo-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-300 transition-all"
                                       />
