@@ -198,6 +198,72 @@ const MASTER_HQ_DATA: Partial<HQSetting>[] = [
   },
 ];
 
+
+const getHealthcareMaintenanceInfo = (item: ERPDataItem, filterStr: string) => {
+  const normProd = item.prodName.replace(/[\s()]/g, '');
+  const isHc = normProd.includes('헬스케어80');
+  if (!isHc) return null;
+
+  if (item.status.includes('해약') || item.status.includes('취소')) return null;
+
+  const today = new Date();
+  let baseYear = today.getFullYear();
+  let baseMonth = today.getMonth() + 1;
+
+  if (filterStr) {
+    const clean = filterStr.replace(/[-./\s]/g, '');
+    if (clean.length === 6) {
+      baseYear = parseInt('20' + clean.substring(0, 2));
+      baseMonth = parseInt(clean.substring(2, 4));
+    } else if (clean.length === 8) {
+      baseYear = parseInt(clean.substring(0, 4));
+      baseMonth = parseInt(clean.substring(4, 6));
+    }
+  }
+
+  const cDateRaw = item.contractDate.replace(/[.\s]/g, '-');
+  const cDateObj = new Date(cDateRaw);
+  if (isNaN(cDateObj.getTime())) return null;
+  
+  const tDate = new Date(baseYear, baseMonth - 1, 25);
+  const compareCDate = new Date(cDateObj.getFullYear(), cDateObj.getMonth(), 25);
+  
+  const monthsDiff = (tDate.getFullYear() - compareCDate.getFullYear()) * 12 + (tDate.getMonth() - compareCDate.getMonth());
+
+  if (monthsDiff >= 1 && monthsDiff <= 37) {
+    const overdue = parseInt(item.memo || '0') || 0;
+    const isOverdue = overdue > 0;
+    
+    let payCount = 1;
+    if (!isOverdue) {
+      const paidCount = item.hcPaidCount || 0;
+      if (paidCount > 0) {
+        payCount = Math.max(0, monthsDiff - paidCount);
+      } else {
+        payCount = 1;
+      }
+    } else {
+      payCount = 0;
+    }
+    
+    if (monthsDiff === 1) {
+      if (item.payDate) {
+        const itemPayClean = (item.payDate || '').replace(/[-./]/g, '');
+        const itemPay6 = itemPayClean.substring(itemPayClean.length - 6);
+        const filterClean = `${String(baseYear).substring(2)}${String(baseMonth).padStart(2, '0')}25`;
+        if (itemPay6 === filterClean) {
+          return { interval: 1, overdueCount: overdue, isOverdue, payCount };
+        }
+      } else {
+        return { interval: 1, overdueCount: overdue, isOverdue, payCount };
+      }
+    } else {
+      return { interval: monthsDiff, overdueCount: overdue, isOverdue, payCount };
+    }
+  }
+  return null;
+};
+
 const ERP_Dashboard = () => {
   const [data, setData] = useState<ERPDataItem[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -228,6 +294,8 @@ const ERP_Dashboard = () => {
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
   const [isHealthcareModalOpen, setIsHealthcareModalOpen] = useState(false);
+  const [isMaintenanceStatusModalOpen, setIsMaintenanceStatusModalOpen] = useState(false);
+  const [maintenanceTab, setMaintenanceTab] = useState<'eligible' | 'overdue'>('eligible');
   const [activeHqId, setActiveHqId] = useState<string | null>(null);
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1026,6 +1094,7 @@ const ERP_Dashboard = () => {
       globalIncentiveCount,
       jaeyunIncentive,
       minkyungIncentive,
+      kwonFixedPay,
       jaeyunGap
     };
   }, [filteredData, hqSettings]);
@@ -1164,6 +1233,7 @@ const ERP_Dashboard = () => {
       if (settlementStats.jaeyunIncentive > 0) specialAdditions['조재윤'] = (specialAdditions['조재윤'] || 0) + settlementStats.jaeyunIncentive;
       if (settlementStats.jaeyunGap > 0) specialAdditions['조재윤'] = (specialAdditions['조재윤'] || 0) + settlementStats.jaeyunGap;
       if (settlementStats.minkyungIncentive > 0) specialAdditions['조민경'] = (specialAdditions['조민경'] || 0) + settlementStats.minkyungIncentive;
+      if (settlementStats.kwonFixedPay > 0) specialAdditions['권성훈'] = (specialAdditions['권성훈'] || 0) + settlementStats.kwonFixedPay;
       const combinedHqs = Array.from(new Set([...Object.keys(settlementStats.hqGroups), ...Object.keys(specialAdditions)]));
 
       let totalNetPay = 0;
@@ -2429,6 +2499,92 @@ const ERP_Dashboard = () => {
     } catch (err) {
       console.error(err);
       alert('보고서 생성 중 오류 발생');
+    }
+  };
+
+  
+  const exportMaintenanceStatusExcel = (eligibleItems: any[], overdueItems: any[]) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const workbook = XLSX.utils.book_new();
+
+      // 1. 유지수수료 지급 대상 시트 작성
+      let totalEligibleSum = 0;
+      const eligibleRows = eligibleItems.map((x, idx) => {
+        totalEligibleSum += x.totalCommission;
+        const intervalStr = x.payCount > 1 ? `${x.hcInterval}회차(소급 ${x.payCount}개월)` : `${x.hcInterval}회차`;
+        return [
+          idx + 1, x.item.hq, x.item.branch, x.item.empName, x.item.memName, x.item.contractDate, x.item.prodName, intervalStr,
+          { v: x.totalCommission, t: 'n', z: '#,##0' }
+        ];
+      });
+      eligibleRows.push(['합계', '', '', '', '', '', '', '', { v: totalEligibleSum, t: 'n', z: '#,##0' }]);
+
+      const eligibleWorksheet = XLSX.utils.aoa_to_sheet([
+        ['[ 헬스케어80 유지수수료 지급 대상 현황 ]'],
+        [`수수료 지급일: ${payDateFilter || today} | 보고서 생성일: ${today}`],
+        [],
+        ['순번', '본부명', '지사명', '사원명', '고객명', '계약일자', '상품명', '회차', '유지수수료'],
+        ...eligibleRows
+      ]);
+
+      // 2. 유지수수료 지급 보류(연체) 시트 작성
+      let totalOverdueSum = 0;
+      const overdueRows = overdueItems.map((x, idx) => {
+        totalOverdueSum += x.pendingCommission;
+        return [
+          idx + 1, x.item.hq, x.item.branch, x.item.empName, `${x.overdueCount}회`, x.item.memName, x.item.contractDate, x.item.prodName, `${x.hcInterval}회차`,
+          { v: x.pendingCommission, t: 'n', z: '#,##0' }
+        ];
+      });
+      overdueRows.push(['합계', '', '', '', '', '', '', '', '', { v: totalOverdueSum, t: 'n', z: '#,##0' }]);
+
+      const overdueWorksheet = XLSX.utils.aoa_to_sheet([
+        ['[ 헬스케어80 유지수수료 지급 보류(연체) 현황 ]'],
+        [`수수료 지급일: ${payDateFilter || today} | 보고서 생성일: ${today}`],
+        [],
+        ['순번', '본부명', '지사명', '사원명', '연체횟수', '고객명', '계약일자', '상품명', '회차', '보류 수수료'],
+        ...overdueRows
+      ]);
+
+      const applyStyles = (worksheet: any, colCount: number) => {
+        const headerStyle = { fill: { fgColor: { rgb: "E7E6E6" } }, font: { bold: true, size: 10 }, alignment: { horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+        const bodyStyle = { font: { size: 10 }, alignment: { horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          for (let c = range.s.c; c <= range.e.c; c++) {
+            const cellAddress = XLSX.utils.encode_cell({ r, c });
+            if (!worksheet[cellAddress]) continue;
+            if (r > 2) worksheet[cellAddress].s = r === 3 ? headerStyle : bodyStyle;
+          }
+        }
+        worksheet['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: colCount - 1 } }];
+        worksheet['!cols'] = Array(colCount).fill({ wch: 13 });
+      };
+
+      applyStyles(eligibleWorksheet, 9);
+      applyStyles(overdueWorksheet, 10);
+
+      XLSX.utils.book_append_sheet(workbook, eligibleWorksheet, "유지수수료 지급대상");
+      XLSX.utils.book_append_sheet(workbook, overdueWorksheet, "유지수수료 지급보류");
+
+      const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/octet-stream' });
+      const cleanPayDate = (payDateFilter || today).replace(/[.-]/g, '');
+      const executeDownload = (blob: Blob, filename: string) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      };
+      executeDownload(blob, `유지수수료현황_${cleanPayDate}_${today}.xlsx`);
+    } catch (err) {
+      console.error(err);
+      alert('엑셀 추출 중 오류가 발생했습니다.');
     }
   };
 
