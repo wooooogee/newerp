@@ -31,6 +31,7 @@ interface ERPDataItem {
   status: string;         // B(1)
   memo: string;           // U(20)?
   raw: any[];
+  hcPaidCount?: number;
 }
 
 interface SyncNotification {
@@ -67,7 +68,7 @@ interface HQSetting {
     hqManager: number;
   };
 
-  settlementType: '사업자' | '개인';
+  settlementType: '사업자' | '개인' | '개인/프리랜서';
   productRules: ProductRule[];
 }
 
@@ -1082,6 +1083,14 @@ const ERP_Dashboard = () => {
       }
     }
 
+    const kwonFixedPay = isSettlementDate ? 150000 : 0;
+    if (kwonFixedPay > 0) {
+      if (!hqSummary['권성훈']) hqSummary['권성훈'] = { count: 0, amount: 0 };
+      hqSummary['권성훈'].amount += kwonFixedPay;
+      totalAmount += kwonFixedPay;
+      totalPendingAmount += kwonFixedPay;
+    }
+
     return {
       totalCount,
       totalAmount,
@@ -1089,7 +1098,7 @@ const ERP_Dashboard = () => {
       totalPendingCount,
       details: Object.entries(summary).sort((a, b) => b[1].amount - a[1].amount),
       hqDetails: Object.entries(hqSummary).sort((a, b) => b[1].amount - a[1].amount),
-      daily: Object.entries(dailyMap).sort((a, b) => b[0].localeCompare(a[0])) as [string, { totalAmount: number, totalCount: number, products: Record<string, { count: number, amount: number }> }][],
+      daily: Object.entries(dailyMap).sort((a, b) => String(b[0]).localeCompare(String(a[0]))) as [string, { totalAmount: number, totalCount: number, products: Record<string, { count: number, amount: number }> }][],
       hqGroups,
       globalIncentiveCount,
       jaeyunIncentive,
@@ -1165,7 +1174,7 @@ const ERP_Dashboard = () => {
       }
     });
 
-    return Object.entries(monthlyMap).sort((a, b) => b[0].localeCompare(a[0]));
+    return Object.entries(monthlyMap).sort((a, b) => String(b[0]).localeCompare(String(a[0])));
   }, [data, hqSettings]);
 
   const exportIntegratedSettlement = async () => {
