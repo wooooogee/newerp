@@ -328,8 +328,11 @@ const ERP_Dashboard = () => {
   const [manualBasis, setManualBasis] = useState<'사업자' | '개인'>('사업자');
   const [manualProducts, setManualProducts] = useState<ManualProduct[]>([]);
   const allDatesWithData = React.useMemo(() => {
-    return new Set(data.map(item => item.payDate.replace(/[-/]/g, '.')).filter(Boolean));
-  }, [data]);
+    return new Set(data.map(item => {
+      const dDate = getDisplayPayDate(item, globalIncentiveRules);
+      return dDate ? dDate.replace(/[-/]/g, '.') : '';
+    }).filter(Boolean));
+  }, [data, globalIncentiveRules]);
 
   // 셀 값 업데이트 (구글 시트 연동)
   const updateCell = async (rowIdx: number, colIdx: number, newValue: string) => {
@@ -671,6 +674,15 @@ const ERP_Dashboard = () => {
   };
 
   useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+
+  useEffect(() => {
     if (isAuthenticated) loadData();
   }, [isAuthenticated]);
 
@@ -784,15 +796,8 @@ const ERP_Dashboard = () => {
 
     const promoFee = Math.max(0, totalCommission - salesComm);
 
-    // 지급일자 산출 (조재윤, 조민경용)
-    let displayPayDate = item.payDate;
-    if ((item.hq === '조민경' || item.hq === '조재윤') && item.deliveryStatus.includes('완료') && item.deliveryDate) {
-      const delivDate = item.deliveryDate.replace(/\./g, '-');
-      const [y, m] = delivDate.split('-').map(Number);
-      const nextM = m === 12 ? 1 : m + 1;
-      const nextY = m === 12 ? y + 1 : y;
-      displayPayDate = `${nextY}.${String(nextM).padStart(2, '0')}.25`;
-    }
+    // 지급일자 산출 (글로벌 인센티브 및 조재윤, 조민경용)
+    const displayPayDate = getDisplayPayDate(item, globalIncentiveRules);
 
     let settlementType = setting?.settlementType || '사업자';
     if (item.hq === '글로씨') settlementType = '개인/프리랜서';
@@ -1148,7 +1153,8 @@ const ERP_Dashboard = () => {
 
     data.forEach(item => {
       if (item.status.includes('취소')) return; // B열(status)에 '취소'가 포함된 경우 제외
-      const month = item.payDate?.substring(0, 7) || '미지정';
+      const displayPayDate = getDisplayPayDate(item, globalIncentiveRules);
+      const month = displayPayDate?.substring(0, 7) || '미지정';
       const hqSetting = hqSettings.find(h => h.hqName === item.hq);
       const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
       let rule = hqSetting?.productRules?.find(r => normalize(r.productName) === normalize(item.prodName));
@@ -3831,7 +3837,7 @@ const ERP_Dashboard = () => {
                       <div className="flex justify-between items-center mb-6">
                         <h2 className="text-xl font-bold">특수 수당(글로벌 인센티브) 정책 관리</h2>
                         <button onClick={() => {
-                          setGlobalIncentiveRules([...globalIncentiveRules, {
+                          setGlobalIncentiveRules([{
                             id: Date.now().toString(),
                             targetName: '신규 대상자',
                             payDay: 25,
@@ -3840,7 +3846,7 @@ const ERP_Dashboard = () => {
                             baseDateType: 'DELIVERY',
                             commissionPerUnit: 0,
                             minimumGuarantee: 0
-                          }]);
+                          }, ...globalIncentiveRules]);
                         }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
                           <Plus size={16} /> 새 규칙 추가
                         </button>
@@ -3859,13 +3865,16 @@ const ERP_Dashboard = () => {
                                   const n = [...globalIncentiveRules]; n[idx].targetName = e.target.value; setGlobalIncentiveRules(n);
                                 }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
                               </div>
-                              <div className="w-32">
+                              <div className="w-48">
                                 <label className="text-xs font-bold text-slate-500">수수료 지급일</label>
-                                <div className="relative mt-1">
-                                  <input type="number" min="1" max="31" value={rule.payDay} onChange={e => {
-                                    const n = [...globalIncentiveRules]; n[idx].payDay = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
-                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-right pr-8 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
-                                  <span className="absolute right-3 top-2.5 text-slate-400 text-sm font-bold">일</span>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-2 rounded-lg border border-slate-200">다음달</span>
+                                  <div className="relative flex-1">
+                                    <input type="number" min="1" max="31" value={rule.payDay} onChange={e => {
+                                      const n = [...globalIncentiveRules]; n[idx].payDay = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
+                                    }} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-right pr-8 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
+                                    <span className="absolute right-3 top-2.5 text-slate-400 text-sm font-bold">일</span>
+                                  </div>
                                 </div>
                               </div>
                             </div>
