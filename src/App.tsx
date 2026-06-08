@@ -275,30 +275,11 @@ const getHealthcareMaintenanceInfo = (item: ERPDataItem, filterStr: string) => {
 };
 
 
-export const getDisplayPayDate = (item: any, globalIncentiveRules: any[]) => {
+export const getDisplayPayDate = (item: any) => {
   let displayPayDate = item.payDate;
   
-  const matchedRule = globalIncentiveRules.find((rule: any) => {
-    if (rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return false;
-    const hqMatch = rule.targetHq === 'ALL' || item.hq === rule.targetHq;
-    const prodMatch = rule.targetProducts.includes('ALL') || (item.prodName && rule.targetProducts.some((p: string) => item.prodName.includes(p)));
-    return hqMatch && prodMatch;
-  });
-
-  if (matchedRule) {
-    const dateStr = matchedRule.baseDateType === 'DELIVERY' ? item.deliveryDate : item.contractDate;
-    const statusOk = matchedRule.baseDateType !== 'DELIVERY' || (item.deliveryStatus && item.deliveryStatus.includes('완료'));
-    if (dateStr && statusOk) {
-      const dDate = dateStr.replace(/\./g, '-');
-      const [y, m] = dDate.split('-').map(Number);
-      if (!isNaN(y) && !isNaN(m)) {
-        const nextM = m === 12 ? 1 : m + 1;
-        const nextY = m === 12 ? y + 1 : y;
-        displayPayDate = `${nextY}.${String(nextM).padStart(2, '0')}.${String(matchedRule.payDay).padStart(2, '0')}`;
-      }
-    }
-  } else if ((item.hq === '조민경' || item.hq === '조재윤') && item.deliveryStatus && item.deliveryStatus.includes('완료') && item.deliveryDate) {
-    const delivDate = item.deliveryDate.replace(/\./g, '-');
+  if ((item.hq === '조민경' || item.hq === '조재윤') && item.deliveryStatus && item.deliveryStatus.includes('완료') && item.deliveryDate) {
+    const delivDate = item.deliveryDate.replace(/\\./g, '-');
     const [y, m] = delivDate.split('-').map(Number);
     if (!isNaN(y) && !isNaN(m)) {
       const nextM = m === 12 ? 1 : m + 1;
@@ -435,7 +416,7 @@ const ERP_Dashboard = () => {
 
   const allDatesWithData = React.useMemo(() => {
     return new Set(data.map(item => {
-      const dDate = getDisplayPayDate(item, globalIncentiveRules);
+      const dDate = getDisplayPayDate(item);
       return dDate ? dDate.replace(/[-/]/g, '.') : '';
     }).filter(Boolean));
   }, [data, globalIncentiveRules]);
@@ -833,7 +814,7 @@ const ERP_Dashboard = () => {
     const promoFee = Math.max(0, totalCommission - salesComm);
 
     // 지급일자 산출 (글로벌 인센티브 및 조재윤, 조민경용)
-    const displayPayDate = getDisplayPayDate(item, globalIncentiveRules);
+    const displayPayDate = getDisplayPayDate(item);
 
     let settlementType = setting?.settlementType || '사업자';
     if (item.hq === '글로씨') settlementType = '개인/프리랜서';
@@ -1007,7 +988,7 @@ const ERP_Dashboard = () => {
         // 지급일자 필터
         let matchesPayDate = !payDateFilter;
         if (payDateFilter) {
-          const displayPayDate = getDisplayPayDate(item, globalIncentiveRules);
+          const displayPayDate = getDisplayPayDate(item);
           const targetDateClean = payDateFilter.replace(/[-./]/g, '');
           const itemPayDateClean = (displayPayDate || '').replace(/[-./]/g, '');
           let normalizedPayFilter = payDateFilter.replace(/[-./]/g, '');
@@ -1129,6 +1110,7 @@ const ERP_Dashboard = () => {
 
         data.forEach(item => {
           if (rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
+          if (rule.targetHq === 'ALL' && rule.targetProducts.includes('ALL')) return;
           if (rule.targetHq !== 'ALL' && item.hq !== rule.targetHq) return;
 
           if (!rule.targetProducts.includes('ALL')) {
@@ -1191,7 +1173,7 @@ const ERP_Dashboard = () => {
 
     data.forEach(item => {
       if (item.status.includes('취소')) return; // B열(status)에 '취소'가 포함된 경우 제외
-      const displayPayDate = getDisplayPayDate(item, globalIncentiveRules);
+      const displayPayDate = getDisplayPayDate(item);
       const month = displayPayDate?.substring(0, 7) || '미지정';
       const hqSetting = hqSettings.find(h => h.hqName === item.hq);
       const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
