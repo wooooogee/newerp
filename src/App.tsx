@@ -279,6 +279,7 @@ export const getDisplayPayDate = (item: any, globalIncentiveRules: any[]) => {
   let displayPayDate = item.payDate;
   
   const matchedRule = globalIncentiveRules.find((rule: any) => {
+    if (rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return false;
     const hqMatch = rule.targetHq === 'ALL' || item.hq === rule.targetHq;
     const prodMatch = rule.targetProducts.includes('ALL') || (item.prodName && rule.targetProducts.some((p: string) => item.prodName.includes(p)));
     return hqMatch && prodMatch;
@@ -1127,6 +1128,7 @@ const ERP_Dashboard = () => {
         const targetPrefix2 = `${prevYearStr}.${prevMonthStr}`;
 
         data.forEach(item => {
+          if (rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
           if (rule.targetHq !== 'ALL' && item.hq !== rule.targetHq) return;
 
           if (!rule.targetProducts.includes('ALL')) {
@@ -3877,8 +3879,8 @@ const ERP_Dashboard = () => {
                             id: Date.now().toString(),
                             targetName: '신규 대상자',
                             payDay: 25,
-                            targetHq: 'ALL',
-                            targetProducts: ['ALL'],
+                            targetHq: '',
+                            targetProducts: [],
                             baseDateType: 'DELIVERY',
                             commissionPerUnit: 0,
                             minimumGuarantee: 0
