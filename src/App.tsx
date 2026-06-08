@@ -310,6 +310,8 @@ const ERP_Dashboard = () => {
   const [activeHqId, setActiveHqId] = useState<string | null>(null);
   const [previewTarget, setPreviewTarget] = useState<string | null>(null);
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
+  const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
+  const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('구좌수');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 수동 수수료 정산 상태
@@ -2217,7 +2219,7 @@ const ERP_Dashboard = () => {
             initial={{ opacity: 0, y: -100 }}
             animate={{ opacity: 1, y: 20 }}
             exit={{ opacity: 0, y: -100 }}
-            className="absolute top-0 left-1/2 -translate-x-1/2 z-50 pointer-events-none"
+            className="absolute top-0 left-1/2 -translate-x-1/2 z-[100] pointer-events-none"
           >
             <div className="bg-white border-l-4 border-emerald-500 shadow-2xl rounded-lg px-6 py-4 flex items-center gap-4 pointer-events-auto">
               <div className="bg-emerald-100 p-2 rounded-full">
@@ -2420,6 +2422,132 @@ const ERP_Dashboard = () => {
                   <Settings size={20} />
                 </button>
               </div>
+            </div>
+
+                        {/* 구좌 현황 대시보드 (수수료 대시보드 위) */}
+            <div className="mb-6 bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 pb-4 border-b border-slate-100 gap-4">
+                <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
+                  <TrendingUp size={18} className="text-blue-500" />
+                  월별 계약 현황
+                </h3>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full sm:w-auto">
+                  <div className="flex bg-slate-100 p-1 rounded-lg w-full sm:w-auto">
+                    <button
+                      onClick={() => setTopDashboardMode('구좌수')}
+                      className={`flex-1 sm:flex-none px-4 py-1.5 text-[12px] font-bold rounded-md transition-all ${topDashboardMode === '구좌수' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      구좌수 기준
+                    </button>
+                    <button
+                      onClick={() => setTopDashboardMode('상품개수')}
+                      className={`flex-1 sm:flex-none px-4 py-1.5 text-[12px] font-bold rounded-md transition-all ${topDashboardMode === '상품개수' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      상품개수(실물) 기준
+                    </button>
+                  </div>
+                  <input
+                    type="month"
+                    value={topDashboardMonth}
+                    onChange={(e) => setTopDashboardMonth(e.target.value)}
+                    className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 w-full sm:w-auto"
+                  />
+                </div>
+              </div>
+
+              {(() => {
+                const prodCounts = new Map<string, number>();
+                const hqCounts = new Map<string, number>();
+                let totalContracts = 0;
+                let cancelCount = 0;
+                const seenRentalNos = new Set<string>();
+                const cancelSeenRentalNos = new Set<string>();
+
+                data.forEach(d => {
+                  const dateStr = d.contractDate ? d.contractDate.replace(/\./g, '-').substring(0, 7) : '';
+                  if (dateStr === topDashboardMonth) {
+                    const isCancelled = d.status.includes('취소') || d.status.includes('해약') || d.deliveryStatus.includes('취소') || d.deliveryStatus.includes('반품');
+
+                    if (topDashboardMode === '상품개수' && d.rentalNo) {
+                      if (isCancelled) {
+                        if (cancelSeenRentalNos.has(d.rentalNo)) return;
+                        cancelSeenRentalNos.add(d.rentalNo);
+                      } else {
+                        if (seenRentalNos.has(d.rentalNo)) return;
+                        seenRentalNos.add(d.rentalNo);
+                      }
+                    }
+
+                    if (isCancelled) {
+                      cancelCount++;
+                    } else {
+                      totalContracts++;
+                      const prod = d.prodName || '미지정';
+                      prodCounts.set(prod, (prodCounts.get(prod) || 0) + 1);
+                      const hq = d.hq || '미지정';
+                      hqCounts.set(hq, (hqCounts.get(hq) || 0) + 1);
+                    }
+                  }
+                });
+
+                const sortedProds = Array.from(prodCounts.entries()).sort((a, b) => b[1] - a[1]);
+                const sortedHqs = Array.from(hqCounts.entries()).sort((a, b) => b[1] - a[1]);
+                const countUnit = topDashboardMode === '구좌수' ? '구좌' : '개';
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* 상품별 계약건수와 총합 */}
+                    <div className="flex flex-col">
+                      <div className="flex items-center justify-between mb-3 text-sm font-bold text-slate-700 bg-blue-50 px-3 py-2 rounded-lg">
+                        <span className="flex items-center gap-1.5"><Package size={14} className="text-blue-500" /> 상품별 {topDashboardMode === '구좌수' ? '계약건수' : '수량'}</span>
+                        <span className="text-blue-600">총 {totalContracts.toLocaleString()}{countUnit}</span>
+                      </div>
+                      <div className="space-y-2 overflow-y-auto max-h-48 pr-2 custom-scrollbar">
+                        {sortedProds.length > 0 ? sortedProds.map(([p, count], idx) => (
+                          <div key={p} className="flex justify-between items-center text-xs">
+                            <div className="flex items-center gap-1.5 overflow-hidden">
+                              <span className="text-[10px] font-black text-slate-400 w-4">{idx + 1}</span>
+                              <span className="font-medium text-slate-600 truncate" title={p}>{p}</span>
+                            </div>
+                            <span className="font-bold text-slate-800 shrink-0">{count.toLocaleString()}{countUnit}</span>
+                          </div>
+                        )) : <div className="text-xs text-slate-400 text-center py-4">해당 월 데이터가 없습니다.</div>}
+                      </div>
+                    </div>
+
+                    {/* 본부별 계약건수 */}
+                    <div className="flex flex-col">
+                      <div className="flex items-center justify-between mb-3 text-sm font-bold text-slate-700 bg-emerald-50 px-3 py-2 rounded-lg">
+                        <span className="flex items-center gap-1.5"><Building size={14} className="text-emerald-500" /> 본부별 {topDashboardMode === '구좌수' ? '계약건수' : '수량'}</span>
+                        <span className="text-emerald-600">총 {totalContracts.toLocaleString()}{countUnit}</span>
+                      </div>
+                      <div className="space-y-2 overflow-y-auto max-h-48 pr-2 custom-scrollbar">
+                        {sortedHqs.length > 0 ? sortedHqs.map(([h, count], idx) => (
+                          <div key={h} className="flex justify-between items-center text-xs">
+                            <div className="flex items-center gap-1.5 overflow-hidden">
+                              <span className="text-[10px] font-black text-slate-400 w-4">{idx + 1}</span>
+                              <span className="font-medium text-slate-600 truncate" title={h}>{h}</span>
+                            </div>
+                            <span className="font-bold text-slate-800 shrink-0">{count.toLocaleString()}{countUnit}</span>
+                          </div>
+                        )) : <div className="text-xs text-slate-400 text-center py-4">해당 월 데이터가 없습니다.</div>}
+                      </div>
+                    </div>
+
+                    {/* 취소/해약 현황 */}
+                    <div className="flex flex-col">
+                      <div className="flex items-center justify-between mb-3 text-sm font-bold text-slate-700 bg-rose-50 px-3 py-2 rounded-lg">
+                        <span className="flex items-center gap-1.5"><AlertCircle size={14} className="text-rose-500" /> 취소 및 해약</span>
+                        <span className="text-rose-600">총 {cancelCount.toLocaleString()}{countUnit}</span>
+                      </div>
+                      <div className="flex-1 flex flex-col items-center justify-center bg-rose-50/30 rounded-lg border border-rose-100/50 p-4 min-h-[100px]">
+                        <div className="text-3xl font-black text-rose-500 mb-2">{cancelCount.toLocaleString()}{countUnit}</div>
+                        <p className="text-xs text-slate-500 text-center">선택된 월의 총 취소/해약 수<br/>(배송취소, 반품 포함)</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* 정산 요약 대시보드 */}
@@ -2695,94 +2823,7 @@ const ERP_Dashboard = () => {
           </div>
 
 
-          {/* Top Dashboard (Account/Unit Based) */}
-          {(() => {
-            const monthlyCounts = new Map<string, number>();
-            const hqCounts = new Map<string, number>();
-            const prodCounts = new Map<string, number>();
-
-            filteredData.forEach(item => {
-              // 월별
-              const month = item.payDate ? item.payDate.substring(0, 7).replace(/\./g, '-') : '미정';
-              monthlyCounts.set(month, (monthlyCounts.get(month) || 0) + 1);
-              // 본부별
-              const hq = item.hq || '미지정';
-              hqCounts.set(hq, (hqCounts.get(hq) || 0) + 1);
-              // 상품별
-              const prod = item.prodName || '미지정';
-              prodCounts.set(prod, (prodCounts.get(prod) || 0) + 1);
-            });
-
-            const topMonths = Array.from(monthlyCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
-            const topHqs = Array.from(hqCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
-            const topProds = Array.from(prodCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
-            return (
-              <div className="mb-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* 월별 */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
-                  <div className="flex items-center gap-2 mb-4 text-slate-700 font-bold">
-                    <Calendar size={18} className="text-blue-500" />
-                    <h3>월별 구좌 현황 (Top 5)</h3>
-                  </div>
-                  <div className="space-y-3 flex-1">
-                    {topMonths.map(([m, count], idx) => (
-                      <div key={m} className="flex justify-between items-center text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">{idx + 1}</span>
-                          <span className="font-medium text-slate-600">{m}</span>
-                        </div>
-                        <span className="font-black text-blue-600">{count.toLocaleString()}건</span>
-                      </div>
-                    ))}
-                    {topMonths.length === 0 && <div className="text-slate-400 text-sm text-center py-4">데이터가 없습니다</div>}
-                  </div>
-                </div>
-                
-                {/* 본부별 */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
-                  <div className="flex items-center gap-2 mb-4 text-slate-700 font-bold">
-                    <Building size={18} className="text-emerald-500" />
-                    <h3>본부별 구좌 현황 (Top 5)</h3>
-                  </div>
-                  <div className="space-y-3 flex-1">
-                    {topHqs.map(([h, count], idx) => (
-                      <div key={h} className="flex justify-between items-center text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">{idx + 1}</span>
-                          <span className="font-medium text-slate-600 truncate max-w-[150px]">{h}</span>
-                        </div>
-                        <span className="font-black text-emerald-600">{count.toLocaleString()}건</span>
-                      </div>
-                    ))}
-                    {topHqs.length === 0 && <div className="text-slate-400 text-sm text-center py-4">데이터가 없습니다</div>}
-                  </div>
-                </div>
-
-                {/* 상품별 */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
-                  <div className="flex items-center gap-2 mb-4 text-slate-700 font-bold">
-                    <Package size={18} className="text-purple-500" />
-                    <h3>상품별 구좌 현황 (Top 5)</h3>
-                  </div>
-                  <div className="space-y-3 flex-1">
-                    {topProds.map(([p, count], idx) => (
-                      <div key={p} className="flex justify-between items-center text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">{idx + 1}</span>
-                          <span className="font-medium text-slate-600 truncate max-w-[150px]" title={p}>{p}</span>
-                        </div>
-                        <span className="font-black text-purple-600">{count.toLocaleString()}건</span>
-                      </div>
-                    ))}
-                    {topProds.length === 0 && <div className="text-slate-400 text-sm text-center py-4">데이터가 없습니다</div>}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          <motion.div
+                    <motion.div
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden"
