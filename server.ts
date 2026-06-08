@@ -652,6 +652,85 @@ app.get('/api/sheets/sheetData', async (req, res) => {
   }
 });
 
+app.post('/api/sheets/manual-settlement/save', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { rows } = req.body as { rows: any[][] };
+  if (!rows || rows.length === 0) return res.status(400).json({ error: 'No data to save' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let manualSheet = sheetsList.find(s => s.properties?.title === '수동정산내역');
+    let sheetInternalId: number | null | undefined = manualSheet?.properties?.sheetId;
+    
+    if (!manualSheet) {
+      console.log("[CloudSync] Creating '수동정산내역' sheet...");
+      const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '수동정산내역' } } }]
+        }
+      });
+      sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+      
+      const headers = [['지급일자', '본부명', '계좌정보', '정산기준', '상품명', '판매수수료', '판매촉진비', '구좌수', '총지급액']];
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '수동정산내역!A1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: headers }
+      });
+      
+      if (sheetInternalId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+    }
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: '수동정산내역!A1',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: rows }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[Manual Settlement Save Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
 // Vite Middleware
 async function start() {
   try {

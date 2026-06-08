@@ -1,0 +1,2518 @@
+﻿diff --git a/src/App.tsx b/src/App.tsx
+index c974308..4133cdd 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -5,8 +5,6 @@ import { motion, AnimatePresence } from 'motion/react';
+ // window.XLSX??index.html??CDN ?ㅽ겕由쏀듃?먯꽌 濡쒕뱶?? const XLSX = (window as any).XLSX;
+ 
+-// ?꾩뿭 window 媛앹껜?먯꽌 html2pdf 李몄“ (CDN 諛⑹떇 ?명솚)
+-const getHtml2Pdf = () => (window as any).html2pdf;
+ 
+ interface ERPDataItem {
+   uniqueKey: string;
+@@ -30,6 +28,7 @@ interface ERPDataItem {
+   paymentStatus: string;  // T(19)
+   status: string;         // B(1)
+   memo: string;           // U(20)?
++  hcPaidCount: number;    // V(21) ?꾩쟻 吏湲??잛닔
+   raw: any[];
+ }
+ 
+@@ -67,7 +66,7 @@ interface HQSetting {
+     hqManager: number;
+   };
+ 
+-  settlementType: '?ъ뾽?? | '媛쒖씤';
++  settlementType: '?ъ뾽?? | '媛쒖씤' | '媛쒖씤/?꾨━?쒖꽌';
+   productRules: ProductRule[];
+ }
+ 
+@@ -198,6 +197,113 @@ const MASTER_HQ_DATA: Partial<HQSetting>[] = [
+   },
+ ];
+ 
++const parsePayFilterDate = (filterStr: string) => {
++  if (!filterStr) return null;
++  const clean = filterStr.replace(/[-./\s]/g, '');
++  let yyyy = 0, mm = 0, dd = 0;
++  if (clean.length === 6) {
++    yyyy = parseInt('20' + clean.substring(0, 2));
++    mm = parseInt(clean.substring(2, 4));
++    dd = parseInt(clean.substring(4, 6));
++  } else if (clean.length === 8) {
++    yyyy = parseInt(clean.substring(0, 4));
++    mm = parseInt(clean.substring(4, 6));
++    dd = parseInt(clean.substring(6, 8));
++  } else {
++    const parts = filterStr.split(/[-./]/);
++    if (parts.length === 3) {
++      yyyy = parseInt(parts[0].length === 2 ? '20' + parts[0] : parts[0]);
++      mm = parseInt(parts[1]);
++      dd = parseInt(parts[2]);
++    }
++  }
++  if (isNaN(yyyy) || isNaN(mm) || isNaN(dd)) return null;
++  return { yyyy, mm, dd, formatted: `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}` };
++};
++
++const parseSafeDate = (dateStr: string) => {
++  if (!dateStr) return null;
++  const normalized = dateStr.replace(/[.\s]/g, '-');
++  const d = new Date(normalized);
++  if (!isNaN(d.getTime())) return d;
++  
++  const parts = normalized.split('-');
++  if (parts.length >= 3) {
++    const y = parseInt(parts[0]);
++    const m = parseInt(parts[1]) - 1;
++    const day = parseInt(parts[2]);
++    const temp = new Date(y, m, day);
++    if (!isNaN(temp.getTime())) return temp;
++  }
++  return null;
++};
++
++const getHealthcareMaintenanceInfo = (item: ERPDataItem, filterStr: string) => {
++  const isHealthcare = item.prodName.replace(/[\s()]/g, '').includes('?ъ뒪耳0'); // ?ㅼ젣濡쒕뒗 '?ъ뒪耳??80'
++  const normProd = item.prodName.replace(/[\s()]/g, '');
++  const isHc = normProd.includes('?ъ뒪耳??80');
++  if (!isHc) return null;
++
++  if (item.status.includes('?댁빟') || item.status.includes('痍⑥냼')) return null;
++
++  const today = new Date();
++  let baseYear = today.getFullYear();
++  let baseMonth = today.getMonth() + 1;
++
++  if (filterStr) {
++    const parsed = parsePayFilterDate(filterStr);
++    if (parsed) {
++      baseYear = parsed.yyyy;
++      baseMonth = parsed.mm;
++    }
++  }
++
++  const cDate = parseSafeDate(item.contractDate);
++  if (!cDate) return null;
++  
++  const tDate = new Date(baseYear, baseMonth - 1, 25);
++  const compareCDate = new Date(cDate.getFullYear(), cDate.getMonth(), 25);
++  
++  const monthsDiff = (tDate.getFullYear() - compareCDate.getFullYear()) * 12 + (tDate.getMonth() - compareCDate.getMonth());
++
++  if (monthsDiff >= 1 && monthsDiff <= 37) {
++    const overdue = parseInt(item.memo || '0') || 0; // U???곗껜李?
++    const isOverdue = overdue > 0;
++    
++    // 吏湲됲빐????媛쒖썡 ??怨꾩궛 (?뚭툒 ?곸슜)
++    let payCount = 1;
++    if (!isOverdue) {
++      const paidCount = item.hcPaidCount || 0;
++      if (paidCount > 0) {
++        payCount = Math.max(0, monthsDiff - paidCount);
++      } else {
++        // paidCount媛 0??寃쎌슦: 1?뚯감??寃쎌슦?먮뒗 1, 洹??댁긽??泥?吏湲됱쑝濡?媛꾩＜??1??蹂댁옣
++        payCount = 1;
++      }
++    } else {
++      payCount = 0;
++    }
++    
++    if (monthsDiff === 1) {
++      // 1?뚯감???뚮뒗 ?뺤궛??payDate) ?뺣낫媛 ?덉쑝硫?鍮꾧탳
++      if (item.payDate) {
++        const itemPayClean = (item.payDate || '').replace(/[-./]/g, '');
++        const itemPay6 = itemPayClean.substring(itemPayClean.length - 6);
++        const filterClean = `${String(baseYear).substring(2)}${String(baseMonth).padStart(2, '0')}25`;
++        if (itemPay6 === filterClean) {
++          return { interval: 1, overdueCount: overdue, isOverdue, payCount };
++        }
++      } else {
++        return { interval: 1, overdueCount: overdue, isOverdue, payCount };
++      }
++    } else {
++      // 2?뚯감 ?댁긽? 臾댁“嫄?吏湲????+      return { interval: monthsDiff, overdueCount: overdue, isOverdue, payCount };
++    }
++  }
++  return null;
++};
++
+ const ERP_Dashboard = () => {
+   const [data, setData] = useState<ERPDataItem[]>([]);
+   const [headers, setHeaders] = useState<string[]>([]);
+@@ -228,6 +334,9 @@ const ERP_Dashboard = () => {
+   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
+   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
+   const [isHealthcareModalOpen, setIsHealthcareModalOpen] = useState(false);
++  const [isMaintenanceStatusModalOpen, setIsMaintenanceStatusModalOpen] = useState(false);
++  const [maintenanceTab, setMaintenanceTab] = useState<'eligible' | 'overdue'>('eligible');
++  const [pay25Tab, setPay25Tab] = useState<'newContract' | 'maintenance' | 'fixed'>('maintenance');
+   const [activeHqId, setActiveHqId] = useState<string | null>(null);
+   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
+   const fileInputRef = useRef<HTMLInputElement>(null);
+@@ -465,6 +574,7 @@ const ERP_Dashboard = () => {
+             deliveryStatus: '諛곗넚?꾨즺',
+             deliveryDate: '2026-04-17',
+             payDate: '2026-05-15',
++            status: '媛??,
+             hq: '寃쎄린蹂몃?',
+             branch: '?섏썝吏??,
+             empName: '源泥좎닔',
+@@ -472,6 +582,7 @@ const ERP_Dashboard = () => {
+             paymentStatus: '',
+             hcRegDate: '2026-04-16',
+             memo: '',
++            hcPaidCount: 0,
+             raw: new Array(30).fill('蹂대쪟 ?곗씠??)
+           },
+         ];
+@@ -541,6 +652,7 @@ const ERP_Dashboard = () => {
+             hcRegDate: String(row[18] || ''),       // S(18)
+             paymentStatus: String(row[19] || ''),   // T(19)
+             memo: String(row[20] || ''),            // U(20)
++            hcPaidCount: parseInt(String(row[21] || '0')) || 0, // V(21)
+             raw: row.length < 30 ? [...row, ...new Array(30 - row.length).fill('')] : row,
+           };
+         }).filter((item: ERPDataItem) => item.contractDate);
+@@ -597,12 +709,33 @@ const ERP_Dashboard = () => {
+     const setting = hqSettings.find(s => s.hqName === item.hq);
+     const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
+ 
++    // ?ъ뒪耳???좎? ?뚯감 怨꾩궛 ?곸슜
++    let currentProdName = item.prodName;
++    const isHealthcare = item.prodName.replace(/[\s()]/g, '').includes('?ъ뒪耳??80');
++    let hcInterval = 0;
++    let isOverdue = false;
++    let overdueCount = 0;
++    let payCount = 1;
++    
++    if (isHealthcare) {
++      const hcInfo = getHealthcareMaintenanceInfo(item, payDateFilter);
++      if (hcInfo) {
++        hcInterval = hcInfo.interval;
++        isOverdue = hcInfo.isOverdue;
++        overdueCount = hcInfo.overdueCount;
++        payCount = hcInfo.payCount || 1;
++        currentProdName = `${item.prodName.split('(')[0].trim()} (${hcInterval}?뚯감)`;
++      }
++    }
++
+     // ?곹뭹 留ㅼ묶
+-    let productRule = setting?.productRules?.find(r => normalize(r.productName) === normalize(item.prodName));
++    let productRule = setting?.productRules?.find(r => normalize(r.productName) === normalize(currentProdName));
+ 
+     // ?ъ뒪耳??580 ?좊낫??留ㅼ묶 諛??대갚 濡쒖쭅
+-    if (!productRule && normalize(item.prodName).includes('?ъ뒪耳??80')) {
+-      productRule = setting?.productRules?.find(r => normalize(r.productName).includes('?좎?')) ||
++    if (!productRule && isHealthcare) {
++      const lookupName = hcInterval === 1 ? '1?뚯감' : '?좎?';
++      productRule = setting?.productRules?.find(r => normalize(r.productName).includes(lookupName)) ||
++        setting?.productRules?.find(r => normalize(r.productName).includes('?좎?')) ||
+         setting?.productRules?.find(r => normalize(r.productName).includes('1?뚯감')) ||
+         setting?.productRules?.[0];
+     }
+@@ -624,6 +757,18 @@ const ERP_Dashboard = () => {
+       salesPart = 50000;
+       isSpecialFixedProduct = true;
+     }
++    // ?ㅼ씠?됲듃蹂몃? ?ъ뒪耳??80 1~30?뚯감 ??14,000??怨좎젙 吏湲?(?ㅻ쾭?쇱씠???놁쓬)
++    else if ((item.hq === '?ㅼ씠?됲듃' || item.hq === '?ㅼ씠?됲듃蹂몃?') && isHealthcare && hcInterval >= 1 && hcInterval <= 30) {
++      unitPrice = 14000;
++      salesPart = 14000;
++      isSpecialFixedProduct = true;
++    }
++    // ?뱀닔 洹쒖튃: 沅뚯꽦???덊럹?댁? ?좎? ?섏닔猷?150,000??怨좎젙
++    else if (item.hq === '沅뚯꽦?? && normalize(item.prodName).includes('?덊럹?댁??좎??섏닔猷?)) {
++      unitPrice = 150000;
++      salesPart = 150000;
++      isSpecialFixedProduct = true;
++    }
+     // ?뱀닔 洹쒖튃: 議곕?寃? 議곗옱??     else if (item.hq === '議곕?寃?) {
+       unitPrice = 5000;
+@@ -651,8 +796,8 @@ const ERP_Dashboard = () => {
+       }
+     }
+ 
+-    let totalCommission = unitPrice;
+-    let salesComm = salesPart;
++    let totalCommission = unitPrice * payCount;
++    let salesComm = salesPart * payCount;
+ 
+     // 議곗옱??理쒖냼 蹂댁옣 濡쒖쭅 (媛쒕퀎 ??ぉ??媛以묒튂 遺??
+     if (item.hq === '議곗옱?? && !isSpecialFixedProduct) {
+@@ -665,7 +810,7 @@ const ERP_Dashboard = () => {
+       const jaeyunCalcTotal = jaeyunTotalCount * 10000;
+       if (jaeyunCalcTotal < 2000000 && jaeyunTotalCount > 0) {
+         const factor = 2000000 / jaeyunCalcTotal;
+-        totalCommission = 10000 * factor;
++        totalCommission = 10000 * factor * payCount;
+         salesComm = totalCommission; // 議곗옱?ㅼ? ?꾩껜媛 ?먮ℓ?섏닔猷?媛쒕뀗
+       }
+     }
+@@ -674,7 +819,14 @@ const ERP_Dashboard = () => {
+ 
+     // 吏湲됱씪???곗텧 (議곗옱?? 議곕?寃쎌슜)
+     let displayPayDate = item.payDate;
+-    if ((item.hq === '議곕?寃? || item.hq === '議곗옱??) && item.deliveryStatus.includes('?꾨즺') && item.deliveryDate) {
++    if (isHealthcare) {
++      if (payDateFilter) {
++        displayPayDate = payDateFilter;
++      } else {
++        const today = new Date();
++        displayPayDate = `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, '0')}.25`;
++      }
++    } else if ((item.hq === '議곕?寃? || item.hq === '議곗옱??) && item.deliveryStatus.includes('?꾨즺') && item.deliveryDate) {
+       const delivDate = item.deliveryDate.replace(/\./g, '-');
+       const [y, m] = delivDate.split('-').map(Number);
+       const nextM = m === 12 ? 1 : m + 1;
+@@ -703,18 +855,47 @@ const ERP_Dashboard = () => {
+ 
+     const finalPayable = totalCommission - withholdingTax; // ?ъ뾽?먮뒗 totalCommission 洹몃?濡? 媛쒖씤? ?먯쿇??李④컧
+ 
++    const pendingCommission = unitPrice * (overdueCount || 1); // ?곗껜 ?잛닔留뚰겮 蹂대쪟???꾩쟻 ?섏닔猷?+
++    let activeTotalCommission = totalCommission;
++    let activeSalesComm = salesComm;
++    let activePromoFee = promoFee;
++    let activeUnitPrice = unitPrice;
++    let activeVat = vat;
++    let activeWithholdingTax = withholdingTax;
++    let activeFinalPayable = finalPayable;
++    let activeSupplyAmount = supplyAmount;
++
++    if (isOverdue) {
++      activeTotalCommission = 0;
++      activeSalesComm = 0;
++      activePromoFee = 0;
++      activeUnitPrice = 0;
++      activeVat = 0;
++      activeWithholdingTax = 0;
++      activeFinalPayable = 0;
++      activeSupplyAmount = 0;
++    }
++
+     return {
+-      totalCommission,
+-      salesComm,
+-      promoFee,
+-      unitPrice,
++      totalCommission: activeTotalCommission,
++      salesComm: activeSalesComm,
++      promoFee: activePromoFee,
++      unitPrice: activeUnitPrice,
+       displayPayDate,
+       setting,
+       settlementType,
+-      vat,
+-      withholdingTax,
+-      finalPayable,
+-      supplyAmount
++      vat: activeVat,
++      withholdingTax: activeWithholdingTax,
++      finalPayable: activeFinalPayable,
++      supplyAmount: activeSupplyAmount,
++      hcInterval,
++      isHealthcare,
++      prodName: currentProdName,
++      isOverdue,
++      overdueCount,
++      pendingCommission,
++      payCount
+     };
+   };
+ 
+@@ -817,13 +998,25 @@ const ERP_Dashboard = () => {
+         };
+       });
+ 
+-      const ws = XLSX.utils.json_to_sheet(excelData);
++      const payDateSample = filteredForSettlement[0]?.payDate || '';
++      const headers = ['?쒕쾲', '蹂몃?紐?, '怨좉컼紐?, '?곹뭹紐?, '怨꾩빟??, '諛곗넚?꾪솴', '?섏닔猷뚯?湲됱씪', '?뱀썡 ?ㅼ쟻(嫄?', '?곸슜?④?', '?꾩껜?섏닔猷?, '?먮ℓ?섏닔猷?, '?먮ℓ珥됱쭊鍮?, '?뺤궛?좏삎', '?뺤궛湲덉븸(珥앹븸)', '遺媛???ъ뾽?먯슜)', '?먯쿇??3.3%)', '理쒖쥌吏湲됱븸', '?곸뾽?ъ썝遺?, '??λ텇', '吏?먯옣遺?, '蹂몃??λ텇', '吏湲됰갑??, '???, '怨꾩쥖踰덊샇', '?덇툑二?];
++      const rows = excelData.map(item => [
++        item['?쒕쾲'], item['蹂몃?紐?], item['怨좉컼紐?], item['?곹뭹紐?], item['怨꾩빟??], item['諛곗넚?꾪솴'], item['?섏닔猷뚯?湲됱씪'], item['?뱀썡 ?ㅼ쟻(嫄?'], item['?곸슜?④?'], item['?꾩껜?섏닔猷?], item['?먮ℓ?섏닔猷?], item['?먮ℓ珥됱쭊鍮?], item['?뺤궛?좏삎'], item['?뺤궛湲덉븸(珥앹븸)'], item['遺媛???ъ뾽?먯슜)'], item['?먯쿇??3.3%)'], item['理쒖쥌吏湲됱븸'], item['?곸뾽?ъ썝遺?], item['??λ텇'], item['吏?먯옣遺?], item['蹂몃??λ텇'], item['吏湲됰갑??], item['???], item['怨꾩쥖踰덊샇'], item['?덇툑二?]
++      ]);
++      const ws = XLSX.utils.aoa_to_sheet([
++        [`[ ${targetMonth} ?섏닔猷??뺤궛??]`],
++        [`?섏닔猷?吏湲됱씪: ${payDateSample || '誘몄???}`],
++        [],
++        headers,
++        ...rows
++      ]);
+       const wb = XLSX.utils.book_new();
+       XLSX.utils.book_append_sheet(wb, ws, "?섏닔猷뚯젙??);
+ 
+       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+-      executeDownload(blob, `${targetMonth}_?섏닔猷뚯젙?곗꽌.xlsx`);
++      const cleanPayDate = payDateSample ? `_吏湲됱씪_${payDateSample.replace(/[-.]/g, '')}` : '';
++      executeDownload(blob, `${targetMonth}_?섏닔猷뚯젙?곗꽌${cleanPayDate}.xlsx`);
+ 
+       setNotification({ message: `${targetMonth} ?뺤궛???ㅼ슫濡쒕뱶 ?꾨즺`, type: 'success' });
+     } catch (error) {
+@@ -854,19 +1047,32 @@ const ERP_Dashboard = () => {
+         // 吏湲됱씪???꾪꽣
+         let matchesPayDate = !payDateFilter;
+         if (payDateFilter) {
+-          const targetDateClean = payDateFilter.replace(/[-./]/g, '');
+-          const itemPayDateClean = (item.payDate || '').replace(/[-./]/g, '');
+-          let normalizedPayFilter = payDateFilter.replace(/[-./]/g, '');
+-
+-          if (/^\d{6}$/.test(normalizedPayFilter)) {
+-            const fullYearFilter = `20${normalizedPayFilter}`;
+-            matchesPayDate = itemPayDateClean === fullYearFilter || itemPayDateClean.includes(fullYearFilter);
++          const hcInfo = getHealthcareMaintenanceInfo(item, payDateFilter);
++          if (hcInfo) {
++            // ?좎??섏닔猷뚮뒗 留ㅼ썡 25?쇱뿉留?吏湲됰릺誘濡? ?꾪꽣留곷맂 ?좎쭨媛 25?쇱씠 ?꾨땲硫??쒖쇅
++            const parsedFilter = parsePayFilterDate(payDateFilter);
++            if (parsedFilter && parsedFilter.dd !== 25) {
++              matchesPayDate = false;
++            } else {
++              matchesPayDate = !hcInfo.isOverdue;
++            }
+           } else {
+-            matchesPayDate = itemPayDateClean.includes(normalizedPayFilter) || item.payDate.includes(payDateFilter);
++            const { displayPayDate: calculatedPayDate } = calculateCommissionDetails(item, new Map());
++            const calculatedPayDateClean = (calculatedPayDate || '').replace(/[-./]/g, '');
++            let normalizedPayFilter = payDateFilter.replace(/[-./]/g, '');
++
++            if (/^\d{6}$/.test(normalizedPayFilter)) {
++              const fullYearFilter = `20${normalizedPayFilter}`;
++              matchesPayDate = calculatedPayDateClean === fullYearFilter || calculatedPayDateClean.includes(fullYearFilter);
++            } else {
++              matchesPayDate = calculatedPayDateClean.includes(normalizedPayFilter) || (calculatedPayDate && calculatedPayDate.includes(payDateFilter));
++            }
+           }
+         }
+ 
+-        return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesDelivery && matchesPayDate && matchesPaymentStatus;
++        const isTargetStatus = item.status.includes('媛??);
++
++        return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesDelivery && matchesPayDate && matchesPaymentStatus && isTargetStatus;
+       })
+       .sort((a, b) => {
+         const parseDate = (d: string) => {
+@@ -1182,7 +1388,7 @@ const ERP_Dashboard = () => {
+       // --- 由ы룷?몄슜 ?듯빀 ?쒗듃 ?곗씠??---
+       const reportRows: any[][] = [
+         ['[ ?꾩궗 ?듯빀 ?뺤궛 醫낇빀 蹂닿퀬??]'],
+-        [`蹂닿퀬?쇱옄: ${today} | 吏湲됯린以: ${payDateSample.substring(0, 7)}`],
++        [`蹂닿퀬?쇱옄: ${today} | ?섏닔猷?吏湲됱씪: ${payDateSample}`],
+         [],
+         ['1. ?꾩껜 ?뺤궛 媛쒖슂'],
+         ['吏湲?湲곗???, '珥?吏묎퀎 蹂몃???, '珥?怨꾩빟 援ъ쥖??, '珥??ㅼ?湲??⑷퀎??],
+@@ -1220,12 +1426,14 @@ const ERP_Dashboard = () => {
+       const hqEmpSummaryMap = new Map<string, any>();
+       filteredData.forEach(item => {
+         if (item.status.includes('痍⑥냼')) return;
+-        const { totalCommission, finalPayable } = calculateCommissionDetails(item, statsMap);
++        const { totalCommission, finalPayable, hcInterval, isHealthcare } = calculateCommissionDetails(item, statsMap);
+         const setting = hqSettings.find(s => s.hqName === item.hq);
++        const isHealthcareDirect = (item.hq === '?ㅼ씠?됲듃' || item.hq === '?ㅼ씠?됲듃蹂몃?') && isHealthcare && hcInterval >= 1 && hcInterval <= 30;
++
+         if (setting?.enableOverriding || item.hq === '?ㅼ씠?됲듃') {
+           const ov = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
+           let sh = { sp: totalCommission, tl: 0, bm: 0, hm: 0 };
+-          if (setting?.enableOverriding) {
++          if (setting?.enableOverriding && !isHealthcareDirect) {
+             sh.sp = ov.salesperson; sh.tl = ov.teamLeader; sh.bm = ov.branchManager; sh.hm = ov.hqManager;
+           }
+           const isIndiv = setting?.settlementType?.includes('媛쒖씤') || item.hq === '湲濡쒖뵪';
+@@ -1322,18 +1530,29 @@ const ERP_Dashboard = () => {
+         border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+       };
+       const cellStyle = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
++      const subtotalStyle = {
++        fill: { fgColor: { rgb: "F2F2F2" } },
++        font: { bold: true, sz: 9.5 },
++        alignment: { vertical: "center", horizontal: "center" },
++        border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
++      };
+       const titleStyle = { font: { bold: true, sz: 16 }, alignment: { vertical: "center", horizontal: "center" } };
+ 
+       const applySheetStyles = (ws: any) => {
+         const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+         for (let R = range.s.r; R <= range.e.r; ++R) {
++          const firstCellAddr = XLSX.utils.encode_cell({ r: R, c: 0 });
++          const firstCellVal = ws[firstCellAddr] ? String(ws[firstCellAddr].v || '') : '';
++          const isSubtotalRow = firstCellVal.includes('[?뚭퀎]') || firstCellVal === '?꾩껜 珥앷퀎';
++
+           for (let C = range.s.c; C <= range.e.c; ++C) {
+             const addr = XLSX.utils.encode_cell({ r: R, c: C });
+             if (!ws[addr]) continue;
+-            ws[addr].s = { ...cellStyle };
++            ws[addr].s = isSubtotalRow ? { ...subtotalStyle } : { ...cellStyle };
++            
+             if (R === 0) ws[addr].s = titleStyle;
+             const val = String(ws[addr].v || '');
+-            const isHeader = ['吏湲?湲곗???, '蹂몃?紐?, '?깅챸', '?곹뭹紐?, '吏湲됱씪'].some(h => val === h) || (val.includes('1.') || val.includes('2.') || (val.startsWith('[') && val.endsWith(']')));
++            const isHeader = ['吏湲?湲곗???, '蹂몃?紐?, '?깅챸', '?곹뭹紐?, '吏湲됱씪', '怨꾩빟?쇱옄', '?ъ썝紐?, '怨좉컼紐?, '?뚰깉踰덊샇', '諛곗넚?쇱옄', '?뺤궛??, '?섏닔猷?].some(h => val === h) || (val.includes('1.') || val.includes('2.') || (val.startsWith('[') && val.endsWith(']')));
+             if (isHeader) ws[addr].s = headerStyle;
+             if (ws[addr].t === 'n') ws[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+           }
+@@ -1343,14 +1562,60 @@ const ERP_Dashboard = () => {
+       applySheetStyles(wsReport);
+       XLSX.utils.book_append_sheet(wb, wsReport, "?듯빀?뺤궛蹂닿퀬??);
+ 
+-      // --- SHEET 2: ?꾩껜 ?곸꽭 紐낆꽭 ---
+-      const detailRows: any[][] = [['吏湲됱씪', '蹂몃?', '吏??, '?ъ썝紐?, '怨좉컼紐?, '?곹뭹紐?, '?곹깭', '?섏닔猷뚭퀎', '?ㅼ?湲됱븸']];
+-      filteredData.forEach(item => {
+-        const { totalCommission, finalPayable } = calculateCommissionDetails(item, statsMap);
+-        detailRows.push([item.payDate, item.hq, item.branch, item.empName, item.memName, item.prodName, item.status, { v: totalCommission, t: 'n', z: '#,##0' }, { v: finalPayable, t: 'n', z: '#,##0' }]);
++      // --- SHEET 2: ?꾩껜 ?곸꽭 紐낆꽭 (Apps Script ?묒떇 留욎땄) ---
++      const detailRows: any[][] = [['蹂몃?紐?, '吏?щ챸', '?ъ썝紐?, '怨꾩빟?쇱옄', '怨좉컼紐?, '?뚰깉踰덊샇', '諛곗넚?쇱옄', '?곹뭹紐?, '?뺤궛??, '?섏닔猷?]];
++      
++      const sortedDetails = [...filteredData].filter(item => !item.status.includes('痍⑥냼')).sort((a, b) => {
++        if (a.hq !== b.hq) return a.hq.localeCompare(b.hq);
++        if (a.prodName !== b.prodName) return a.prodName.localeCompare(b.prodName);
++        const dateA = a.contractDate ? a.contractDate.replace(/[./]/g, '-') : '';
++        const dateB = b.contractDate ? b.contractDate.replace(/[./]/g, '-') : '';
++        return dateA.localeCompare(dateB);
++      });
++
++      const processedDetailRows: any[][] = [];
++      let currentHQ = '';
++      let hqCount = 0;
++      let hqSum = 0;
++      let totalSum = 0;
++
++      sortedDetails.forEach(item => {
++        const { totalCommission, prodName, displayPayDate } = calculateCommissionDetails(item, statsMap);
++        const hq = item.hq || '';
++        
++        if (currentHQ !== '' && hq !== currentHQ) {
++          processedDetailRows.push([`${currentHQ} [?뚭퀎]`, '', '', '', '', '', '', '', `${hqCount}嫄?, { v: hqSum, t: 'n', z: '#,##0' }]);
++          hqCount = 0;
++          hqSum = 0;
++        }
++
++        processedDetailRows.push([
++          item.hq,
++          item.branch,
++          item.empName,
++          item.contractDate,
++          item.memName,
++          item.rentalNo,
++          item.deliveryDate,
++          prodName,
++          displayPayDate,
++          { v: totalCommission, t: 'n', z: '#,##0' }
++        ]);
++
++        currentHQ = hq;
++        hqCount++;
++        hqSum += totalCommission;
++        totalSum += totalCommission;
+       });
+-      const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+-      const detailWidths = detailRows.reduce((acc, row) => {
++
++      if (currentHQ !== '') {
++        processedDetailRows.push([`${currentHQ} [?뚭퀎]`, '', '', '', '', '', '', '', `${hqCount}嫄?, { v: hqSum, t: 'n', z: '#,##0' }]);
++      }
++
++      processedDetailRows.push(['?꾩껜 珥앷퀎', '', '', '', '', '', '', '', `${sortedDetails.length}嫄?, { v: totalSum, t: 'n', z: '#,##0' }]);
++
++      const wsDetail = XLSX.utils.aoa_to_sheet(detailRows.concat(processedDetailRows));
++      const detailWidths = detailRows.concat(processedDetailRows).reduce((acc, row) => {
+         row.forEach((cell, i) => {
+           let str = '';
+           if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+@@ -1360,14 +1625,14 @@ const ERP_Dashboard = () => {
+         });
+         return acc;
+       }, [] as number[]);
+-      wsDetail['!cols'] = detailWidths.map(w => ({ wch: Math.min(w + 2, 40) }));
++      wsDetail['!cols'] = detailWidths.map(w => ({ wch: Math.min(w + 3, 40) }));
+       applySheetStyles(wsDetail);
+ 
+       XLSX.utils.book_append_sheet(wb, wsDetail, "?꾩껜?곸꽭紐낆꽭");
+ 
+       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+-      executeDownload(blob, `${payDateSample.substring(0, 7)}_?듯빀?뺤궛蹂닿퀬??xlsx`);
++      executeDownload(blob, `${payDateSample.replace(/[-.]/g, '_')}_?듯빀?뺤궛蹂닿퀬??xlsx`);
+       setNotification({ message: '?듯빀 ?뺤궛 蹂닿퀬??Excel) ?앹꽦 ?꾨즺', type: 'success' });
+     } catch (err) {
+       console.error(err);
+@@ -1439,10 +1704,42 @@ const ERP_Dashboard = () => {
+ 
+       let totalSum = 0;
+       let salesSum = 0;
++      let totalVat = 0;
++      let totalWithholding = 0;
++      let totalSupply = 0;
++      let salesVat = 0;
++      let salesWithholding = 0;
++      let salesSupply = 0;
++      let promoVat = 0;
++      let promoWithholding = 0;
++      let promoSupply = 0;
++
+       items.forEach(item => {
+-        const { totalCommission, salesComm } = calculateCommissionDetails(item, stats);
++        const { totalCommission, salesComm, promoFee, vat, withholdingTax, supplyAmount } = calculateCommissionDetails(item, stats);
+         totalSum += totalCommission;
+         salesSum += salesComm;
++        totalVat += vat || 0;
++        totalWithholding += withholdingTax || 0;
++        totalSupply += supplyAmount || 0;
++
++        const isIndiv = setting?.settlementType?.includes('媛쒖씤') || hqName === '湲濡쒖뵪';
++        if (isIndiv) {
++          const sWithholding = Math.floor(salesComm * 0.033);
++          const pWithholding = withholdingTax - sWithholding;
++          salesWithholding += sWithholding;
++          salesSupply += salesComm;
++          promoWithholding += pWithholding;
++          promoSupply += promoFee;
++        } else {
++          const sSupply = Math.round(salesComm / 1.1);
++          const sVat = salesComm - sSupply;
++          const pSupply = supplyAmount - sSupply;
++          const pVat = promoFee - pSupply;
++          salesSupply += sSupply;
++          salesVat += sVat;
++          promoSupply += pSupply;
++          promoVat += pVat;
++        }
+       });
+ 
+       const promoSum = Math.max(0, totalSum - salesSum);
+@@ -1450,9 +1747,10 @@ const ERP_Dashboard = () => {
+       const rows: any[][] = [];
+       const targetMonth = payDateDisplay.substring(0, 7);
+       const [y, m] = targetMonth.split('.').length > 1 ? targetMonth.split('.') : targetMonth.split('-');
++      const today = new Date().toISOString().split('T')[0];
+ 
+-      rows[0] = [`${y}??${parseInt(m)}??[${hqName}] ?섏닔猷??뺤궛 ?댁뿭??];
+-      rows[1] = [];
++      rows[0] = [`[${hqName}] ?섏닔猷??뺤궛 ?댁뿭??(吏湲됱씪: ${payDateDisplay})`];
++      rows[1] = [`?섏닔猷?吏湲됱씪: ${payDateDisplay} | 蹂닿퀬?쇱옄: ${today}`];
+ 
+       // --- ?ㅻ쾭?쇱씠??????щ? ?뺤씤 諛??붿빟 ??援ъ꽦 ---
+       if (setting?.enableOverriding || hqName === '?ㅼ씠?됲듃') {
+@@ -1462,11 +1760,12 @@ const ERP_Dashboard = () => {
+         const empMap = new Map<string, any>();
+         items.forEach(item => {
+           if (item.status.includes('痍⑥냼')) return;
+-          const { totalCommission } = calculateCommissionDetails(item, stats);
++          const { totalCommission, hcInterval, isHealthcare } = calculateCommissionDetails(item, stats);
++          const isHealthcareDirect = (item.hq === '?ㅼ씠?됲듃' || item.hq === '?ㅼ씠?됲듃蹂몃?') && isHealthcare && hcInterval >= 1 && hcInterval <= 30;
+           const ov = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
+           let shares = { '?곸뾽?ъ썝': 0, '???: 0, '吏?먯옣': 0, '蹂몃???: 0 };
+           
+-          if (setting?.enableOverriding) {
++          if (setting?.enableOverriding && !isHealthcareDirect) {
+             shares['?곸뾽?ъ썝'] = ov.salesperson;
+             shares['???] = ov.teamLeader;
+             shares['吏?먯옣'] = ov.branchManager;
+@@ -1510,6 +1809,8 @@ const ERP_Dashboard = () => {
+           rows.push([payDateDisplay, p.name, p.role, b, a, h, { v: p.total, t: 'n', z: '#,##0' }]);
+         });
+       } else {
++        const isIndiv = setting?.settlementType?.includes('媛쒖씤') || hqName === '湲濡쒖뵪';
++        const finalNetPayable = isIndiv ? (totalSum - totalWithholding) : totalSum;
+         rows[2] = ['吏湲됱씪??, '吏?щ챸', '???, '怨꾩쥖踰덊샇', '?덇툑二?, '珥앹?湲?湲덉븸'];
+         rows[3] = [
+           payDateDisplay,
+@@ -1517,35 +1818,36 @@ const ERP_Dashboard = () => {
+           setting?.bankName || '-',
+           setting?.accountNumber || '-',
+           setting?.accountHolder || '-',
+-          { v: totalSum, t: 'n', z: '#,##0' }
++          { v: finalNetPayable, t: 'n', z: '#,##0' }
+         ];
+       }
+       rows.push([]);
+ 
+       // ?멸툑 ?붿빟 ?뱀뀡
+-      if (setting?.settlementType === '媛쒖씤') {
++      const isIndiv = setting?.settlementType?.includes('媛쒖씤') || hqName === '湲濡쒖뵪';
++      if (isIndiv) {
+         rows.push(['?먯쿇吏뺤닔 ?곸닔 ?붿빟 (3.3% 怨듭젣)']);
+         rows.push(['援щ텇', '?뺤궛湲덉븸', '?먯쿇??3.3%)', '?ㅼ?湲됱븸']);
+-        rows.push(['?먮ℓ ?섏닔猷?, { v: salesSum, t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }, { v: salesSum - Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }]);
+-        rows.push(['?먮ℓ 珥됱쭊鍮?, { v: promoSum, t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }, { v: promoSum - Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }]);
+-        rows.push(['?⑷퀎', { v: totalSum, t: 'n', z: '#,##0' }, { v: Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }, { v: totalSum - Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }]);
++        rows.push(['?먮ℓ ?섏닔猷?, { v: salesSum, t: 'n', z: '#,##0' }, { v: salesWithholding, t: 'n', z: '#,##0' }, { v: salesSum - salesWithholding, t: 'n', z: '#,##0' }]);
++        rows.push(['?먮ℓ 珥됱쭊鍮?, { v: promoSum, t: 'n', z: '#,##0' }, { v: promoWithholding, t: 'n', z: '#,##0' }, { v: promoSum - promoWithholding, t: 'n', z: '#,##0' }]);
++        rows.push(['?⑷퀎', { v: totalSum, t: 'n', z: '#,##0' }, { v: totalWithholding, t: 'n', z: '#,##0' }, { v: totalSum - totalWithholding, t: 'n', z: '#,##0' }]);
+       } else {
+-        rows.push(['?멸툑怨꾩궛??諛쒗뻾 ?붿빟 (遺媛??10% 蹂꾨룄)']);
++        rows.push(['?멸툑怨꾩궛??諛쒗뻾 ?붿빟 (遺媛??10% ?ы븿????궛)']);
+         rows.push(['援щ텇', '怨듦툒媛??, '遺媛??10%)', '?⑷퀎湲덉븸']);
+-        rows.push(['?먮ℓ ?섏닔猷?, { v: salesSum, t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 0.1), t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 1.1), t: 'n', z: '#,##0' }]);
+-        rows.push(['?먮ℓ 珥됱쭊鍮?, { v: promoSum, t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 0.1), t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 1.1), t: 'n', z: '#,##0' }]);
+-        rows.push(['?⑷퀎', { v: totalSum, t: 'n', z: '#,##0' }, { v: Math.floor(totalSum * 0.1), t: 'n', z: '#,##0' }, { v: Math.floor(totalSum * 1.1), t: 'n', z: '#,##0' }]);
++        rows.push(['?먮ℓ ?섏닔猷?, { v: salesSupply, t: 'n', z: '#,##0' }, { v: salesVat, t: 'n', z: '#,##0' }, { v: salesSum, t: 'n', z: '#,##0' }]);
++        rows.push(['?먮ℓ 珥됱쭊鍮?, { v: promoSupply, t: 'n', z: '#,##0' }, { v: promoVat, t: 'n', z: '#,##0' }, { v: promoSum, t: 'n', z: '#,##0' }]);
++        rows.push(['?⑷퀎', { v: totalSupply, t: 'n', z: '#,##0' }, { v: totalVat, t: 'n', z: '#,##0' }, { v: totalSum, t: 'n', z: '#,##0' }]);
+       }
+       rows[10] = [];
+       rows[11] = ['?뚰깉??, '?곹뭹紐?, '怨꾩빟 嫄?, '?먮ℓ?섏닔猷?, '?먮ℓ珥됱쭊鍮?, '?섏닔猷뚭퀎'];
+       const productSummary: Record<string, { count: number, sales: number, promo: number, total: number }> = {};
+       items.forEach(item => {
+-        const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, stats);
+-        if (!productSummary[item.prodName]) productSummary[item.prodName] = { count: 0, sales: 0, promo: 0, total: 0 };
+-        productSummary[item.prodName].count += 1;
+-        productSummary[item.prodName].sales += salesComm;
+-        productSummary[item.prodName].promo += promoFee;
+-        productSummary[item.prodName].total += totalCommission;
++        const { totalCommission, salesComm, promoFee, prodName } = calculateCommissionDetails(item, stats);
++        if (!productSummary[prodName]) productSummary[prodName] = { count: 0, sales: 0, promo: 0, total: 0 };
++        productSummary[prodName].count += 1;
++        productSummary[prodName].sales += salesComm;
++        productSummary[prodName].promo += promoFee;
++        productSummary[prodName].total += totalCommission;
+       });
+ 
+       Object.entries(productSummary).forEach(([pName, prStat]) => {
+@@ -1572,7 +1874,7 @@ const ERP_Dashboard = () => {
+       rows.push(['蹂몃?紐?, '吏?щ챸', '怨꾩빟?쇱옄', '?ъ썝紐?AP)', '怨좉컼紐?, '?뚰깉怨꾩빟踰덊샇', '諛곗넚?쇱옄', '?뺤궛?곹뭹紐?, '?뺤궛湲곗???, '怨듦툒?섏닔猷?吏湲됱킑怨?']);
+ 
+       items.forEach(item => {
+-        const { totalCommission, displayPayDate } = calculateCommissionDetails(item, stats);
++        const { totalCommission, displayPayDate, prodName } = calculateCommissionDetails(item, stats);
+         rows.push([
+           item.hq,
+           item.branch,
+@@ -1581,7 +1883,7 @@ const ERP_Dashboard = () => {
+           item.memName,
+           item.rentalNo,
+           item.deliveryDate,
+-          item.prodName,
++          prodName,
+           displayPayDate,
+           { v: Math.floor(totalCommission), t: 'n', z: '#,##0' }
+         ]);
+@@ -1647,7 +1949,7 @@ const ERP_Dashboard = () => {
+ 
+       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+-      executeDownload(blob, `${hqName}_?섏닔猷뚯젙?곗꽌_${payDateDisplay.replace(/[\./]/g, '')}.xlsx`);
++      executeDownload(blob, `${hqName}_?섏닔猷뚯젙?곗꽌_${payDateDisplay.replace(/[\./]/g, '_')}.xlsx`);
+ 
+       setNotification({ message: `${hqName} ?뺤궛蹂닿퀬???앹꽦 ?꾨즺`, type: 'success' });
+     } catch (err) {
+@@ -1656,898 +1958,406 @@ const ERP_Dashboard = () => {
+     }
+   };
+ 
+-  const exportProfessionalSettlementPdf = async (hqName: string) => {
++
++
++
++
++  const exportHealthcareExcel = (targetValue: string | number, type: 'date' | 'month' = 'date', targetYear?: number) => {
+     try {
+-      const items = settlementStats.hqGroups[hqName];
+-      if (!items || items.length === 0) return;
++      const today = new Date().toISOString().split('T')[0];
+ 
+-      const setting = hqSettings.find(h => h.hqName === hqName);
+-      const stats = new Map<string, number>();
+-      filteredData.forEach(item => {
+-        if (item.status.includes('痍⑥냼')) return;
+-        const key = `${item.hq}|${item.prodName}`;
+-        stats.set(key, (stats.get(key) || 0) + 1);
+-      });
++      const productCodeMap: Record<string, string> = {
++        '?붿쥕??섏씠釉뚮━??98': 'A070',
++        '?붿쥕??쇱씠利?98': 'A071',
++        '?붿쥕??섏씠釉뚮━??: 'A070',
++        '?붿쥕??쇱씠利?: 'A071',
++        '?섏씠釉뚮━??98': 'A070',
++        '?쇱씠利?98': 'A071'
++      };
+ 
+-      let totalSum = 0;
+-      let salesSum = 0;
+-      items.forEach(item => {
+-        const { totalCommission, salesComm } = calculateCommissionDetails(item, stats);
+-        totalSum += totalCommission;
+-        salesSum += salesComm;
+-      });
+-      const promoSum = Math.max(0, totalSum - salesSum);
+-      const { displayPayDate: payDateDisplay } = calculateCommissionDetails(items[0], stats);
++      const parseResNo = (resNo: string) => {
++        const clean = resNo.replace(/-/g, '');
++        if (clean.length < 7) return { birth: '', gender: '' };
++        let year = clean.substring(0, 2);
++        const monthDay = clean.substring(2, 6);
++        const genderDigit = clean.charAt(6);
++        let prefix = '19';
++        let gender = '1';
++        if (['3', '4', '7', '8'].includes(genderDigit)) prefix = '20';
++        if (['2', '4', '6', '8'].includes(genderDigit)) gender = '2';
++        return { birth: `${prefix}${year}${monthDay}`, gender };
++      };
+ 
+-      const targetMonth = payDateDisplay.substring(0, 7);
+-      const [y, m] = targetMonth.split('.').length > 1 ? targetMonth.split('.') : targetMonth.split('-');
++      const filtered = data.filter(item => {
++        const hcRegDate = String(item.raw[18] || '');
++        if (!hcRegDate || hcRegDate.trim() === '') return false;
+ 
+-      const productSummary: Record<string, { count: number, sales: number, promo: number, total: number }> = {};
+-      items.forEach(item => {
+-        const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, stats);
+-        if (!productSummary[item.prodName]) productSummary[item.prodName] = { count: 0, sales: 0, promo: 0, total: 0 };
+-        productSummary[item.prodName].count += 1;
+-        productSummary[item.prodName].sales += salesComm;
+-        productSummary[item.prodName].promo += promoFee;
+-        productSummary[item.prodName].total += totalCommission;
++        const normalized = hcRegDate.replace(/[./]/g, '-');
++        const parts = normalized.split('-');
++        if (parts.length < 2) return false;
++
++        const year = parts[0].length === 2 ? `20${parts[0]}` : parts[0];
++        const month = parseInt(parts[1]);
++        const day = parts[2] ? parseInt(parts[2]) : null;
++
++        if (type === 'date') {
++          const targetDateNormalized = String(targetValue).replace(/[./]/g, '-');
++          const [tY, tM, tD] = targetDateNormalized.split('-');
++          const fullTY = tY.length === 2 ? `20${tY}` : tY;
++          return parseInt(year) === parseInt(fullTY) && month === parseInt(tM) && day === parseInt(tD);
++        } else {
++          return parseInt(year) === (targetYear || 2026) && month === (targetValue as number);
++        }
+       });
+ 
+-      const container = document.createElement('div');
+-      const page1 = `
+-        <div style="padding: 40px; min-height: 1000px; position: relative; margin: 10px; border: 1px solid #ccc;">
+-          <h1 style="text-align: center; font-size: 26px; font-weight: 800; margin-bottom: 30px;">${y}??${parseInt(m)}???섏닔猷??뺤궛 ?댁뿭??/h1>
+-          
+-          <table style="width: 100%; border-collapse: collapse; margin-bottom: 25px; border: 1px solid #2F5597;">
+-            <tr style="background: #2F5597; color: #fff; text-align: center; font-weight: bold; font-size: 12px;">
+-              <td style="border: 1px solid #2F5597; padding: 8px;">吏湲됱씪??/td>
+-              <td style="border: 1px solid #2F5597; padding: 8px;">吏?щ챸</td>
+-              <td style="border: 1px solid #2F5597; padding: 8px;">???/td>
+-              <td style="border: 1px solid #2F5597; padding: 8px;">怨꾩쥖踰덊샇</td>
+-              <td style="border: 1px solid #2F5597; padding: 8px;">${setting?.settlementType?.includes('媛쒖씤') ? '珥??ㅼ?湲됱븸' : '珥앹?湲?湲덉븸(VAT?ы븿)'}</td>
+-            </tr>
+-            <tr style="text-align: center; font-size: 14px; font-weight: bold;">
+-              <td style="border: 1px solid #ccc; padding: 12px;">${payDateDisplay}</td>
+-              <td style="border: 1px solid #ccc; padding: 12px;">${hqName}</td>
+-              <td style="border: 1px solid #ccc; padding: 12px;">${setting?.bankName || '-'}</td>
+-              <td style="border: 1px solid #ccc; padding: 12px;">${setting?.accountNumber || '-'}</td>
+-              <td style="border: 1px solid #ccc; padding: 12px; color: #2F5597;">
+-                ${(setting?.settlementType?.includes('媛쒖씤')
+-          ? (totalSum - Math.floor(totalSum * 0.033))
+-          : totalSum).toLocaleString()}??-              </td>
+-            </tr>
+-          </table>
+-
+-          <div style="margin-bottom: 10px; font-weight: bold; font-size: 14px; color: #334155;">
+-            ??${setting?.settlementType?.includes('媛쒖씤') ? '?먯쿇吏뺤닔 ?곸닔 ?붿빟 (3.3% 怨듭젣)' : '?뺤궛 ?붿빟 (遺媛???ы븿)'}
+-          </div>
+-          <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px; border: 1px solid #ccc;">
+-            <tr style="background: #2F5597; color: #fff; text-align: center; font-size: 12px;">
+-              <td style="border: 1px solid #2F5597; padding: 6px;">援щ텇</td>
+-              <td style="border: 1px solid #2F5597; padding: 6px;">怨듦툒媛???뺤궛湲덉븸)</td>
+-              <td style="border: 1px solid #2F5597; padding: 6px;">${setting?.settlementType?.includes('媛쒖씤') ? '?먯쿇??3.3%)' : '遺媛??10%)'}</td>
+-              <td style="border: 1px solid #2F5597; padding: 6px;">?ㅼ?湲됱븸(?⑷퀎)</td>
+-            </tr>
+-            <tr style="text-align: right; font-size: 12px;">
+-              <td style="border: 1px solid #ccc; padding: 8px; text-align: center; background: #f8fafc;">?먮ℓ ?섏닔猷?/td>
+-              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('媛쒖씤') ? salesSum : Math.round(salesSum / 1.1)).toLocaleString()}</td>
+-              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('媛쒖씤') ? Math.floor(salesSum * 0.033) : (salesSum - Math.round(salesSum / 1.1))).toLocaleString()}</td>
+-              <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${(setting?.settlementType?.includes('媛쒖씤') ? (salesSum - Math.floor(salesSum * 0.033)) : salesSum).toLocaleString()}</td>
+-            </tr>
+-            <tr style="text-align: right; font-size: 12px;">
+-              <td style="border: 1px solid #ccc; padding: 8px; text-align: center; background: #f8fafc;">?먮ℓ 珥됱쭊鍮?/td>
+-              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('媛쒖씤') ? promoSum : Math.round(promoSum / 1.1)).toLocaleString()}</td>
+-              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('媛쒖씤') ? Math.floor(promoSum * 0.033) : (promoSum - Math.round(promoSum / 1.1))).toLocaleString()}</td>
+-              <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${(setting?.settlementType?.includes('媛쒖씤') ? (promoSum - Math.floor(promoSum * 0.033)) : promoSum).toLocaleString()}</td>
+-            </tr>
+-            <tr style="text-align: right; font-size: 12px; background: #FFF2CC; font-weight: bold;">
+-              <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">?⑷퀎</td>
+-              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('媛쒖씤') ? totalSum : Math.round(totalSum / 1.1)).toLocaleString()}</td>
+-              <td style="border: 1px solid #ccc; padding: 8px;">${(setting?.settlementType?.includes('媛쒖씤') ? '-' + Math.floor(totalSum * 0.033).toLocaleString() : (totalSum - Math.round(totalSum / 1.1)).toLocaleString())}</td>
+-              <td style="border: 1px solid #ccc; padding: 8px; font-size: 14px; color: #2F5597;">${(setting?.settlementType?.includes('媛쒖씤') ? (totalSum - Math.floor(totalSum * 0.033)) : totalSum).toLocaleString()}??/td>
+-            </tr>
+-          </table>
+-
+-          <div style="margin-bottom: 10px; font-weight: bold; font-size: 14px; color: #334155;">???곹뭹蹂??뺤궛 吏묎퀎</div>
+-          <table style="width: 100%; border-collapse: collapse; border: 1px solid #ccc; margin-bottom: 40px;">
+-            <tr style="background: #2F5597; color: #fff; text-align: center; font-size: 12px;">
+-              <td style="border: 1px solid #2F5597; padding: 6px;">?뚰깉??/td>
+-              <td style="border: 1px solid #2F5597; padding: 6px;">?곹뭹紐?/td>
+-              <td style="border: 1px solid #2F5597; padding: 6px;">怨꾩빟 嫄?/td>
+-              <td style="border: 1px solid #2F5597; padding: 6px;">?먮ℓ?섏닔猷?/td>
+-              <td style="border: 1px solid #2F5597; padding: 6px;">?먮ℓ珥됱쭊鍮?/td>
+-              <td style="border: 1px solid #2F5597; padding: 6px;">?섏닔猷뚭퀎</td>
+-            </tr>
+-            ${Object.entries(productSummary).map(([pName, stat]) => `
+-              <tr style="text-align: right; font-size: 11px;">
+-                <td style="border: 1px solid #ccc; padding: 6px; text-align: center;">-</td>
+-                <td style="border: 1px solid #ccc; padding: 6px; text-align: left;">${pName}</td>
+-                <td style="border: 1px solid #ccc; padding: 6px; text-align: center;">${stat.count}</td>
+-                <td style="border: 1px solid #ccc; padding: 6px;">${stat.sales.toLocaleString()}</td>
+-                <td style="border: 1px solid #ccc; padding: 6px;">${stat.promo.toLocaleString()}</td>
+-                <td style="border: 1px solid #ccc; padding: 6px; font-weight: bold;">${stat.total.toLocaleString()}</td>
+-              </tr>
+-            `).join('')}
+-            <tr style="background: #FFF2CC; text-align: right; font-weight: bold; font-size: 12px;">
+-              <td colspan="2" style="border: 1px solid #ccc; padding: 8px; text-align: center;">怨?/td>
+-              <td style="border: 1px solid #ccc; padding: 8px; text-align: center;">${items.length}</td>
+-              <td style="border: 1px solid #ccc; padding: 8px;">${salesSum.toLocaleString()}</td>
+-              <td style="border: 1px solid #ccc; padding: 8px;">${promoSum.toLocaleString()}</td>
+-              <td style="border: 1px solid #ccc; padding: 8px;">${totalSum.toLocaleString()}</td>
+-            </tr>
+-          </table>
+-
+-          <div style="margin-top: 50px; text-align: center; color: #94a3b8; font-size: 11px;">
+-            ???ㅼ쓬 ?섏씠吏???곸꽭 吏湲?紐낆꽭媛 ?댁뼱吏묐땲??
+-          </div>
+-        </div>
+-      `;
++      if (filtered.length === 0) {
++        alert('異붿텧???ъ뒪耳????곸옄媛 ?놁뒿?덈떎.');
++        return;
++      }
+ 
+-      const page2 = `
+-        <div style="padding: 40px; min-height: 1000px; page-break-before: always; margin: 10px;">
+-          <h2 style="font-size: 20px; font-weight: bold; margin-bottom: 20px; border-left: 5px solid #2F5597; padding-left: 15px;">?곸꽭 吏湲?紐낆꽭??<span style="font-size: 12px; color: #666; font-weight: normal;">| ${hqName}</span></h2>
+-          
+-          <table style="width: 100%; border-collapse: collapse; font-size: 9px; border: 1px solid #ccc;">
+-            <thead>
+-              <tr style="background: #2F5597; color: #fff; text-align: center;">
+-                <th style="border: 1px solid #ccc; padding: 6px;">?쒕쾲</th>
+-                <th style="border: 1px solid #ccc; padding: 6px;">蹂몃?紐?/th>
+-                <th style="border: 1px solid #ccc; padding: 6px;">吏?щ챸</th>
+-                <th style="border: 1px solid #ccc; padding: 6px;">怨꾩빟?쇱옄</th>
+-                <th style="border: 1px solid #ccc; padding: 6px;">?ъ썝紐?/th>
+-                <th style="border: 1px solid #ccc; padding: 6px;">怨좉컼紐?/th>
+-                <th style="border: 1px solid #ccc; padding: 6px;">?뚰깉怨꾩빟踰덊샇</th>
+-                <th style="border: 1px solid #ccc; padding: 6px;">諛곗넚?쇱옄</th>
+-                <th style="border: 1px solid #ccc; padding: 6px;">?뺤궛?곹뭹紐?/th>
+-                <th style="border: 1px solid #ccc; padding: 6px;">?뺤궛湲곗???/th>
+-                <th style="border: 1px solid #ccc; padding: 6px;">珥??섏닔猷?/th>
+-              </tr>
+-            </thead>
+-            <tbody>
+-              ${items.map((item, idx) => {
+-        const { totalCommission, displayPayDate } = calculateCommissionDetails(item, stats);
+-        return `
+-                  <tr style="text-align: center;">
+-                    <td style="border: 1px solid #ccc; padding: 5px;">${idx + 1}</td>
+-                    <td style="border: 1px solid #ccc; padding: 5px;">${item.hq}</td>
+-                    <td style="border: 1px solid #ccc; padding: 5px;">${item.branch}</td>
+-                    <td style="border: 1px solid #ccc; padding: 5px;">${item.contractDate}</td>
+-                    <td style="border: 1px solid #ccc; padding: 5px;">${item.empName}</td>
+-                    <td style="border: 1px solid #ccc; padding: 5px;">${item.memName}</td>
+-                    <td style="border: 1px solid #ccc; padding: 5px;">${item.rentalNo}</td>
+-                    <td style="border: 1px solid #ccc; padding: 5px;">${item.deliveryDate}</td>
+-                    <td style="border: 1px solid #ccc; padding: 5px; text-align: left;">${item.prodName}</td>
+-                    <td style="border: 1px solid #ccc; padding: 5px;">${displayPayDate}</td>
+-                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right; font-weight: bold;">${Math.floor(totalCommission).toLocaleString()}</td>
+-                  </tr>
+-                `;
+-      }).join('')}
+-              <tr style="background: #FFF2CC; font-weight: bold; text-align: center;">
+-                <td colspan="10" style="border: 1px solid #ccc; padding: 8px;">??怨?/td>
+-                <td style="border: 1px solid #ccc; padding: 8px; text-align: right;">${totalSum.toLocaleString()}</td>
+-              </tr>
+-            </tbody>
+-          </table>
+-          <div style="margin-top: 30px; font-size: 11px; color: #666; text-align: right;">
+-            * 蹂??뺤궛?쒕뒗 ?붿쥕??듭떊 ERP ?쒖뒪?쒖뿉 ?섑빐 ?먮룞 ?앹꽦?섏뿀?듬땲??
+-          </div>
+-        </div>
+-      `;
++      const rows = filtered.map((item, idx) => {
++        const insuredName = item.raw[15] ? String(item.raw[15]) : '';
++        const insuredResNo = item.raw[16] ? String(item.raw[16]) : '';
++        const insuredPhone = item.raw[17] ? String(item.raw[17]) : '';
++        const serviceStartDate = item.raw[18] ? String(item.raw[18]).replace(/[./]/g, '-') : '';
++
++        const { birth, gender } = parseResNo(insuredResNo);
++        const matchedProd = Object.keys(productCodeMap).find(name => item.prodName.includes(name));
++        const prodCode = productCodeMap[matchedProd || ''] || 'A070';
++        const displayProdName = matchedProd || item.prodName;
++
++        return [
++          idx + 1, item.memNo, prodCode, displayProdName, insuredName,
++          birth, gender, insuredPhone, '', '', serviceStartDate, '01'
++        ];
++      });
++
++      const headers = ['?쒕쾲', '怨좉컼媛?낆퐫??, '媛?낆긽?덉퐫??, '媛?낆긽?덈챸', '?쇰낫?섏옄紐?, '?앸뀈?붿씪(YYYYMMDD)', '?깅퀎(??1, ??2)', '?대??곕쾲??, '怨꾩빟?쒖옉??, '怨꾩빟醫낅즺??, '?쒕퉬?ㅼ떆?묒씪', '?곹깭肄붾뱶(?뚯썝:01, ?덊눜:02)'];
++      const reportTitle = [`[ ?ъ뒪耳???쒕퉬????곸옄 紐낅떒 ]`];
++      const reportSub = [`異붿텧 湲곗?: ${targetValue} | ?섏닔猷?吏湲됱씪: ${payDateFilter || '誘몄???}`];
++      const worksheet = XLSX.utils.aoa_to_sheet([
++        reportTitle,
++        reportSub,
++        [],
++        headers,
++        ...rows
++      ]);
+ 
+-      container.innerHTML = page1 + page2;
+-      document.body.appendChild(container);
++      const titleStyle = { font: { bold: true, sz: 14, name: '留묒? 怨좊뵓' }, alignment: { vertical: "center", horizontal: "left" } };
++      const headerStyle = {
++        fill: { fgColor: { rgb: "E7E6E6" } },
++        font: { bold: true, size: 10, name: '留묒? 怨좊뵓' },
++        alignment: { horizontal: "center", vertical: "center" },
++        border: {
++          top: { style: "thin" }, bottom: { style: "thin" },
++          left: { style: "thin" }, right: { style: "thin" }
++        }
++      };
+ 
+-      const opt = {
+-        margin: 0,
+-        filename: `${hqName}_?뺤궛蹂닿퀬??${payDateDisplay.replace(/[\./]/g, '')}.pdf`,
+-        image: { type: 'jpeg' as 'jpeg', quality: 0.98 },
+-        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as 'portrait' }
++      const bodyStyle = {
++        font: { size: 10, name: '留묒? 怨좊뵓' },
++        alignment: { horizontal: "center", vertical: "center" },
++        border: {
++          top: { style: "thin" }, bottom: { style: "thin" },
++          left: { style: "thin" }, right: { style: "thin" }
++        }
+       };
+ 
+-      const h2p = getHtml2Pdf();
+-      if (!h2p) {
+-        alert('PDF ?쇱씠釉뚮윭由щ? 遺덈윭?ㅻ뒗 以묒엯?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄??二쇱꽭??');
+-        return;
++      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
++      for (let r = range.s.r; r <= range.e.r; r++) {
++        for (let c = range.s.c; c <= range.e.c; c++) {
++          const cellAddress = XLSX.utils.encode_cell({ r, c });
++          if (!worksheet[cellAddress]) continue;
++          if (r === 0) {
++            worksheet[cellAddress].s = titleStyle;
++          } else if (r === 1) {
++            worksheet[cellAddress].s = { font: { sz: 10, italic: true } };
++          } else if (r === 3) {
++            worksheet[cellAddress].s = headerStyle;
++          } else if (r > 3) {
++            worksheet[cellAddress].s = bodyStyle;
++          }
++        }
+       }
++      worksheet['!merges'] = [
++        { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } },
++        { s: { r: 1, c: 0 }, e: { r: 1, c: 11 } }
++      ];
+ 
+-      // .save() ???.output('blob')?쇰줈 ?곗씠?곕? 吏곸젒 諛쏆븘 executeDownload ?ъ슜
+-      h2p().from(container).set(opt).output('blob').then((blob: Blob) => {
+-        executeDownload(blob, `${hqName}_?뺤궛蹂닿퀬??${payDateDisplay.replace(/[\./]/g, '')}.pdf`);
+-        document.body.removeChild(container);
+-        setNotification({ message: `${hqName} PDF ?뺤궛蹂닿퀬???앹꽦 ?꾨즺`, type: 'success' });
+-      }).catch((err: any) => {
+-        console.error(err);
+-        alert('PDF ?앹꽦 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.');
+-      });
++      worksheet['!cols'] = [
++        { wch: 6 }, { wch: 15 }, { wch: 12 }, { wch: 20 }, { wch: 12 },
++        { wch: 15 }, { wch: 6 }, { wch: 15 }, { wch: 12 }, { wch: 12 },
++        { wch: 12 }, { wch: 12 }
++      ];
++
++      const workbook = XLSX.utils.book_new();
++      XLSX.utils.book_append_sheet(workbook, worksheet, 'Healthcare');
++
++      const fileNameSuffix = type === 'date' ? targetValue : `${targetYear}_${String(targetValue).padStart(2, '0')}`;
++      const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'binary' });
++      const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
++      const cleanPayDate = payDateFilter ? `_吏湲됱씪_${payDateFilter.replace(/[\./]/g, '')}` : '';
++      executeDownload(blob, `?ъ뒪耳??紐낅떒_${fileNameSuffix}${cleanPayDate}_${today}.xlsx`);
++
++      setNotification({ message: '?ъ뒪耳??紐낅떒 異붿텧 ?꾨즺', type: 'success' });
+     } catch (err) {
+       console.error(err);
+-      alert('PDF ?앹꽦 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.');
++      alert('?묒? 異붿텧 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.');
+     }
+   };
+ 
+-  const exportIntegratedSettlementPdf = async () => {
++  const export25thPayStatusExcel = (
++    newContractItems: any[],
++    eligibleItems: any[],
++    overdueItems: any[],
++    fixedPayItems: any[]
++  ) => {
+     try {
+-      if (filteredData.length === 0) return alert('?뺤궛 ????곗씠?곌? ?놁뒿?덈떎.');
++      const today = new Date().toISOString().split('T')[0];
++      const statsMap = new Map<string, number>();
++      data.forEach(item => {
++        const key = `${item.hq}|${item.prodName}`;
++        statsMap.set(key, (statsMap.get(key) || 0) + 1);
++      });
+ 
+-      setNotification({ message: '蹂닿퀬???앹꽦???꾪븳 ?곗씠?곕? 遺덈윭?ㅻ뒗 以?..', type: 'info' });
+-      let employeeData: any[] = [];
+-      let orgData: any[] = [];
+-      try {
+-        const [resEmp, resOrg] = await Promise.all([
+-          fetch('/api/sheets/sheetData?sheetName=?ъ썝?뺣낫'),
+-          fetch('/api/sheets/sheetData?sheetName=?ㅼ씠?됲듃議곗쭅??)
+-        ]);
+-        if (resEmp.ok) employeeData = await resEmp.json();
+-        if (resOrg.ok) orgData = await resOrg.json();
+-      } catch (e) {
+-        console.error('Failed to load sheets', e);
+-      }
++      const workbook = XLSX.utils.book_new();
+ 
+-      const directOrgMap = new Map<string, { teamLeader: string, branchManager: string, hqManager: string }>();
+-      if (orgData.length > 0) {
+-        const headers: string[] = orgData[0];
+-        const hqIdx = headers.findIndex(h => h.includes('蹂몃???));
+-        const brIdx = headers.findIndex(h => h.includes('吏?먯옣'));
+-        const tmIdx = headers.findIndex(h => h.includes('???));
+-        const empIdx = headers.findIndex(h => h.includes('?ъ썝') || h.includes('?곸뾽'));
+-        
+-        orgData.slice(1).forEach(row => {
+-          const empName = row[empIdx];
+-          if (empName) {
+-            directOrgMap.set(empName, {
+-              hqManager: hqIdx >= 0 ? row[hqIdx] : '',
+-              branchManager: brIdx >= 0 ? row[brIdx] : '',
+-              teamLeader: tmIdx >= 0 ? row[tmIdx] : ''
+-            });
+-          }
+-        });
+-      }
++      // 1. ?좎??섏닔猷?吏湲?????쒗듃 ?묒꽦
++      let totalEligibleSum = 0;
++      const eligibleRows = eligibleItems.map((x, idx) => {
++        const item = x.item;
++        const hcInfo = x.hcInfo;
++        const hcInterval = hcInfo ? hcInfo.interval : 0;
++        const payCount = hcInfo ? (hcInfo.payCount || 1) : 1;
++        const totalCommission = x.totalCommission;
++        totalEligibleSum += totalCommission;
+ 
+-      const employeeBankMap = new Map<string, { bank: string, account: string, holder: string }>();
+-      if (employeeData.length > 1) { // Skip header
+-        employeeData.slice(1).forEach((row: any[]) => {
+-          const hq = row[2]; // C - ?뚯냽蹂몃?
+-          const branch = row[3]; // D - ?뚯냽吏??-          const name = row[5]; // F - ?ъ썝紐?-          const holder = row[12]; // M - ?덇툑二?-          const bank = row[14]; // O - ??됰챸
+-          const account = row[15]; // P - 怨꾩쥖踰덊샇
+-          if (hq === '?ㅼ씠?됲듃' && name) {
+-            const bInfo = { bank: bank || '', account: account || '', holder: holder || '' };
+-            employeeBankMap.set(`${branch}_${name}`, bInfo);
+-            employeeBankMap.set(name, bInfo); // Fallback by name only
+-          }
+-        });
+-      }
++        const intervalStr = payCount > 1 ? `${hcInterval}?뚯감(?뚭툒 ${payCount}媛쒖썡)` : `${hcInterval}?뚯감`;
+ 
+-      const statsMap = new Map<string, number>();
+-      filteredData.forEach(item => {
+-        const key = `${item.hq}|${item.prodName}`;
+-        statsMap.set(key, (statsMap.get(key) || 0) + 1);
+-      });
+-
+-      // 1-1. ?ъ썝蹂?吏湲??붿빟 吏묎퀎
+-      const hqEmpSummaryMap = new Map<string, any>();
+-      filteredData.forEach(item => {
+-        if (item.status.includes('痍⑥냼')) return;
+-        const { totalCommission, finalPayable } = calculateCommissionDetails(item, statsMap);
+-        
+-        const setting = hqSettings.find(s => s.hqName === item.hq);
+-        
+-        if (setting?.enableOverriding || item.hq === '?ㅼ씠?됲듃') {
+-          const ov = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
+-          let spShare = totalCommission, tlShare = 0, bmShare = 0, hqShare = 0;
+-          
+-          if (setting?.enableOverriding) {
+-            spShare = ov.salesperson;
+-            tlShare = ov.teamLeader;
+-            bmShare = ov.branchManager;
+-            hqShare = ov.hqManager;
+-          }
+-          
+-          const isIndiv = setting?.settlementType?.includes('媛쒖씤') || item.hq === '湲濡쒖뵪';
+-          const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+-          
+-          const org = directOrgMap.get(item.empName) || { teamLeader: '', branchManager: '', hqManager: '' };
+-          
+-          const addShare = (name: string, role: string, amount: number) => {
+-            if (amount <= 0 || !name) return;
+-            const netAmount = calcNet(amount);
+-            const groupKey = `${item.hq}|${item.branch || '-'}|${name}|${role}`;
+-            if (!hqEmpSummaryMap.has(groupKey)) {
+-              hqEmpSummaryMap.set(groupKey, {
+-                hq: item.hq,
+-                branch: role === '?곸뾽?ъ썝' ? (item.branch || '-') : '-',
+-                empName: name,
+-                role: role,
+-                total: 0
+-              });
+-            }
+-            hqEmpSummaryMap.get(groupKey).total += netAmount;
+-          };
+-
+-          addShare(item.empName, '?곸뾽?ъ썝', spShare);
+-          addShare(org.teamLeader, '???, tlShare);
+-          addShare(org.branchManager, '吏?먯옣', bmShare);
+-          addShare(org.hqManager, '蹂몃???, hqShare);
+-        } else {
+-          // ?섎㉧吏???깅줉??怨꾩쥖踰덊샇 ?쒕쾲留??섑??섎㈃ ??-          const groupKey = `${item.hq}`;
+-          if (!hqEmpSummaryMap.has(groupKey)) {
+-            hqEmpSummaryMap.set(groupKey, {
+-              hq: item.hq,
+-              branch: '-',
+-              empName: '蹂몃?吏湲?,
+-              role: '蹂몃?',
+-              total: 0
+-            });
+-          }
+-          hqEmpSummaryMap.get(groupKey).total += finalPayable;
+-        }
+-      });
+-
+-      const specialAdditions: Record<string, number> = {};
+-      if (settlementStats.jaeyunIncentive > 0) specialAdditions['議곗옱??] = (specialAdditions['議곗옱??] || 0) + settlementStats.jaeyunIncentive;
+-      if (settlementStats.jaeyunGap > 0) specialAdditions['議곗옱??] = (specialAdditions['議곗옱??] || 0) + settlementStats.jaeyunGap;
+-      if (settlementStats.minkyungIncentive > 0) specialAdditions['議곕?寃?] = (specialAdditions['議곕?寃?] || 0) + settlementStats.minkyungIncentive;
+-
+-      Object.entries(specialAdditions).forEach(([hqName, amt]) => {
+-        const setting = hqSettings.find(s => s.hqName === hqName);
+-        const isIndiv = setting?.settlementType?.includes('媛쒖씤') || hqName === '湲濡쒖뵪';
+-        const netAmt = isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+-        const prodName = `蹂몃?吏湲??섎떦 - ?꾩썡?꾨즺 ${settlementStats.globalIncentiveCount}嫄?`;
+-        const groupKey = `${hqName}_?섎떦`;
+-        if (!hqEmpSummaryMap.has(groupKey)) {
+-          hqEmpSummaryMap.set(groupKey, {
+-            hq: hqName,
+-            branch: '-',
+-            empName: prodName,
+-            role: '蹂몃?',
+-            total: 0
+-          });
+-        }
+-        hqEmpSummaryMap.get(groupKey).total += netAmt;
++        return [
++          idx + 1,
++          item.hq,
++          item.branch,
++          item.empName,
++          item.memName,
++          item.contractDate,
++          item.prodName,
++          intervalStr,
++          { v: totalCommission, t: 'n', z: '#,##0' }
++        ];
+       });
+ 
+-      const hqEmpSummaryData = Array.from(hqEmpSummaryMap.values());
++      eligibleRows.push([
++        '?⑷퀎', '', '', '', '', '', '', '',
++        { v: totalEligibleSum, t: 'n', z: '#,##0' }
++      ]);
+ 
+-      // 1-2. 蹂몃?蹂??ㅼ쟻 ?곸꽭 吏묎퀎
+-      const hqPerfMap = new Map<string, any>();
+-      filteredData.forEach(item => {
+-        if (item.status.includes('痍⑥냼')) return;
+-        const { finalPayable, unitPrice } = calculateCommissionDetails(item, statsMap);
+-        
+-        const setting = hqSettings.find(s => s.hqName === item.hq);
+-        const isIndiv = setting?.settlementType?.includes('媛쒖씤') || item.hq === '湲濡쒖뵪';
+-        const netUnitPrice = isIndiv ? Math.floor(unitPrice * 0.967) : unitPrice;
++      const eligibleTitle = [`[ ?ъ뒪耳???좎??섏닔猷?吏湲?????꾪솴 ]`];
++      const eligibleSub = [`?섏닔猷?吏湲됱씪: ${payDateFilter || `${new Date().getFullYear()}.${String(new Date().getMonth() + 1).padStart(2, '0')}.25 (?ㅻ뒛 湲곗?)`} | 蹂닿퀬???앹꽦?? ${today}`];
++      const eligibleHeaders = ['?쒕쾲', '蹂몃?紐?, '吏?щ챸', '?ъ썝紐?, '怨좉컼紐?, '怨꾩빟?쇱옄', '?곹뭹紐?, '?뚯감', '?좎??섏닔猷?];
++      const eligibleWorksheet = XLSX.utils.aoa_to_sheet([
++        eligibleTitle,
++        eligibleSub,
++        [],
++        eligibleHeaders,
++        ...eligibleRows
++      ]);
+ 
+-        const groupKey = `${item.hq}|${item.prodName}`;
+-        
+-        if (!hqPerfMap.has(groupKey)) {
+-          hqPerfMap.set(groupKey, {
+-            hq: item.hq,
+-            prodName: item.prodName,
+-            unitPrice: netUnitPrice,
+-            count: 0,
+-            total: 0
+-          });
+-        }
+-        
+-        const group = hqPerfMap.get(groupKey);
+-        group.count += 1;
+-        group.total += finalPayable;
+-      });
++      // 2. ?좎??섏닔猷?吏湲?蹂대쪟(?곗껜) ?쒗듃 ?묒꽦
++      let totalOverdueSum = 0;
++      const overdueRows = overdueItems.map((x, idx) => {
++        const item = x.item;
++        const hcInfo = x.hcInfo;
++        const hcInterval = hcInfo ? hcInfo.interval : 0;
++        const overdueCount = hcInfo ? hcInfo.overdueCount : 0;
++        const pendingCommission = x.pendingCommission;
++        totalOverdueSum += pendingCommission;
+ 
+-      Object.entries(specialAdditions).forEach(([hqName, amt]) => {
+-        const setting = hqSettings.find(s => s.hqName === hqName);
+-        const isIndiv = setting?.settlementType?.includes('媛쒖씤') || hqName === '湲濡쒖뵪';
+-        const netAmt = isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+-        const countToDisplay = settlementStats.globalIncentiveCount > 0 ? settlementStats.globalIncentiveCount : 1;
+-        const upToDisplay = Math.round(netAmt / countToDisplay);
+-        const prodName = `蹂몃?吏湲??섎떦 - ?꾩썡?꾨즺 ${settlementStats.globalIncentiveCount}嫄?`;
+-        const groupKey = `${hqName}|${prodName}`;
+-        if (!hqPerfMap.has(groupKey)) {
+-          hqPerfMap.set(groupKey, { hq: hqName, prodName: prodName, unitPrice: upToDisplay, count: countToDisplay, total: netAmt });
+-        } else {
+-          const group = hqPerfMap.get(groupKey);
+-          group.total += netAmt;
+-          group.unitPrice = upToDisplay;
+-          group.count = countToDisplay;
+-        }
++        return [
++          idx + 1,
++          item.hq,
++          item.branch,
++          item.empName,
++          `${overdueCount}??,
++          item.memName,
++          item.contractDate,
++          item.prodName,
++          `${hcInterval}?뚯감`,
++          { v: pendingCommission, t: 'n', z: '#,##0' }
++        ];
+       });
+ 
+-      const hqPerfData = Array.from(hqPerfMap.values());
++      overdueRows.push([
++        '?⑷퀎', '', '', '', '', '', '', '', '',
++        { v: totalOverdueSum, t: 'n', z: '#,##0' }
++      ]);
+ 
+-      // 2. ?곸꽭 紐낆꽭??蹂몃?蹂?吏묎퀎
+-      const hqDetailedStats: Record<string, any> = {};
+-      filteredData.forEach(item => {
+-        if (item.status.includes('痍⑥냼')) return;
+-        const details = calculateCommissionDetails(item, statsMap);
+-        
+-        if (!hqDetailedStats[item.hq]) {
+-          hqDetailedStats[item.hq] = {
+-            items: [],
+-            stats: new Map<string, number>(),
+-            totalSum: 0,
+-            salesSum: 0,
+-            promoSum: 0
+-          };
+-        }
+-        const hqData = hqDetailedStats[item.hq];
+-        hqData.items.push(item);
+-        const key = `${item.hq}|${item.prodName}`;
+-        hqData.stats.set(key, (hqData.stats.get(key) || 0) + 1);
+-        hqData.totalSum += details.totalCommission;
+-        hqData.salesSum += details.salesComm;
+-        hqData.promoSum += details.promoFee;
+-      });
++      const overdueTitle = [`[ ?ъ뒪耳???좎??섏닔猷?吏湲?蹂대쪟(?곗껜) ?꾪솴 ]`];
++      const overdueSub = [`?섏닔猷?吏湲됱씪: ${payDateFilter || `${new Date().getFullYear()}.${String(new Date().getMonth() + 1).padStart(2, '0')}.25 (?ㅻ뒛 湲곗?)`} | 蹂닿퀬???앹꽦?? ${today}`];
++      const overdueHeaders = ['?쒕쾲', '蹂몃?紐?, '吏?щ챸', '?ъ썝紐?, '?곗껜?잛닔', '怨좉컼紐?, '怨꾩빟?쇱옄', '?곹뭹紐?, '?뚯감', '蹂대쪟 ?섏닔猷?];
++      const overdueWorksheet = XLSX.utils.aoa_to_sheet([
++        overdueTitle,
++        overdueSub,
++        [],
++        overdueHeaders,
++        ...overdueRows
++      ]);
++      // 3. 怨좎젙吏湲??쒗듃 ?묒꽦
++      let totalFixedSum = 0;
++      const fixedRows = fixedPayItems.map((x, idx) => {
++        const item = x.item;
++        const commission = x.details.totalCommission;
++        totalFixedSum += commission;
+ 
+-      Object.entries(specialAdditions).forEach(([hqName, amt]) => {
+-        if (!hqDetailedStats[hqName]) {
+-          hqDetailedStats[hqName] = { items: [], stats: new Map<string, number>(), totalSum: 0, salesSum: 0, promoSum: 0 };
+-        }
+-        hqDetailedStats[hqName].totalSum += amt;
++        return [
++          idx + 1,
++          item.hq,
++          item.branch,
++          item.empName,
++          item.memName,
++          item.contractDate,
++          item.prodName,
++          x.fixedType || '怨좎젙吏湲?,
++          { v: commission, t: 'n', z: '#,##0' }
++        ];
+       });
+ 
+-      const payDateSample = filteredData[0]?.payDate || '';
+-      const today = new Date().toISOString().split('T')[0];
+-      const todayFormatted = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+-
+-      const container = document.createElement('div');
+-      container.style.backgroundColor = '#fff';
+-      container.style.color = '#000';
+-      container.style.fontFamily = "'Malgun Gothic', 'Dotum', sans-serif";
+-      container.style.width = '210mm';
+-
+-      let html = `
+-        <div style="padding: 40px; background: #fff; min-height: 297mm; position: relative;">
+-          <!-- Header Header -->
+-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+-            <div style="flex: 1;"></div>
+-            <div style="text-align: right; font-size: 10px; color: #64748b; font-family: monospace;">臾몄꽌踰덊샇: TBL-ERP-INTEGRATED-${today.replace(/-/g, '')}</div>
+-          </div>
+-
+-          <h1 style="text-align: center; font-size: 32px; font-weight: 900; color: #000; margin-bottom: 30px; letter-spacing: 2px;">????????????蹂?怨???/h1>
+-          <div style="width: 100%; height: 3px; background: #1e3a8a; margin-bottom: 40px;"></div>
+-          
+-          <!-- Approval Box -->
+-          <div style="display: flex; justify-content: flex-end; gap: 0; margin-bottom: 50px;">
+-            <div style="border: 1px solid #334155; width: 80px; height: 100px; display: flex; flex-direction: column;">
+-              <div style="height: 30%; border-bottom: 1px solid #334155; background: #f8fafc; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">?대떦??/div>
+-              <div style="flex: 1;"></div>
+-            </div>
+-            <div style="border: 1px solid #334155; border-left: none; width: 80px; height: 100px; display: flex; flex-direction: column;">
+-              <div style="height: 30%; border-bottom: 1px solid #334155; background: #f8fafc; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold;">??쒖씠??/div>
+-              <div style="flex: 1;"></div>
+-            </div>
+-          </div>
+-
+-          <!-- Section 1: Summary -->
+-          <div style="margin-bottom: 40px;">
+-            <h3 style="font-size: 18px; font-weight: 800; border-left: 5px solid #1e3a8a; padding-left: 15px; margin-bottom: 20px; color: #1e3a8a;">1. ?뺤궛 ?붿빟</h3>
+-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; background: #f8fafc; padding: 25px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+-              <div style="text-align: center;">
+-                <div style="font-size: 13px; color: #64748b; margin-bottom: 8px;">湲곗???/div>
+-                <div style="font-size: 22px; font-weight: 900; color: #1e293b;">${payDateSample.substring(0, 7)}</div>
+-              </div>
+-              <div style="text-align: center; border-left: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1;">
+-                <div style="font-size: 13px; color: #64748b; margin-bottom: 8px;">珥??뺤궛 援ъ쥖</div>
+-                <div style="font-size: 22px; font-weight: 900; color: #1e293b;">${settlementStats.totalCount.toLocaleString()}嫄?/div>
+-              </div>
+-              <div style="text-align: center;">
+-                <div style="font-size: 13px; color: #64748b; margin-bottom: 8px;">珥?吏묓뻾湲덉븸(?ㅼ?湲됱븸)</div>
+-                <div style="font-size: 22px; font-weight: 900; color: #2563eb;">
+-                  ${Object.entries(hqDetailedStats).reduce((acc, [hqName, hq]) => {
+-                    const isIndiv = hqName === '湲濡쒖뵪' || hqSettings.find(s => s.hqName === hqName)?.settlementType?.includes('媛쒖씤');
+-                    const net = isIndiv ? (hq.totalSum - Math.floor(hq.totalSum * 0.033)) : hq.totalSum;
+-                    return acc + net;
+-                  }, 0).toLocaleString()}??-                </div>
+-              </div>
+-            </div>
+-          </div>
+-
+-          <!-- Section 1-1: Employee Summary -->
+-          <div style="margin-bottom: 40px;">
+-            <h3 style="font-size: 18px; font-weight: 800; border-left: 5px solid #1e3a8a; padding-left: 15px; margin-bottom: 20px; color: #1e3a8a;">1-1. ?ъ썝蹂?吏湲??붿빟</h3>
+-            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #1e3a8a; font-size: 11px;">
+-              <thead>
+-                <tr style="background: #1e3a8a; color: #fff; text-align: center; font-weight: bold; page-break-inside: avoid;">
+-                  <th style="border: 1px solid #334155; padding: 10px;">蹂몃?</th>
+-                  <th style="border: 1px solid #334155; padding: 10px;">吏??/th>
+-                  <th style="border: 1px solid #334155; padding: 10px;">?ъ썝</th>
+-                  <th style="border: 1px solid #334155; padding: 10px;">怨꾩쥖</th>
+-                  <th style="border: 1px solid #334155; padding: 10px; text-align: right;">吏湲됱븸</th>
+-                </tr>
+-              </thead>
+-              <tbody>
+-                ${(() => {
+-                  const roleWeight = (role: string) => {
+-                    if (role === '?곸뾽?ъ썝') return 1;
+-                    if (role === '???) return 2;
+-                    if (role === '吏?먯옣') return 3;
+-                    if (role === '蹂몃???) return 4;
+-                    return 5;
+-                  };
+-                  const sortedData = [...hqEmpSummaryData].sort((a, b) => {
+-                    const hqDiff = a.hq.localeCompare(b.hq);
+-                    if (hqDiff !== 0) return hqDiff;
+-                    
+-                    const branchDiff = a.branch.localeCompare(b.branch);
+-                    if (branchDiff !== 0) return branchDiff;
+-                    
+-                    const roleDiff = roleWeight(a.role) - roleWeight(b.role);
+-                    if (roleDiff !== 0) return roleDiff;
+-                    
+-                    return a.empName.localeCompare(b.empName);
+-                  });
+-                  let sum = 0;
+-                  const rows = sortedData.map(p => {
+-                    sum += p.total;
+-                    const setting = hqSettings.find(s => s.hqName === p.hq);
+-                    let bankInfoStr = '-';
+-                    if (p.hq === '?ㅼ씠?됲듃') {
+-                      const bankInfo = employeeBankMap.get(`${p.branch}_${p.empName}`) || employeeBankMap.get(p.empName);
+-                      if (bankInfo && bankInfo.bank) {
+-                        bankInfoStr = `[${bankInfo.bank}] ${bankInfo.account} (${bankInfo.holder})`;
+-                      } else {
+-                        bankInfoStr = '<span style="color:#ef4444;">?ъ썝?뺣낫 ?놁쓬</span>';
+-                      }
+-                    } else {
+-                      if (setting && setting.bankName && setting.bankName !== '-') {
+-                        bankInfoStr = `[${setting.bankName}] ${setting.accountNumber} (${setting.accountHolder})`;
+-                      }
+-                    }
+-                    return `
+-                      <tr style="text-align: center; page-break-inside: avoid;">
+-                        <td style="border: 1px solid #e2e8f0; padding: 8px;">${p.hq}</td>
+-                        <td style="border: 1px solid #e2e8f0; padding: 8px;">${p.branch}</td>
+-                        <td style="border: 1px solid #e2e8f0; padding: 8px;">${p.empName}${p.role && p.role !== '蹂몃?' ? ' <span style="font-size: 9px; color: #64748b;">(' + p.role + ')</span>' : ''}</td>
+-                        <td style="border: 1px solid #e2e8f0; padding: 8px;">${bankInfoStr}</td>
+-                        <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: right; font-weight: bold; color: #2563eb;">${p.total.toLocaleString()}</td>
+-                      </tr>
+-                    `;
+-                  });
+-                  rows.push(`
+-                    <tr style="background: #e2e8f0; font-weight: 900; text-align: right; page-break-inside: avoid;">
+-                      <td colspan="4" style="border: 1px solid #1e3a8a; padding: 10px; text-align: center; font-size: 13px;">珥?吏 湲?????怨?/td>
+-                      <td style="border: 1px solid #1e3a8a; padding: 10px; color: #1e3a8a; font-size: 13px;">${sum.toLocaleString()}??/td>
+-                    </tr>
+-                  `);
+-                  return rows.join('');
+-                })()}
+-              </tbody>
+-            </table>
+-          </div>
+-
+-          <!-- Section 2: Detailed Performance -->
+-          <div style="margin-bottom: 40px;">
+-            <h3 style="font-size: 18px; font-weight: 800; border-left: 5px solid #1e3a8a; padding-left: 15px; margin-bottom: 20px; color: #1e3a8a;">2. 蹂몃?蹂??ㅼ쟻 ?곸꽭 (?ㅼ?湲됱븸 湲곗?)</h3>
+-            <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #1e3a8a; font-size: 11px;">
+-              <thead>
+-                <tr style="background: #1e3a8a; color: #fff; text-align: center; font-weight: bold; page-break-inside: avoid;">
+-                  <th style="border: 1px solid #334155; padding: 12px;">蹂몃?紐?/th>
+-                  <th style="border: 1px solid #334155; padding: 12px;">?곹뭹紐?/th>
+-                  <th style="border: 1px solid #334155; padding: 12px; text-align: right;">嫄대퀎 ?ㅼ?湲됱븸</th>
+-                  <th style="border: 1px solid #334155; padding: 12px; width: 50px;">援ъ쥖</th>
+-                  <th style="border: 1px solid #334155; padding: 12px; text-align: right;">理쒖쥌 ?⑷퀎</th>
+-                </tr>
+-              </thead>
+-              <tbody>
+-                ${(() => {
+-                  const sortedData = [...hqPerfData].sort((a, b) => a.hq.localeCompare(b.hq));
+-                  const rows: string[] = [];
+-                  let currentHq = '';
+-                  let hqSubtotalCount = 0;
+-                  let hqSubtotalAmt = 0;
+-
+-                  sortedData.forEach((p, index) => {
+-                    const setting = hqSettings.find(s => s.hqName === p.hq);
+-                    const isIndiv = setting?.settlementType?.includes('媛쒖씤') || p.hq === '湲濡쒖뵪';
+-
+-                    if (currentHq !== p.hq) {
+-                      if (currentHq !== '') {
+-                        rows.push(`
+-                          <tr style="background: #f1f5f9; font-weight: bold; text-align: right; page-break-inside: avoid;">
+-                            <td colspan="3" style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; color: #475569;">[${currentHq}] 蹂몃? ?뚭퀎</td>
+-                            <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center;">${hqSubtotalCount}</td>
+-                            <td style="border: 1px solid #e2e8f0; padding: 10px; color: #2563eb;">${hqSubtotalAmt.toLocaleString()}</td>
+-                          </tr>
+-                        `);
+-                      }
+-                      
+-                      currentHq = p.hq;
+-                      hqSubtotalCount = 0;
+-                      hqSubtotalAmt = 0;
+-                      
+-                      const hqCount = sortedData.filter(d => d.hq === p.hq).length;
+-                      
+-                      rows.push(`
+-                        <tr style="text-align: center; page-break-inside: avoid;">
+-                          <td rowspan="${hqCount}" style="border: 1px solid #e2e8f0; padding: 10px; font-weight: bold; background: #fff; vertical-align: middle;">
+-                            <span style="font-size: 13px;">${p.hq}</span><br/>
+-                            <span style="font-size: 9px; color: #64748b; font-weight: normal;">${isIndiv ? '(媛쒖씤)' : '(踰뺤씤)'}</span>
+-                          </td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: left;">${p.prodName}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: right;">${p.unitPrice.toLocaleString()}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 10px;">${p.count}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: right; font-weight: bold;">${p.total.toLocaleString()}</td>
+-                        </tr>
+-                      `);
+-                    } else {
+-                      rows.push(`
+-                        <tr style="text-align: center; page-break-inside: avoid;">
+-                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: left;">${p.prodName}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: right;">${p.unitPrice.toLocaleString()}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 10px;">${p.count}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: right; font-weight: bold;">${p.total.toLocaleString()}</td>
+-                        </tr>
+-                      `);
+-                    }
+-                    
+-                    hqSubtotalCount += p.count;
+-                    hqSubtotalAmt += p.total;
+-
+-                    if (index === sortedData.length - 1) {
+-                      rows.push(`
+-                        <tr style="background: #f1f5f9; font-weight: bold; text-align: right; page-break-inside: avoid;">
+-                          <td colspan="3" style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; color: #475569;">[${currentHq}] 蹂몃? ?뚭퀎</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center;">${hqSubtotalCount}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 10px; color: #2563eb;">${hqSubtotalAmt.toLocaleString()}</td>
+-                        </tr>
+-                      `);
+-                    }
+-                  });
+-                  return rows.join('');
+-                })()}
+-              </tbody>
+-              <tfoot style="background: #e2e8f0; font-weight: 900; text-align: right;">
+-                <tr>
+-                  <td colspan="3" style="border: 1px solid #1e3a8a; padding: 12px; text-align: center; font-size: 13px;">??吏 湲?湲?以 ??怨?/td>
+-                  <td style="border: 1px solid #1e3a8a; padding: 12px; text-align: center; font-size: 13px;">${settlementStats.totalCount}</td>
+-                  <td style="border: 1px solid #1e3a8a; padding: 12px; color: #1e3a8a; font-size: 14px;">${hqPerfData.reduce((acc, p) => acc + p.total, 0).toLocaleString()}??/td>
+-                </tr>
+-              </tfoot>
+-            </table>
+-          </div>
+-
+-          <!-- Page 2 Header (forced by content) -->
+-          <div style="page-break-before: always; padding-top: 20px;">
+-            <h3 style="font-size: 18px; font-weight: 800; border-left: 5px solid #1e3a8a; padding-left: 15px; margin-bottom: 25px; color: #1e3a8a;">3. 蹂몃?蹂??곸꽭 吏湲?紐낆꽭??/h3>
+-            ${Object.entries(hqDetailedStats).map(([hq, data]: [string, any]) => {
+-              const setting = hqSettings.find(s => s.hqName === hq);
+-              const isIndiv = setting?.settlementType?.includes('媛쒖씤') || hq === '湲濡쒖뵪';
+-              
+-              const productSummary: Record<string, any> = {};
+-              data.items.forEach((item: any) => {
+-                const details = calculateCommissionDetails(item, data.stats);
+-                if (!productSummary[item.prodName]) productSummary[item.prodName] = { count: 0, sales: 0, promo: 0, total: 0 };
+-                productSummary[item.prodName].count += 1;
+-                productSummary[item.prodName].sales += details.salesComm;
+-                productSummary[item.prodName].promo += details.promoFee;
+-                productSummary[item.prodName].total += details.totalCommission;
+-              });
+-
+-              return `
+-                <div style="margin-bottom: 50px; page-break-inside: avoid;">
+-                  <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 12px; border-bottom: 2px solid #2563eb; padding-bottom: 8px;">
+-                    <span style="font-size: 17px; font-weight: 900; color: #1e3a8a;">??${hq} ${isIndiv ? '(媛쒖씤/?꾨━?쒖꽌)' : '(踰뺤씤/?ъ뾽??'} ?뺤궛 ?댁뿭</span>
+-                    <span style="font-size: 13px; font-weight: bold; color: #475569;">理쒖쥌 ?ㅼ?湲됱븸: <span style="color: #2563eb; font-size: 16px;">${(isIndiv ? (data.totalSum - Math.floor(data.totalSum * 0.033)) : data.totalSum).toLocaleString()}??/span></span>
+-                  </div>
+-                  
+-                  <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 15px; border: 1px solid #e2e8f0;">
+-                    <thead>
+-                      <tr style="background: #f8fafc; text-align: center; font-weight: bold; color: #475569;">
+-                        <th style="border: 1px solid #e2e8f0; padding: 10px;">??ぉ</th>
+-                        <th style="border: 1px solid #e2e8f0; padding: 10px;">怨듦툒媛???뺤궛湲덉븸)</th>
+-                        <th style="border: 1px solid #e2e8f0; padding: 10px;">${isIndiv ? '?먯쿇??3.3%)' : '遺媛??10%)'}</th>
+-                        <th style="border: 1px solid #e2e8f0; padding: 10px;">?ㅼ?湲됱븸(?⑷퀎)</th>
+-                      </tr>
+-                    </thead>
+-                    <tbody>
+-                      <tr style="text-align: right;">
+-                        <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; background: #fbfcfd;">?먮ℓ?섏닔猷?/td>
+-                        <td style="border: 1px solid #e2e8f0; padding: 10px;">${(isIndiv ? data.salesSum : Math.round(data.salesSum/1.1)).toLocaleString()}</td>
+-                        <td style="border: 1px solid #e2e8f0; padding: 10px;">${(isIndiv ? Math.floor(data.salesSum*0.033) : (data.salesSum-Math.round(data.salesSum/1.1))).toLocaleString()}</td>
+-                        <td style="border: 1px solid #e2e8f0; padding: 10px; font-weight: bold;">${(isIndiv ? (data.salesSum-Math.floor(data.salesSum*0.033)) : data.salesSum).toLocaleString()}</td>
+-                      </tr>
+-                      <tr style="text-align: right;">
+-                        <td style="border: 1px solid #e2e8f0; padding: 10px; text-align: center; background: #fbfcfd;">?먮ℓ珥됱쭊鍮?/td>
+-                        <td style="border: 1px solid #e2e8f0; padding: 10px;">${(isIndiv ? data.promoSum : Math.round(data.promoSum/1.1)).toLocaleString()}</td>
+-                        <td style="border: 1px solid #e2e8f0; padding: 10px;">${(isIndiv ? Math.floor(data.promoSum*0.033) : (data.promoSum-Math.round(data.promoSum/1.1))).toLocaleString()}</td>
+-                        <td style="border: 1px solid #e2e8f0; padding: 10px; font-weight: bold;">${(isIndiv ? (data.promoSum-Math.floor(data.promoSum*0.033)) : data.promoSum).toLocaleString()}</td>
+-                      </tr>
+-                    </tbody>
+-                  </table>
+-
+-                  <table style="width: 100%; border-collapse: collapse; font-size: 10px; border: 1.5px solid #334155;">
+-                    <thead>
+-                      <tr style="background: #334155; color: #fff; text-align: center;">
+-                        <th style="border: 1px solid #475569; padding: 8px;">?곹뭹紐?/th>
+-                        <th style="border: 1px solid #475569; padding: 8px; width: 50px;">嫄댁닔</th>
+-                        <th style="border: 1px solid #475569; padding: 8px; width: 100px;">?먮ℓ?섏닔猷?/th>
+-                        <th style="border: 1px solid #475569; padding: 8px; width: 100px;">?먮ℓ珥됱쭊鍮?/th>
+-                        <th style="border: 1px solid #475569; padding: 8px; width: 120px;">珥앹닔?섎즺</th>
+-                      </tr>
+-                    </thead>
+-                    <tbody>
+-                      ${Object.entries(productSummary).map(([pName, pData]: [string, any]) => `
+-                        <tr style="text-align: center; border-bottom: 1px solid #e2e8f0;">
+-                          <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: left;">${pName}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 8px;">${pData.count}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: right;">${pData.sales.toLocaleString()}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: right;">${pData.promo.toLocaleString()}</td>
+-                          <td style="border: 1px solid #e2e8f0; padding: 8px; text-align: right; font-weight: bold; background: #f8fafc;">${pData.total.toLocaleString()}</td>
+-                        </tr>
+-                      `).join('')}
+-                    </tbody>
+-                  </table>
+-                </div>
+-              `;
+-            }).join('')}
+-          </div>
+-
+-          <!-- Footer Signature -->
+-          <div style="margin-top: 80px; text-align: center; font-family: 'Malgun Gothic';">
+-            <div style="font-size: 20px; font-weight: 900; color: #1e293b; margin-bottom: 15px;">?꾩? 媛숈씠 ?뺤궛 ?댁슜??蹂닿퀬??/div>
+-            <div style="font-size: 16px; color: #64748b; margin-bottom: 40px;">${todayFormatted}</div>
+-            <div style="font-size: 24px; font-weight: 900; color: #000; letter-spacing: 4px;">?붿쥕??쇱씠??二쇱떇?뚯궗</div>
+-          </div>
+-        </div>
+-      `;
+-
+-      container.innerHTML = html;
+-      document.body.appendChild(container);
++      fixedRows.push([
++        '?⑷퀎', '', '', '', '', '', '', '',
++        { v: totalFixedSum, t: 'n', z: '#,##0' }
++      ]);
+ 
+-      const opt = {
+-        margin: [0, 0, 0, 0],
+-        filename: `?꾩궗_?듯빀?뺤궛蹂닿퀬??${today.replace(/-/g, '')}.pdf`,
+-        image: { type: 'jpeg', quality: 0.98 },
+-        html2canvas: { scale: 2, useCORS: true, logging: false, letterRendering: true },
+-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+-      };
++      const fixedTitle = [`[ 25??怨좎젙 吏湲?????꾪솴 (議곕?寃? 議곗옱?? 沅뚯꽦?? ]`];
++      const fixedSub = [`?섏닔猷?吏湲됱씪: ${payDateFilter || `${new Date().getFullYear()}.${String(new Date().getMonth() + 1).padStart(2, '0')}.25 (?ㅻ뒛 湲곗?)`} | 蹂닿퀬???앹꽦?? ${today}`];
++      const fixedHeaders = ['?쒕쾲', '蹂몃?紐?, '吏?щ챸', '?ъ썝紐?, '怨좉컼紐?, '怨꾩빟?쇱옄', '?곹뭹紐?, '援щ텇', '?섏닔猷?];
++      const fixedWorksheet = XLSX.utils.aoa_to_sheet([
++        fixedTitle,
++        fixedSub,
++        [],
++        fixedHeaders,
++        ...fixedRows
++      ]);
+ 
+-      const h2p = getHtml2Pdf();
+-      if (!h2p) return alert('PDF ?쇱씠釉뚮윭由?濡쒕뱶 以?..');
++      // 4. ?좉퇋怨꾩빟嫄??쒗듃 ?묒꽦
++      let totalNewContractSum = 0;
++      const newContractRows = newContractItems.map((x, idx) => {
++        const item = x.item;
++        const commission = x.details.totalCommission;
++        totalNewContractSum += commission;
+ 
+-      h2p().from(container).set(opt).toPdf().get('pdf').then((pdf: any) => {
+-        const totalPages = pdf.internal.getNumberOfPages();
+-        const pageWidth = pdf.internal.pageSize.getWidth();
+-        const pageHeight = pdf.internal.pageSize.getHeight();
+-        
+-        for (let i = 1; i <= totalPages; i++) {
+-          pdf.setPage(i);
+-          pdf.setFontSize(9);
+-          pdf.setTextColor(150);
+-          pdf.text(`Page ${i} / ${totalPages}`, pageWidth - 25, pageHeight - 10);
+-        }
+-      }).save().then(() => {
+-        document.body.removeChild(container);
+-        setNotification({ message: '?꾩궗 ?듯빀 ?뺤궛 蹂닿퀬??PDF ?앹꽦 ?꾨즺', type: 'success' });
++        return [
++          idx + 1,
++          item.hq,
++          item.branch,
++          item.empName,
++          item.memName,
++          item.contractDate,
++          item.prodName,
++          { v: commission, t: 'n', z: '#,##0' }
++        ];
+       });
+-    } catch (err) {
+-      console.error(err);
+-      alert('蹂닿퀬???앹꽦 以??ㅻ쪟 諛쒖깮');
+-    }
+-  };
+ 
+-  const exportHealthcareExcel = (targetValue: string | number, type: 'date' | 'month' = 'date', targetYear?: number) => {
+-    try {
+-      const today = new Date().toISOString().split('T')[0];
+-
+-      const productCodeMap: Record<string, string> = {
+-        '?붿쥕??섏씠釉뚮━??98': 'A070',
+-        '?붿쥕??쇱씠利?98': 'A071',
+-        '?붿쥕??섏씠釉뚮━??: 'A070',
+-        '?붿쥕??쇱씠利?: 'A071',
+-        '?섏씠釉뚮━??98': 'A070',
+-        '?쇱씠利?98': 'A071'
+-      };
++      newContractRows.push([
++        '?⑷퀎', '', '', '', '', '', '',
++        { v: totalNewContractSum, t: 'n', z: '#,##0' }
++      ]);
+ 
+-      const parseResNo = (resNo: string) => {
+-        const clean = resNo.replace(/-/g, '');
+-        if (clean.length < 7) return { birth: '', gender: '' };
+-        let year = clean.substring(0, 2);
+-        const monthDay = clean.substring(2, 6);
+-        const genderDigit = clean.charAt(6);
+-        let prefix = '19';
+-        let gender = '1';
+-        if (['3', '4', '7', '8'].includes(genderDigit)) prefix = '20';
+-        if (['2', '4', '6', '8'].includes(genderDigit)) gender = '2';
+-        return { birth: `${prefix}${year}${monthDay}`, gender };
+-      };
++      const newContractTitle = [`[ 25???좉퇋 怨꾩빟 吏湲?????꾪솴 ]`];
++      const newContractSub = [`?섏닔猷?吏湲됱씪: ${payDateFilter || `${new Date().getFullYear()}.${String(new Date().getMonth() + 1).padStart(2, '0')}.25 (?ㅻ뒛 湲곗?)`} | 蹂닿퀬???앹꽦?? ${today}`];
++      const newContractHeaders = ['?쒕쾲', '蹂몃?紐?, '吏?щ챸', '?ъ썝紐?, '怨좉컼紐?, '怨꾩빟?쇱옄', '?곹뭹紐?, '?섏닔猷?];
++      const newContractWorksheet = XLSX.utils.aoa_to_sheet([
++        newContractTitle,
++        newContractSub,
++        [],
++        newContractHeaders,
++        ...newContractRows
++      ]);
+ 
+-      const filtered = data.filter(item => {
+-        const hcRegDate = String(item.raw[18] || '');
+-        if (!hcRegDate || hcRegDate.trim() === '') return false;
++      // ?ㅽ??쇰쭅 ?좏떥由ы떚 ?⑥닔 ?뺤쓽
++      const applyStyles = (worksheet: any, colCount: number) => {
++        const headerStyle = {
++          fill: { fgColor: { rgb: "E7E6E6" } },
++          font: { bold: true, size: 10, name: '留묒? 怨좊뵓' },
++          alignment: { horizontal: "center", vertical: "center" },
++          border: {
++            top: { style: "thin" }, bottom: { style: "thin" },
++            left: { style: "thin" }, right: { style: "thin" }
++          }
++        };
+ 
+-        const normalized = hcRegDate.replace(/[./]/g, '-');
+-        const parts = normalized.split('-');
+-        if (parts.length < 2) return false;
++        const bodyStyle = {
++          font: { size: 10, name: '留묒? 怨좊뵓' },
++          alignment: { horizontal: "center", vertical: "center" },
++          border: {
++            top: { style: "thin" }, bottom: { style: "thin" },
++            left: { style: "thin" }, right: { style: "thin" }
++          }
++        };
+ 
+-        const year = parts[0].length === 2 ? `20${parts[0]}` : parts[0];
+-        const month = parseInt(parts[1]);
+-        const day = parts[2] ? parseInt(parts[2]) : null;
++        const sumStyle = {
++          fill: { fgColor: { rgb: "F2F2F2" } },
++          font: { bold: true, size: 10, name: '留묒? 怨좊뵓' },
++          alignment: { horizontal: "center", vertical: "center" },
++          border: {
++            top: { style: "thin" }, bottom: { style: "double" },
++            left: { style: "thin" }, right: { style: "thin" }
++          }
++        };
+ 
+-        if (type === 'date') {
+-          const targetDateNormalized = String(targetValue).replace(/[./]/g, '-');
+-          const [tY, tM, tD] = targetDateNormalized.split('-');
+-          const fullTY = tY.length === 2 ? `20${tY}` : tY;
+-          return parseInt(year) === parseInt(fullTY) && month === parseInt(tM) && day === parseInt(tD);
+-        } else {
+-          return parseInt(year) === (targetYear || 2026) && month === (targetValue as number);
++        const titleStyle = { font: { bold: true, sz: 14, name: '留묒? 怨좊뵓' }, alignment: { vertical: "center", horizontal: "left" } };
++        const subStyle = { font: { sz: 10, italic: true, name: '留묒? 怨좊뵓' }, alignment: { vertical: "center", horizontal: "left" } };
++
++        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
++        for (let r = range.s.r; r <= range.e.r; r++) {
++          const isHeader = r === 3;
++          const isSum = r === range.e.r;
++          for (let c = range.s.c; c <= range.e.c; c++) {
++            const cellAddress = XLSX.utils.encode_cell({ r, c });
++            if (!worksheet[cellAddress]) continue;
++            if (r === 0) {
++              worksheet[cellAddress].s = titleStyle;
++            } else if (r === 1) {
++              worksheet[cellAddress].s = subStyle;
++            } else {
++              worksheet[cellAddress].s = isHeader ? headerStyle : (isSum ? sumStyle : bodyStyle);
++            }
++          }
+         }
+-      });
+-
+-      if (filtered.length === 0) {
+-        alert('異붿텧???ъ뒪耳????곸옄媛 ?놁뒿?덈떎.');
+-        return;
+-      }
+ 
+-      const rows = filtered.map((item, idx) => {
+-        const insuredName = item.raw[15] ? String(item.raw[15]) : '';
+-        const insuredResNo = item.raw[16] ? String(item.raw[16]) : '';
+-        const insuredPhone = item.raw[17] ? String(item.raw[17]) : '';
+-        const serviceStartDate = item.raw[18] ? String(item.raw[18]).replace(/[./]/g, '-') : '';
+-
+-        const { birth, gender } = parseResNo(insuredResNo);
+-        const matchedProd = Object.keys(productCodeMap).find(name => item.prodName.includes(name));
+-        const prodCode = productCodeMap[matchedProd || ''] || 'A070';
+-        const displayProdName = matchedProd || item.prodName;
+-
+-        return [
+-          idx + 1, item.memNo, prodCode, displayProdName, insuredName,
+-          birth, gender, insuredPhone, '', '', serviceStartDate, '01'
++        worksheet['!merges'] = [
++          { s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } },
++          { s: { r: 1, c: 0 }, e: { r: 1, c: colCount - 1 } }
+         ];
+-      });
+-
+-      const headers = ['?쒕쾲', '怨좉컼媛?낆퐫??, '媛?낆긽?덉퐫??, '媛?낆긽?덈챸', '?쇰낫?섏옄紐?, '?앸뀈?붿씪(YYYYMMDD)', '?깅퀎(??1, ??2)', '?대??곕쾲??, '怨꾩빟?쒖옉??, '怨꾩빟醫낅즺??, '?쒕퉬?ㅼ떆?묒씪', '?곹깭肄붾뱶(?뚯썝:01, ?덊눜:02)'];
+-      const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+-
+-      const headerStyle = {
+-        fill: { fgColor: { rgb: "E7E6E6" } },
+-        font: { bold: true, size: 10, name: '留묒? 怨좊뵓' },
+-        alignment: { horizontal: "center", vertical: "center" },
+-        border: {
+-          top: { style: "thin" }, bottom: { style: "thin" },
+-          left: { style: "thin" }, right: { style: "thin" }
+-        }
+-      };
+ 
+-      const bodyStyle = {
+-        font: { size: 10, name: '留묒? 怨좊뵓' },
+-        alignment: { horizontal: "center", vertical: "center" },
+-        border: {
+-          top: { style: "thin" }, bottom: { style: "thin" },
+-          left: { style: "thin" }, right: { style: "thin" }
++        // 湲곕낯 ???볦씠 ?명똿
++        const cols = [];
++        for (let i = 0; i < colCount; i++) {
++          if (i === 0) cols.push({ wch: 6 });
++          else if (i === 6) cols.push({ wch: 25 }); // ?곹뭹紐?+          else cols.push({ wch: 13 });
+         }
++        worksheet['!cols'] = cols;
+       };
+ 
+-      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+-      for (let r = range.s.r; r <= range.e.r; r++) {
+-        for (let c = range.s.c; c <= range.e.c; c++) {
+-          const cellAddress = XLSX.utils.encode_cell({ r, c });
+-          if (!worksheet[cellAddress]) continue;
+-          worksheet[cellAddress].s = r === 0 ? headerStyle : bodyStyle;
+-        }
+-      }
++      applyStyles(eligibleWorksheet, 9);
++      applyStyles(overdueWorksheet, 10);
++      applyStyles(fixedWorksheet, 9);
++      applyStyles(newContractWorksheet, 8);
+ 
+-      worksheet['!cols'] = [
+-        { wch: 6 }, { wch: 15 }, { wch: 12 }, { wch: 20 }, { wch: 12 },
+-        { wch: 15 }, { wch: 6 }, { wch: 15 }, { wch: 12 }, { wch: 12 },
+-        { wch: 12 }, { wch: 12 }
+-      ];
+-
+-      const workbook = XLSX.utils.book_new();
+-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Healthcare');
++      XLSX.utils.book_append_sheet(workbook, eligibleWorksheet, "?좎??섏닔猷?吏湲됰???);
++      XLSX.utils.book_append_sheet(workbook, overdueWorksheet, "?좎??섏닔猷?吏湲됰낫瑜?);
++      XLSX.utils.book_append_sheet(workbook, fixedWorksheet, "怨좎젙吏湲?);
++      XLSX.utils.book_append_sheet(workbook, newContractWorksheet, "?좉퇋怨꾩빟嫄?);
+ 
+-      const fileNameSuffix = type === 'date' ? targetValue : `${targetYear}_${String(targetValue).padStart(2, '0')}`;
+       const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'binary' });
++      // @ts-ignore
+       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+-      executeDownload(blob, `?ъ뒪耳??紐낅떒_${fileNameSuffix}_${today}.xlsx`);
++      
++      const cleanPayDate = payDateFilter ? payDateFilter.replace(/[./]/g, '_') : `${new Date().getFullYear()}_${String(new Date().getMonth() + 1).padStart(2, '0')}_25_?ㅻ뒛湲곗?`;
++      // @ts-ignore
++      executeDownload(blob, `25??吏湲됲쁽???곸꽭_${cleanPayDate}_${today}.xlsx`);
+ 
+-      setNotification({ message: '?ъ뒪耳??紐낅떒 異붿텧 ?꾨즺', type: 'success' });
++      setNotification({ message: '25??吏湲됲쁽???묒? ?ㅼ슫濡쒕뱶 ?꾨즺', type: 'success' });
+     } catch (err) {
+       console.error(err);
+       alert('?묒? 異붿텧 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.');
+@@ -2600,7 +2410,7 @@ const ERP_Dashboard = () => {
+       .map(item => item.payDate)
+       .filter(d => d && d.trim() !== '' && d >= todayStr);
+ 
+-    return ['?꾩껜', ...Array.from(new Set(existingDates)).sort((a, b) => a.localeCompare(b))];
++    return ['?꾩껜', ...Array.from(new Set(existingDates)).sort((a: string, b: string) => a.localeCompare(b))];
+   }, [data]);
+ 
+   const resetFilters = () => {
+@@ -2622,7 +2432,7 @@ const ERP_Dashboard = () => {
+             initial={{ opacity: 0, y: -100 }}
+             animate={{ opacity: 1, y: 20 }}
+             exit={{ opacity: 0, y: -100 }}
+-            className="absolute top-0 left-1/2 -translate-x-1/2 z-50 pointer-events-none"
++            className="absolute top-0 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none"
+           >
+             <div className="bg-white border-l-4 border-emerald-500 shadow-2xl rounded-lg px-6 py-4 flex items-center gap-4 pointer-events-auto">
+               <div className="bg-emerald-100 p-2 rounded-full">
+@@ -2774,6 +2584,15 @@ const ERP_Dashboard = () => {
+                   { dot: 'bg-blue-600', label: '?붾퀎 ?ㅼ쟻 ??쒕낫??, action: () => setIsMonthlyDashboardModalOpen(true) },
+                   { dot: 'bg-green-500', label: '?ъ뒪耳??紐낅떒 異붿텧', action: () => setIsHealthcareModalOpen(true) },
+                   { dot: 'bg-yellow-500', label: '?좎쭨蹂?硫붾え ?뺤씤', action: () => setIsMemoHistoryModalOpen(true) },
++                  {
++                    dot: 'bg-emerald-500',
++                    label: '25??吏湲됲쁽??議고쉶',
++                    action: () => {
++                      setPay25Tab('maintenance');
++                      setMaintenanceTab('eligible');
++                      setIsMaintenanceStatusModalOpen(true);
++                    }
++                  },
+                 ].map((item, idx) => (
+                   <motion.button
+                     key={idx}
+@@ -2871,10 +2690,10 @@ const ERP_Dashboard = () => {
+                         <div className="relative">
+                           <button
+                             onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
+-                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold transition-all shadow-md flex items-center gap-1.5"
++                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition-all shadow-md flex items-center gap-1.5"
+                           >
+-                            <FileText size={12} />
+-                            ?뺤궛??異쒕젰(PDF)
++                            <Download size={12} />
++                            ?뺤궛???ㅼ슫濡쒕뱶
+                           </button>
+                           {isExportDropdownOpen && (
+                             <motion.div
+@@ -2883,52 +2702,31 @@ const ERP_Dashboard = () => {
+                               className="absolute right-0 top-full mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 py-2 overflow-hidden"
+                             >
+                               <div className="px-3 py-1.5 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 mb-1 flex justify-between items-center">
+-                                <span>?뺤궛???좏깮 ?ㅼ슫濡쒕뱶</span>
++                                <span>?묒? ?뺤궛???ㅼ슫濡쒕뱶</span>
+                                 <button onClick={() => setIsExportDropdownOpen(false)} className="hover:text-slate-600"><X size={10} /></button>
+                               </div>
+                               <div className="max-h-60 overflow-y-auto">
+-                                <button
+-                                  onClick={() => {
+-                                    exportIntegratedSettlementPdf();
+-                                    setIsExportDropdownOpen(false);
+-                                  }}
+-                                  className="w-full text-left px-4 py-2 hover:bg-blue-50 text-[12px] font-black text-blue-700 border-b border-slate-50 flex justify-between items-center bg-blue-50/20"
+-                                >
+-                                  <span>?꾩궗 ?듯빀 ?뺤궛 蹂닿퀬??(PDF)</span>
+-                                  <FileText size={12} />
+-                                </button>
+                                 <button
+                                   onClick={() => {
+                                     exportIntegratedSettlement();
+                                     setIsExportDropdownOpen(false);
+                                   }}
+-                                  className="w-full text-left px-4 py-2 hover:bg-emerald-50 text-[12px] font-black text-emerald-700 border-b border-slate-50 flex justify-between items-center bg-emerald-50/20"
++                                  className="w-full text-left px-4 py-2.5 hover:bg-emerald-50 text-[12px] font-black text-emerald-700 border-b border-slate-50 flex justify-between items-center bg-emerald-50/20"
+                                 >
+                                   <span>?꾩궗 ?듯빀 ?뺤궛 蹂닿퀬??(Excel)</span>
+                                   <Download size={12} />
+                                 </button>
+                                 {Object.keys(settlementStats.hqGroups).map(hq => (
+-                                  <div key={hq} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 flex items-center pr-3 group">
+-                                    <button
+-                                      onClick={() => {
+-                                        exportProfessionalSettlementPdf(hq);
+-                                        setIsExportDropdownOpen(false);
+-                                      }}
+-                                      className="flex-1 text-left px-4 py-2 text-[12px] font-bold text-slate-700 flex justify-between items-center"
+-                                    >
+-                                      <span>{hq}</span>
+-                                      <div className="flex gap-1.5 opacity-40 group-hover:opacity-100">
+-                                        <FileText size={12} className="text-red-600" />
+-                                      </div>
+-                                    </button>
++                                  <div key={hq} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 flex items-center group">
+                                     <button
+                                       onClick={() => {
+                                         exportProfessionalSettlement(hq);
+                                         setIsExportDropdownOpen(false);
+                                       }}
+-                                      className="p-1.5 hover:bg-emerald-50 text-emerald-500 rounded-md transition-colors"
++                                      className="w-full text-left px-4 py-2.5 text-[12px] font-bold text-slate-700 flex justify-between items-center"
+                                     >
+-                                      <Download size={14} />
++                                      <span>{hq}</span>
++                                      <Download size={12} className="text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                                     </button>
+                                   </div>
+                                 ))}
+@@ -3071,11 +2869,30 @@ const ERP_Dashboard = () => {
+                       onClick={() => {
+                         if (confirm(`?꾩옱 ?꾪꽣留곷맂 ${filteredData.length}嫄댁쓣 紐⑤몢 '吏湲됱셿猷? 泥섎━?섏떆寃좎뒿?덇퉴?\n\n(李멸퀬: 痍⑥냼??嫄댁? ?쒖쇅?⑸땲??`)) {
+                           const validItems = filteredData.filter(item => !item.deliveryStatus.includes('痍⑥냼'));
+-                          const updates = validItems.map(item => ({
+-                            rowIdx: item.originalRowIdx,
+-                            colIdx: 19,
+-                            newValue: '吏湲됱셿猷?
+-                          }));
++                          const updates: { rowIdx: number, colIdx: number, newValue: string }[] = [];
++                          
++                          validItems.forEach(item => {
++                            updates.push({
++                              rowIdx: item.originalRowIdx,
++                              colIdx: 19,
++                              newValue: '吏湲됱셿猷?
++                            });
++
++                            // ?ъ뒪耳???좎??섏닔猷?嫄댁씤 寃쎌슦 V??21) ?꾩쟻 吏湲??잛닔???꾩옱 ?뚯감濡??낅뜲?댄듃
++                            const isHealthcare = item.prodName.replace(/[\s()]/g, '').includes('?ъ뒪耳??80');
++                            if (isHealthcare) {
++                              const hcInfo = getHealthcareMaintenanceInfo(item, payDateFilter);
++                              const currentMonthsDiff = hcInfo ? hcInfo.interval : 0;
++                              if (currentMonthsDiff > 0) {
++                                updates.push({
++                                  rowIdx: item.originalRowIdx,
++                                  colIdx: 21,
++                                  newValue: String(currentMonthsDiff)
++                                });
++                              }
++                            }
++                          });
++
+                           batchUpdateCells(updates);
+                         }
+                       }}
+@@ -3096,7 +2913,7 @@ const ERP_Dashboard = () => {
+             className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden"
+           >
+             <div className="overflow-auto">
+-              <table className="w-full text-left border-collapse text-[11px] min-w-[1200px]">
++              <table className="w-full text-left border-collapse text-[11px] min-w-[1300px]">
+                 <thead>
+                   <tr className="bg-slate-800 text-white border-b border-slate-700">
+                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">怨꾩빟?쇱옄</th>
+@@ -3112,6 +2929,7 @@ const ERP_Dashboard = () => {
+                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700 w-[110px]">蹂몃?紐?/th>
+                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700 w-[110px]">吏?щ챸</th>
+                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">?ъ썝紐?/th>
++                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700 w-[70px] text-amber-300">?곗껜?잛닔</th>
+                     <th className="px-3 py-3 font-bold text-center">愿由?/th>
+                   </tr>
+                 </thead>
+@@ -3165,6 +2983,9 @@ const ERP_Dashboard = () => {
+                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-600 truncate max-w-[100px]">{item.hq}</td>
+                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-600 truncate max-w-[100px]">{item.branch}</td>
+                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-400 whitespace-nowrap">{item.empName}</td>
++                        <td className={`px-3 py-3.5 text-center border-r border-slate-50 font-mono font-bold whitespace-nowrap ${parseInt(item.memo || '0') > 0 ? 'text-rose-600 bg-rose-50/30' : 'text-slate-500'}`}>
++                          {item.memo ? `${parseInt(item.memo) || 0}?? : '0??}
++                        </td>
+                         <td className="px-3 py-3.5 text-center">
+                           <button className="p-1 hover:bg-slate-200 rounded text-slate-300 hover:text-slate-600">
+                             <MoreVertical size={14} />
+@@ -3393,6 +3214,22 @@ const ERP_Dashboard = () => {
+                           <button
+                             onClick={() => {
+                               const val = (document.getElementById('editPaymentStatus') as HTMLSelectElement).value;
++                              
++                              const isHealthcare = selectedItem.prodName.replace(/[\s()]/g, '').includes('?ъ뒪耳??80');
++                              if (isHealthcare) {
++                                const hcInfo = getHealthcareMaintenanceInfo(selectedItem, payDateFilter);
++                                const currentMonthsDiff = hcInfo ? hcInfo.interval : 0;
++                                if (currentMonthsDiff > 0) {
++                                  const targetPaidCount = val === '吏湲됱셿猷? ? currentMonthsDiff : Math.max(0, currentMonthsDiff - 1);
++                                  batchUpdateCells([
++                                    { rowIdx: selectedItem.originalRowIdx, colIdx: 19, newValue: val },
++                                    { rowIdx: selectedItem.originalRowIdx, colIdx: 21, newValue: String(targetPaidCount) }
++                                  ]);
++                                  setSelectedItem(null);
++                                  return;
++                                }
++                              }
++
+                               updateCell(selectedItem.originalRowIdx, 19, val);
+                             }}
+                             className="p-1 px-2 bg-emerald-600 text-white text-[10px] font-bold rounded"
+@@ -3701,6 +3538,403 @@ const ERP_Dashboard = () => {
+           )}
+         </AnimatePresence>
+ 
++        <AnimatePresence>
++          {isMaintenanceStatusModalOpen && (
++            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
++              <motion.div
++                initial={{ opacity: 0 }}
++                animate={{ opacity: 1 }}
++                exit={{ opacity: 0 }}
++                onClick={() => setIsMaintenanceStatusModalOpen(false)}
++                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
++              />
++              <motion.div
++                initial={{ opacity: 0, scale: 0.95, y: 20 }}
++                animate={{ opacity: 1, scale: 1, y: 0 }}
++                exit={{ opacity: 0, scale: 0.95, y: 20 }}
++                className="relative bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
++              >
++                <div className="p-8 flex flex-col h-full overflow-hidden">
++                  <div className="flex justify-between items-center mb-6 shrink-0">
++                    <div className="flex flex-col">
++                      <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Commission Settlement</span>
++                      <h3 className="text-xl font-black text-slate-900">25??吏湲됲쁽???곸꽭 議고쉶</h3>
++                    </div>
++                    <button onClick={() => setIsMaintenanceStatusModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
++                      <X size={20} />
++                    </button>
++                  </div>
++
++                  {(() => {
++                    const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
++                    const today = new Date().toISOString().split('T')[0];
++                    const statsMap = new Map<string, number>();
++                    data.forEach(item => {
++                      const key = `${item.hq}|${item.prodName}`;
++                      statsMap.set(key, (statsMap.get(key) || 0) + 1);
++                    });
++
++                    const targetPayDate = payDateFilter || (() => {
++                      const today = new Date();
++                      return `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, '0')}.25`;
++                    })();
++
++                    // targetPayDate? ?쇱튂?섎뒗 25??吏湲?嫄댁쓣 紐⑥쓭?덈떎.
++                    const allItemsWithDetails = data.map(item => {
++                      const details = calculateCommissionDetails(item, statsMap);
++                      
++                      // ?ъ뒪耳???좎??섏닔猷??щ? ?먮떒
++                      const hcInfo = getHealthcareMaintenanceInfo(item, targetPayDate);
++                      const isHealthcare = hcInfo !== null;
++                      
++                      // 怨좎젙吏湲??щ? ?먮떒 (議곕?寃? 議곗옱?? 沅뚯꽦??
++                      const isKwonFixed = item.hq === '沅뚯꽦?? && normalize(item.prodName).includes('?덊럹?댁??좎??섏닔猷?);
++                      const isMinKyungFixed = item.hq === '議곕?寃?;
++                      const isJaeYoonFixed = item.hq === '議곗옱??;
++                      const isFixedPay = isKwonFixed || isMinKyungFixed || isJaeYoonFixed;
++
++                      // displayPayDate 異붿텧
++                      let itemPayDate = details.displayPayDate || '';
++                      if (isHealthcare) {
++                        itemPayDate = targetPayDate;
++                      }
++
++                      return {
++                        item,
++                        details,
++                        isHealthcare,
++                        hcInfo,
++                        isFixedPay,
++                        displayPayDate: itemPayDate,
++                        fixedType: isMinKyungFixed ? '議곕?寃? : isJaeYoonFixed ? '議곗옱?? : isKwonFixed ? '沅뚯꽦?? : null,
++                        totalCommission: details.totalCommission,
++                        pendingCommission: details.pendingCommission,
++                        hcInterval: hcInfo ? hcInfo.interval : 0,
++                        isOverdue: hcInfo ? hcInfo.isOverdue : false,
++                        overdueCount: hcInfo ? hcInfo.overdueCount : 0,
++                        payCount: hcInfo ? (hcInfo.payCount || 1) : 1
++                      };
++                    });
++
++                    const cleanTarget = targetPayDate.replace(/[-./]/g, '');
++                    const payDateItems = allItemsWithDetails.filter(x => {
++                      const cleanDisplay = x.displayPayDate.replace(/[-./]/g, '');
++                      return cleanDisplay === cleanTarget;
++                    });
++
++                    const newContractItems = payDateItems.filter(x => !x.isHealthcare && !x.isFixedPay);
++                    const maintenanceItems = payDateItems.filter(x => x.isHealthcare && !x.isFixedPay);
++                    const fixedPayItems = payDateItems.filter(x => x.isFixedPay);
++
++                    // ?좎??섏닔猷???슜 ?곸꽭 援щ텇
++                    const eligibleItems = maintenanceItems.filter(x => !x.isOverdue);
++                    const overdueItems = maintenanceItems.filter(x => x.isOverdue);
++
++                    const totalEligibleSum = eligibleItems.reduce((sum, x) => sum + x.totalCommission, 0);
++                    const totalOverdueSum = overdueItems.reduce((sum, x) => sum + x.pendingCommission, 0);
++                    const totalFixedSum = fixedPayItems.reduce((sum, x) => sum + x.totalCommission, 0);
++                    const totalNewContractSum = newContractItems.reduce((sum, x) => sum + x.totalCommission, 0);
++
++                    return (
++                      <>
++                        {/* ?遺꾨쪟 ???ㅻ퉬寃뚯씠??*/}
++                        <div className="flex gap-2 mb-6 border-b border-slate-100 pb-3 shrink-0">
++                          <button
++                            onClick={() => setPay25Tab('maintenance')}
++                            className={`px-4 py-2 rounded-xl text-[13px] font-extrabold transition-all ${
++                              pay25Tab === 'maintenance'
++                                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
++                                : 'text-slate-500 hover:bg-slate-50'
++                            }`}
++                          >
++                            ?좎??섏닔猷?({maintenanceItems.length}嫄?
++                          </button>
++                          <button
++                            onClick={() => setPay25Tab('fixed')}
++                            className={`px-4 py-2 rounded-xl text-[13px] font-extrabold transition-all ${
++                              pay25Tab === 'fixed'
++                                ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'
++                                : 'text-slate-500 hover:bg-slate-50'
++                            }`}
++                          >
++                            怨좎젙吏湲?({fixedPayItems.length}嫄?
++                          </button>
++                          <button
++                            onClick={() => setPay25Tab('newContract')}
++                            className={`px-4 py-2 rounded-xl text-[13px] font-extrabold transition-all ${
++                              pay25Tab === 'newContract'
++                                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
++                                : 'text-slate-500 hover:bg-slate-50'
++                            }`}
++                          >
++                            ?좉퇋怨꾩빟嫄?({newContractItems.length}嫄?
++                          </button>
++                        </div>
++
++                        {/* ?뚮텇瑜????ㅻ퉬寃뚯씠??(?좎??섏닔猷???씪 ?뚮쭔 ?몄텧) */}
++                        {pay25Tab === 'maintenance' && (
++                          <div className="flex gap-2 mb-6 border-b border-slate-100 pb-3 shrink-0">
++                            <button
++                              onClick={() => setMaintenanceTab('eligible')}
++                              className={`px-4 py-2 rounded-xl text-[13px] font-extrabold transition-all ${
++                                maintenanceTab === 'eligible'
++                                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
++                                  : 'text-slate-500 hover:bg-slate-50'
++                              }`}
++                            >
++                              吏湲????({eligibleItems.length}嫄?
++                            </button>
++                            <button
++                              onClick={() => setMaintenanceTab('overdue')}
++                              className={`px-4 py-2 rounded-xl text-[13px] font-extrabold transition-all ${
++                                maintenanceTab === 'overdue'
++                                  ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20'
++                                  : 'text-slate-500 hover:bg-slate-50'
++                              }`}
++                            >
++                              吏湲?蹂대쪟/?곗껜 ({overdueItems.length}嫄?
++                            </button>
++                          </div>
++                        )}
++
++                        {/* ?붿빟 移대뱶 */}
++                        <div className="grid grid-cols-4 gap-4 mb-6 shrink-0">
++                          {/* 移대뱶 1: 湲곗? 吏湲됱씪 */}
++                          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
++                            <span className="text-[10px] font-bold text-slate-400 block mb-1">湲곗? 吏湲됱씪</span>
++                            <span className="text-base font-black text-slate-800 leading-tight">
++                              {payDateFilter || `${new Date().getFullYear()}.${String(new Date().getMonth() + 1).padStart(2, '0')}.25 (?ㅻ뒛 湲곗?)`}
++                            </span>
++                          </div>
++
++                          {pay25Tab === 'maintenance' && (
++                            <>
++                              {/* 移대뱶 2: 吏湲????珥앹븸 */}
++                              <div className={`p-4 rounded-2xl border transition-all ${
++                                maintenanceTab === 'eligible' 
++                                  ? 'bg-emerald-50 border-emerald-100 shadow-md shadow-emerald-500/5' 
++                                  : 'bg-slate-50/50 border-slate-100 opacity-80'
++                              }`}>
++                                <span className="text-[10px] font-bold text-slate-400 block mb-1">珥?吏湲됱삁??(???</span>
++                                <span className={`text-base font-black ${maintenanceTab === 'eligible' ? 'text-emerald-700' : 'text-slate-700'}`}>
++                                  {totalEligibleSum.toLocaleString()}??+                                </span>
++                                <span className="text-[10px] text-slate-400 block mt-0.5">({eligibleItems.length}援ъ쥖)</span>
++                              </div>
++                              {/* 移대뱶 3: 吏湲?蹂대쪟 珥앹븸 */}
++                              <div className={`p-4 rounded-2xl border transition-all ${
++                                maintenanceTab === 'overdue' 
++                                  ? 'bg-rose-50 border-rose-100 shadow-md shadow-rose-500/5' 
++                                  : 'bg-slate-50/50 border-slate-100 opacity-80'
++                              }`}>
++                                <span className="text-[10px] font-bold text-slate-400 block mb-1">珥?吏湲됰낫瑜?(?곗껜)</span>
++                                <span className={`text-base font-black ${maintenanceTab === 'overdue' ? 'text-rose-700' : 'text-slate-700'}`}>
++                                  {totalOverdueSum.toLocaleString()}??+                                </span>
++                                <span className="text-[10px] text-slate-400 block mt-0.5">({overdueItems.length}援ъ쥖)</span>
++                              </div>
++                              {/* 移대뱶 4: ?꾩껜 珥??⑷퀎 */}
++                              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
++                                <span className="text-[10px] font-bold text-slate-400 block mb-1">?좎??섏닔猷??꾩껜 ?⑷퀎</span>
++                                <span className="text-base font-black text-slate-800">
++                                  {(totalEligibleSum + totalOverdueSum).toLocaleString()}??+                                </span>
++                                <span className="text-[10px] text-slate-400 block mt-0.5">({eligibleItems.length + overdueItems.length}援ъ쥖)</span>
++                              </div>
++                            </>
++                          )}
++
++                          {pay25Tab === 'fixed' && (
++                            <>
++                              {/* 移대뱶 2: 議곕?寃?*/}
++                              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
++                                <span className="text-[10px] font-bold text-slate-400 block mb-1">議곕?寃?怨좎젙遺?/span>
++                                <span className="text-base font-black text-indigo-700">
++                                  {fixedPayItems.filter(x => x.fixedType === '議곕?寃?).reduce((sum, x) => sum + x.totalCommission, 0).toLocaleString()}??+                                </span>
++                                <span className="text-[10px] text-slate-400 block mt-0.5">({fixedPayItems.filter(x => x.fixedType === '議곕?寃?).length}援ъ쥖)</span>
++                              </div>
++                              {/* 移대뱶 3: 議곗옱??*/}
++                              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
++                                <span className="text-[10px] font-bold text-slate-400 block mb-1">議곗옱??怨좎젙遺?/span>
++                                <span className="text-base font-black text-indigo-700">
++                                  {fixedPayItems.filter(x => x.fixedType === '議곗옱??).reduce((sum, x) => sum + x.totalCommission, 0).toLocaleString()}??+                                </span>
++                                <span className="text-[10px] text-slate-400 block mt-0.5">({fixedPayItems.filter(x => x.fixedType === '議곗옱??).length}援ъ쥖)</span>
++                              </div>
++                              {/* 移대뱶 4: 沅뚯꽦??*/}
++                              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
++                                <span className="text-[10px] font-bold text-slate-400 block mb-1">沅뚯꽦??怨좎젙遺?(?덊럹?댁?)</span>
++                                <span className="text-base font-black text-indigo-700">
++                                  {fixedPayItems.filter(x => x.fixedType === '沅뚯꽦??).reduce((sum, x) => sum + x.totalCommission, 0).toLocaleString()}??+                                </span>
++                                <span className="text-[10px] text-slate-400 block mt-0.5">({fixedPayItems.filter(x => x.fixedType === '沅뚯꽦??).length}援ъ쥖)</span>
++                              </div>
++                            </>
++                          )}
++
++                          {pay25Tab === 'newContract' && (
++                            <>
++                              {/* 移대뱶 2: ?좉퇋怨꾩빟 嫄댁닔 */}
++                              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
++                                <span className="text-[10px] font-bold text-slate-400 block mb-1">?좉퇋怨꾩빟 嫄댁닔</span>
++                                <span className="text-base font-black text-blue-700">
++                                  {newContractItems.length}援ъ쥖
++                                </span>
++                              </div>
++                              {/* 移대뱶 3: ?좉퇋怨꾩빟 吏湲?珥앹븸 */}
++                              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between col-span-2">
++                                <span className="text-[10px] font-bold text-slate-400 block mb-1">?좉퇋怨꾩빟 吏湲?珥앹븸</span>
++                                <span className="text-base font-black text-blue-700">
++                                  {totalNewContractSum.toLocaleString()}??+                                </span>
++                              </div>
++                            </>
++                          )}
++                        </div>
++
++                        {/* ?묒? ?ㅼ슫濡쒕뱶 踰꾪듉 */}
++                        <div className="flex justify-between items-center mb-4 shrink-0">
++                          {/* 怨좎젙 諛??좉퇋 ??뿉?쒕룄 珥앹븸 ?쒖떆 */}
++                          <div>
++                            {pay25Tab === 'fixed' && (
++                              <span className="text-sm font-bold text-slate-700">怨좎젙吏湲?珥??⑷퀎: <span className="text-indigo-600 font-black">{totalFixedSum.toLocaleString()}??/span></span>
++                            )}
++                            {pay25Tab === 'newContract' && (
++                              <span className="text-sm font-bold text-slate-700">?좉퇋怨꾩빟 珥??⑷퀎: <span className="text-blue-600 font-black">{totalNewContractSum.toLocaleString()}??/span></span>
++                            )}
++                          </div>
++                          <button
++                            onClick={() => export25thPayStatusExcel(
++                              newContractItems,
++                              eligibleItems,
++                              overdueItems,
++                              fixedPayItems
++                            )}
++                            disabled={payDateItems.length === 0}
++                            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-bold shadow-md hover:shadow-emerald-500/20 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none transition-all"
++                          >
++                            <Download size={14} />
++                            25??吏湲됲쁽???곸꽭 ?묒? (Excel)
++                          </button>
++                        </div>
++
++                        {/* ?뚯씠釉?*/}
++                        <div className="flex-1 overflow-auto border border-slate-100 rounded-2xl">
++                          <table className="w-full text-left border-collapse">
++                            <thead>
++                              <tr className="bg-slate-50/70 border-b border-slate-100 sticky top-0 backdrop-blur-md z-10">
++                                <th className="p-3 text-[11px] font-bold text-slate-400 uppercase text-center w-12">?쒕쾲</th>
++                                <th className="p-3 text-[11px] font-bold text-slate-400 uppercase">蹂몃?紐?/th>
++                                <th className="p-3 text-[11px] font-bold text-slate-400 uppercase">吏?щ챸</th>
++                                <th className="p-3 text-[11px] font-bold text-slate-400 uppercase">?ъ썝紐?/th>
++                                {pay25Tab === 'maintenance' && maintenanceTab === 'overdue' && (
++                                  <th className="p-3 text-[11px] font-bold text-rose-500 uppercase text-center">?곗껜?잛닔</th>
++                                )}
++                                <th className="p-3 text-[11px] font-bold text-slate-400 uppercase">怨좉컼紐?/th>
++                                <th className="p-3 text-[11px] font-bold text-slate-400 uppercase">怨꾩빟?쇱옄</th>
++                                <th className="p-3 text-[11px] font-bold text-slate-400 uppercase">?곹뭹紐?/th>
++                                {pay25Tab === 'maintenance' && (
++                                  <th className="p-3 text-[11px] font-bold text-slate-400 uppercase text-center">?뚯감</th>
++                                )}
++                                {pay25Tab === 'fixed' && (
++                                  <th className="p-3 text-[11px] font-bold text-indigo-500 uppercase">援щ텇</th>
++                                )}
++                                <th className="p-3 text-[11px] font-bold text-slate-400 uppercase text-right">
++                                  {pay25Tab === 'maintenance' ? (maintenanceTab === 'eligible' ? '?좎??섏닔猷? : '蹂대쪟 ?섏닔猷?) : '?섏닔猷?}
++                                </th>
++                              </tr>
++                            </thead>
++                            <tbody>
++                              {(() => {
++                                const currentList = 
++                                  pay25Tab === 'maintenance' 
++                                    ? (maintenanceTab === 'eligible' ? eligibleItems : overdueItems)
++                                    : pay25Tab === 'fixed'
++                                    ? fixedPayItems
++                                    : newContractItems;
++
++                                if (currentList.length > 0) {
++                                  return currentList.map(({ item, hcInterval, isOverdue, overdueCount, payCount, totalCommission, pendingCommission, details, fixedType }, idx) => (
++                                    <tr key={item.uniqueKey} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
++                                      <td className="p-3 text-[13px] font-medium text-slate-400 text-center">{idx + 1}</td>
++                                      <td className="p-3 text-[13px] font-bold text-slate-800">{item.hq}</td>
++                                      <td className="p-3 text-[13px] text-slate-600">{item.branch}</td>
++                                      <td className="p-3 text-[13px] text-slate-700 font-medium">{item.empName}</td>
++                                      {pay25Tab === 'maintenance' && maintenanceTab === 'overdue' && (
++                                        <td className="p-3 text-[13px] text-center font-bold text-rose-600 whitespace-nowrap">
++                                          <span className="px-2 py-0.5 bg-rose-50 rounded-full">{overdueCount}???곗껜</span>
++                                        </td>
++                                      )}
++                                      <td className="p-3 text-[13px] text-slate-800 font-bold whitespace-nowrap">{item.memName}</td>
++                                      <td className="p-3 text-[13px] font-mono text-slate-500 whitespace-nowrap">{item.contractDate}</td>
++                                      <td className="p-3 text-[13px] text-slate-600 whitespace-nowrap">{item.prodName}</td>
++                                      {pay25Tab === 'maintenance' && (
++                                        <td className="p-3 text-[13px] text-center">
++                                          <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full font-bold text-[11px] whitespace-nowrap">
++                                            {hcInterval}?뚯감
++                                          </span>
++                                          {maintenanceTab === 'eligible' && payCount > 1 && (
++                                            <span className="ml-1 px-1.5 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded font-black text-[9px] whitespace-nowrap">
++                                              ?뚭툒 {payCount}媛쒖썡遺?+                                            </span>
++                                          )}
++                                        </td>
++                                      )}
++                                      {pay25Tab === 'fixed' && (
++                                        <td className="p-3 text-[13px]">
++                                          <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded font-bold text-[11px] whitespace-nowrap">
++                                            {fixedType} 怨좎젙
++                                          </span>
++                                        </td>
++                                      )}
++                                      <td className="p-3 text-[13px] text-right font-black text-slate-900 whitespace-nowrap">
++                                        {(pay25Tab === 'maintenance' && maintenanceTab === 'overdue' ? pendingCommission : totalCommission).toLocaleString()}??+                                        {pay25Tab === 'maintenance' && maintenanceTab === 'eligible' && payCount > 1 && (
++                                          <div className="text-[9px] text-slate-400 font-medium">
++                                            (?④?: {details.unitPrice.toLocaleString()}??
++                                          </div>
++                                        )}
++                                      </td>
++                                    </tr>
++                                  ));
++                                } else {
++                                  let emptyMsg = '';
++                                  if (pay25Tab === 'maintenance') {
++                                    emptyMsg = maintenanceTab === 'eligible' 
++                                      ? '?대떦 吏湲됱씪???대떦?섎뒗 ?좎??섏닔猷?吏湲???곸옄媛 ?놁뒿?덈떎.' 
++                                      : '?대떦 吏湲됱씪???대떦?섎뒗 ?좎??섏닔猷?吏湲?蹂대쪟(?곗껜) ??곸옄媛 ?놁뒿?덈떎.';
++                                  } else if (pay25Tab === 'fixed') {
++                                    emptyMsg = '?대떦 吏湲됱씪???대떦?섎뒗 怨좎젙吏湲???곸옄媛 ?놁뒿?덈떎.';
++                                  } else {
++                                    emptyMsg = '?대떦 吏湲됱씪???대떦?섎뒗 ?좉퇋怨꾩빟 ??곸옄媛 ?놁뒿?덈떎.';
++                                  }
++                                  
++                                  const colSpanCount = pay25Tab === 'maintenance' 
++                                    ? (maintenanceTab === 'overdue' ? 10 : 9) 
++                                    : (pay25Tab === 'fixed' ? 9 : 8);
++
++                                  return (
++                                    <tr>
++                                      <td colSpan={colSpanCount} className="p-8 text-center text-[13px] text-slate-400 font-medium bg-slate-50/30">
++                                        {emptyMsg}
++                                      </td>
++                                    </tr>
++                                  );
++                                }
++                              })()}
++                            </tbody>
++                          </table>
++                        </div>
++                      </>
++                    );
++                  })()}
++                </div>
++              </motion.div>
++            </div>
++          )}
++        </AnimatePresence>
++
+         {/* 5. ?뺤궛 ?ㅼ젙 紐⑤떖 */}
+         <AnimatePresence>
+           {isSettingsModalOpen && (

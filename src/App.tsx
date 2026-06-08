@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, Plus, User, Briefcase, StickyNote } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, Plus, User, Briefcase, StickyNote, Calculator } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
@@ -70,6 +70,17 @@ interface HQSetting {
 
   settlementType: '사업자' | '개인' | '개인/프리랜서';
   productRules: ProductRule[];
+}
+
+export interface GlobalIncentiveRule {
+  id: string;
+  targetName: string;
+  payDay: number;
+  targetHq: string;
+  targetProducts: string[];
+  baseDateType: 'CONTRACT' | 'DELIVERY';
+  commissionPerUnit: number;
+  minimumGuarantee: number;
 }
 
 // 샘플 시딩 값 (이곳에서 수정 가능)
@@ -291,6 +302,7 @@ const ERP_Dashboard = () => {
   const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
+  const [isManualSettlementModalOpen, setIsManualSettlementModalOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
@@ -301,6 +313,19 @@ const ERP_Dashboard = () => {
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 수동 수수료 정산 상태
+  interface ManualProduct {
+    id: string;
+    productName: string;
+    salesFee: number;
+    promoFee: number;
+    count: number;
+  }
+  const [manualDate, setManualDate] = useState('');
+  const [manualHq, setManualHq] = useState('');
+  const [manualAccount, setManualAccount] = useState('');
+  const [manualBasis, setManualBasis] = useState<'사업자' | '개인'>('사업자');
+  const [manualProducts, setManualProducts] = useState<ManualProduct[]>([]);
   const allDatesWithData = React.useMemo(() => {
     return new Set(data.map(item => item.payDate.replace(/[-/]/g, '.')).filter(Boolean));
   }, [data]);
@@ -358,6 +383,23 @@ const ERP_Dashboard = () => {
       productRules: m.productRules || []
     }));
   });
+
+  const [globalIncentiveRules, setGlobalIncentiveRules] = useState<GlobalIncentiveRule[]>(() => {
+    const saved = localStorage.getItem('erp_global_incentives');
+    if (saved) return JSON.parse(saved);
+    return [
+      { id: 'jaeyun', targetName: '조재윤', payDay: 25, targetHq: 'ALL', targetProducts: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 10000, minimumGuarantee: 2000000 },
+      { id: 'minkyung', targetName: '조민경', payDay: 25, targetHq: 'ALL', targetProducts: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 5000, minimumGuarantee: 0 },
+      { id: 'sunghoon', targetName: '권성훈', payDay: 25, targetHq: 'ALL', targetProducts: ['ALL'], baseDateType: 'CONTRACT', commissionPerUnit: 0, minimumGuarantee: 2500000 }
+    ];
+  });
+
+  const [settingsTab, setSettingsTab] = useState<'hq' | 'global_incentive'>('hq');
+
+  useEffect(() => {
+    localStorage.setItem('erp_hq_settings_v2', JSON.stringify(hqSettings));
+    localStorage.setItem('erp_global_incentives', JSON.stringify(globalIncentiveRules));
+  }, [hqSettings, globalIncentiveRules]);
 
   // 설정 모달 열릴 때 첫 번째 본부 자동 선택
   React.useEffect(() => {
@@ -1028,10 +1070,10 @@ const ERP_Dashboard = () => {
       hqGroups[groupKey].push(item);
     });
 
-    let globalIncentiveCount = 0;
-    const isSettlementDate = payDateFilter.includes('.25');
+    const globalIncentivesSummary: Record<string, number> = {};
 
-    if (isSettlementDate && payDateFilter.length >= 7) {
+    globalIncentiveRules.forEach(rule => {
+      let matchedCount = 0;
       const filterClean = payDateFilter.replace(/[-./]/g, '');
       if (filterClean.length >= 6) {
         const year = parseInt(filterClean.substring(0, 4));
@@ -1043,53 +1085,44 @@ const ERP_Dashboard = () => {
         const targetPrefix2 = `${prevYearStr}.${prevMonthStr}`;
 
         data.forEach(item => {
-          const delivDate = item.deliveryDate || '';
-          const isPrevDelivered = (delivDate.startsWith(targetPrefix1) || delivDate.startsWith(targetPrefix2)) && item.deliveryStatus?.includes('완료');
-          if (isPrevDelivered) {
-            const nProd = item.prodName.replace(/[\s()]/g, '').toLowerCase();
-            if (nProd.includes('하이브리드698') || nProd.includes('라이즈498') || nProd.includes('통신결합540') || nProd.includes('통신결합360')) {
-              globalIncentiveCount += 1;
-            }
+          if (rule.targetHq !== 'ALL' && item.hq !== rule.targetHq) return;
+
+          if (!rule.targetProducts.includes('ALL')) {
+            if (!rule.targetProducts.includes(item.prodName)) return;
+          }
+
+          let dateStr = '';
+          if (rule.baseDateType === 'DELIVERY') {
+            dateStr = item.deliveryDate || '';
+            if (!item.deliveryStatus?.includes('완료')) return;
+          } else {
+            dateStr = item.contractDate || '';
+          }
+
+          const isMatchedDate = dateStr.startsWith(targetPrefix1) || dateStr.startsWith(targetPrefix2);
+          if (isMatchedDate) {
+            matchedCount++;
           }
         });
       }
-    }
 
-    const jaeyunIncentive = (isSettlementDate && globalIncentiveCount > 0) ? globalIncentiveCount * 10000 : 0;
-    const minkyungIncentive = (isSettlementDate && globalIncentiveCount > 0) ? globalIncentiveCount * 5000 : 0;
+      let commission = matchedCount * rule.commissionPerUnit;
+      const finalAmount = Math.max(commission, rule.minimumGuarantee);
 
-    if (jaeyunIncentive > 0) {
-      if (!hqSummary['조재윤']) hqSummary['조재윤'] = { count: 0, amount: 0 };
-      hqSummary['조재윤'].amount += jaeyunIncentive;
-      totalAmount += jaeyunIncentive;
-      totalPendingAmount += jaeyunIncentive;
-    }
-    if (minkyungIncentive > 0) {
-      if (!hqSummary['조민경']) hqSummary['조민경'] = { count: 0, amount: 0 };
-      hqSummary['조민경'].amount += minkyungIncentive;
-      totalAmount += minkyungIncentive;
-      totalPendingAmount += minkyungIncentive;
-    }
+      const payDayStr1 = `.${rule.payDay}`;
+      const payDayStr2 = `-${rule.payDay.toString().padStart(2, '0')}`;
+      const isSettlementDate = payDateFilter.includes(payDayStr1) || payDateFilter.includes(payDayStr2);
 
-    let jaeyunGap = 0;
-    if (isSettlementDate) {
-      if (!hqSummary['조재윤']) hqSummary['조재윤'] = { count: 0, amount: 0 };
-      const jaeyunTotal = hqSummary['조재윤'].amount;
-      if (jaeyunTotal < 2000000) {
-        jaeyunGap = 2000000 - jaeyunTotal;
-        hqSummary['조재윤'].amount = 2000000;
-        totalAmount += jaeyunGap;
-        totalPendingAmount += jaeyunGap;
+      if (isSettlementDate && finalAmount > 0) {
+        globalIncentivesSummary[rule.targetName] = (globalIncentivesSummary[rule.targetName] || 0) + finalAmount;
+        
+        if (!hqSummary[rule.targetName]) hqSummary[rule.targetName] = { count: 0, amount: 0 };
+        hqSummary[rule.targetName].amount += finalAmount;
+        
+        totalAmount += finalAmount;
+        totalPendingAmount += finalAmount;
       }
-    }
-
-    const kwonFixedPay = isSettlementDate ? 150000 : 0;
-    if (kwonFixedPay > 0) {
-      if (!hqSummary['권성훈']) hqSummary['권성훈'] = { count: 0, amount: 0 };
-      hqSummary['권성훈'].amount += kwonFixedPay;
-      totalAmount += kwonFixedPay;
-      totalPendingAmount += kwonFixedPay;
-    }
+    });
 
     return {
       totalCount,
@@ -1100,11 +1133,7 @@ const ERP_Dashboard = () => {
       hqDetails: Object.entries(hqSummary).sort((a, b) => b[1].amount - a[1].amount),
       daily: Object.entries(dailyMap).sort((a, b) => String(b[0]).localeCompare(String(a[0]))) as [string, { totalAmount: number, totalCount: number, products: Record<string, { count: number, amount: number }> }][],
       hqGroups,
-      globalIncentiveCount,
-      jaeyunIncentive,
-      minkyungIncentive,
-      kwonFixedPay,
-      jaeyunGap
+      globalIncentivesSummary
     };
   }, [filteredData, hqSettings]);
 
@@ -1239,10 +1268,9 @@ const ERP_Dashboard = () => {
       const today = new Date().toISOString().split('T')[0];
 
       const specialAdditions: Record<string, number> = {};
-      if (settlementStats.jaeyunIncentive > 0) specialAdditions['조재윤'] = (specialAdditions['조재윤'] || 0) + settlementStats.jaeyunIncentive;
-      if (settlementStats.jaeyunGap > 0) specialAdditions['조재윤'] = (specialAdditions['조재윤'] || 0) + settlementStats.jaeyunGap;
-      if (settlementStats.minkyungIncentive > 0) specialAdditions['조민경'] = (specialAdditions['조민경'] || 0) + settlementStats.minkyungIncentive;
-      if (settlementStats.kwonFixedPay > 0) specialAdditions['권성훈'] = (specialAdditions['권성훈'] || 0) + settlementStats.kwonFixedPay;
+      Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
+        if (amt > 0) specialAdditions[name] = (specialAdditions[name] || 0) + amt;
+      });
       const combinedHqs = Array.from(new Set([...Object.keys(settlementStats.hqGroups), ...Object.keys(specialAdditions)]));
 
       let totalNetPay = 0;
@@ -1318,21 +1346,7 @@ const ERP_Dashboard = () => {
             hqEmpSummaryMap.get(key).total += netAmount;
           };
           add(item.empName, '영업사원', sh.sp); add(org.teamLeader, '팀장', sh.tl); add(org.branchManager, '지점장', sh.bm); add(org.hqManager, '본부장', sh.hm);
-        } else {
-          const key = `${item.hq}|-|-|본부`;
-          if (!hqEmpSummaryMap.has(key)) hqEmpSummaryMap.set(key, { hq: item.hq, branch: '-', empName: '본부지급', role: '본부', total: 0 });
-          hqEmpSummaryMap.get(key).total += finalPayable;
         }
-      });
-
-      Object.entries(specialAdditions).forEach(([hqName, amt]) => {
-        const setting = hqSettings.find(s => s.hqName === hqName);
-        const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
-        const netAmt = isIndiv ? amt - Math.floor(amt * 0.033) : amt;
-        const prodName = `본부지급(수당 - 전월완료 ${settlementStats.globalIncentiveCount}건)`;
-        const key = `${hqName}|-|-|${prodName}`;
-        if (!hqEmpSummaryMap.has(key)) hqEmpSummaryMap.set(key, { hq: hqName, branch: '-', empName: prodName, role: '본부', total: 0 });
-        hqEmpSummaryMap.get(key).total += netAmt;
       });
 
       const roleWeight = (r: string) => ({ '영업사원': 1, '팀장': 2, '지점장': 3, '본부장': 4 }[r] || 5);
@@ -1424,10 +1438,42 @@ const ERP_Dashboard = () => {
 
       // --- SHEET 2: 전체 상세 명세 ---
       const detailRows: any[][] = [['지급일', '본부', '지사', '사원명', '고객명', '상품명', '상태', '수수료계', '실지급액']];
-      filteredData.forEach(item => {
+      
+      const sortedDetailData = [...filteredData].sort((a, b) => {
+        const hqDiff = (a.hq || '').localeCompare(b.hq || '');
+        if (hqDiff !== 0) return hqDiff;
+        return (a.prodName || '').localeCompare(b.prodName || '');
+      });
+
+      let currentHqDetail = '';
+      let currentProdDetail = '';
+      let subCount = 0;
+      let subComm = 0;
+      let subPayable = 0;
+
+      sortedDetailData.forEach((item, idx) => {
         const { totalCommission, finalPayable } = calculateCommissionDetails(item, statsMap);
+
+        if (idx > 0 && (currentHqDetail !== item.hq || currentProdDetail !== item.prodName)) {
+          detailRows.push(['', `[${currentHqDetail}] ${currentProdDetail} 소계`, '', '', '', '', `${subCount}건`, { v: subComm, t: 'n', z: '#,##0' }, { v: subPayable, t: 'n', z: '#,##0' }]);
+          subCount = 0;
+          subComm = 0;
+          subPayable = 0;
+        }
+
+        currentHqDetail = item.hq || '';
+        currentProdDetail = item.prodName || '';
+
+        subCount++;
+        subComm += totalCommission;
+        subPayable += finalPayable;
+
         detailRows.push([item.payDate, item.hq, item.branch, item.empName, item.memName, item.prodName, item.status, { v: totalCommission, t: 'n', z: '#,##0' }, { v: finalPayable, t: 'n', z: '#,##0' }]);
       });
+
+      if (subCount > 0) {
+        detailRows.push(['', `[${currentHqDetail}] ${currentProdDetail} 소계`, '', '', '', '', `${subCount}건`, { v: subComm, t: 'n', z: '#,##0' }, { v: subPayable, t: 'n', z: '#,##0' }]);
+      }
       const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
       const detailWidths = detailRows.reduce((acc, row) => {
         row.forEach((cell, i) => {
@@ -2050,44 +2096,15 @@ const ERP_Dashboard = () => {
           addShare(org.teamLeader, '팀장', tlShare);
           addShare(org.branchManager, '지점장', bmShare);
           addShare(org.hqManager, '본부장', hqShare);
-        } else {
-          // 나머지는 등록된 계좌번호 한번만 나타나면 돼
-          const groupKey = `${item.hq}`;
-          if (!hqEmpSummaryMap.has(groupKey)) {
-            hqEmpSummaryMap.set(groupKey, {
-              hq: item.hq,
-              branch: '-',
-              empName: '본부지급',
-              role: '본부',
-              total: 0
-            });
-          }
-          hqEmpSummaryMap.get(groupKey).total += finalPayable;
         }
       });
 
       const specialAdditions: Record<string, number> = {};
-      if (settlementStats.jaeyunIncentive > 0) specialAdditions['조재윤'] = (specialAdditions['조재윤'] || 0) + settlementStats.jaeyunIncentive;
-      if (settlementStats.jaeyunGap > 0) specialAdditions['조재윤'] = (specialAdditions['조재윤'] || 0) + settlementStats.jaeyunGap;
-      if (settlementStats.minkyungIncentive > 0) specialAdditions['조민경'] = (specialAdditions['조민경'] || 0) + settlementStats.minkyungIncentive;
-
-      Object.entries(specialAdditions).forEach(([hqName, amt]) => {
-        const setting = hqSettings.find(s => s.hqName === hqName);
-        const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
-        const netAmt = isIndiv ? amt - Math.floor(amt * 0.033) : amt;
-        const prodName = `본부지급(수당 - 전월완료 ${settlementStats.globalIncentiveCount}건)`;
-        const groupKey = `${hqName}_수당`;
-        if (!hqEmpSummaryMap.has(groupKey)) {
-          hqEmpSummaryMap.set(groupKey, {
-            hq: hqName,
-            branch: '-',
-            empName: prodName,
-            role: '본부',
-            total: 0
-          });
-        }
-        hqEmpSummaryMap.get(groupKey).total += netAmt;
+      Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
+        if (amt > 0) specialAdditions[name] = (specialAdditions[name] || 0) + amt;
       });
+
+
 
       const hqEmpSummaryData = Array.from(hqEmpSummaryMap.values());
 
@@ -2778,7 +2795,169 @@ const ERP_Dashboard = () => {
     setPaymentStatusFilter('전체');
     setCurrentPage(1);
   };
+  // ================= 수동 수수료 정산 기능 =================
+  const loadManualData = () => {
+    if (!manualDate || !manualHq) return setNotification({ message: '지급일과 본부명을 모두 선택해주세요.', type: 'error' });
+    
+    const filtered = data.filter(d => d.payDate === manualDate && d.hq === manualHq && !d.status.includes('취소'));
+    
+    const prodMap = new Map<string, { count: number, salesFee: number, promoFee: number }>();
+    filtered.forEach(item => {
+      const hq = hqSettings.find(s => s.hqName === manualHq);
+      const setting = hq?.productRules.find(p => p.productName === item.prodName);
+      const salesFee = setting ? parseInt(setting.salesCommission.replace(/,/g, '') || '0', 10) : 0;
+      const promoFee = setting ? parseInt(setting.promoCommission.replace(/,/g, '') || '0', 10) : 0;
+      
+      if (!prodMap.has(item.prodName)) {
+        prodMap.set(item.prodName, { count: 0, salesFee, promoFee });
+      }
+      prodMap.get(item.prodName)!.count += 1;
+    });
 
+    const newProducts: ManualProduct[] = Array.from(prodMap.entries()).map(([pName, pData], idx) => ({
+      id: Date.now().toString() + idx,
+      productName: pName,
+      salesFee: pData.salesFee,
+      promoFee: pData.promoFee,
+      count: pData.count
+    }));
+
+    setManualProducts(newProducts);
+
+    const hqSet = hqSettings.find(s => s.hqName === manualHq);
+    if (hqSet) {
+      setManualAccount(`${hqSet.bankName} ${hqSet.accountNumber} ${hqSet.accountHolder}`);
+      setManualBasis(hqSet.settlementType.includes('개인') ? '개인' : '사업자');
+    }
+  };
+
+  const exportManualExcel = () => {
+    if (manualProducts.length === 0) return setNotification({ message: '출력할 데이터가 없습니다.', type: 'error' });
+    
+    let totalComm = 0;
+    let totalCount = 0;
+    manualProducts.forEach(p => {
+      totalComm += (p.salesFee + p.promoFee) * p.count;
+      totalCount += p.count;
+    });
+
+    const isIndiv = manualBasis === '개인';
+    const supply = isIndiv ? totalComm : Math.round(totalComm / 1.1);
+    const taxAmt = isIndiv ? Math.floor(totalComm * 0.033) : (totalComm - supply);
+    const totalFinal = totalComm - (isIndiv ? taxAmt : 0);
+    const taxDisplay = isIndiv ? -taxAmt : taxAmt;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    const wsData: any[][] = [
+      ['[ 수동 정산 종합 보고서 ]'],
+      [`보고일자: ${today} | 지급기준: ${manualDate}`],
+      [],
+      ['1. 본부별 정산 현황'],
+      ['본부명', '유형', '계약건수', '공급가액(정산액)', '부가세/원천세', '최종 실지급액', '지급계좌'],
+      [
+        manualHq, 
+        isIndiv ? '개인' : '법인', 
+        totalCount, 
+        { v: supply, t: 'n', z: '#,##0' }, 
+        { v: taxDisplay, t: 'n', z: '#,##0' }, 
+        { v: totalFinal, t: 'n', z: '#,##0' }, 
+        manualAccount
+      ],
+      [],
+      ['2. 본부별 실적 상세'],
+      ['본부명', '상품명', '건별 실지급액', '구좌', '최종 합계(실지급)']
+    ];
+
+    manualProducts.forEach(p => {
+      const finalPerItem = p.salesFee + p.promoFee;
+      const finalSum = finalPerItem * p.count;
+      const netUp = isIndiv ? finalPerItem - Math.floor(finalPerItem * 0.033) : finalPerItem;
+      const netSum = isIndiv ? finalSum - Math.floor(finalSum * 0.033) : finalSum;
+      
+      wsData.push([
+        manualHq, 
+        p.productName, 
+        { v: netUp, t: 'n', z: '#,##0' }, 
+        p.count, 
+        { v: netSum, t: 'n', z: '#,##0' }
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    const colWidths = wsData.reduce((acc, row) => {
+      row.forEach((cell, i) => {
+        let str = '';
+        if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+        else if (cell !== null && cell !== undefined) str = cell.toString();
+        const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+        if (!acc[i] || len > acc[i]) acc[i] = len;
+      });
+      return acc;
+    }, [] as number[]);
+    ws['!cols'] = colWidths.map(w => ({ wch: Math.min(w + 4, 40) }));
+
+    const headerStyle = {
+      fill: { fgColor: { rgb: "2F5597" } },
+      font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 },
+      alignment: { vertical: "center", horizontal: "center" },
+      border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+    };
+    const cellStyle = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+    const titleStyle = { font: { bold: true, sz: 16 }, alignment: { vertical: "center", horizontal: "center" } };
+
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+        if (!ws[addr]) continue;
+        ws[addr].s = { ...cellStyle };
+        if (R === 0) ws[addr].s = titleStyle;
+        const val = String(ws[addr].v || '');
+        const isHeader = ['본부명', '유형', '계약건수', '공급가액(정산액)', '부가세/원천세', '최종 실지급액', '지급계좌', '상품명', '건별 실지급액', '구좌', '최종 합계(실지급)'].some(h => val === h) || val.includes('1.') || val.includes('2.') || (val.startsWith('[') && val.endsWith(']'));
+        if (isHeader) ws[addr].s = headerStyle;
+        if (ws[addr].t === 'n') ws[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "수동정산보고서");
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+    const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+    executeDownload(blob, `${manualDate}_${manualHq}_수동정산.xlsx`);
+  };
+
+  const saveManualToDB = async () => {
+    if (manualProducts.length === 0) return setNotification({ message: '저장할 데이터가 없습니다.', type: 'error' });
+    try {
+      setIsUpdating(true);
+      const rows = manualProducts.map(p => {
+        const rowTotal = (p.salesFee + p.promoFee) * p.count;
+        const rowTax = manualBasis === '개인' ? Math.floor(rowTotal * 0.033) : 0;
+        const rowFinal = rowTotal - rowTax;
+        return [manualDate, manualHq, manualAccount, manualBasis, p.productName, p.salesFee, p.promoFee, p.count, rowFinal];
+      });
+
+      const response = await fetch('/api/sheets/manual-settlement/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows })
+      });
+      const result = await response.json();
+      if (result.success) {
+        setNotification({ message: '수동 정산 내역이 성공적으로 저장되었습니다.', type: 'success' });
+        setIsManualSettlementModalOpen(false);
+      } else {
+        setNotification({ message: '저장 실패: ' + result.error, type: 'error' });
+      }
+    } catch (err) {
+      setNotification({ message: '서버 저장 중 오류가 발생했습니다.', type: 'error' });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+  // =======================================================
   return (
     <div className="flex flex-col h-screen bg-[#f1f5f9] font-sans selection:bg-blue-100 overflow-hidden relative">
       <AnimatePresence>
@@ -2917,6 +3096,15 @@ const ERP_Dashboard = () => {
                 className="flex items-center justify-center gap-2.5 bg-slate-800 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-slate-900"
               >
                 <Save size={16} /> 본부별 정산 설정
+              </motion.button>
+
+              <motion.button
+                onClick={() => setIsManualSettlementModalOpen(true)}
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
+                className="flex items-center justify-center gap-2.5 bg-purple-600 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-purple-700"
+              >
+                <Calculator size={16} /> 수동 수수료 정산
               </motion.button>
 
               <motion.button
@@ -3739,8 +3927,7 @@ const ERP_Dashboard = () => {
                             );
                           })}
                         </div>
-
-                        <div className="mt-6 flex flex-col gap-2">
+                      <div className="mt-6 flex flex-col gap-2">
                           <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
                             <div className="w-2 h-2 bg-blue-500 rounded-full" />
                             <span>점 표시: 데이터가 있는 날짜 (검정색)</span>
@@ -3930,8 +4117,18 @@ const ERP_Dashboard = () => {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-hidden flex bg-white">
-                  {/* Left Sidebar: HQ List */}
+                <div className="flex bg-slate-900 px-8 pt-2">
+                  <button onClick={() => setSettingsTab('hq')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'hq' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                    본부별 정산 설정
+                  </button>
+                  <button onClick={() => setSettingsTab('global_incentive')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'global_incentive' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                    특수 수당 (글로벌 인센티브) 관리
+                  </button>
+                </div>
+
+                {settingsTab === 'hq' ? (
+                  <div className="flex-1 overflow-hidden flex bg-white">
+                    {/* Left Sidebar: HQ List */}
                   <div className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col">
                     <div className="p-4 border-b border-slate-200 bg-white">
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">본부 목록</p>
@@ -4248,6 +4445,140 @@ const ERP_Dashboard = () => {
                     )}
                   </div>
                 </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
+                    <div className="max-w-5xl mx-auto space-y-6">
+                      <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold">특수 수당(글로벌 인센티브) 정책 관리</h2>
+                        <button onClick={() => {
+                          setGlobalIncentiveRules([...globalIncentiveRules, {
+                            id: Date.now().toString(),
+                            targetName: '신규 대상자',
+                            payDay: 25,
+                            targetHq: 'ALL',
+                            targetProducts: ['ALL'],
+                            baseDateType: 'DELIVERY',
+                            commissionPerUnit: 0,
+                            minimumGuarantee: 0
+                          }]);
+                        }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
+                          <Plus size={16} /> 새 규칙 추가
+                        </button>
+                      </div>
+
+                      <div className="space-y-4">
+                        {globalIncentiveRules.length === 0 && (
+                          <div className="text-center py-12 text-slate-400 font-bold">등록된 특수 수당 규칙이 없습니다.</div>
+                        )}
+                        {globalIncentiveRules.map((rule, idx) => (
+                          <div key={rule.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-4">
+                            <div className="flex gap-4 items-center">
+                              <div className="flex-1">
+                                <label className="text-xs font-bold text-slate-500">수급자명 (개인 본부명으로 정산됨)</label>
+                                <input type="text" value={rule.targetName} onChange={e => {
+                                  const n = [...globalIncentiveRules]; n[idx].targetName = e.target.value; setGlobalIncentiveRules(n);
+                                }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
+                              </div>
+                              <div className="w-32">
+                                <label className="text-xs font-bold text-slate-500">수수료 지급일</label>
+                                <div className="relative mt-1">
+                                  <input type="number" min="1" max="31" value={rule.payDay} onChange={e => {
+                                    const n = [...globalIncentiveRules]; n[idx].payDay = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
+                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-right pr-8 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
+                                  <span className="absolute right-3 top-2.5 text-slate-400 text-sm font-bold">일</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-4 items-start">
+                              <div className="flex-1">
+                                <label className="text-xs font-bold text-slate-500">대상 본부 (실적 수집 대상)</label>
+                                <select value={rule.targetHq} onChange={e => {
+                                  const n = [...globalIncentiveRules]; n[idx].targetHq = e.target.value; setGlobalIncentiveRules(n);
+                                }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
+                                  <option value="ALL">전체 본부 대상</option>
+                                  {hqSettings.map(h => <option key={h.id} value={h.hqName}>{h.hqName}</option>)}
+                                </select>
+                              </div>
+                              <div className="flex-[2]">
+                                <label className="text-xs font-bold text-slate-500">대상 상품 (다중선택 가능)</label>
+                                <div className="mt-1 flex flex-col gap-2">
+                                  <select onChange={e => {
+                                    if (!e.target.value) return;
+                                    const n = [...globalIncentiveRules];
+                                    if (e.target.value === 'ALL') n[idx].targetProducts = ['ALL'];
+                                    else {
+                                      if (n[idx].targetProducts.includes('ALL')) n[idx].targetProducts = [];
+                                      if (!n[idx].targetProducts.includes(e.target.value)) n[idx].targetProducts.push(e.target.value);
+                                    }
+                                    setGlobalIncentiveRules(n);
+                                    e.target.value = '';
+                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
+                                    <option value="">상품 추가...</option>
+                                    <option value="ALL">전체 상품</option>
+                                    {Array.from(new Set(hqSettings.flatMap(h => h.productRules.map(p => p.productName)))).map(p => (
+                                      <option key={p} value={p}>{p}</option>
+                                    ))}
+                                  </select>
+                                  {rule.targetProducts.includes('ALL') ? (
+                                    <span className="inline-block px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">전체 상품</span>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-2">
+                                      {rule.targetProducts.map(p => (
+                                        <span key={p} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold border border-blue-100">
+                                          {p}
+                                          <button onClick={() => {
+                                            const n = [...globalIncentiveRules];
+                                            n[idx].targetProducts = n[idx].targetProducts.filter(x => x !== p);
+                                            if (n[idx].targetProducts.length === 0) n[idx].targetProducts = ['ALL'];
+                                            setGlobalIncentiveRules(n);
+                                          }} className="hover:text-red-500 transition-colors"><X size={14} /></button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex-1">
+                                <label className="text-xs font-bold text-slate-500">결합상품 실적 기준일</label>
+                                <select value={rule.baseDateType} onChange={e => {
+                                  const n = [...globalIncentiveRules]; n[idx].baseDateType = e.target.value as any; setGlobalIncentiveRules(n);
+                                }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
+                                  <option value="DELIVERY">배송완료일자 기준</option>
+                                  <option value="CONTRACT">계약일자 기준</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-4 items-center bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mt-2">
+                              <div className="flex-1">
+                                <label className="text-[10px] uppercase tracking-wider font-black text-indigo-400">건당 수수료 (원)</label>
+                                <input type="number" value={rule.commissionPerUnit} onChange={e => {
+                                  const n = [...globalIncentiveRules]; n[idx].commissionPerUnit = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
+                                }} className="w-full mt-1 px-3 py-2 border border-indigo-200 rounded-lg text-right font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-200 transition-all bg-white" />
+                              </div>
+                              <div className="flex-1">
+                                <label className="text-[10px] uppercase tracking-wider font-black text-orange-400">최소 보장 금액 (원) - 없으면 0</label>
+                                <input type="number" value={rule.minimumGuarantee} onChange={e => {
+                                  const n = [...globalIncentiveRules]; n[idx].minimumGuarantee = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
+                                }} className="w-full mt-1 px-3 py-2 border border-orange-200 rounded-lg text-right font-black text-orange-500 outline-none focus:ring-2 focus:ring-orange-200 transition-all bg-white" />
+                              </div>
+                              <div className="pt-5 pl-2">
+                                <button onClick={() => {
+                                  if(confirm('이 규칙을 삭제하시겠습니까?')) {
+                                    const n = [...globalIncentiveRules]; n.splice(idx, 1); setGlobalIncentiveRules(n);
+                                  }
+                                }} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="규칙 삭제">
+                                  <X size={20} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             </div>
           )}
@@ -4488,6 +4819,180 @@ const ERP_Dashboard = () => {
                   >
                     닫기
                   </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* 수동 수수료 정산 모달 */}
+          {isManualSettlementModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsManualSettlementModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+                className="relative bg-white w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[90vh]"
+              >
+                <div className="flex items-center justify-between px-8 py-6 bg-purple-600 text-white">
+                  <div className="flex items-center gap-3">
+                    <Calculator size={24} className="text-purple-200" />
+                    <h2 className="text-xl font-black tracking-tight">수동 수수료 정산</h2>
+                  </div>
+                  <button onClick={() => setIsManualSettlementModalOpen(false)} className="p-2 hover:bg-white/20 rounded-full transition-colors"><X size={20} /></button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-8 bg-slate-50 flex flex-col gap-6">
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-4">
+                    <h3 className="font-bold text-slate-800 border-b border-slate-100 pb-2">1. 지급예정내역 조회</h3>
+                    <div className="flex flex-wrap items-end gap-4">
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
+                        <label className="text-xs font-bold text-slate-500">지급일자</label>
+                        <input type="date" list="manual-date-list" value={manualDate} onChange={e => setManualDate(e.target.value)} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                        <datalist id="manual-date-list">
+                          {Array.from(allDatesWithData).sort().reverse().map(d => {
+                            const formatted = d.replace(/\./g, '-');
+                            return <option key={formatted} value={formatted} />;
+                          })}
+                        </datalist>
+                      </div>
+                      <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
+                        <label className="text-xs font-bold text-slate-500">본부명</label>
+                        <input type="text" list="manual-hq-list" value={manualHq} onChange={e => setManualHq(e.target.value)} placeholder="본부명 입력 또는 선택" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                        <datalist id="manual-hq-list">
+                          {hqSettings.map(s => <option key={s.hqName} value={s.hqName} />)}
+                        </datalist>
+                      </div>
+                      <button onClick={loadManualData} className="px-6 py-2 bg-slate-800 text-white rounded-lg text-sm font-bold shadow-md hover:bg-slate-900 transition-colors">
+                        조회하기
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-6">
+                    <h3 className="font-bold text-slate-800 border-b border-slate-100 pb-2">2. 정산 상세 내역</h3>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-slate-500">계좌정보</label>
+                        <input type="text" value={manualAccount} onChange={e => setManualAccount(e.target.value)} placeholder="은행 계좌번호 예금주" className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-slate-500">정산기준</label>
+                        <select value={manualBasis} onChange={e => setManualBasis(e.target.value as any)} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+                          <option value="사업자">사업자 (원천세 공제 없음)</option>
+                          <option value="개인">개인 (3.3% 원천세 공제)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      <div className="flex justify-between items-center">
+                        <label className="text-xs font-bold text-slate-500">상품별 수수료 내역</label>
+                        <button onClick={() => setManualProducts([...manualProducts, { id: Date.now().toString(), productName: '', salesFee: 0, promoFee: 0, count: 1 }])} className="text-xs font-bold text-purple-600 bg-purple-50 px-3 py-1 rounded-md hover:bg-purple-100 flex items-center gap-1">
+                          <Plus size={14} /> 상품 추가
+                        </button>
+                      </div>
+                      
+                      <div className="flex flex-col gap-2">
+                        {manualProducts.map((p, idx) => (
+                          <div key={p.id} className="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                            <div className="flex-1 min-w-[120px]">
+                              <input type="text" list={`manual-prod-list-${p.id}`} value={p.productName} onChange={e => {
+                                const val = e.target.value;
+                                const n = [...manualProducts];
+                                n[idx].productName = val;
+                                
+                                let setting = hqSettings.find(s => s.hqName === manualHq)?.productRules.find(r => r.productName === val);
+                                if (!setting) {
+                                  setting = hqSettings.flatMap(s => s.productRules).find(r => r.productName === val);
+                                }
+                                
+                                if (setting) {
+                                  n[idx].salesFee = parseInt(setting.salesCommission.replace(/,/g, '') || '0', 10);
+                                  n[idx].promoFee = parseInt(setting.promoCommission.replace(/,/g, '') || '0', 10);
+                                }
+                                setManualProducts(n);
+                              }} placeholder="상품명 입력 또는 선택" className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded text-sm" />
+                              <datalist id={`manual-prod-list-${p.id}`}>
+                                {Array.from(new Set(hqSettings.flatMap(s => s.productRules.map(r => r.productName)))).map(prod => (
+                                  <option key={prod} value={prod} />
+                                ))}
+                              </datalist>
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[10px] text-slate-400 font-bold px-1">판매수수료</span>
+                              <input type="number" value={p.salesFee} onChange={e => { const n = [...manualProducts]; n[idx].salesFee = Number(e.target.value); setManualProducts(n); }} className="w-28 px-3 py-1.5 bg-white border border-slate-200 rounded text-sm text-right" />
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[10px] text-slate-400 font-bold px-1">판매촉진비</span>
+                              <input type="number" value={p.promoFee} onChange={e => { const n = [...manualProducts]; n[idx].promoFee = Number(e.target.value); setManualProducts(n); }} className="w-28 px-3 py-1.5 bg-white border border-slate-200 rounded text-sm text-right" />
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-[10px] text-slate-400 font-bold px-1">구좌수</span>
+                              <input type="number" value={p.count} onChange={e => { const n = [...manualProducts]; n[idx].count = Number(e.target.value); setManualProducts(n); }} className="w-20 px-3 py-1.5 bg-white border border-slate-200 rounded text-sm text-center" />
+                            </div>
+                            <div className="flex flex-col gap-0.5 ml-2">
+                              <span className="text-[10px] text-slate-400 font-bold px-1">합계</span>
+                              <span className="text-sm font-bold text-slate-700 w-24 text-right">
+                                {((p.salesFee + p.promoFee) * p.count).toLocaleString()}원
+                              </span>
+                            </div>
+                            <button onClick={() => setManualProducts(manualProducts.filter((_, i) => i !== idx))} className="ml-2 p-1.5 text-rose-400 hover:bg-rose-50 rounded-md transition-colors"><X size={16} /></button>
+                          </div>
+                        ))}
+                        {manualProducts.length === 0 && (
+                          <div className="text-center py-8 text-sm text-slate-400 bg-slate-50 border border-slate-100 rounded-lg">조회된 상품 내역이 없습니다. 상품을 추가해주세요.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-purple-50 p-6 rounded-xl border border-purple-100 flex flex-col gap-3 mt-4">
+                      {(() => {
+                        const totalSalesFee = manualProducts.reduce((acc, p) => acc + p.salesFee * p.count, 0);
+                        const totalPromoFee = manualProducts.reduce((acc, p) => acc + p.promoFee * p.count, 0);
+                        const totalCount = manualProducts.reduce((acc, p) => acc + p.count, 0);
+                        const totalAmount = totalSalesFee + totalPromoFee;
+                        const taxAmount = manualBasis === '개인' ? Math.floor(totalAmount * 0.033) : 0;
+                        const finalAmount = totalAmount - taxAmount;
+
+                        return (
+                          <>
+                            <div className="flex justify-between items-center text-sm text-purple-800">
+                              <span>총 구좌수</span>
+                              <span className="font-bold">{totalCount}구좌</span>
+                            </div>
+                            <div className="flex justify-between items-center text-sm text-purple-800">
+                              <span>수수료 합계 (판매 + 촉진)</span>
+                              <span className="font-bold">{totalAmount.toLocaleString()}원</span>
+                            </div>
+                            <div className="flex justify-between items-center text-sm text-rose-600">
+                              <span>세금 공제 ({manualBasis === '개인' ? '3.3% 원천세' : '사업자 - 공제없음'})</span>
+                              <span className="font-bold">-{taxAmount.toLocaleString()}원</span>
+                            </div>
+                            <div className="h-px bg-purple-200 my-1" />
+                            <div className="flex justify-between items-center text-lg text-purple-900 font-black">
+                              <span>실지급액</span>
+                              <span>{finalAmount.toLocaleString()}원</span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="px-8 py-5 bg-white border-t border-slate-200 flex justify-between items-center">
+                  <button onClick={exportManualExcel} className="px-6 py-2.5 bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 rounded-xl text-sm font-bold shadow-sm transition-colors flex items-center gap-2">
+                    <Download size={16} /> 엑셀 다운로드
+                  </button>
+                  <div className="flex gap-3">
+                    <button onClick={() => setIsManualSettlementModalOpen(false)} className="px-6 py-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl text-sm font-bold shadow-sm transition-colors">
+                      취소
+                    </button>
+                    <button onClick={saveManualToDB} className="px-8 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-purple-700 transition-colors flex items-center gap-2">
+                      {isUpdating ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+                      서버 저장
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             </div>
