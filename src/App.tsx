@@ -274,6 +274,39 @@ const getHealthcareMaintenanceInfo = (item: ERPDataItem, filterStr: string) => {
   return null;
 };
 
+
+export const getDisplayPayDate = (item: any, globalIncentiveRules: any[]) => {
+  let displayPayDate = item.payDate;
+  
+  const matchedRule = globalIncentiveRules.find((rule: any) => {
+    const hqMatch = rule.targetHq === 'ALL' || item.hq === rule.targetHq;
+    const prodMatch = rule.targetProducts.includes('ALL') || (item.prodName && rule.targetProducts.includes(item.prodName));
+    return hqMatch && prodMatch;
+  });
+
+  if (matchedRule) {
+    const dateStr = matchedRule.baseDateType === 'DELIVERY' ? item.deliveryDate : item.contractDate;
+    const statusOk = matchedRule.baseDateType !== 'DELIVERY' || (item.deliveryStatus && item.deliveryStatus.includes('완료'));
+    if (dateStr && statusOk) {
+      const dDate = dateStr.replace(/\./g, '-');
+      const [y, m] = dDate.split('-').map(Number);
+      if (!isNaN(y) && !isNaN(m)) {
+        const nextM = m === 12 ? 1 : m + 1;
+        const nextY = m === 12 ? y + 1 : y;
+        displayPayDate = `${nextY}.${String(nextM).padStart(2, '0')}.${String(matchedRule.payDay).padStart(2, '0')}`;
+      }
+    }
+  } else if ((item.hq === '조민경' || item.hq === '조재윤') && item.deliveryStatus && item.deliveryStatus.includes('완료') && item.deliveryDate) {
+    const delivDate = item.deliveryDate.replace(/\./g, '-');
+    const [y, m] = delivDate.split('-').map(Number);
+    if (!isNaN(y) && !isNaN(m)) {
+      const nextM = m === 12 ? 1 : m + 1;
+      const nextY = m === 12 ? y + 1 : y;
+      displayPayDate = `${nextY}.${String(nextM).padStart(2, '0')}.25`;
+    }
+  }
+  return displayPayDate;
+};
 const ERP_Dashboard = () => {
   const [data, setData] = useState<ERPDataItem[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -327,12 +360,6 @@ const ERP_Dashboard = () => {
   const [manualAccount, setManualAccount] = useState('');
   const [manualBasis, setManualBasis] = useState<'사업자' | '개인'>('사업자');
   const [manualProducts, setManualProducts] = useState<ManualProduct[]>([]);
-  const allDatesWithData = React.useMemo(() => {
-    return new Set(data.map(item => {
-      const dDate = getDisplayPayDate(item, globalIncentiveRules);
-      return dDate ? dDate.replace(/[-/]/g, '.') : '';
-    }).filter(Boolean));
-  }, [data, globalIncentiveRules]);
 
   // 셀 값 업데이트 (구글 시트 연동)
   const updateCell = async (rowIdx: number, colIdx: number, newValue: string) => {
@@ -404,6 +431,13 @@ const ERP_Dashboard = () => {
     localStorage.setItem('erp_hq_settings_v2', JSON.stringify(hqSettings));
     localStorage.setItem('erp_global_incentives', JSON.stringify(globalIncentiveRules));
   }, [hqSettings, globalIncentiveRules]);
+
+  const allDatesWithData = React.useMemo(() => {
+    return new Set(data.map(item => {
+      const dDate = getDisplayPayDate(item, globalIncentiveRules);
+      return dDate ? dDate.replace(/[-/]/g, '.') : '';
+    }).filter(Boolean));
+  }, [data, globalIncentiveRules]);
 
   // 설정 모달 열릴 때 첫 번째 본부 자동 선택
   React.useEffect(() => {
@@ -578,6 +612,7 @@ const ERP_Dashboard = () => {
             rentalProd: '브람스안마의자',
             rentalNo: 'R99990',
             deliveryStatus: '배송완료',
+            status: '정상',
             deliveryDate: '2026-04-17',
             payDate: '2026-05-15',
             hq: '경기본부',
@@ -1276,7 +1311,7 @@ const ERP_Dashboard = () => {
 
       const specialAdditions: Record<string, number> = {};
       Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
-        if (amt > 0) specialAdditions[name] = (specialAdditions[name] || 0) + amt;
+        if ((amt as number) > 0) specialAdditions[name] = (specialAdditions[name] || 0) + (amt as number);
       });
       const combinedHqs = Array.from(new Set([...Object.keys(settlementStats.hqGroups), ...Object.keys(specialAdditions)]));
 
@@ -2023,7 +2058,7 @@ const ERP_Dashboard = () => {
   );
 
   const uniqueHcRegDates = React.useMemo(() =>
-    Array.from(new Set<string>(data.map(item => String(item.hcRegDate || '')).filter(d => d && d.length >= 8))).sort((a: string, b: string) => a.localeCompare(b)).reverse(),
+    Array.from(new Set<string>(data.map(item => String(item.hcRegDate || '')).filter(d => d && d.length >= 8))).sort((a: any, b: any) => String(a).localeCompare(String(b))).reverse(),
     [data]
   );
 
@@ -2041,7 +2076,7 @@ const ERP_Dashboard = () => {
       .map(item => item.payDate)
       .filter(d => d && d.trim() !== '' && d >= todayStr);
 
-    return ['전체', ...Array.from(new Set(existingDates)).sort((a, b) => a.localeCompare(b))];
+    return ['전체', ...Array.from(new Set(existingDates)).sort((a: any, b: any) => String(a).localeCompare(String(b)))];
   }, [data]);
 
   const resetFilters = () => {
@@ -4237,7 +4272,7 @@ const ERP_Dashboard = () => {
                         <label className="text-xs font-bold text-slate-500">지급일자</label>
                         <input type="date" list="manual-date-list" value={manualDate} onChange={e => setManualDate(e.target.value)} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
                         <datalist id="manual-date-list">
-                          {Array.from(allDatesWithData).sort().reverse().map(d => {
+                          {Array.from(allDatesWithData).sort().reverse().map((d: any) => {
                             const formatted = d.replace(/\./g, '-');
                             return <option key={formatted} value={formatted} />;
                           })}
