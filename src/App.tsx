@@ -4331,33 +4331,51 @@ const ERP_Dashboard = () => {
                         </table>
 
                         {/* Summary Table 2 */}
-                        <div className="mb-2 font-bold text-sm text-slate-700">■ {setting?.settlementType?.includes('개인') ? '원천징수 영수 요약 (3.3% 공제)' : '정산 요약 (부가세 포함)'}</div>
-                        <table className="w-full mb-8 border-collapse border border-slate-300 text-sm">
+                        <div className="mb-2 font-bold text-sm text-slate-700">■ {setting?.settlementType?.includes('개인') ? '원천징수 영수 요약 (3.3% 공제)' : '세금계산서 발행 요약 (부가세 포함)'}</div>
+                        <table className="w-full mb-8 border-collapse border border-slate-300 text-sm text-center">
                           <thead>
-                            <tr className="bg-blue-900 text-white text-center text-xs">
-                              <th className="border border-slate-300 p-2">총 판매수수료 합계</th>
-                              <th className="border border-slate-300 p-2">총 판매촉진비 합계</th>
-                              <th className="border border-slate-300 p-2 text-yellow-300 font-bold">합산 금액(A)</th>
-                              <th className="border border-slate-300 p-2">
-                                {setting?.settlementType?.includes('개인') ? '3.3% 공제(B)' : '부가세 10%(B)'}
-                              </th>
-                              <th className="border border-slate-300 p-2 font-bold">최종 지급액(A {setting?.settlementType?.includes('개인') ? '- B' : '(부가세 포함)'})</th>
+                            <tr className="bg-blue-900 text-white text-xs">
+                              <th className="border border-slate-300 p-2">구분</th>
+                              <th className="border border-slate-300 p-2">{setting?.settlementType?.includes('개인') ? '정산금액' : '공급가액'}</th>
+                              <th className="border border-slate-300 p-2">{setting?.settlementType?.includes('개인') ? '원천세(3.3%)' : '부가세(10%)'}</th>
+                              <th className="border border-slate-300 p-2 font-bold">{setting?.settlementType?.includes('개인') ? '실지급액' : '합계금액(실지급액)'}</th>
                             </tr>
                           </thead>
                           <tbody>
-                            <tr className="text-center font-bold">
-                              <td className="border border-slate-300 p-3">{salesSum.toLocaleString()}원</td>
-                              <td className="border border-slate-300 p-3">{promoSum.toLocaleString()}원</td>
-                              <td className="border border-slate-300 p-3 text-blue-800">{totalSum.toLocaleString()}원</td>
-                              <td className="border border-slate-300 p-3 text-red-600">
-                                {setting?.settlementType?.includes('개인')
-                                  ? Math.floor(totalSum * 0.033).toLocaleString()
-                                  : (totalSum - Math.round(totalSum / 1.1)).toLocaleString()}원
+                            <tr>
+                              <td className="border border-slate-300 p-2 bg-slate-50 font-bold">판매수수료</td>
+                              <td className="border border-slate-300 p-2">
+                                {setting?.settlementType?.includes('개인') ? salesSum.toLocaleString() : Math.round(salesSum / 1.1).toLocaleString()}원
                               </td>
-                              <td className="border border-slate-300 p-3 bg-blue-50 text-blue-900 text-lg">
-                                {(setting?.settlementType?.includes('개인')
-                                  ? (totalSum - Math.floor(totalSum * 0.033))
-                                  : totalSum).toLocaleString()}원
+                              <td className="border border-slate-300 p-2 text-red-600">
+                                {setting?.settlementType?.includes('개인') ? Math.floor(salesSum * 0.033).toLocaleString() : (salesSum - Math.round(salesSum / 1.1)).toLocaleString()}원
+                              </td>
+                              <td className="border border-slate-300 p-2">
+                                {setting?.settlementType?.includes('개인') ? (salesSum - Math.floor(salesSum * 0.033)).toLocaleString() : salesSum.toLocaleString()}원
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="border border-slate-300 p-2 bg-slate-50 font-bold">판매촉진비</td>
+                              <td className="border border-slate-300 p-2">
+                                {setting?.settlementType?.includes('개인') ? promoSum.toLocaleString() : Math.round(promoSum / 1.1).toLocaleString()}원
+                              </td>
+                              <td className="border border-slate-300 p-2 text-red-600">
+                                {setting?.settlementType?.includes('개인') ? Math.floor(promoSum * 0.033).toLocaleString() : (promoSum - Math.round(promoSum / 1.1)).toLocaleString()}원
+                              </td>
+                              <td className="border border-slate-300 p-2">
+                                {setting?.settlementType?.includes('개인') ? (promoSum - Math.floor(promoSum * 0.033)).toLocaleString() : promoSum.toLocaleString()}원
+                              </td>
+                            </tr>
+                            <tr className="font-bold bg-blue-50/50">
+                              <td className="border border-slate-300 p-2 bg-blue-100 text-blue-900">합계</td>
+                              <td className="border border-slate-300 p-2 text-blue-800">
+                                {setting?.settlementType?.includes('개인') ? totalSum.toLocaleString() : Math.round(totalSum / 1.1).toLocaleString()}원
+                              </td>
+                              <td className="border border-slate-300 p-2 text-red-600">
+                                {setting?.settlementType?.includes('개인') ? Math.floor(totalSum * 0.033).toLocaleString() : (totalSum - Math.round(totalSum / 1.1)).toLocaleString()}원
+                              </td>
+                              <td className="border border-slate-300 p-2 text-blue-900 text-lg">
+                                {setting?.settlementType?.includes('개인') ? (totalSum - Math.floor(totalSum * 0.033)).toLocaleString() : totalSum.toLocaleString()}원
                               </td>
                             </tr>
                           </tbody>
