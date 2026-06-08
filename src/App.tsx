@@ -280,7 +280,7 @@ export const getDisplayPayDate = (item: any, globalIncentiveRules: any[]) => {
   
   const matchedRule = globalIncentiveRules.find((rule: any) => {
     const hqMatch = rule.targetHq === 'ALL' || item.hq === rule.targetHq;
-    const prodMatch = rule.targetProducts.includes('ALL') || (item.prodName && rule.targetProducts.includes(item.prodName));
+    const prodMatch = rule.targetProducts.includes('ALL') || (item.prodName && rule.targetProducts.some((p: string) => item.prodName.includes(p)));
     return hqMatch && prodMatch;
   });
 
@@ -1006,15 +1006,16 @@ const ERP_Dashboard = () => {
         // 지급일자 필터
         let matchesPayDate = !payDateFilter;
         if (payDateFilter) {
+          const displayPayDate = getDisplayPayDate(item, globalIncentiveRules);
           const targetDateClean = payDateFilter.replace(/[-./]/g, '');
-          const itemPayDateClean = (item.payDate || '').replace(/[-./]/g, '');
+          const itemPayDateClean = (displayPayDate || '').replace(/[-./]/g, '');
           let normalizedPayFilter = payDateFilter.replace(/[-./]/g, '');
 
           if (/^\d{6}$/.test(normalizedPayFilter)) {
             const fullYearFilter = `20${normalizedPayFilter}`;
             matchesPayDate = itemPayDateClean === fullYearFilter || itemPayDateClean.includes(fullYearFilter);
           } else {
-            matchesPayDate = itemPayDateClean.includes(normalizedPayFilter) || item.payDate.includes(payDateFilter);
+            matchesPayDate = itemPayDateClean.includes(normalizedPayFilter) || displayPayDate.includes(payDateFilter);
           }
         }
 
@@ -1129,7 +1130,7 @@ const ERP_Dashboard = () => {
           if (rule.targetHq !== 'ALL' && item.hq !== rule.targetHq) return;
 
           if (!rule.targetProducts.includes('ALL')) {
-            if (!rule.targetProducts.includes(item.prodName)) return;
+            if (!rule.targetProducts.some((p: string) => item.prodName.includes(p))) return;
           }
 
           let dateStr = '';
