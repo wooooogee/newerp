@@ -2694,6 +2694,94 @@ const ERP_Dashboard = () => {
             </div>
           </div>
 
+
+          {/* Top Dashboard (Account/Unit Based) */}
+          {(() => {
+            const monthlyCounts = new Map<string, number>();
+            const hqCounts = new Map<string, number>();
+            const prodCounts = new Map<string, number>();
+
+            filteredData.forEach(item => {
+              // 월별
+              const month = item.payDate ? item.payDate.substring(0, 7).replace(/\./g, '-') : '미정';
+              monthlyCounts.set(month, (monthlyCounts.get(month) || 0) + 1);
+              // 본부별
+              const hq = item.hq || '미지정';
+              hqCounts.set(hq, (hqCounts.get(hq) || 0) + 1);
+              // 상품별
+              const prod = item.prodName || '미지정';
+              prodCounts.set(prod, (prodCounts.get(prod) || 0) + 1);
+            });
+
+            const topMonths = Array.from(monthlyCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            const topHqs = Array.from(hqCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            const topProds = Array.from(prodCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+            return (
+              <div className="mb-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* 월별 */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+                  <div className="flex items-center gap-2 mb-4 text-slate-700 font-bold">
+                    <Calendar size={18} className="text-blue-500" />
+                    <h3>월별 구좌 현황 (Top 5)</h3>
+                  </div>
+                  <div className="space-y-3 flex-1">
+                    {topMonths.map(([m, count], idx) => (
+                      <div key={m} className="flex justify-between items-center text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">{idx + 1}</span>
+                          <span className="font-medium text-slate-600">{m}</span>
+                        </div>
+                        <span className="font-black text-blue-600">{count.toLocaleString()}건</span>
+                      </div>
+                    ))}
+                    {topMonths.length === 0 && <div className="text-slate-400 text-sm text-center py-4">데이터가 없습니다</div>}
+                  </div>
+                </div>
+                
+                {/* 본부별 */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+                  <div className="flex items-center gap-2 mb-4 text-slate-700 font-bold">
+                    <Building size={18} className="text-emerald-500" />
+                    <h3>본부별 구좌 현황 (Top 5)</h3>
+                  </div>
+                  <div className="space-y-3 flex-1">
+                    {topHqs.map(([h, count], idx) => (
+                      <div key={h} className="flex justify-between items-center text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">{idx + 1}</span>
+                          <span className="font-medium text-slate-600 truncate max-w-[150px]">{h}</span>
+                        </div>
+                        <span className="font-black text-emerald-600">{count.toLocaleString()}건</span>
+                      </div>
+                    ))}
+                    {topHqs.length === 0 && <div className="text-slate-400 text-sm text-center py-4">데이터가 없습니다</div>}
+                  </div>
+                </div>
+
+                {/* 상품별 */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+                  <div className="flex items-center gap-2 mb-4 text-slate-700 font-bold">
+                    <Package size={18} className="text-purple-500" />
+                    <h3>상품별 구좌 현황 (Top 5)</h3>
+                  </div>
+                  <div className="space-y-3 flex-1">
+                    {topProds.map(([p, count], idx) => (
+                      <div key={p} className="flex justify-between items-center text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">{idx + 1}</span>
+                          <span className="font-medium text-slate-600 truncate max-w-[150px]" title={p}>{p}</span>
+                        </div>
+                        <span className="font-black text-purple-600">{count.toLocaleString()}건</span>
+                      </div>
+                    ))}
+                    {topProds.length === 0 && <div className="text-slate-400 text-sm text-center py-4">데이터가 없습니다</div>}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           <motion.div
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
@@ -4413,12 +4501,12 @@ const ERP_Dashboard = () => {
                             <thead>
                               <tr className="bg-slate-100 text-slate-700 text-center font-bold">
                                 <th className="border border-slate-300 p-1.5">No</th>
+                                <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
                                 <th className="border border-slate-300 p-1.5">계약일자</th>
+                                <th className="border border-slate-300 p-1.5">배송일자</th>
                                 <th className="border border-slate-300 p-1.5">고객명</th>
-                                <th className="border border-slate-300 p-1.5">전화번호</th>
+                                <th className="border border-slate-300 p-1.5">영업사원</th>
                                 <th className="border border-slate-300 p-1.5 text-left">상품명</th>
-                                <th className="border border-slate-300 p-1.5">판매수수료</th>
-                                <th className="border border-slate-300 p-1.5">판매촉진비</th>
                                 <th className="border border-slate-300 p-1.5 text-blue-700">합계금액</th>
                               </tr>
                             </thead>
@@ -4428,12 +4516,12 @@ const ERP_Dashboard = () => {
                                 return (
                                   <tr key={i} className="text-center">
                                     <td className="border border-slate-300 p-1.5">{i + 1}</td>
-                                    <td className="border border-slate-300 p-1.5">{item.contractDate}</td>
-                                    <td className="border border-slate-300 p-1.5">{item.memName}</td>
-                                    <td className="border border-slate-300 p-1.5">{item.phone}</td>
+                                    <td className="border border-slate-300 p-1.5">{item.rentalNo || '-'}</td>
+                                    <td className="border border-slate-300 p-1.5">{item.contractDate || '-'}</td>
+                                    <td className="border border-slate-300 p-1.5">{item.deliveryDate || '-'}</td>
+                                    <td className="border border-slate-300 p-1.5">{item.memName || '-'}</td>
+                                    <td className="border border-slate-300 p-1.5">{item.empName || '-'}</td>
                                     <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={item.prodName}>{item.prodName}</td>
-                                    <td className="border border-slate-300 p-1.5">{salesComm.toLocaleString()}</td>
-                                    <td className="border border-slate-300 p-1.5">{promoFee.toLocaleString()}</td>
                                     <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{totalCommission.toLocaleString()}</td>
                                   </tr>
                                 );
