@@ -81,6 +81,19 @@ export interface GlobalIncentiveRule {
   minimumGuarantee: number;
 }
 
+export interface MaintenanceTier {
+  startMonth: number;
+  endMonth: number;
+  amount: number;
+}
+
+export interface MaintenanceFeeRule {
+  id: string;
+  targetHqs: string[]; // ['ALL'] or ['맥스', '드라마플라워']
+  targetProducts: string[]; // ['ALL'] or ['더좋은헬스케어580']
+  tiers: MaintenanceTier[];
+}
+
 // 샘플 시딩 값 (이곳에서 수정 가능)
 const PRODUCT_SEEDS: [string, number, number][] = [
   ['더좋은하이브리드698', 650000, 300000],
@@ -308,6 +321,7 @@ const ERP_Dashboard = () => {
   const [selectedItem, setSelectedItem] = useState<ERPDataItem | null>(null);
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [previewTabs, setPreviewTabs] = useState<Record<string, string>>({});
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [saveSettingsStatus, setSaveSettingsStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [isDailyDashboardModalOpen, setIsDailyDashboardModalOpen] = useState(false);
@@ -407,12 +421,36 @@ const ERP_Dashboard = () => {
     ];
   });
 
-  const [settingsTab, setSettingsTab] = useState<'hq' | 'global_incentive'>('hq');
+  const [settingsTab, setSettingsTab] = useState<'hq' | 'global_incentive' | 'maintenance'>('hq');
+
+  const [maintenanceRules, setMaintenanceRules] = useState<MaintenanceFeeRule[]>(() => {
+    const saved = localStorage.getItem('erp_maintenance_rules');
+    if (saved) return JSON.parse(saved);
+    return [];
+  });
+
+  const [maintenanceHistory, setMaintenanceHistory] = useState<any[]>([]);
+
+  const loadMaintenanceHistory = async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await fetch('/api/sheets/maintenance/history');
+      const data = await res.json();
+      if (data.history) setMaintenanceHistory(data.history);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) loadMaintenanceHistory();
+  }, [isAuthenticated]);
 
   useEffect(() => {
     localStorage.setItem('erp_hq_settings_v2', JSON.stringify(hqSettings));
     localStorage.setItem('erp_global_incentives', JSON.stringify(globalIncentiveRules));
-  }, [hqSettings, globalIncentiveRules]);
+    localStorage.setItem('erp_maintenance_rules', JSON.stringify(maintenanceRules));
+  }, [hqSettings, globalIncentiveRules, maintenanceRules]);
 
   const allDatesWithData = React.useMemo(() => {
     return new Set(data.map(item => {
@@ -435,11 +473,11 @@ const ERP_Dashboard = () => {
       const res = await fetch('/api/sheets/settings/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: hqSettings })
+        body: JSON.stringify({ settings: hqSettings, globalIncentives: globalIncentiveRules, maintenanceRules })
       });
       if (!res.ok) throw new Error('Cloud save failed');
       setSaveSettingsStatus('success');
-      setNotification({ message: '본부 설정이 구글 시트에 저장되었습니다.', type: 'success' });
+      setNotification({ message: '본부 및 전체 설정이 구글 시트에 저장되었습니다.', type: 'success' });
       setTimeout(() => setSaveSettingsStatus('idle'), 3000);
     } catch (err) {
       console.error(err);
@@ -456,7 +494,13 @@ const ERP_Dashboard = () => {
       const data = await res.json();
       if (data.settings) {
         setHqSettings(data.settings);
-        setNotification({ message: '구글 시트에서 본부 설정을 불러왔습니다.', type: 'success' });
+        if (data.globalIncentives && Array.isArray(data.globalIncentives)) {
+          setGlobalIncentiveRules(data.globalIncentives);
+        }
+        if (data.maintenanceRules && Array.isArray(data.maintenanceRules)) {
+          setMaintenanceRules(data.maintenanceRules);
+        }
+        setNotification({ message: '구글 시트에서 설정을 불러왔습니다.', type: 'success' });
       }
     } catch (err) {
       console.error(err);
@@ -1022,6 +1066,101 @@ const ERP_Dashboard = () => {
   React.useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, payDateFilter, paymentStatusFilter]);
+
+  const calculateMaintenancePayouts = React.useCallback((items: ERPDataItem[]) => {
+    const payouts: any[] = [];
+    if (maintenanceRules.length === 0) return payouts;
+
+    const filterClean = payDateFilter.replace(/[^0-9]/g, '');
+    let currentYearMonth = filterClean.length >= 6 ? filterClean.substring(0, 6) : '';
+    if (!currentYearMonth) {
+      // 만약 조회 조건이 없으면 오늘 기준으로 산정
+      const d = new Date();
+      currentYearMonth = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+    
+    const currentYear = parseInt(currentYearMonth.substring(0, 4));
+    const currentMonth = parseInt(currentYearMonth.substring(4, 6));
+
+    items.forEach(item => {
+      if (item.status.includes('취소')) return;
+      
+      const overdueCount = parseInt(item.raw[20]) || 0; // U열
+      if (overdueCount > 0) return; // 연체 시 미지급
+      
+      const hqName = item.hq;
+      const prodName = item.prodName.replace(/[\s()]/g, '').toLowerCase();
+
+      const rules = maintenanceRules.filter(r => 
+        (r.targetHqs.includes('ALL') || r.targetHqs.includes(hqName)) &&
+        (r.targetProducts.includes('ALL') || r.targetProducts.some(p => prodName.includes(p.replace(/[\s()]/g, '').toLowerCase())))
+      );
+
+      if (rules.length === 0) return;
+
+      const baseDateStr = item.contractDate || item.deliveryDate;
+      if (!baseDateStr) return;
+      
+      const bdMatch = baseDateStr.match(/(\d{4})[-\.](\d{1,2})/);
+      if (!bdMatch) return;
+      const bdYear = parseInt(bdMatch[1]);
+      const bdMonth = parseInt(bdMatch[2]);
+      
+      let currentInstallment = (currentYear - bdYear) * 12 + (currentMonth - bdMonth) + 1;
+      if (currentInstallment < 1) return;
+
+      let lastPaid = 0;
+      maintenanceHistory.forEach(h => {
+        if (h.resNo === item.resNo && h.payInstallment > lastPaid) {
+          lastPaid = h.payInstallment;
+        }
+      });
+
+      if (currentInstallment <= lastPaid) return; // 이미 지급됨
+
+      let totalAmount = 0;
+      let paidFrom = lastPaid + 1;
+      
+      for (let i = lastPaid + 1; i <= currentInstallment; i++) {
+        // Find matching tier across all matched rules (prioritize specific hq rules over 'ALL')
+        let matchedTierAmount = 0;
+        let specificRule = rules.find(r => !r.targetHqs.includes('ALL'));
+        if (specificRule) {
+          let tier = specificRule.tiers.find(t => i >= t.startMonth && i <= t.endMonth);
+          if (tier) matchedTierAmount = tier.amount;
+        }
+        
+        if (!matchedTierAmount) {
+          let allRule = rules.find(r => r.targetHqs.includes('ALL'));
+          if (allRule) {
+            let tier = allRule.tiers.find(t => i >= t.startMonth && i <= t.endMonth);
+            if (tier) matchedTierAmount = tier.amount;
+          }
+        }
+
+        if (matchedTierAmount > 0) {
+          totalAmount += matchedTierAmount;
+        }
+      }
+
+      if (totalAmount > 0) {
+        payouts.push({
+          resNo: item.resNo,
+          customerName: item.customerName,
+          hq: hqName,
+          productName: item.prodName,
+          amount: totalAmount,
+          fromInstallment: paidFrom,
+          toInstallment: currentInstallment,
+        });
+      }
+    });
+    return payouts;
+  }, [maintenanceRules, maintenanceHistory, payDateFilter]);
+
+  const maintenancePayouts = React.useMemo(() => {
+    return calculateMaintenancePayouts(filteredData);
+  }, [filteredData, calculateMaintenancePayouts]);
 
   const settlementStats = React.useMemo(() => {
     const summary: Record<string, { count: number, amount: number }> = {};
@@ -3530,6 +3669,9 @@ const ERP_Dashboard = () => {
                   <button onClick={() => setSettingsTab('global_incentive')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'global_incentive' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
                     특수 수당 (글로벌 인센티브) 관리
                   </button>
+                  <button onClick={() => setSettingsTab('maintenance')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'maintenance' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                    유지수수료 정책 관리
+                  </button>
                 </div>
 
                 {settingsTab === 'hq' ? (
@@ -3851,7 +3993,7 @@ const ERP_Dashboard = () => {
                     )}
                   </div>
                 </div>
-                ) : (
+                ) : settingsTab === 'global_incentive' ? (
                   <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
                     <div className="max-w-5xl mx-auto space-y-6">
                       <div className="flex justify-between items-center mb-6">
@@ -3980,6 +4122,168 @@ const ERP_Dashboard = () => {
                                 }} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="규칙 삭제">
                                   <X size={20} />
                                 </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
+                    <div className="max-w-5xl mx-auto space-y-6">
+                      <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold">유지수수료 정책 관리</h2>
+                        <button onClick={() => {
+                          setMaintenanceRules([{
+                            id: Date.now().toString(),
+                            targetHqs: ['ALL'],
+                            targetProducts: ['ALL'],
+                            tiers: [{ startMonth: 1, endMonth: 36, amount: 0 }]
+                          }, ...maintenanceRules]);
+                        }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
+                          <Plus size={16} /> 새 규칙 추가
+                        </button>
+                      </div>
+
+                      <div className="space-y-4">
+                        {maintenanceRules.length === 0 && (
+                          <div className="text-center py-12 text-slate-400 font-bold">등록된 유지수수료 규칙이 없습니다.</div>
+                        )}
+                        {maintenanceRules.map((rule, idx) => (
+                          <div key={rule.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-4">
+                            <div className="flex gap-4 items-start">
+                              <div className="flex-[1]">
+                                <label className="text-xs font-bold text-slate-500">대상 본부 (다중선택 가능)</label>
+                                <div className="mt-1 flex flex-col gap-2">
+                                  <select onChange={e => {
+                                    if (!e.target.value) return;
+                                    const n = [...maintenanceRules];
+                                    if (e.target.value === 'ALL') n[idx].targetHqs = ['ALL'];
+                                    else {
+                                      if (n[idx].targetHqs.includes('ALL')) n[idx].targetHqs = [];
+                                      if (!n[idx].targetHqs.includes(e.target.value)) n[idx].targetHqs.push(e.target.value);
+                                    }
+                                    setMaintenanceRules(n);
+                                    e.target.value = '';
+                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
+                                    <option value="">본부 추가...</option>
+                                    <option value="ALL">전체 본부 (공통)</option>
+                                    {hqSettings.map(h => <option key={h.id} value={h.hqName}>{h.hqName}</option>)}
+                                  </select>
+                                  {rule.targetHqs.includes('ALL') ? (
+                                    <span className="inline-block px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">전체 본부 (공통)</span>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-2">
+                                      {rule.targetHqs.map(h => (
+                                        <span key={h} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold border border-blue-100">
+                                          {h}
+                                          <button onClick={() => {
+                                            const n = [...maintenanceRules];
+                                            n[idx].targetHqs = n[idx].targetHqs.filter(x => x !== h);
+                                            if (n[idx].targetHqs.length === 0) n[idx].targetHqs = ['ALL'];
+                                            setMaintenanceRules(n);
+                                          }} className="hover:text-red-500 transition-colors"><X size={14} /></button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex-[2]">
+                                <label className="text-xs font-bold text-slate-500">대상 상품 (다중선택 가능)</label>
+                                <div className="mt-1 flex flex-col gap-2">
+                                  <select onChange={e => {
+                                    if (!e.target.value) return;
+                                    const n = [...maintenanceRules];
+                                    if (e.target.value === 'ALL') n[idx].targetProducts = ['ALL'];
+                                    else {
+                                      if (n[idx].targetProducts.includes('ALL')) n[idx].targetProducts = [];
+                                      if (!n[idx].targetProducts.includes(e.target.value)) n[idx].targetProducts.push(e.target.value);
+                                    }
+                                    setMaintenanceRules(n);
+                                    e.target.value = '';
+                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
+                                    <option value="">상품 추가...</option>
+                                    <option value="ALL">전체 상품</option>
+                                    {Array.from(new Set(hqSettings.flatMap(h => h.productRules.map(p => p.productName)))).map(p => (
+                                      <option key={p} value={p}>{p}</option>
+                                    ))}
+                                  </select>
+                                  {rule.targetProducts.includes('ALL') ? (
+                                    <span className="inline-block px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">전체 상품</span>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-2">
+                                      {rule.targetProducts.map(p => (
+                                        <span key={p} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold border border-blue-100">
+                                          {p}
+                                          <button onClick={() => {
+                                            const n = [...maintenanceRules];
+                                            n[idx].targetProducts = n[idx].targetProducts.filter(x => x !== p);
+                                            if (n[idx].targetProducts.length === 0) n[idx].targetProducts = ['ALL'];
+                                            setMaintenanceRules(n);
+                                          }} className="hover:text-red-500 transition-colors"><X size={14} /></button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="pt-5 pl-2 flex flex-col items-end">
+                                <button onClick={() => {
+                                  if(confirm('이 정책 규칙 전체를 삭제하시겠습니까?')) {
+                                    const n = [...maintenanceRules]; n.splice(idx, 1); setMaintenanceRules(n);
+                                  }
+                                }} className="p-2 mb-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="규칙 삭제">
+                                  <X size={20} />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="border border-indigo-100 rounded-xl overflow-hidden mt-2">
+                              <div className="bg-indigo-50/50 px-4 py-3 flex justify-between items-center border-b border-indigo-100">
+                                <span className="text-[11px] font-black text-indigo-500 uppercase tracking-widest">회차별 구간 수수료</span>
+                                <button onClick={() => {
+                                  const n = [...maintenanceRules];
+                                  const lastEnd = n[idx].tiers.length > 0 ? n[idx].tiers[n[idx].tiers.length-1].endMonth : 0;
+                                  n[idx].tiers.push({ startMonth: lastEnd + 1, endMonth: lastEnd + 12, amount: 0 });
+                                  setMaintenanceRules(n);
+                                }} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-100/50 hover:bg-indigo-200 px-3 py-1 rounded-md transition-colors flex items-center gap-1">
+                                  <Plus size={14} /> 구간 추가
+                                </button>
+                              </div>
+                              <div className="p-4 flex flex-col gap-3">
+                                {rule.tiers.map((tier, tIdx) => (
+                                  <div key={tIdx} className="flex gap-4 items-end">
+                                    <div className="w-24">
+                                      <label className="text-xs font-bold text-slate-500">시작 회차</label>
+                                      <input type="number" min="1" value={tier.startMonth} onChange={e => {
+                                        const n = [...maintenanceRules]; n[idx].tiers[tIdx].startMonth = parseInt(e.target.value) || 1; setMaintenanceRules(n);
+                                      }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-indigo-100 transition-all font-bold" />
+                                    </div>
+                                    <span className="text-slate-400 font-bold pb-2">~</span>
+                                    <div className="w-24">
+                                      <label className="text-xs font-bold text-slate-500">종료 회차</label>
+                                      <input type="number" min="1" value={tier.endMonth} onChange={e => {
+                                        const n = [...maintenanceRules]; n[idx].tiers[tIdx].endMonth = parseInt(e.target.value) || 36; setMaintenanceRules(n);
+                                      }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-indigo-100 transition-all font-bold" />
+                                    </div>
+                                    <div className="flex-1">
+                                      <label className="text-[10px] uppercase tracking-wider font-black text-indigo-400">지급 금액 (원)</label>
+                                      <input type="number" value={tier.amount} onChange={e => {
+                                        const n = [...maintenanceRules]; n[idx].tiers[tIdx].amount = parseInt(e.target.value) || 0; setMaintenanceRules(n);
+                                      }} className="w-full mt-1 px-3 py-2 border border-indigo-200 rounded-lg text-right font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-200 transition-all bg-white" />
+                                    </div>
+                                    <button onClick={() => {
+                                      const n = [...maintenanceRules];
+                                      n[idx].tiers.splice(tIdx, 1);
+                                      setMaintenanceRules(n);
+                                    }} className="p-2 mb-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="구간 삭제">
+                                      <X size={18} />
+                                    </button>
+                                  </div>
+                                ))}
+                                {rule.tiers.length === 0 && <div className="text-xs text-slate-400 font-bold py-2 text-center">설정된 구간이 없습니다. 구간을 추가해주세요.</div>}
                               </div>
                             </div>
                           </div>
@@ -4443,6 +4747,11 @@ const ERP_Dashboard = () => {
                       salesSum += salesComm;
                     });
                     const promoSum = Math.max(0, totalSum - salesSum);
+                    
+                    const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
+                    const maintenanceSum = hqMaintenancePayouts.reduce((sum, p) => sum + p.amount, 0);
+                    totalSum += maintenanceSum;
+
                     const { displayPayDate: payDateDisplay } = calculateCommissionDetails(items[0], stats);
 
                     const targetMonth = payDateDisplay.substring(0, 7);
@@ -4458,12 +4767,34 @@ const ERP_Dashboard = () => {
                       productSummary[item.prodName].total += totalCommission;
                     });
 
+                    const activeTab = previewTabs[hqName] || 'summary';
+
+
                     return (
                       <div key={hqName} className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
                         <h1 className="text-center text-2xl font-black mb-8 text-slate-800">{y}년 {parseInt(m)}월 수수료 정산 내역서</h1>
                         
-                        {/* Summary Table 1 */}
-                        <table className="w-full mb-6 border-collapse border border-blue-900 text-sm">
+                        <div className="flex border-b border-slate-200 mb-6 gap-2">
+                          {['summary', 'tax', 'products', 'details', 'maintenance'].map(tab => {
+                            if (tab === 'maintenance' && hqMaintenancePayouts.length === 0) return null;
+                            const tabNames: Record<string, string> = {
+                              'summary': '정산내역 요약',
+                              'tax': '세금계산서 요약',
+                              'products': '상품별 요약',
+                              'details': '세부 실적 내역',
+                              'maintenance': '유지수수료 정산내역'
+                            };
+                            return (
+                              <button key={tab} onClick={() => setPreviewTabs(prev => ({...prev, [hqName]: tab}))}
+                                className={`px-4 py-2 font-bold text-sm transition-colors border-b-2 ${activeTab === tab ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+                                {tabNames[tab]}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {activeTab === 'summary' && (
+                          <table className="w-full mb-6 border-collapse border border-blue-900 text-sm">
                           <thead>
                             <tr className="bg-blue-900 text-white font-bold text-center">
                               <th className="border border-blue-900 p-2">지급일자</th>
@@ -4487,7 +4818,10 @@ const ERP_Dashboard = () => {
                             </tr>
                           </tbody>
                         </table>
+                        )}
 
+                        {activeTab === 'tax' && (
+                          <>
                         {/* Summary Table 2 */}
                         <div className="mb-2 font-bold text-sm text-slate-700">■ {setting?.settlementType?.includes('개인') ? '원천징수 영수 요약 (3.3% 공제)' : '세금계산서 발행 요약 (부가세 포함)'}</div>
                         <table className="w-full mb-8 border-collapse border border-slate-300 text-sm text-center">
@@ -4538,7 +4872,11 @@ const ERP_Dashboard = () => {
                             </tr>
                           </tbody>
                         </table>
+                        </>
+                        )}
 
+                        {activeTab === 'products' && (
+                          <>
                         {/* Product Summary */}
                         <div className="mb-2 font-bold text-sm text-slate-700">■ 상품별 수수료 요약</div>
                         <table className="w-full mb-8 border-collapse border border-slate-300 text-sm">
@@ -4563,7 +4901,11 @@ const ERP_Dashboard = () => {
                             ))}
                           </tbody>
                         </table>
+                        </>
+                        )}
 
+                        {activeTab === 'details' && (
+                          <>
                         {/* Details Table */}
                         <div className="mb-2 font-bold text-sm text-slate-700">■ 세부 실적 내역 ({items.length}건)</div>
                         <div className="overflow-x-auto">
@@ -4599,11 +4941,81 @@ const ERP_Dashboard = () => {
                             </tbody>
                           </table>
                         </div>
+                        </>
+                        )}
 
+                        {activeTab === 'maintenance' && (
+                          <>
+                          <div className="mb-2 font-bold text-sm text-slate-700">■ 유지수수료 정산 내역 (총 {maintenanceSum.toLocaleString()}원)</div>
+                          <table className="w-full mb-8 border-collapse border border-slate-300 text-[11px] whitespace-nowrap">
+                            <thead>
+                              <tr className="bg-slate-100 text-slate-700 text-center font-bold">
+                                <th className="border border-slate-300 p-1.5">No</th>
+                                <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
+                                <th className="border border-slate-300 p-1.5">고객명</th>
+                                <th className="border border-slate-300 p-1.5 text-left">상품명</th>
+                                <th className="border border-slate-300 p-1.5 text-blue-700">지급회차</th>
+                                <th className="border border-slate-300 p-1.5 text-blue-700">지급금액</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {hqMaintenancePayouts.map((m, i) => (
+                                <tr key={i} className="text-center">
+                                  <td className="border border-slate-300 p-1.5">{i + 1}</td>
+                                  <td className="border border-slate-300 p-1.5">{m.resNo}</td>
+                                  <td className="border border-slate-300 p-1.5">{m.customerName}</td>
+                                  <td className="border border-slate-300 p-1.5 text-left">{m.productName}</td>
+                                  <td className="border border-slate-300 p-1.5 font-bold text-blue-700">
+                                    {m.fromInstallment === m.toInstallment ? `${m.fromInstallment}회차` : `${m.fromInstallment}회차 ~ ${m.toInstallment}회차`}
+                                  </td>
+                                  <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{m.amount.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          </>
+                        )}
                       </div>
                     );
                   })}
                 </div>
+                
+                {maintenancePayouts.length > 0 && (
+                <div className="px-8 py-5 bg-white border-t border-slate-200 flex justify-between items-center shrink-0">
+                  <div className="text-sm font-bold text-slate-500">
+                    유지수수료 정산 대상: 총 {maintenancePayouts.length}건 (지급 완료 시 구글 시트에 이력 저장)
+                  </div>
+                  <button 
+                    onClick={async () => {
+                      if (!confirm('현재 계산된 유지수수료 지급 내역을 구글 시트에 저장하시겠습니까?\n저장 후에는 이 고객들의 해당 회차는 기지급으로 처리됩니다.')) return;
+                      setIsUpdating(true);
+                      try {
+                        const targetMonth = payDateFilter.replace(/[^0-9]/g, '').substring(0, 6) || '미지정';
+                        const rowsToSave = maintenancePayouts.map(m => [
+                          m.resNo, targetMonth, m.toInstallment, m.amount, m.customerName, m.productName, `자동정산 (회차: ${m.fromInstallment}~${m.toInstallment})`
+                        ]);
+                        const res = await fetch('/api/sheets/maintenance/save', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ rows: rowsToSave })
+                        });
+                        if (!res.ok) throw new Error('Save failed');
+                        setNotification({ message: '유지수수료 지급 내역이 저장되었습니다.', type: 'success' });
+                        await loadMaintenanceHistory();
+                      } catch (e) {
+                        console.error(e);
+                        alert('유지수수료 내역 저장 중 오류가 발생했습니다.');
+                      } finally {
+                        setIsUpdating(false);
+                      }
+                    }} 
+                    disabled={isUpdating}
+                    className="px-8 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 disabled:bg-blue-300 transition-colors flex items-center gap-2">
+                    {isUpdating ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+                    유지수수료 지급이력 저장
+                  </button>
+                </div>
+                )}
               </motion.div>
             </div>
           )}

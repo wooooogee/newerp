@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 3002;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
@@ -24,7 +24,7 @@ const getOAuthClient = () => {
     throw new Error(`환경 변수가 설정되지 않았습니다: ${missing.join(', ')}. AI Studio의 Secrets 메뉴에서 해당 항목을 정확히 입력하고 [Save]를 눌러주세요.`);
   }
 
-  const baseUrl = process.env.APP_URL || process.env.URL || 'http://localhost:3000';
+  const baseUrl = process.env.APP_URL || process.env.URL || 'http://localhost:3002';
   let normalizedBase = baseUrl.trim();
   if (normalizedBase.endsWith('/')) normalizedBase = normalizedBase.slice(0, -1);
   
@@ -55,7 +55,7 @@ app.get('/api/auth/debug', (req, res) => {
   try {
     const clientId = process.env.GOOGLE_CLIENT_ID?.trim() || 'NOT_SET';
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() || 'NOT_SET';
-    const baseUrl = process.env.APP_URL || process.env.URL || 'http://localhost:3000';
+    const baseUrl = process.env.APP_URL || process.env.URL || 'http://localhost:3002';
     let normalizedBase = baseUrl.trim();
     if (normalizedBase.endsWith('/')) normalizedBase = normalizedBase.slice(0, -1);
     if (!normalizedBase.startsWith('http')) normalizedBase = `https://${normalizedBase}`;
@@ -221,7 +221,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
 
-  const { settings } = req.body as { settings: any[] };
+  const { settings, globalIncentives, maintenanceRules } = req.body as { settings: any[], globalIncentives?: any[], maintenanceRules?: any[] };
   let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
   if (sheetId && sheetId.includes('spreadsheets/d/')) {
     sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
@@ -342,6 +342,145 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
 
     console.log("[CloudSync] Beautiful settings saved successfully.");
+
+    // -- Handle globalIncentives --
+    if (globalIncentives && Array.isArray(globalIncentives)) {
+      let incentiveSheet = sheetsList.find(s => s.properties?.title === '특수수당설정');
+      let incentiveSheetId: number | null | undefined = incentiveSheet?.properties?.sheetId;
+      
+      if (!incentiveSheet) {
+        console.log("[CloudSync] Creating '특수수당설정' sheet...");
+        const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: '특수수당설정' } } }]
+          }
+        });
+        incentiveSheetId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+      }
+
+      const incentiveHeaders = [
+        'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액'
+      ];
+      
+      const incentiveRows: any[][] = [incentiveHeaders];
+      globalIncentives.forEach((rule: any) => {
+        incentiveRows.push([
+          rule.id || '',
+          rule.targetName || '',
+          rule.payDay || 1,
+          rule.targetHq || '',
+          (rule.targetProducts || []).join(', '),
+          rule.baseDateType || 'DELIVERY',
+          rule.commissionPerUnit || 0,
+          rule.minimumGuarantee || 0
+        ]);
+      });
+
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: sheetId,
+        range: '특수수당설정',
+      });
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: '특수수당설정!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: incentiveRows }
+      });
+
+      if (incentiveSheetId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: incentiveSheetId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+      console.log("[CloudSync] Global incentives saved successfully.");
+    }
+
+    // -- Handle maintenanceRules --
+    if (maintenanceRules && Array.isArray(maintenanceRules)) {
+      let mSheet = sheetsList.find(s => s.properties?.title === '유지수수료설정');
+      let mSheetId: number | null | undefined = mSheet?.properties?.sheetId;
+      
+      if (!mSheet) {
+        console.log("[CloudSync] Creating '유지수수료설정' sheet...");
+        const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: '유지수수료설정' } } }]
+          }
+        });
+        mSheetId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+      }
+
+      const mHeaders = [
+        'ID', '대상본부', '대상상품', '회차별구간'
+      ];
+      
+      const mRows: any[][] = [mHeaders];
+      maintenanceRules.forEach((rule: any) => {
+        mRows.push([
+          rule.id || '',
+          JSON.stringify(rule.targetHqs || ['ALL']),
+          JSON.stringify(rule.targetProducts || ['ALL']),
+          JSON.stringify(rule.tiers || [])
+        ]);
+      });
+
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: sheetId,
+        range: '유지수수료설정',
+      });
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: '유지수수료설정!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: mRows }
+      });
+
+      if (mSheetId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: mSheetId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+      console.log("[CloudSync] Maintenance rules saved successfully.");
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     console.error("[CloudSync] Save error:", error.message);
@@ -451,12 +590,225 @@ app.get('/api/sheets/settings/load', async (req, res) => {
     });
 
     console.log(`[CloudSync] Loaded ${hqMap.size} HQs from cloud.`);
-    res.json({ settings: Array.from(hqMap.values()) });
+
+    // -- Load globalIncentives --
+    let globalIncentives: any[] = [];
+    try {
+      const incentiveResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: '특수수당설정',
+      });
+      const incRows = incentiveResponse.data.values;
+      if (incRows && incRows.length >= 2) {
+        const incHeaderRow = (incRows[0] || []).map((h: any) => (String(h) || '').trim());
+        const iCol = (name: string) => incHeaderRow.indexOf(name);
+        
+        const iId = iCol('ID');
+        const iTargetName = iCol('수급자명');
+        const iPayDay = iCol('지급일(일)');
+        const iTargetHq = iCol('대상본부');
+        const iTargetProducts = iCol('대상상품');
+        const iBaseDateType = iCol('기준일자');
+        const iCommissionPerUnit = iCol('건당수수료');
+        const iMinimumGuarantee = iCol('최소보장금액');
+
+        globalIncentives = incRows.slice(1).map((row: string[]) => {
+          const productsStr = iTargetProducts >= 0 ? (row[iTargetProducts] || '') : '';
+          const targetProducts = productsStr ? productsStr.split(',').map(s => s.trim()).filter(s => s) : ['ALL'];
+          return {
+            id: iId >= 0 ? row[iId] : Date.now().toString() + Math.random(),
+            targetName: iTargetName >= 0 ? row[iTargetName] : '',
+            payDay: iPayDay >= 0 ? (parseInt(row[iPayDay]) || 1) : 1,
+            targetHq: iTargetHq >= 0 ? row[iTargetHq] : '',
+            targetProducts,
+            baseDateType: iBaseDateType >= 0 ? row[iBaseDateType] : 'DELIVERY',
+            commissionPerUnit: iCommissionPerUnit >= 0 ? (parseInt(row[iCommissionPerUnit]) || 0) : 0,
+            minimumGuarantee: iMinimumGuarantee >= 0 ? (parseInt(row[iMinimumGuarantee]) || 0) : 0
+          };
+        }).filter((r: any) => r.targetName);
+        console.log(`[CloudSync] Loaded ${globalIncentives.length} global incentives from cloud.`);
+      }
+    } catch (e: any) {
+      console.log("[CloudSync] '특수수당설정' sheet might not exist yet.");
+    }
+
+    // -- Load maintenanceRules --
+    let maintenanceRules: any[] = [];
+    try {
+      const mResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: '유지수수료설정',
+      });
+      const mRows = mResponse.data.values;
+      if (mRows && mRows.length >= 2) {
+        const mHeaderRow = (mRows[0] || []).map((h: any) => (String(h) || '').trim());
+        const mCol = (name: string) => mHeaderRow.indexOf(name);
+        
+        const mId = mCol('ID');
+        const mHq = mCol('대상본부');
+        const mProduct = mCol('대상상품');
+        const mTiers = mCol('회차별구간');
+
+        maintenanceRules = mRows.slice(1).map((row: string[]) => {
+          let targetHqs = ['ALL'];
+          let targetProducts = ['ALL'];
+          let tiers = [];
+          
+          try { if (mHq >= 0 && row[mHq]) targetHqs = JSON.parse(row[mHq]); } catch(e){}
+          try { if (mProduct >= 0 && row[mProduct]) targetProducts = JSON.parse(row[mProduct]); } catch(e){}
+          try { if (mTiers >= 0 && row[mTiers]) tiers = JSON.parse(row[mTiers]); } catch(e){}
+
+          return {
+            id: mId >= 0 ? row[mId] : Date.now().toString() + Math.random(),
+            targetHqs,
+            targetProducts,
+            tiers
+          };
+        }).filter((r: any) => r.targetProducts && r.targetProducts.length > 0);
+        console.log(`[CloudSync] Loaded ${maintenanceRules.length} maintenance rules from cloud.`);
+      }
+    } catch (e: any) {
+      console.log("[CloudSync] '유지수수료설정' sheet might not exist yet.");
+    }
+
+    res.json({ settings: Array.from(hqMap.values()), globalIncentives, maintenanceRules });
   } catch (error: any) {
     if (error.response?.status === 400 || error.message?.toLowerCase().includes('not found')) {
-      return res.json({ settings: null });
+      return res.json({ settings: null, globalIncentives: [], maintenanceRules: [] });
     }
     console.error("[CloudSync] Load error:", error.message);
+    return handleGoogleError(error, res);
+  }
+});
+
+// 유지수수료 지급 내역(히스토리) 조회 API
+app.get('/api/sheets/maintenance/history', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '유지수수료내역',
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length < 2) {
+      return res.json({ history: [] });
+    }
+
+    const headers = (rows[0] || []).map((h: any) => (String(h) || '').trim());
+    const col = (name: string) => headers.indexOf(name);
+    
+    const resNoCol = col('계약번호');
+    const payMonthCol = col('지급년월');
+    const payInstallmentCol = col('지급회차');
+    const amountCol = col('지급액');
+
+    if (resNoCol === -1 || payInstallmentCol === -1) {
+      return res.json({ history: [] });
+    }
+
+    const history = rows.slice(1).map((row: string[]) => ({
+      resNo: row[resNoCol],
+      payMonth: payMonthCol >= 0 ? row[payMonthCol] : '',
+      payInstallment: parseInt(row[payInstallmentCol]) || 0,
+      amount: amountCol >= 0 ? (parseInt(row[amountCol]) || 0) : 0
+    })).filter((h: any) => h.resNo);
+
+    res.json({ history });
+  } catch (error: any) {
+    if (error.response?.status === 400 || error.message?.toLowerCase().includes('not found')) {
+      return res.json({ history: [] });
+    }
+    console.error("[Maintenance History] Load error:", error.message);
+    return handleGoogleError(error, res);
+  }
+});
+
+// 유지수수료 지급 내역(히스토리) 저장 API
+app.post('/api/sheets/maintenance/save', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { rows } = req.body as { rows: any[][] };
+  if (!rows || rows.length === 0) return res.status(400).json({ error: 'No data to save' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let historySheet = sheetsList.find(s => s.properties?.title === '유지수수료내역');
+    let sheetInternalId: number | null | undefined = historySheet?.properties?.sheetId;
+    
+    if (!historySheet) {
+      console.log("[Maintenance History] Creating '유지수수료내역' sheet...");
+      const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '유지수수료내역' } } }]
+        }
+      });
+      sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+      
+      const headers = [['계약번호', '지급년월', '지급회차', '지급액', '고객명', '상품명', '메모']];
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '유지수수료내역!A1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: headers }
+      });
+      
+      if (sheetInternalId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+    }
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: '유지수수료내역!A1',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: rows }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[Maintenance History Save Error]", error);
     return handleGoogleError(error, res);
   }
 });
