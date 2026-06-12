@@ -1360,6 +1360,7 @@ const ERP_Dashboard = () => {
       if (!isLeeAlreadyPaid) {
         payouts.push({
           resNo: resNoForced,
+          memNo: g === 1 ? "J2511010332" : "J2511010331",
           customerName: "이지안",
           hq: "맥스",
           productName: "더좋은헬스케어580",
@@ -2134,18 +2135,20 @@ const ERP_Dashboard = () => {
       XLSX.utils.book_append_sheet(wb, wsDetail, "전체상세명세");
 
       // --- SHEET 3: 유지수수료 상세 명세 ---
-      const maintRows: any[][] = [['지급일', '본부', '지사', '사원명', '고객명', '계약번호', '상품명', '지급회차범위', '유지수수료']];
+      const maintRows: any[][] = [['지급일', '본부', '지사', '사원명', '회원번호', '고객명', '계약번호', '상품명', '지급회차범위', '유지수수료']];
       maintenancePayouts.forEach((m) => {
         const originContract = filteredData.find(d => d.resNo === m.resNo);
         const branch = m.branch || (originContract ? originContract.branch : '-');
         const empName = m.empName || (originContract ? originContract.empName : '-');
         const payDate = m.payDate || (originContract ? originContract.payDate : payDateSample);
+        const memNo = m.memNo || (originContract ? originContract.memNo : '-');
         
         maintRows.push([
           payDate,
           m.hq,
           branch,
           empName,
+          memNo,
           m.customerName,
           m.resNo,
           m.productName,
@@ -2647,17 +2650,17 @@ const ERP_Dashboard = () => {
         totalEligibleSum += x.totalCommission;
         const intervalStr = x.payCount > 1 ? `${x.hcInterval}회차(소급 ${x.payCount}개월)` : `${x.hcInterval}회차`;
         return [
-          idx + 1, x.item.hq, x.item.branch, x.item.empName, x.item.memName, x.item.contractDate, x.item.prodName, intervalStr,
+          idx + 1, x.item.hq, x.item.branch, x.item.empName, x.item.memNo || '-', x.item.memName, x.item.contractDate, x.item.prodName, intervalStr,
           { v: x.totalCommission, t: 'n', z: '#,##0' }
         ];
       });
-      eligibleRows.push(['합계', '', '', '', '', '', '', '', { v: totalEligibleSum, t: 'n', z: '#,##0' }]);
+      eligibleRows.push(['합계', '', '', '', '', '', '', '', '', { v: totalEligibleSum, t: 'n', z: '#,##0' }]);
 
       const eligibleWorksheet = XLSX.utils.aoa_to_sheet([
         ['[ 헬스케어80 유지수수료 지급 대상 현황 ]'],
         [`수수료 지급일: ${payDateFilter || today} | 보고서 생성일: ${today}`],
         [],
-        ['순번', '본부명', '지사명', '사원명', '고객명', '계약일자', '상품명', '회차', '유지수수료'],
+        ['순번', '본부명', '지사명', '사원명', '회원번호', '고객명', '계약일자', '상품명', '회차', '유지수수료'],
         ...eligibleRows
       ]);
 
@@ -2666,17 +2669,17 @@ const ERP_Dashboard = () => {
       const overdueRows = overdueItems.map((x, idx) => {
         totalOverdueSum += x.pendingCommission;
         return [
-          idx + 1, x.item.hq, x.item.branch, x.item.empName, `${x.overdueCount}회`, x.item.memName, x.item.contractDate, x.item.prodName, `${x.hcInterval}회차`,
+          idx + 1, x.item.hq, x.item.branch, x.item.empName, `${x.overdueCount}회`, x.item.memNo || '-', x.item.memName, x.item.contractDate, x.item.prodName, `${x.hcInterval}회차`,
           { v: x.pendingCommission, t: 'n', z: '#,##0' }
         ];
       });
-      overdueRows.push(['합계', '', '', '', '', '', '', '', '', { v: totalOverdueSum, t: 'n', z: '#,##0' }]);
+      overdueRows.push(['합계', '', '', '', '', '', '', '', '', '', { v: totalOverdueSum, t: 'n', z: '#,##0' }]);
 
       const overdueWorksheet = XLSX.utils.aoa_to_sheet([
         ['[ 헬스케어80 유지수수료 지급 보류(연체) 현황 ]'],
         [`수수료 지급일: ${payDateFilter || today} | 보고서 생성일: ${today}`],
         [],
-        ['순번', '본부명', '지사명', '사원명', '연체횟수', '고객명', '계약일자', '상품명', '회차', '보류 수수료'],
+        ['순번', '본부명', '지사명', '사원명', '연체횟수', '회원번호', '고객명', '계약일자', '상품명', '회차', '보류 수수료'],
         ...overdueRows
       ]);
 
@@ -2695,8 +2698,8 @@ const ERP_Dashboard = () => {
         worksheet['!cols'] = Array(colCount).fill({ wch: 13 });
       };
 
-      applyStyles(eligibleWorksheet, 9);
-      applyStyles(overdueWorksheet, 10);
+      applyStyles(eligibleWorksheet, 10);
+      applyStyles(overdueWorksheet, 11);
 
       XLSX.utils.book_append_sheet(workbook, eligibleWorksheet, "유지수수료 지급대상");
       XLSX.utils.book_append_sheet(workbook, overdueWorksheet, "유지수수료 지급보류");
@@ -3233,6 +3236,7 @@ const ERP_Dashboard = () => {
                 {[
                   { dot: 'bg-blue-600', label: '월별 실적 대시보드', action: () => setIsMonthlyDashboardModalOpen(true) },
                   { dot: 'bg-green-500', label: '헬스케어 명단 추출', action: () => setIsHealthcareModalOpen(true) },
+                  { dot: 'bg-emerald-500', label: '유지수수료 현황 조회', action: () => { setMaintenanceTab('eligible'); setIsMaintenanceStatusModalOpen(true); } },
                   { dot: 'bg-yellow-500', label: '날짜별 메모 확인', action: () => setIsMemoHistoryModalOpen(true) },
                   { dot: 'bg-indigo-500', label: '유지수수료 지급 관리', action: () => setIsMaintenanceHistoryModalOpen(true) },
                 ].map((item, idx) => (
@@ -4283,6 +4287,198 @@ const ERP_Dashboard = () => {
                       * S열에 유효한 날짜가 입력된 데이터만 추출됩니다.
                     </div>
                   </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* 유지수수료 현황 조회 모달 */}
+        <AnimatePresence>
+          {isMaintenanceStatusModalOpen && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMaintenanceStatusModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative bg-white w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                <div className="p-8 flex flex-col h-full overflow-hidden">
+                  <div className="flex justify-between items-center mb-6 shrink-0">
+                    <div className="flex flex-col">
+                      <h3 className="text-xl font-black text-slate-900">유지수수료 현황 조회</h3>
+                    </div>
+                    <button onClick={() => setIsMaintenanceStatusModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+                  </div>
+                  {(() => {
+                    const targetPayDate = payDateFilter || new Date().toISOString().split('T')[0];
+                    const maintenanceItems = data.map(item => {
+                      const hcInfo = getHealthcareMaintenanceInfo(item, targetPayDate);
+                      if (!hcInfo) return null;
+                      
+                      const statsMap = new Map<string, number>();
+                      const details = calculateCommissionDetails(item, statsMap);
+                      
+                      let pendingCommission = details.unitPrice;
+                      if (hcInfo.isOverdue && hcInfo.overdueCount >= 3) {
+                         pendingCommission = 30000;
+                      }
+                      
+                      return {
+                        item,
+                        hcInterval: hcInfo.interval,
+                        isOverdue: hcInfo.isOverdue,
+                        overdueCount: hcInfo.overdueCount,
+                        payCount: hcInfo.payCount || 1,
+                        totalCommission: details.unitPrice * (hcInfo.payCount || 1),
+                        pendingCommission: pendingCommission
+                      };
+                    }).filter(Boolean);
+
+                    // 강제 주입 이지안 2구좌
+                    const forcedList: any[] = [];
+                    const isLee1Paid = maintenanceHistory.some(h => h.resNo === 'MAX-LEE-FORCED-1' && h.payInstallment === 7);
+                    if (!isLee1Paid) {
+                      forcedList.push({
+                        item: {
+                          uniqueKey: 'MAX-LEE-FORCED-1',
+                          originalRowIdx: -1,
+                          contractDate: '2025-11-19',
+                          memNo: 'J2511010332',
+                          memName: '이지안',
+                          resNo: 'MAX-LEE-FORCED-1',
+                          phone: '',
+                          prodName: '더좋은헬스케어580',
+                          rentalProd: '',
+                          rentalNo: '',
+                          deliveryStatus: '배송완료',
+                          status: '가입',
+                          deliveryDate: '',
+                          payDate: '2025-12-25',
+                          hq: '맥스',
+                          branch: '맥스',
+                          empName: '이지안',
+                          hc: '대상자',
+                          paymentStatus: '',
+                          hcRegDate: '2025-11-19',
+                          memo: '',
+                          raw: new Array(30).fill('')
+                        },
+                        hcInterval: 7,
+                        isOverdue: false,
+                        overdueCount: 0,
+                        payCount: 1,
+                        totalCommission: 10000,
+                        pendingCommission: 0
+                      });
+                    }
+                    const isLee2Paid = maintenanceHistory.some(h => h.resNo === 'MAX-LEE-FORCED-2' && h.payInstallment === 7);
+                    if (!isLee2Paid) {
+                      forcedList.push({
+                        item: {
+                          uniqueKey: 'MAX-LEE-FORCED-2',
+                          originalRowIdx: -1,
+                          contractDate: '2025-11-19',
+                          memNo: 'J2511010331',
+                          memName: '이지안',
+                          resNo: 'MAX-LEE-FORCED-2',
+                          phone: '',
+                          prodName: '더좋은헬스케어580',
+                          rentalProd: '',
+                          rentalNo: '',
+                          deliveryStatus: '배송완료',
+                          status: '가입',
+                          deliveryDate: '',
+                          payDate: '2025-12-25',
+                          hq: '맥스',
+                          branch: '맥스',
+                          empName: '이지안',
+                          hc: '대상자',
+                          paymentStatus: '',
+                          hcRegDate: '2025-11-19',
+                          memo: '',
+                          raw: new Array(30).fill('')
+                        },
+                        hcInterval: 7,
+                        isOverdue: false,
+                        overdueCount: 0,
+                        payCount: 1,
+                        totalCommission: 10000,
+                        pendingCommission: 0
+                      });
+                    }
+                    maintenanceItems.push(...forcedList);
+
+                    const eligibleItems = maintenanceItems.filter((x: any) => !x.isOverdue);
+                    const overdueItems = maintenanceItems.filter((x: any) => x.isOverdue);
+
+                    const totalEligibleSum = eligibleItems.reduce((sum: number, x: any) => sum + x.totalCommission, 0);
+                    const totalOverdueSum = overdueItems.reduce((sum: number, x: any) => sum + x.pendingCommission, 0);
+
+                    const currentList = maintenanceTab === 'eligible' ? eligibleItems : overdueItems;
+
+                    return (
+                      <>
+                        <div className="flex gap-2 mb-6 border-b border-slate-100 pb-3 shrink-0">
+                          <button onClick={() => setMaintenanceTab('eligible')} className={`px-4 py-2 rounded-xl text-[13px] font-extrabold transition-all ${maintenanceTab === 'eligible' ? 'bg-emerald-500 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}>
+                            지급 대상 ({eligibleItems.length}건)
+                          </button>
+                          <button onClick={() => setMaintenanceTab('overdue')} className={`px-4 py-2 rounded-xl text-[13px] font-extrabold transition-all ${maintenanceTab === 'overdue' ? 'bg-rose-500 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}>
+                            지급 보류/연체 ({overdueItems.length}건)
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4 mb-6 shrink-0">
+                          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-1">총 지급예정액 (대상)</span>
+                            <span className="text-base font-black text-emerald-700">{totalEligibleSum.toLocaleString()}원</span>
+                          </div>
+                          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-1">총 지급보류 (연체)</span>
+                            <span className="text-base font-black text-rose-700">{totalOverdueSum.toLocaleString()}원</span>
+                          </div>
+                          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col justify-between">
+                            <span className="text-[10px] font-bold text-slate-400 block mb-1">전체 합계</span>
+                            <span className="text-base font-black text-slate-800">{(totalEligibleSum + totalOverdueSum).toLocaleString()}원</span>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center mb-4 shrink-0">
+                          <button onClick={() => exportMaintenanceStatusExcel(eligibleItems, overdueItems)} className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-bold shadow-md transition-all">
+                            <Download size={14} /> 유지수수료 현황 상세 다운로드 (Excel)
+                          </button>
+                        </div>
+                        <div className="flex-1 overflow-auto border border-slate-100 rounded-2xl">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-slate-50/70 border-b border-slate-100 sticky top-0 z-10">
+                                <th className="p-3 text-[11px] font-bold text-slate-400">본부명</th>
+                                <th className="p-3 text-[11px] font-bold text-slate-400">지사명</th>
+                                <th className="p-3 text-[11px] font-bold text-slate-400">사원명</th>
+                                {maintenanceTab === 'overdue' && <th className="p-3 text-[11px] font-bold text-rose-500">연체횟수</th>}
+                                <th className="p-3 text-[11px] font-bold text-slate-400">회원번호</th>
+                                <th className="p-3 text-[11px] font-bold text-slate-400">고객명</th>
+                                <th className="p-3 text-[11px] font-bold text-slate-400">계약일자</th>
+                                <th className="p-3 text-[11px] font-bold text-slate-400">상품명</th>
+                                <th className="p-3 text-[11px] font-bold text-slate-400">회차</th>
+                                <th className="p-3 text-[11px] font-bold text-slate-400 text-right">{maintenanceTab === 'eligible' ? '지급 수수료' : '보류 수수료'}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {currentList.map((x: any, i: number) => (
+                                <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50">
+                                  <td className="p-3 text-[13px] font-bold text-slate-800">{x.item.hq}</td>
+                                  <td className="p-3 text-[13px] text-slate-600">{x.item.branch}</td>
+                                  <td className="p-3 text-[13px] text-slate-700">{x.item.empName}</td>
+                                  {maintenanceTab === 'overdue' && <td className="p-3 text-[13px] text-rose-600 font-bold">{x.overdueCount}회</td>}
+                                  <td className="p-3 text-[13px] font-mono font-bold text-slate-700">{x.item.memNo || '-'}</td>
+                                  <td className="p-3 text-[13px] font-bold text-slate-800">{x.item.memName}</td>
+                                  <td className="p-3 text-[13px] font-mono text-slate-500">{x.item.contractDate}</td>
+                                  <td className="p-3 text-[13px] text-slate-600">{x.item.prodName}</td>
+                                  <td className="p-3 text-[13px] text-blue-600 font-bold">{x.hcInterval}회차</td>
+                                  <td className="p-3 text-[13px] font-black text-slate-900 text-right">{(maintenanceTab === 'eligible' ? x.totalCommission : x.pendingCommission).toLocaleString()}원</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </motion.div>
             </div>
@@ -6030,6 +6226,9 @@ const ERP_Dashboard = () => {
                     const uniqueContractMonths = Array.from(new Set<string>(data.map(d => (d.contractDate || d.hcRegDate || '').substring(0, 7)).filter(d => d && d.length >= 7))).sort().reverse();
                     
                     const getMaintenanceConfig = (item: any) => {
+                      if (item.resNo && item.resNo.startsWith('MAX-LEE-FORCED')) {
+                        return { maxInstallment: 37, getAmount: (m: number) => 10000, hasRule: true };
+                      }
                       const hq = hqSettings.find(h => h.hqName === item.hq);
                       const productRule = hq?.productRules.find(p => p.productName === item.prodName);
                       let rulesToApply: any[] = [];
@@ -6088,6 +6287,51 @@ const ERP_Dashboard = () => {
                             !(item.prodName || '').toLowerCase().includes(lowerSearch)) return false;
                       }
                       return true;
+                    });
+
+                    // 강제 추가한 이지안 고객 2구좌 수동 주입
+                    const forcedContracts = [
+                      {
+                        resNo: "MAX-LEE-FORCED-1",
+                        memNo: "J2511010332",
+                        memName: "이지안",
+                        hq: "맥스",
+                        branch: "맥스",
+                        empName: "이지안",
+                        prodName: "더좋은헬스케어580",
+                        contractDate: "2025-11-19",
+                        status: "가입",
+                        raw: new Array(30).fill(''),
+                      },
+                      {
+                        resNo: "MAX-LEE-FORCED-2",
+                        memNo: "J2511010331",
+                        memName: "이지안",
+                        hq: "맥스",
+                        branch: "맥스",
+                        empName: "이지안",
+                        prodName: "더좋은헬스케어580",
+                        contractDate: "2025-11-19",
+                        status: "가입",
+                        raw: new Array(30).fill(''),
+                      }
+                    ];
+
+                    forcedContracts.forEach(item => {
+                      if (mHistoryProductFilter !== '전체' && item.prodName !== mHistoryProductFilter) return;
+                      const itemMonth = (item.contractDate || '').substring(0, 7);
+                      if (mHistoryMonthFilter !== '전체' && itemMonth !== mHistoryMonthFilter) return;
+                      
+                      if (mHistorySearch) {
+                        const lowerSearch = mHistorySearch.toLowerCase();
+                        if (!(item.resNo || '').toLowerCase().includes(lowerSearch) &&
+                            !(item.memNo || '').toLowerCase().includes(lowerSearch) &&
+                            !(item.memName || '').toLowerCase().includes(lowerSearch) &&
+                            !(item.prodName || '').toLowerCase().includes(lowerSearch)) return;
+                      }
+                      if (!maintenanceContracts.some(c => c.resNo === item.resNo)) {
+                        maintenanceContracts.push(item as any);
+                      }
                     });
 
                     const limit = 10;
