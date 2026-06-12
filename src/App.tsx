@@ -1353,14 +1353,14 @@ const ERP_Dashboard = () => {
       }
     });
 
-    // 맥스 본부 김학민 고객 유지수수료 강제 주입 (7회차 - 2구좌)
+    // 맥스 본부 이지안 고객 유지수수료 강제 주입 (7회차 - 2구좌)
     for (let g = 1; g <= 2; g++) {
-      const resNoForced = `MAX-KIM-FORCED-${g}`;
-      const isKimAlreadyPaid = maintenanceHistory.some(h => h.resNo === resNoForced && h.payInstallment === 7);
-      if (!isKimAlreadyPaid) {
+      const resNoForced = `MAX-LEE-FORCED-${g}`;
+      const isLeeAlreadyPaid = maintenanceHistory.some(h => h.resNo === resNoForced && h.payInstallment === 7);
+      if (!isLeeAlreadyPaid) {
         payouts.push({
           resNo: resNoForced,
-          customerName: "김학민",
+          customerName: "이지안",
           hq: "맥스",
           productName: "더좋은헬스케어580",
           amount: 10000,
