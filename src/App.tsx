@@ -965,7 +965,7 @@ const ERP_Dashboard = () => {
         const normalizedDeliveryDate = item.deliveryDate?.replace(/\./g, '-');
         let isPrevDelivered = false;
         if (item.deliveryDate && item.deliveryStatus?.includes('완료')) {
-          const match = item.deliveryDate.match(/(\d{2,4})[-.\s]+(\d{1,2})/);
+          const match = item.deliveryDate.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
           if (match) {
             let y = match[1];
             if (y.length === 2) y = '20' + y;
@@ -1096,7 +1096,7 @@ const ERP_Dashboard = () => {
                  const prevDate = new Date(year, month - 2, 1);
                  
                  if (item.deliveryDate && item.deliveryStatus?.includes('완료')) {
-                   const match = item.deliveryDate.match(/(\d{2,4})[-.\s]+(\d{1,2})/);
+                   const match = item.deliveryDate.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
                    if (match) {
                      let y = match[1];
                      if (y.length === 2) y = '20' + y;
@@ -1381,7 +1381,7 @@ const ERP_Dashboard = () => {
           }
 
           let isMatchedDate = false;
-          const match = dateStr.match(/(\d{2,4})[-.\s]+(\d{1,2})/);
+          const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
           if (match) {
             let y = match[1];
             if (y.length === 2) y = '20' + y;
@@ -1427,8 +1427,8 @@ const ERP_Dashboard = () => {
       if (!hqSummary[m.hq]) hqSummary[m.hq] = { count: 0, amount: 0 };
       hqSummary[m.hq].amount += m.amount;
       
-      if (!summary[m.prodName]) summary[m.prodName] = { count: 0, amount: 0 };
-      summary[m.prodName].amount += m.amount;
+      if (!summary[m.productName]) summary[m.productName] = { count: 0, amount: 0 };
+      summary[m.productName].amount += m.amount;
       
       totalAmount += m.amount;
       
