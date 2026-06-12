@@ -818,8 +818,8 @@ const ERP_Dashboard = () => {
 
     // 헬스케어 580 유보적 매칭 및 폴백 로직
     if (!productRule && normalize(item.prodName).includes('헬스케어580')) {
-      productRule = setting?.productRules?.find(r => normalize(r.productName).includes('유지')) ||
-        setting?.productRules?.find(r => normalize(r.productName).includes('1회차')) ||
+      productRule = setting?.productRules?.find(r => normalize(r.productName).includes('1회차')) ||
+        setting?.productRules?.find(r => normalize(r.productName).includes('유지')) ||
         setting?.productRules?.[0];
     }
 
@@ -1309,6 +1309,7 @@ const ERP_Dashboard = () => {
       let paidFrom = lastPaid + 1;
       
       for (let i = lastPaid + 1; i <= currentInstallment; i++) {
+        if (i === 1) continue; // 1회차는 일반수수료(1회차)를 받으므로 유지수수료 지급에서 제외
         let matchedTierAmount = 0;
         
         if (usingProductRule) {
@@ -1374,9 +1375,9 @@ const ERP_Dashboard = () => {
 
       if (!rule && normalize(item.prodName).includes('헬스케어580')) {
         rule = hqSetting?.productRules?.find(r =>
-          normalize(r.productName).includes('유지')
-        ) || hqSetting?.productRules?.find(r =>
           normalize(r.productName).includes('1회차')
+        ) || hqSetting?.productRules?.find(r =>
+          normalize(r.productName).includes('유지')
         ) || hqSetting?.productRules?.[0];
       } else if (!rule && hqSetting?.productRules) {
         if (hqSetting.productRules.length === 1) rule = hqSetting.productRules[0];
@@ -1558,9 +1559,9 @@ const ERP_Dashboard = () => {
 
       if (!rule && normalize(item.prodName).includes('헬스케어580')) {
         rule = hqSetting?.productRules?.find(r =>
-          normalize(r.productName).includes('유지')
-        ) || hqSetting?.productRules?.find(r =>
           normalize(r.productName).includes('1회차')
+        ) || hqSetting?.productRules?.find(r =>
+          normalize(r.productName).includes('유지')
         ) || hqSetting?.productRules?.[0];
       } else if (!rule && hqSetting?.productRules) {
         if (hqSetting.productRules.length === 1) rule = hqSetting.productRules[0];
