@@ -48,6 +48,12 @@ interface ProductRule {
   tier3Count: number;
   tier3Price: number;
   applyOverriding?: boolean;
+  overriding?: {
+    salesperson: number;
+    teamLeader: number;
+    branchManager: number;
+    hqManager: number;
+  };
 }
 
 interface HQSetting {
@@ -973,8 +979,9 @@ const ERP_Dashboard = () => {
       const excelData = filteredForSettlement.map((item, idx) => {
         const { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting, settlementType, vat, withholdingTax, finalPayable, productRule } = calculateCommissionDetails(item, stats);
 
-        const ov = setting?.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 };
         const isProductOvApplied = productRule ? productRule.applyOverriding !== false : true;
+        const defaultOv = setting?.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 };
+        const ov = (isProductOvApplied && productRule?.overriding) ? productRule.overriding : defaultOv;
         const actualOv = (setting?.enableOverriding && isProductOvApplied) ? ov : { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
 
         let salespersonShare, teamLeaderShare, branchManagerShare, hqManagerShare;
@@ -1566,7 +1573,8 @@ const ERP_Dashboard = () => {
         const setting = hqSettings.find(s => s.hqName === item.hq);
         const isProductOvApplied = productRule ? productRule.applyOverriding !== false : true;
         if (setting?.enableOverriding || item.hq === '다이렉트') {
-          const ov = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
+          const defaultOv = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
+          const ov = (isProductOvApplied && productRule?.overriding) ? productRule.overriding : defaultOv;
           let sh = { sp: totalCommission, tl: 0, bm: 0, hm: 0 };
           if (setting?.enableOverriding && isProductOvApplied) {
             sh.sp = ov.salesperson; sh.tl = ov.teamLeader; sh.bm = ov.branchManager; sh.hm = ov.hqManager;
@@ -1883,10 +1891,11 @@ const ERP_Dashboard = () => {
         items.forEach(item => {
           if (item.status.includes('취소')) return;
           const { totalCommission, productRule } = calculateCommissionDetails(item, stats);
-          const ov = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
+          const isProductOvApplied = productRule ? productRule.applyOverriding !== false : true;
+          const defaultOv = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
+          const ov = (isProductOvApplied && productRule?.overriding) ? productRule.overriding : defaultOv;
           let shares = { '영업사원': 0, '팀장': 0, '지점장': 0, '본부장': 0 };
           
-          const isProductOvApplied = productRule ? productRule.applyOverriding !== false : true;
           if (setting?.enableOverriding && isProductOvApplied) {
             shares['영업사원'] = ov.salesperson;
             shares['팀장'] = ov.teamLeader;
@@ -4111,13 +4120,43 @@ const ERP_Dashboard = () => {
                                         <td className="px-4 py-3 text-right font-bold text-orange-500">
                                           {(pr.totalAmount - pr.salesAmount).toLocaleString()}
                                         </td>
-                                        <td className="px-4 py-3 text-center">
-                                          <input type="checkbox" checked={pr.applyOverriding !== false} onChange={(e) => {
-                                            const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, applyOverriding: e.target.checked } : r);
-                                            setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                          }} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
+                                        <td className="px-4 py-3 text-center align-top">
+                                          <div className="flex flex-col items-center gap-2">
+                                            <input type="checkbox" checked={pr.applyOverriding !== false} onChange={(e) => {
+                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, applyOverriding: e.target.checked } : r);
+                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                            }} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
+                                            {pr.applyOverriding !== false && (
+                                              <div className="grid grid-cols-2 gap-1 text-[9px] mt-1">
+                                                {['salesperson', 'teamLeader', 'branchManager', 'hqManager'].map((role, rIdx) => {
+                                                  const roleLabels = ['영업', '팀장', '지사', '본부'];
+                                                  const currOv = pr.overriding || s.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 };
+                                                  return (
+                                                    <div key={role} className="flex flex-col items-center gap-0.5">
+                                                      <span className="text-[8px] text-slate-400">{roleLabels[rIdx]}</span>
+                                                      <input
+                                                        type="number"
+                                                        value={(currOv as any)[role]}
+                                                        onChange={(e) => {
+                                                          const val = parseInt(e.target.value) || 0;
+                                                          const updated = s.productRules.map((r, i) => {
+                                                            if (i !== pIdx) return r;
+                                                            const newOv = { ...(r.overriding || s.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 }) };
+                                                            (newOv as any)[role] = val;
+                                                            return { ...r, overriding: newOv };
+                                                          });
+                                                          setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                        }}
+                                                        className="w-12 px-1 py-0.5 text-center border border-slate-200 rounded"
+                                                      />
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            )}
+                                          </div>
                                         </td>
-                                        <td className="px-2 py-3 border-l border-slate-100 bg-blue-50/10">
+                                        <td className="px-2 py-3 border-l border-slate-100 bg-blue-50/10 align-top">
                                           <div className="flex flex-col gap-1.5">
                                             {[1, 2, 3].map(t => (
                                               <div key={t} className="flex items-center gap-1 bg-white p-1 rounded border border-slate-100 shadow-sm">

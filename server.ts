@@ -252,11 +252,12 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
 
     // Flatten HQ settings into tabular data
-    // Header: ID, 본부명, 은행, 계좌, 예금주, 지급방식, 오버라이딩Y/N, 영업%, 팀장%, 지사%, 본부%, 상품명, 전체수수료, 판매수수료, 판매촉진비, 오버라이딩적용, 구간1건, 단가1, 구간2건, 단가2, 구간3건, 단가3
+    // Header: ID, 본부명, 은행, 계좌, 예금주, 지급방식, 오버라이딩Y/N, 영업%, 팀장%, 지사%, 본부%, 상품명, 전체수수료, 판매수수료, 판매촉진비, 오버라이딩적용, 구간1건, 단가1, 구간2건, 단가2, 구간3건, 단가3, 상품영업, 상품팀장, 상품지사, 상품본부
     const headers = [
       '본부ID', '본부명', '정산유형', '은행', '계좌번호', '예금주', '지급방식', '오버라이딩활성', 
       '비율(영업)', '비율(팀장)', '비율(지사)', '비율(본부)', 
-      '상품명', '전체수수료', '판매수수료', '판매촉진비', '오버라이딩적용', '구간1건', '구간1단가', '구간2건', '구간2단가', '구간3건', '구간3단가'
+      '상품명', '전체수수료', '판매수수료', '판매촉진비', '오버라이딩적용', '구간1건', '구간1단가', '구간2건', '구간2단가', '구간3건', '구간3단가',
+      '상품영업', '상품팀장', '상품지사', '상품본부'
     ];
 
     const rows: any[][] = [headers];
@@ -293,14 +294,19 @@ app.post('/api/sheets/settings/save', async (req, res) => {
             p.tier2Count || 0,
             p.tier2Price || 0,
             p.tier3Count || 0,
-            p.tier3Price || 0
+            p.tier3Price || 0,
+            p.overriding?.salesperson ?? hq.overriding?.salesperson ?? 0,
+            p.overriding?.teamLeader ?? hq.overriding?.teamLeader ?? 0,
+            p.overriding?.branchManager ?? hq.overriding?.branchManager ?? 0,
+            p.overriding?.hqManager ?? hq.overriding?.hqManager ?? 0
           ]);
         });
       } else {
         // HQ with no products
         rows.push([
           ...baseInfo,
-          '-', 0, 0, 0, 'Y', 0, 0, 0, 0, 0, 0
+          '-', 0, 0, 0, 'Y', 0, 0, 0, 0, 0, 0,
+          hq.overriding?.salesperson ?? 0, hq.overriding?.teamLeader ?? 0, hq.overriding?.branchManager ?? 0, hq.overriding?.hqManager ?? 0
         ]);
       }
     });
@@ -548,6 +554,10 @@ app.get('/api/sheets/settings/load', async (req, res) => {
     const tier2PriceCol = col('구간2단가');
     const tier3CountCol = col('구간3건');
     const tier3PriceCol = col('구간3단가');
+    const prodSpCol = col('상품영업');
+    const prodTlCol = col('상품팀장');
+    const prodBmCol = col('상품지사');
+    const prodHmCol = col('상품본부');
 
     console.log(`[CloudSync] Header detected: id=${idCol}, settlementType=${settlementTypeCol}, bank=${bankCol}`);
 
@@ -590,6 +600,12 @@ app.get('/api/sheets/settings/load', async (req, res) => {
           tier2Price: tier2PriceCol >= 0 ? (Number(row[tier2PriceCol]) || 0) : 0,
           tier3Count: tier3CountCol >= 0 ? (Number(row[tier3CountCol]) || 0) : 0,
           tier3Price: tier3PriceCol >= 0 ? (Number(row[tier3PriceCol]) || 0) : 0,
+          overriding: (prodSpCol >= 0 && row[prodSpCol] !== undefined) ? {
+            salesperson: Number(row[prodSpCol]) || 0,
+            teamLeader: Number(row[prodTlCol]) || 0,
+            branchManager: Number(row[prodBmCol]) || 0,
+            hqManager: Number(row[prodHmCol]) || 0
+          } : undefined
         });
       }
     });
