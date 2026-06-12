@@ -54,6 +54,13 @@ interface ProductRule {
     branchManager: number;
     hqManager: number;
   };
+  applyMaintenance?: boolean;
+  maintenanceRules?: {
+    id: string;
+    applyStartDate: string;
+    applyEndDate: string;
+    tiers: { startMonth: number, endMonth: number, amount: number }[];
+  }[];
 }
 
 interface HQSetting {
@@ -1093,7 +1100,7 @@ const ERP_Dashboard = () => {
 
   const calculateMaintenancePayouts = React.useCallback((items: ERPDataItem[]) => {
     const payouts: any[] = [];
-    if (maintenanceRules.length === 0) return payouts;
+    if (maintenanceRules.length === 0 && hqSettings.every(h => h.productRules.every(p => !p.applyMaintenance))) return payouts;
 
     const filterClean = payDateFilter.replace(/[^0-9]/g, '');
     let currentYearMonth = filterClean.length >= 6 ? filterClean.substring(0, 6) : '';
@@ -1115,28 +1122,56 @@ const ERP_Dashboard = () => {
       const hqName = item.hq;
       const prodName = item.prodName.replace(/[\s()]/g, '').toLowerCase();
 
-      const rules = maintenanceRules.filter(r => {
-        const hqMatch = r.targetHqs.includes('ALL') || r.targetHqs.includes(hqName);
-        const prodMatch = r.targetProducts.includes('ALL') || r.targetProducts.some(p => prodName.includes(p.replace(/[\s()]/g, '').toLowerCase()));
-        if (!hqMatch || !prodMatch) return false;
+      const hqSetting = hqSettings.find(h => h.hqName === hqName);
+      const productRule = hqSetting?.productRules.find(p => p.productName.replace(/[\s()]/g, '').toLowerCase() === prodName);
 
-        // 계약일 범위 비교
-        const itemDateStr = item.contractDate || item.deliveryDate || '';
-        const itemClean = itemDateStr.replace(/[^0-9]/g, '');
-        if (itemClean) {
-          if (r.applyStartDate) {
-            const startClean = r.applyStartDate.replace(/[^0-9]/g, '');
-            if (startClean && itemClean < startClean) return false;
-          }
-          if (r.applyEndDate) {
-            const endClean = r.applyEndDate.replace(/[^0-9]/g, '');
-            if (endClean && itemClean > endClean) return false;
-          }
-        }
-        return true;
-      });
+      let activeRules: any[] = [];
+      let usingProductRule = false;
 
-      if (rules.length === 0) return;
+      if (productRule?.applyMaintenance && productRule.maintenanceRules && productRule.maintenanceRules.length > 0) {
+        usingProductRule = true;
+        activeRules = productRule.maintenanceRules.filter(r => {
+          const itemDateStr = item.contractDate || item.deliveryDate || '';
+          const itemClean = itemDateStr.replace(/[^0-9]/g, '');
+          if (itemClean) {
+            if (r.applyStartDate) {
+              const startClean = r.applyStartDate.replace(/[^0-9]/g, '');
+              if (startClean && itemClean < startClean) return false;
+            }
+            if (r.applyEndDate) {
+              const endClean = r.applyEndDate.replace(/[^0-9]/g, '');
+              if (endClean && itemClean > endClean) return false;
+            }
+          }
+          return true;
+        });
+      }
+
+      if (!usingProductRule || activeRules.length === 0) {
+        usingProductRule = false;
+        activeRules = maintenanceRules.filter(r => {
+          const hqMatch = r.targetHqs.includes('ALL') || r.targetHqs.includes(hqName);
+          const prodMatch = r.targetProducts.includes('ALL') || r.targetProducts.some(p => prodName.includes(p.replace(/[\s()]/g, '').toLowerCase()));
+          if (!hqMatch || !prodMatch) return false;
+
+          // 계약일 범위 비교
+          const itemDateStr = item.contractDate || item.deliveryDate || '';
+          const itemClean = itemDateStr.replace(/[^0-9]/g, '');
+          if (itemClean) {
+            if (r.applyStartDate) {
+              const startClean = r.applyStartDate.replace(/[^0-9]/g, '');
+              if (startClean && itemClean < startClean) return false;
+            }
+            if (r.applyEndDate) {
+              const endClean = r.applyEndDate.replace(/[^0-9]/g, '');
+              if (endClean && itemClean > endClean) return false;
+            }
+          }
+          return true;
+        });
+      }
+
+      if (activeRules.length === 0) return;
 
       const baseDateStr = item.contractDate || item.deliveryDate;
       if (!baseDateStr) return;
@@ -1162,19 +1197,25 @@ const ERP_Dashboard = () => {
       let paidFrom = lastPaid + 1;
       
       for (let i = lastPaid + 1; i <= currentInstallment; i++) {
-        // Find matching tier across all matched rules (prioritize specific hq rules over 'ALL')
         let matchedTierAmount = 0;
-        let specificRule = rules.find(r => !r.targetHqs.includes('ALL'));
-        if (specificRule) {
-          let tier = specificRule.tiers.find(t => i >= t.startMonth && i <= t.endMonth);
-          if (tier) matchedTierAmount = tier.amount;
-        }
         
-        if (!matchedTierAmount) {
-          let allRule = rules.find(r => r.targetHqs.includes('ALL'));
-          if (allRule) {
-            let tier = allRule.tiers.find(t => i >= t.startMonth && i <= t.endMonth);
+        if (usingProductRule) {
+          let tier = activeRules.flatMap(r => r.tiers).find(t => i >= t.startMonth && i <= t.endMonth);
+          if (tier) matchedTierAmount = tier.amount;
+        } else {
+          // Find matching tier across all matched rules (prioritize specific hq rules over 'ALL')
+          let specificRule = activeRules.find(r => !r.targetHqs.includes('ALL'));
+          if (specificRule) {
+            let tier = specificRule.tiers.find((t: any) => i >= t.startMonth && i <= t.endMonth);
             if (tier) matchedTierAmount = tier.amount;
+          }
+          
+          if (!matchedTierAmount) {
+            let allRule = activeRules.find(r => r.targetHqs.includes('ALL'));
+            if (allRule) {
+              let tier = allRule.tiers.find((t: any) => i >= t.startMonth && i <= t.endMonth);
+              if (tier) matchedTierAmount = tier.amount;
+            }
           }
         }
 
@@ -1196,7 +1237,7 @@ const ERP_Dashboard = () => {
       }
     });
     return payouts;
-  }, [maintenanceRules, maintenanceHistory, payDateFilter]);
+  }, [maintenanceRules, hqSettings, maintenanceHistory, payDateFilter]);
 
   const maintenancePayouts = React.useMemo(() => {
     return calculateMaintenancePayouts(filteredData);
@@ -3883,9 +3924,7 @@ const ERP_Dashboard = () => {
                   <button onClick={() => setSettingsTab('global_incentive')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'global_incentive' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
                     특수 수당 (글로벌 인센티브) 관리
                   </button>
-                  <button onClick={() => setSettingsTab('maintenance')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'maintenance' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-                    유지수수료 정책 관리
-                  </button>
+
                 </div>
 
                 {settingsTab === 'hq' ? (
@@ -4044,7 +4083,8 @@ const ERP_Dashboard = () => {
                                     if (!name) return;
                                     const newRule: ProductRule = {
                                       productName: name, totalAmount: 0, salesAmount: 0,
-                                      tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0
+                                      tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0,
+                                      applyOverriding: false, applyMaintenance: false, maintenanceRules: []
                                     };
                                     setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: [...h.productRules, newRule] } : h));
                                   }}
@@ -4063,6 +4103,7 @@ const ERP_Dashboard = () => {
                                       <th className="px-4 py-3 text-right">판매</th>
                                       <th className="px-4 py-3 text-right text-orange-600">촉진</th>
                                       <th className="px-4 py-3 text-center">오버라이딩</th>
+                                      <th className="px-4 py-3 text-center">유지수수료</th>
                                       <th className="px-4 py-3 text-center border-l border-slate-100 bg-blue-50/30">구간별 수수료 설정 (건 / 단가)</th>
                                       <th className="px-4 py-3 text-center">삭제</th>
                                     </tr>
@@ -4110,6 +4151,21 @@ const ERP_Dashboard = () => {
                                               const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, applyOverriding: e.target.checked } : r);
                                               setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                             }} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3 text-center align-top">
+                                          <div className="flex flex-col items-center gap-2 mt-2">
+                                            <input type="checkbox" checked={pr.applyMaintenance === true} onChange={(e) => {
+                                              const updated = s.productRules.map((r, i) => {
+                                                if (i !== pIdx) return r;
+                                                const newR = { ...r, applyMaintenance: e.target.checked };
+                                                if (e.target.checked && !newR.maintenanceRules) {
+                                                  newR.maintenanceRules = [{ id: Date.now().toString(), applyStartDate: '', applyEndDate: '', tiers: [{ startMonth: 1, endMonth: 36, amount: 0 }] }];
+                                                }
+                                                return newR;
+                                              });
+                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                            }} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500" />
                                           </div>
                                         </td>
                                         <td className="px-2 py-3 border-l border-slate-100 bg-blue-50/10 align-top">
@@ -4191,6 +4247,130 @@ const ERP_Dashboard = () => {
                                                 })}
                                               </div>
                                             </div>
+                                          </td>
+                                        </tr>
+                                      )}
+                                      {pr.applyMaintenance === true && pr.maintenanceRules && pr.maintenanceRules.map((mRule, mIdx) => (
+                                        <tr key={`mrule-${mIdx}`} className="bg-emerald-50/40 border-b border-emerald-100">
+                                          <td colSpan={8} className="px-6 py-4">
+                                            <div className="flex flex-col gap-3">
+                                              <div className="flex items-center justify-between">
+                                                <h6 className="text-[11px] font-black text-emerald-800 flex items-center gap-1.5">
+                                                  <Calendar size={12} /> {pr.productName} 유지수수료 규칙 {mIdx + 1}
+                                                </h6>
+                                                <div className="flex items-center gap-4">
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] text-emerald-600 font-bold">적용 시작일(계약일):</span>
+                                                    <input type="date" value={mRule.applyStartDate || ''} onChange={(e) => {
+                                                      const updated = s.productRules.map((r, i) => {
+                                                        if (i !== pIdx) return r;
+                                                        const newRules = [...(r.maintenanceRules || [])];
+                                                        newRules[mIdx] = { ...newRules[mIdx], applyStartDate: e.target.value };
+                                                        return { ...r, maintenanceRules: newRules };
+                                                      });
+                                                      setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                    }} className="px-2 py-1 text-xs border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] text-emerald-600 font-bold">적용 종료일(계약일):</span>
+                                                    <input type="date" value={mRule.applyEndDate || ''} onChange={(e) => {
+                                                      const updated = s.productRules.map((r, i) => {
+                                                        if (i !== pIdx) return r;
+                                                        const newRules = [...(r.maintenanceRules || [])];
+                                                        newRules[mIdx] = { ...newRules[mIdx], applyEndDate: e.target.value };
+                                                        return { ...r, maintenanceRules: newRules };
+                                                      });
+                                                      setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                    }} className="px-2 py-1 text-xs border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
+                                                  </div>
+                                                  <button onClick={() => {
+                                                    const updated = s.productRules.map((r, i) => {
+                                                      if (i !== pIdx) return r;
+                                                      const newRules = [...(r.maintenanceRules || [])];
+                                                      newRules.splice(mIdx, 1);
+                                                      return { ...r, maintenanceRules: newRules };
+                                                    });
+                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                  }} className="text-red-500 hover:text-red-700 text-[10px] font-bold">규칙 삭제</button>
+                                                </div>
+                                              </div>
+                                              <div className="flex flex-col gap-2">
+                                                {mRule.tiers.map((t, tIdx) => (
+                                                  <div key={tIdx} className="flex items-center gap-3">
+                                                    <input type="number" value={t.startMonth} onChange={(e) => {
+                                                      const updated = s.productRules.map((r, i) => {
+                                                        if (i !== pIdx) return r;
+                                                        const newRules = [...(r.maintenanceRules || [])];
+                                                        newRules[mIdx].tiers[tIdx].startMonth = parseInt(e.target.value) || 1;
+                                                        return { ...r, maintenanceRules: newRules };
+                                                      });
+                                                      setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                    }} className="w-16 px-2 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
+                                                    <span className="text-[11px] text-emerald-600 font-bold">회차 ~ </span>
+                                                    <input type="number" value={t.endMonth} onChange={(e) => {
+                                                      const updated = s.productRules.map((r, i) => {
+                                                        if (i !== pIdx) return r;
+                                                        const newRules = [...(r.maintenanceRules || [])];
+                                                        newRules[mIdx].tiers[tIdx].endMonth = parseInt(e.target.value) || 36;
+                                                        return { ...r, maintenanceRules: newRules };
+                                                      });
+                                                      setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                    }} className="w-16 px-2 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
+                                                    <span className="text-[11px] text-emerald-600 font-bold">회차 : </span>
+                                                    <input type="number" value={t.amount} onChange={(e) => {
+                                                      const updated = s.productRules.map((r, i) => {
+                                                        if (i !== pIdx) return r;
+                                                        const newRules = [...(r.maintenanceRules || [])];
+                                                        newRules[mIdx].tiers[tIdx].amount = parseInt(e.target.value) || 0;
+                                                        return { ...r, maintenanceRules: newRules };
+                                                      });
+                                                      setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                    }} className="w-24 px-2 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
+                                                    <span className="text-[11px] text-emerald-600 font-bold">원</span>
+                                                    {mRule.tiers.length > 1 && (
+                                                      <button onClick={() => {
+                                                        const updated = s.productRules.map((r, i) => {
+                                                          if (i !== pIdx) return r;
+                                                          const newRules = [...(r.maintenanceRules || [])];
+                                                          newRules[mIdx].tiers.splice(tIdx, 1);
+                                                          return { ...r, maintenanceRules: newRules };
+                                                        });
+                                                        setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                      }} className="ml-2 text-red-500 hover:text-red-700 bg-red-50 p-1 rounded"><X size={14} /></button>
+                                                    )}
+                                                  </div>
+                                                ))}
+                                                <button onClick={() => {
+                                                  const updated = s.productRules.map((r, i) => {
+                                                    if (i !== pIdx) return r;
+                                                    const newRules = [...(r.maintenanceRules || [])];
+                                                    const lastEnd = newRules[mIdx].tiers.length > 0 ? newRules[mIdx].tiers[newRules[mIdx].tiers.length - 1].endMonth : 0;
+                                                    newRules[mIdx].tiers.push({ startMonth: lastEnd + 1, endMonth: lastEnd + 12, amount: 0 });
+                                                    return { ...r, maintenanceRules: newRules };
+                                                  });
+                                                  setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                }} className="mt-2 px-3 py-1.5 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg hover:bg-emerald-200 self-start transition-colors">
+                                                  + 구간 추가
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                      {pr.applyMaintenance === true && (
+                                        <tr className="bg-emerald-50/20 border-b border-emerald-100">
+                                          <td colSpan={8} className="px-6 py-3 text-right">
+                                            <button onClick={() => {
+                                              const updated = s.productRules.map((r, i) => {
+                                                if (i !== pIdx) return r;
+                                                const newRules = [...(r.maintenanceRules || [])];
+                                                newRules.push({ id: Date.now().toString(), applyStartDate: '', applyEndDate: '', tiers: [{ startMonth: 1, endMonth: 36, amount: 0 }] });
+                                                return { ...r, maintenanceRules: newRules };
+                                              });
+                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                            }} className="px-3 py-1.5 bg-emerald-600 text-white text-[10px] font-bold rounded hover:bg-emerald-700 transition-colors">
+                                              + 기간별 규칙 추가 (과거 정책 보존용)
+                                            </button>
                                           </td>
                                         </tr>
                                       )}
@@ -4351,204 +4531,7 @@ const ERP_Dashboard = () => {
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
-                    <div className="max-w-5xl mx-auto space-y-6">
-                      <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold">유지수수료 정책 관리</h2>
-                        <button onClick={() => {
-                          setMaintenanceRules([{
-                            id: Date.now().toString(),
-                            targetHqs: ['ALL'],
-                            targetProducts: ['ALL'],
-                            tiers: [{ startMonth: 1, endMonth: 36, amount: 0 }],
-                            applyStartDate: '',
-                            applyEndDate: ''
-                          }, ...maintenanceRules]);
-                        }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
-                          <Plus size={16} /> 새 규칙 추가
-                        </button>
-                      </div>
-
-                      <div className="space-y-4">
-                        {maintenanceRules.length === 0 && (
-                          <div className="text-center py-12 text-slate-400 font-bold">등록된 유지수수료 규칙이 없습니다.</div>
-                        )}
-                        {maintenanceRules.map((rule, idx) => (
-                          <div key={rule.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-4">
-                            <div className="flex gap-4 items-start">
-                              <div className="flex-[1]">
-                                <label className="text-xs font-bold text-slate-500">대상 본부 (다중선택 가능)</label>
-                                <div className="mt-1 flex flex-col gap-2">
-                                  <select onChange={e => {
-                                    if (!e.target.value) return;
-                                    const n = [...maintenanceRules];
-                                    if (e.target.value === 'ALL') n[idx].targetHqs = ['ALL'];
-                                    else {
-                                      if (n[idx].targetHqs.includes('ALL')) n[idx].targetHqs = [];
-                                      if (!n[idx].targetHqs.includes(e.target.value)) n[idx].targetHqs.push(e.target.value);
-                                    }
-                                    setMaintenanceRules(n);
-                                    e.target.value = '';
-                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
-                                    <option value="">본부 추가...</option>
-                                    <option value="ALL">전체 본부 (공통)</option>
-                                    {hqSettings.map(h => <option key={h.id} value={h.hqName}>{h.hqName}</option>)}
-                                  </select>
-                                  {rule.targetHqs.includes('ALL') ? (
-                                    <span className="inline-block px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">전체 본부 (공통)</span>
-                                  ) : (
-                                    <div className="flex flex-wrap gap-2">
-                                      {rule.targetHqs.map(h => (
-                                        <span key={h} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold border border-blue-100">
-                                          {h}
-                                          <button onClick={() => {
-                                            const n = [...maintenanceRules];
-                                            n[idx].targetHqs = n[idx].targetHqs.filter(x => x !== h);
-                                            if (n[idx].targetHqs.length === 0) n[idx].targetHqs = ['ALL'];
-                                            setMaintenanceRules(n);
-                                          }} className="hover:text-red-500 transition-colors"><X size={14} /></button>
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex-[2]">
-                                <label className="text-xs font-bold text-slate-500">대상 상품 (다중선택 가능)</label>
-                                <div className="mt-1 flex flex-col gap-2">
-                                  <select onChange={e => {
-                                    if (!e.target.value) return;
-                                    const n = [...maintenanceRules];
-                                    if (e.target.value === 'ALL') n[idx].targetProducts = ['ALL'];
-                                    else {
-                                      if (n[idx].targetProducts.includes('ALL')) n[idx].targetProducts = [];
-                                      if (!n[idx].targetProducts.includes(e.target.value)) n[idx].targetProducts.push(e.target.value);
-                                    }
-                                    setMaintenanceRules(n);
-                                    e.target.value = '';
-                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
-                                    <option value="">상품 추가...</option>
-                                    <option value="ALL">전체 상품</option>
-                                    {Array.from(new Set(hqSettings.flatMap(h => h.productRules.map(p => p.productName)))).map(p => (
-                                      <option key={p} value={p}>{p}</option>
-                                    ))}
-                                  </select>
-                                  {rule.targetProducts.includes('ALL') ? (
-                                    <span className="inline-block px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">전체 상품</span>
-                                  ) : (
-                                    <div className="flex flex-wrap gap-2">
-                                      {rule.targetProducts.map(p => (
-                                        <span key={p} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold border border-blue-100">
-                                          {p}
-                                          <button onClick={() => {
-                                            const n = [...maintenanceRules];
-                                            n[idx].targetProducts = n[idx].targetProducts.filter(x => x !== p);
-                                            if (n[idx].targetProducts.length === 0) n[idx].targetProducts = ['ALL'];
-                                            setMaintenanceRules(n);
-                                          }} className="hover:text-red-500 transition-colors"><X size={14} /></button>
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="pt-5 pl-2 flex flex-col items-end">
-                                <button onClick={() => {
-                                  if(confirm('이 정책 규칙 전체를 삭제하시겠습니까?')) {
-                                    const n = [...maintenanceRules]; n.splice(idx, 1); setMaintenanceRules(n);
-                                  }
-                                }} className="p-2 mb-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="규칙 삭제">
-                                  <X size={20} />
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* 정책 적용 범위 (계약 시작/종료일) 추가 */}
-                            <div className="flex flex-col sm:flex-row gap-4 items-center bg-slate-50 p-4 rounded-xl border border-slate-200 mt-1">
-                              <div className="w-full sm:flex-1">
-                                <label className="text-xs font-bold text-slate-500">정책 적용 계약일 (시작일)</label>
-                                <input
-                                  type="date"
-                                  value={rule.applyStartDate || ''}
-                                  onChange={e => {
-                                    const n = [...maintenanceRules];
-                                    n[idx].applyStartDate = e.target.value;
-                                    setMaintenanceRules(n);
-                                  }}
-                                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold bg-white"
-                                />
-                              </div>
-                              <div className="w-full sm:flex-1">
-                                <label className="text-xs font-bold text-slate-500">정책 적용 계약일 (종료일)</label>
-                                <input
-                                  type="date"
-                                  value={rule.applyEndDate || ''}
-                                  onChange={e => {
-                                    const n = [...maintenanceRules];
-                                    n[idx].applyEndDate = e.target.value;
-                                    setMaintenanceRules(n);
-                                  }}
-                                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold bg-white"
-                                />
-                              </div>
-                              <div className="w-full sm:flex-[2] text-[11px] text-slate-400 font-bold self-end pb-2">
-                                * 지정 시, 해당 기간 내에 가입/계약된 고객에게만 이 수수료율이 적용됩니다. (공란인 경우 제한 없음)
-                              </div>
-                            </div>
-
-                            <div className="border border-indigo-100 rounded-xl overflow-hidden mt-2">
-                              <div className="bg-indigo-50/50 px-4 py-3 flex justify-between items-center border-b border-indigo-100">
-                                <span className="text-[11px] font-black text-indigo-500 uppercase tracking-widest">회차별 구간 수수료</span>
-                                <button onClick={() => {
-                                  const n = [...maintenanceRules];
-                                  const lastEnd = n[idx].tiers.length > 0 ? n[idx].tiers[n[idx].tiers.length-1].endMonth : 0;
-                                  n[idx].tiers.push({ startMonth: lastEnd + 1, endMonth: lastEnd + 12, amount: 0 });
-                                  setMaintenanceRules(n);
-                                }} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-100/50 hover:bg-indigo-200 px-3 py-1 rounded-md transition-colors flex items-center gap-1">
-                                  <Plus size={14} /> 구간 추가
-                                </button>
-                              </div>
-                              <div className="p-4 flex flex-col gap-3">
-                                {rule.tiers.map((tier, tIdx) => (
-                                  <div key={tIdx} className="flex gap-4 items-end">
-                                    <div className="w-24">
-                                      <label className="text-xs font-bold text-slate-500">시작 회차</label>
-                                      <input type="number" min="1" value={tier.startMonth} onChange={e => {
-                                        const n = [...maintenanceRules]; n[idx].tiers[tIdx].startMonth = parseInt(e.target.value) || 1; setMaintenanceRules(n);
-                                      }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-indigo-100 transition-all font-bold" />
-                                    </div>
-                                    <span className="text-slate-400 font-bold pb-2">~</span>
-                                    <div className="w-24">
-                                      <label className="text-xs font-bold text-slate-500">종료 회차</label>
-                                      <input type="number" min="1" value={tier.endMonth} onChange={e => {
-                                        const n = [...maintenanceRules]; n[idx].tiers[tIdx].endMonth = parseInt(e.target.value) || 36; setMaintenanceRules(n);
-                                      }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-right outline-none focus:ring-2 focus:ring-indigo-100 transition-all font-bold" />
-                                    </div>
-                                    <div className="flex-1">
-                                      <label className="text-[10px] uppercase tracking-wider font-black text-indigo-400">지급 금액 (원)</label>
-                                      <input type="number" value={tier.amount} onChange={e => {
-                                        const n = [...maintenanceRules]; n[idx].tiers[tIdx].amount = parseInt(e.target.value) || 0; setMaintenanceRules(n);
-                                      }} className="w-full mt-1 px-3 py-2 border border-indigo-200 rounded-lg text-right font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-200 transition-all bg-white" />
-                                    </div>
-                                    <button onClick={() => {
-                                      const n = [...maintenanceRules];
-                                      n[idx].tiers.splice(tIdx, 1);
-                                      setMaintenanceRules(n);
-                                    }} className="p-2 mb-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="구간 삭제">
-                                      <X size={18} />
-                                    </button>
-                                  </div>
-                                ))}
-                                {rule.tiers.length === 0 && <div className="text-xs text-slate-400 font-bold py-2 text-center">설정된 구간이 없습니다. 구간을 추가해주세요.</div>}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
+                ) : null}
               </motion.div>
             </div>
           )}
