@@ -6073,7 +6073,7 @@ const ERP_Dashboard = () => {
                       return { maxInstallment, getAmount, hasRule: maxInstallment > 0 };
                     };
 
-                    const maintenanceContracts = data.filter(item => !item.status.includes('취소')).filter(item => {
+                    const maintenanceContracts = data.filter(item => {
                       const config = getMaintenanceConfig(item);
                       if (!config.hasRule) return false;
 
@@ -6150,37 +6150,50 @@ const ERP_Dashboard = () => {
                                   <th className="py-3 px-4 w-28 bg-slate-50">회원번호</th>
                                   <th className="py-3 px-4 w-24 bg-slate-50">고객명</th>
                                   <th className="py-3 px-4 w-32 bg-slate-50">상품명</th>
-                                  <th className="py-3 px-4 w-20 bg-slate-50 text-center">회차</th>
-                                  <th className="py-3 px-4 bg-slate-50">지급 회차 관리 (클릭하여 지급 완료 처리)</th>
+                                  <th className="py-3 px-4 w-20 bg-slate-50 text-center">총회차</th>
+                                  <th className="py-3 px-4 w-20 bg-slate-50 text-center">현재회차</th>
+                                  <th className="py-3 px-4 w-16 bg-slate-50 text-center">연체</th>
+                                  <th className="py-3 px-4 bg-slate-50 text-left">상태/비고</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
                                 {paginated.length > 0 ? (
                                   paginated.map((item) => {
                                     const config = getMaintenanceConfig(item);
-                                    const paidInstallments = new Set(
-                                      maintenanceHistory.filter(h => h.resNo === item.resNo).map(h => h.payInstallment)
-                                    );
+                                    const overdueCount = parseInt(item.raw[20]) || 0;
 
-                                    const togglePayment = (installment: number, isChecked: boolean) => {
-                                      const amount = config.getAmount(installment);
-                                      if (isChecked) {
-                                        setMaintenanceHistory(prev => [
-                                          ...prev,
-                                          {
-                                            resNo: item.resNo,
-                                            payMonth: new Date().toISOString().substring(0, 7),
-                                            payInstallment: installment,
-                                            amount,
-                                            customerName: item.memName,
-                                            productName: item.prodName,
-                                            memo: ''
-                                          }
-                                        ]);
-                                      } else {
-                                        setMaintenanceHistory(prev => prev.filter(h => !(h.resNo === item.resNo && h.payInstallment === installment)));
+                                    // 현재 회차 계산
+                                    const filterClean = payDateFilter.replace(/[^0-9]/g, '');
+                                    let currentYearMonth = filterClean.length >= 6 ? filterClean.substring(0, 6) : '';
+                                    if (!currentYearMonth) {
+                                      const d = new Date();
+                                      currentYearMonth = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
+                                    }
+                                    const currentYear = parseInt(currentYearMonth.substring(0, 4));
+                                    const currentMonth = parseInt(currentYearMonth.substring(4, 6));
+
+                                    const baseDateStr = item.payDate || item.contractDate || item.deliveryDate;
+                                    let currentInstallment = 0;
+                                    if (baseDateStr) {
+                                      const bdMatch = baseDateStr.match(/(\d{4})[-\.](\d{1,2})/);
+                                      if (bdMatch) {
+                                        const bdYear = parseInt(bdMatch[1]);
+                                        const bdMonth = parseInt(bdMatch[2]);
+                                        currentInstallment = (currentYear - bdYear) * 12 + (currentMonth - bdMonth) + 1;
                                       }
-                                    };
+                                    }
+
+                                    // 상태/비고 내용 판정
+                                    let statusText = '';
+                                    if (item.status.includes('해약')) {
+                                      statusText = '❌ 해약';
+                                    } else if (item.status.includes('취소')) {
+                                      statusText = '❌ 취소';
+                                    } else if (overdueCount > 0) {
+                                      statusText = `🚨 지급중단 (연체 ${overdueCount}건)`;
+                                    } else {
+                                      statusText = `🟢 정상지급 대상 (${currentInstallment}회차)`;
+                                    }
 
                                     return (
                                       <tr key={item.resNo} className="hover:bg-slate-50/50 transition-colors text-xs">
@@ -6191,33 +6204,15 @@ const ERP_Dashboard = () => {
                                         <td className="py-3 px-4 font-bold text-slate-900">{item.memName}</td>
                                         <td className="py-3 px-4 font-medium text-slate-600 truncate max-w-[120px]" title={item.prodName}>{item.prodName}</td>
                                         <td className="py-3 px-4 text-center font-bold text-slate-600">{config.maxInstallment}회</td>
-                                        <td className="py-3 px-4">
-                                          <div className="flex flex-wrap gap-2">
-                                            {Array.from({ length: config.maxInstallment }, (_, i) => i + 1).map(inst => {
-                                              const amount = config.getAmount(inst);
-                                              if (amount === 0) return null; // 금액이 0이면 무시
-                                              const isPaid = paidInstallments.has(inst);
-                                              return (
-                                                <div 
-                                                  key={inst}
-                                                  onClick={() => togglePayment(inst, !isPaid)}
-                                                  className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer select-none transition-all ${
-                                                    isPaid ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:bg-slate-50'
-                                                  }`}
-                                                  title={`${amount.toLocaleString()}원`}
-                                                >
-                                                  <span className="font-bold text-[10px]">{inst}회</span>
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </td>
+                                        <td className="py-3 px-4 text-center font-bold text-blue-600">{currentInstallment}회차</td>
+                                        <td className="py-3 px-4 text-center font-medium text-slate-600">{overdueCount}</td>
+                                        <td className="py-3 px-4 text-left font-bold text-slate-700">{statusText}</td>
                                       </tr>
                                     );
                                   })
                                 ) : (
                                   <tr>
-                                    <td colSpan={8} className="py-8 text-center text-slate-400 font-bold">표시할 계약건이 없습니다.</td>
+                                    <td colSpan={10} className="py-8 text-center text-slate-400 font-bold">표시할 계약건이 없습니다.</td>
                                   </tr>
                                 )}
                               </tbody>
