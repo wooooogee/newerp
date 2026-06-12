@@ -252,11 +252,11 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
 
     // Flatten HQ settings into tabular data
-    // Header: ID, 본부명, 은행, 계좌, 예금주, 지급방식, 오버라이딩Y/N, 영업%, 팀장%, 지사%, 본부%, 상품명, 전체수수료, 판매수수료, 판매촉진비, 구간1건, 단가1, 구간2건, 단가2, 구간3건, 단가3
+    // Header: ID, 본부명, 은행, 계좌, 예금주, 지급방식, 오버라이딩Y/N, 영업%, 팀장%, 지사%, 본부%, 상품명, 전체수수료, 판매수수료, 판매촉진비, 오버라이딩적용, 구간1건, 단가1, 구간2건, 단가2, 구간3건, 단가3
     const headers = [
       '본부ID', '본부명', '정산유형', '은행', '계좌번호', '예금주', '지급방식', '오버라이딩활성', 
       '비율(영업)', '비율(팀장)', '비율(지사)', '비율(본부)', 
-      '상품명', '전체수수료', '판매수수료', '판매촉진비', '구간1건', '구간1단가', '구간2건', '구간2단가', '구간3건', '구간3단가'
+      '상품명', '전체수수료', '판매수수료', '판매촉진비', '오버라이딩적용', '구간1건', '구간1단가', '구간2건', '구간2단가', '구간3건', '구간3단가'
     ];
 
     const rows: any[][] = [headers];
@@ -287,6 +287,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
             total,
             sales,
             total - sales, // 판매촉진비
+            p.applyOverriding !== false ? 'Y' : 'N',
             p.tier1Count || 0,
             p.tier1Price || 0,
             p.tier2Count || 0,
@@ -299,7 +300,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
         // HQ with no products
         rows.push([
           ...baseInfo,
-          '-', 0, 0, 0, 0, 0, 0, 0, 0, 0
+          '-', 0, 0, 0, 'Y', 0, 0, 0, 0, 0, 0
         ]);
       }
     });
@@ -431,7 +432,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       }
 
       const mHeaders = [
-        'ID', '대상본부', '대상상품', '회차별구간'
+        'ID', '대상본부', '대상상품', '회차별구간', '적용시작일', '적용종료일'
       ];
       
       const mRows: any[][] = [mHeaders];
@@ -440,7 +441,9 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           rule.id || '',
           JSON.stringify(rule.targetHqs || ['ALL']),
           JSON.stringify(rule.targetProducts || ['ALL']),
-          JSON.stringify(rule.tiers || [])
+          JSON.stringify(rule.tiers || []),
+          rule.applyStartDate || '',
+          rule.applyEndDate || ''
         ]);
       });
 
@@ -538,6 +541,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
     const productNameCol = col('상품명');
     const totalAmountCol = col('전체수수료');
     const salesAmountCol = col('판매수수료');
+    const productOverrideCol = col('오버라이딩적용');
     const tier1CountCol = col('구간1건');
     const tier1PriceCol = col('구간1단가');
     const tier2CountCol = col('구간2건');
@@ -579,6 +583,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
           productName,
           totalAmount: totalAmountCol >= 0 ? (Number(row[totalAmountCol]) || 0) : 0,
           salesAmount: salesAmountCol >= 0 ? (Number(row[salesAmountCol]) || 0) : 0,
+          applyOverriding: productOverrideCol >= 0 ? row[productOverrideCol] !== 'N' : true,
           tier1Count: tier1CountCol >= 0 ? (Number(row[tier1CountCol]) || 0) : 0,
           tier1Price: tier1PriceCol >= 0 ? (Number(row[tier1PriceCol]) || 0) : 0,
           tier2Count: tier2CountCol >= 0 ? (Number(row[tier2CountCol]) || 0) : 0,
@@ -648,6 +653,8 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         const mHq = mCol('대상본부');
         const mProduct = mCol('대상상품');
         const mTiers = mCol('회차별구간');
+        const mStartDate = mCol('적용시작일');
+        const mEndDate = mCol('적용종료일');
 
         maintenanceRules = mRows.slice(1).map((row: string[]) => {
           let targetHqs = ['ALL'];
@@ -662,7 +669,9 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             id: mId >= 0 ? row[mId] : Date.now().toString() + Math.random(),
             targetHqs,
             targetProducts,
-            tiers
+            tiers,
+            applyStartDate: (mStartDate >= 0 && row[mStartDate]) ? row[mStartDate] : '',
+            applyEndDate: (mEndDate >= 0 && row[mEndDate]) ? row[mEndDate] : ''
           };
         }).filter((r: any) => r.targetProducts && r.targetProducts.length > 0);
         console.log(`[CloudSync] Loaded ${maintenanceRules.length} maintenance rules from cloud.`);
@@ -711,6 +720,9 @@ app.get('/api/sheets/maintenance/history', async (req, res) => {
     const payMonthCol = col('지급년월');
     const payInstallmentCol = col('지급회차');
     const amountCol = col('지급액');
+    const customerNameCol = col('고객명');
+    const productNameCol = col('상품명');
+    const memoCol = col('메모');
 
     if (resNoCol === -1 || payInstallmentCol === -1) {
       return res.json({ history: [] });
@@ -720,7 +732,10 @@ app.get('/api/sheets/maintenance/history', async (req, res) => {
       resNo: row[resNoCol],
       payMonth: payMonthCol >= 0 ? row[payMonthCol] : '',
       payInstallment: parseInt(row[payInstallmentCol]) || 0,
-      amount: amountCol >= 0 ? (parseInt(row[amountCol]) || 0) : 0
+      amount: amountCol >= 0 ? (parseInt(row[amountCol]) || 0) : 0,
+      customerName: customerNameCol >= 0 ? row[customerNameCol] : '',
+      productName: productNameCol >= 0 ? row[productNameCol] : '',
+      memo: memoCol >= 0 ? row[memoCol] : ''
     })).filter((h: any) => h.resNo);
 
     res.json({ history });

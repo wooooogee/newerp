@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, Plus, User, Briefcase, StickyNote, Calculator, Monitor } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
@@ -47,6 +47,7 @@ interface ProductRule {
   tier2Price: number;
   tier3Count: number;
   tier3Price: number;
+  applyOverriding?: boolean;
 }
 
 interface HQSetting {
@@ -92,6 +93,8 @@ export interface MaintenanceFeeRule {
   targetHqs: string[]; // ['ALL'] or ['맥스', '드라마플라워']
   targetProducts: string[]; // ['ALL'] or ['더좋은헬스케어580']
   tiers: MaintenanceTier[];
+  applyStartDate?: string;
+  applyEndDate?: string;
 }
 
 // 샘플 시딩 값 (이곳에서 수정 가능)
@@ -335,6 +338,7 @@ const ERP_Dashboard = () => {
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
   const [isHealthcareModalOpen, setIsHealthcareModalOpen] = useState(false);
   const [isMaintenanceStatusModalOpen, setIsMaintenanceStatusModalOpen] = useState(false);
+  const [isMaintenanceHistoryModalOpen, setIsMaintenanceHistoryModalOpen] = useState(false);
   const [maintenanceTab, setMaintenanceTab] = useState<'eligible' | 'overdue'>('eligible');
   const [activeHqId, setActiveHqId] = useState<string | null>(null);
   const [previewTarget, setPreviewTarget] = useState<string | null>(null);
@@ -342,6 +346,17 @@ const ERP_Dashboard = () => {
   const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
   const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('구좌수');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 유지수수료 내역 및 세팅 모달 상태
+  const [mSetupTab, setMSetupTab] = useState<'view' | 'setup'>('view');
+  const [mHistorySearch, setMHistorySearch] = useState('');
+  const [mHistoryPage, setMHistoryPage] = useState(1);
+  const [mSetupSearch, setMSetupSearch] = useState('');
+  const [mSetupPage, setMSetupPage] = useState(1);
+  const [mSetupSelected, setMSetupSelected] = useState<string[]>([]);
+  const [mSetupInputs, setMSetupInputs] = useState<Record<string, number>>({});
+  const [mSetupMemos, setMSetupMemos] = useState<Record<string, string>>({});
+  const [isSavingSetup, setIsSavingSetup] = useState(false);
 
   // 수동 수수료 정산 상태
   interface ManualProduct {
@@ -892,7 +907,8 @@ const ERP_Dashboard = () => {
       vat,
       withholdingTax,
       finalPayable,
-      supplyAmount
+      supplyAmount,
+      productRule
     };
   };
 
@@ -955,10 +971,11 @@ const ERP_Dashboard = () => {
       });
 
       const excelData = filteredForSettlement.map((item, idx) => {
-        const { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting, settlementType, vat, withholdingTax, finalPayable } = calculateCommissionDetails(item, stats);
+        const { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting, settlementType, vat, withholdingTax, finalPayable, productRule } = calculateCommissionDetails(item, stats);
 
         const ov = setting?.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 };
-        const actualOv = setting?.enableOverriding ? ov : { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
+        const isProductOvApplied = productRule ? productRule.applyOverriding !== false : true;
+        const actualOv = (setting?.enableOverriding && isProductOvApplied) ? ov : { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
 
         let salespersonShare, teamLeaderShare, branchManagerShare, hqManagerShare;
         salespersonShare = actualOv.salesperson;
@@ -1091,10 +1108,26 @@ const ERP_Dashboard = () => {
       const hqName = item.hq;
       const prodName = item.prodName.replace(/[\s()]/g, '').toLowerCase();
 
-      const rules = maintenanceRules.filter(r => 
-        (r.targetHqs.includes('ALL') || r.targetHqs.includes(hqName)) &&
-        (r.targetProducts.includes('ALL') || r.targetProducts.some(p => prodName.includes(p.replace(/[\s()]/g, '').toLowerCase())))
-      );
+      const rules = maintenanceRules.filter(r => {
+        const hqMatch = r.targetHqs.includes('ALL') || r.targetHqs.includes(hqName);
+        const prodMatch = r.targetProducts.includes('ALL') || r.targetProducts.some(p => prodName.includes(p.replace(/[\s()]/g, '').toLowerCase()));
+        if (!hqMatch || !prodMatch) return false;
+
+        // 계약일 범위 비교
+        const itemDateStr = item.contractDate || item.deliveryDate || '';
+        const itemClean = itemDateStr.replace(/[^0-9]/g, '');
+        if (itemClean) {
+          if (r.applyStartDate) {
+            const startClean = r.applyStartDate.replace(/[^0-9]/g, '');
+            if (startClean && itemClean < startClean) return false;
+          }
+          if (r.applyEndDate) {
+            const endClean = r.applyEndDate.replace(/[^0-9]/g, '');
+            if (endClean && itemClean > endClean) return false;
+          }
+        }
+        return true;
+      });
 
       if (rules.length === 0) return;
 
@@ -1146,7 +1179,7 @@ const ERP_Dashboard = () => {
       if (totalAmount > 0) {
         payouts.push({
           resNo: item.resNo,
-          customerName: item.customerName,
+          customerName: item.memName,
           hq: hqName,
           productName: item.prodName,
           amount: totalAmount,
@@ -1442,6 +1475,11 @@ const ERP_Dashboard = () => {
       let totalNetPay = 0;
       combinedHqs.forEach(hq => {
         let hqGross = specialAdditions[hq] || 0;
+        
+        // 유지수수료 금액 가산
+        const maintenanceSum = maintenancePayouts.filter(m => m.hq === hq).reduce((sum, m) => sum + m.amount, 0);
+        hqGross += maintenanceSum;
+
         const items = settlementStats.hqGroups[hq] || [];
         items.forEach((item: any) => {
           const { totalCommission } = calculateCommissionDetails(item, statsMap);
@@ -1468,6 +1506,11 @@ const ERP_Dashboard = () => {
       combinedHqs.forEach(hqName => {
         const items = settlementStats.hqGroups[hqName] || [];
         let hqGross = specialAdditions[hqName] || 0;
+        
+        // 유지수수료 금액 가산
+        const maintenanceSum = maintenancePayouts.filter(m => m.hq === hqName).reduce((sum, m) => sum + m.amount, 0);
+        hqGross += maintenanceSum;
+
         items.forEach((item: any) => {
           const { totalCommission } = calculateCommissionDetails(item, statsMap);
           hqGross += totalCommission;
@@ -1491,14 +1534,41 @@ const ERP_Dashboard = () => {
       reportRows.push(['본부', '지사', '성명', '역할', '은행', '계좌번호', '예금주', '지급액(실지급)']);
 
       const hqEmpSummaryMap = new Map<string, any>();
+      
+      // 유지수수료 대상자도 사원별 요약에 합산
+      maintenancePayouts.forEach(payout => {
+        const originContract = filteredData.find(d => d.resNo === payout.resNo);
+        if (!originContract) return;
+
+        const setting = hqSettings.find(s => s.hqName === payout.hq);
+        const isIndiv = setting?.settlementType?.includes('개인') || payout.hq === '글로씨';
+        const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+        const netAmount = calcNet(payout.amount);
+        
+        const role = '영업사원';
+        const key = `${payout.hq}|${originContract.branch || '-'}|${originContract.empName}|${role}`;
+
+        if (!hqEmpSummaryMap.has(key)) {
+          hqEmpSummaryMap.set(key, { 
+            hq: payout.hq, 
+            branch: originContract.branch || '-', 
+            empName: originContract.empName, 
+            role, 
+            total: 0 
+          });
+        }
+        hqEmpSummaryMap.get(key).total += netAmount;
+      });
+
       filteredData.forEach(item => {
         if (item.status.includes('취소')) return;
-        const { totalCommission, finalPayable } = calculateCommissionDetails(item, statsMap);
+        const { totalCommission, finalPayable, productRule } = calculateCommissionDetails(item, statsMap);
         const setting = hqSettings.find(s => s.hqName === item.hq);
+        const isProductOvApplied = productRule ? productRule.applyOverriding !== false : true;
         if (setting?.enableOverriding || item.hq === '다이렉트') {
           const ov = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
           let sh = { sp: totalCommission, tl: 0, bm: 0, hm: 0 };
-          if (setting?.enableOverriding) {
+          if (setting?.enableOverriding && isProductOvApplied) {
             sh.sp = ov.salesperson; sh.tl = ov.teamLeader; sh.bm = ov.branchManager; sh.hm = ov.hqManager;
           }
           const isIndiv = setting?.settlementType?.includes('개인') || item.hq === '글로씨';
@@ -1552,6 +1622,25 @@ const ERP_Dashboard = () => {
         const key = `${hqName}|${prodName}`;
         if (!hqPerfMap.has(key)) hqPerfMap.set(key, { hq: hqName, prod: prodName, up: upToDisplay, qty: countToDisplay, total: netAmt });
         else { hqPerfMap.get(key).total += netAmt; hqPerfMap.get(key).up = upToDisplay; hqPerfMap.get(key).qty = countToDisplay; }
+      });
+
+      // 유지수수료 본부별 요약 추가
+      combinedHqs.forEach(hqName => {
+        const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
+        if (hqMaintenancePayouts.length === 0) return;
+
+        const setting = hqSettings.find(s => s.hqName === hqName);
+        const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+        
+        const totalAmount = hqMaintenancePayouts.reduce((sum, m) => sum + m.amount, 0);
+        const netAmt = isIndiv ? totalAmount - Math.floor(totalAmount * 0.033) : totalAmount;
+        
+        const count = hqMaintenancePayouts.length;
+        const upToDisplay = Math.round(netAmt / count);
+        const prodName = `본부지급 (유지수수료 ${count}건)`;
+        
+        const key = `${hqName}|${prodName}`;
+        hqPerfMap.set(key, { hq: hqName, prod: prodName, up: upToDisplay, qty: count, total: netAmt });
       });
 
       Array.from(hqPerfMap.values()).sort((a, b) => a.hq.localeCompare(b.hq)).forEach(p => {
@@ -1656,6 +1745,43 @@ const ERP_Dashboard = () => {
 
       XLSX.utils.book_append_sheet(wb, wsDetail, "전체상세명세");
 
+      // --- SHEET 3: 유지수수료 상세 명세 ---
+      const maintRows: any[][] = [['지급일', '본부', '지사', '사원명', '고객명', '계약번호', '상품명', '지급회차범위', '유지수수료']];
+      maintenancePayouts.forEach((m) => {
+        const originContract = filteredData.find(d => d.resNo === m.resNo);
+        const branch = originContract ? originContract.branch : '-';
+        const empName = originContract ? originContract.empName : '-';
+        const payDate = originContract ? originContract.payDate : payDateSample;
+        
+        maintRows.push([
+          payDate,
+          m.hq,
+          branch,
+          empName,
+          m.customerName,
+          m.resNo,
+          m.productName,
+          m.fromInstallment === m.toInstallment ? `${m.fromInstallment}회차` : `${m.fromInstallment}회차 ~ ${m.toInstallment}회차`,
+          { v: m.amount, t: 'n', z: '#,##0' }
+        ]);
+      });
+      
+      const wsMaint = XLSX.utils.aoa_to_sheet(maintRows);
+      const maintWidths = maintRows.reduce((acc, row) => {
+        row.forEach((cell, i) => {
+          let str = '';
+          if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+          else if (cell !== null && cell !== undefined) str = cell.toString();
+          const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+          if (!acc[i] || len > acc[i]) acc[i] = len;
+        });
+        return acc;
+      }, [] as number[]);
+      wsMaint['!cols'] = maintWidths.map(w => ({ wch: Math.min(w + 2, 40) }));
+      applySheetStyles(wsMaint);
+      
+      XLSX.utils.book_append_sheet(wb, wsMaint, "유지수수료상세");
+
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
       executeDownload(blob, `${payDateSample.substring(0, 7)}_통합정산보고서.xlsx`);
@@ -1728,7 +1854,10 @@ const ERP_Dashboard = () => {
         stats.set(key, (stats.get(key) || 0) + 1);
       });
 
-      let totalSum = 0;
+      const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
+      const maintenanceSum = hqMaintenancePayouts.reduce((sum, m) => sum + m.amount, 0);
+
+      let totalSum = maintenanceSum;
       let salesSum = 0;
       items.forEach(item => {
         const { totalCommission, salesComm } = calculateCommissionDetails(item, stats);
@@ -1753,11 +1882,12 @@ const ERP_Dashboard = () => {
         const empMap = new Map<string, any>();
         items.forEach(item => {
           if (item.status.includes('취소')) return;
-          const { totalCommission } = calculateCommissionDetails(item, stats);
+          const { totalCommission, productRule } = calculateCommissionDetails(item, stats);
           const ov = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
           let shares = { '영업사원': 0, '팀장': 0, '지점장': 0, '본부장': 0 };
           
-          if (setting?.enableOverriding) {
+          const isProductOvApplied = productRule ? productRule.applyOverriding !== false : true;
+          if (setting?.enableOverriding && isProductOvApplied) {
             shares['영업사원'] = ov.salesperson;
             shares['팀장'] = ov.teamLeader;
             shares['지점장'] = ov.branchManager;
@@ -1785,6 +1915,24 @@ const ERP_Dashboard = () => {
           add(org.teamLeader, '팀장', shares['팀장']);
           add(org.branchManager, '지점장', shares['지점장']);
           add(org.hqManager, '본부장', shares['본부장']);
+        });
+
+        // 유지수수료 대상자도 해당 사원(영업사원)에게 가산
+        hqMaintenancePayouts.forEach(payout => {
+          const originContract = filteredData.find(d => d.resNo === payout.resNo);
+          if (!originContract) return;
+
+          const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+          const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+          const netAmount = calcNet(payout.amount);
+          
+          const role = '영업사원';
+          const key = `${originContract.empName}|${role}`;
+
+          if (!empMap.has(key)) {
+            empMap.set(key, { name: originContract.empName, role, total: 0 });
+          }
+          empMap.get(key).total += netAmount;
         });
 
         const roleWeight = (r: string) => ({ '영업사원': 1, '팀장': 2, '지점장': 3, '본부장': 4 }[r] || 5);
@@ -1849,10 +1997,22 @@ const ERP_Dashboard = () => {
           { v: Math.floor(prStat.total), t: 'n', z: '#,##0' }
         ]);
       });
+
+      if (maintenanceSum > 0) {
+        rows.push([
+          '-',
+          '유지수수료 합계',
+          hqMaintenancePayouts.length,
+          { v: 0, t: 'n', z: '#,##0' },
+          { v: maintenanceSum, t: 'n', z: '#,##0' },
+          { v: maintenanceSum, t: 'n', z: '#,##0' }
+        ]);
+      }
+
       rows.push([
         '계',
         '',
-        items.length,
+        items.length + (maintenanceSum > 0 ? hqMaintenancePayouts.length : 0),
         { v: Math.floor(salesSum), t: 'n', z: '#,##0' },
         { v: Math.floor(promoSum), t: 'n', z: '#,##0' },
         { v: Math.floor(totalSum), t: 'n', z: '#,##0' }
@@ -1878,18 +2038,79 @@ const ERP_Dashboard = () => {
         ]);
       });
 
+      if (maintenanceSum > 0) {
+        rows.push([
+          '수수료 소계',
+          '',
+          '',
+          '',
+          '',
+          `${items.length}건`,
+          '',
+          '',
+          '',
+          { v: Math.floor(totalSum - maintenanceSum), t: 'n', z: '#,##0' }
+        ]);
+        rows.push([
+          '유지수수료 합계',
+          '',
+          '',
+          '',
+          '',
+          `${hqMaintenancePayouts.length}건`,
+          '',
+          '',
+          '',
+          { v: maintenanceSum, t: 'n', z: '#,##0' }
+        ]);
+      }
+
       rows.push([
-        '합계',
+        '최종 실지급액 합계',
         '',
         '',
         '',
         '',
-        `${items.length}건`,
+        `${items.length + (maintenanceSum > 0 ? hqMaintenancePayouts.length : 0)}건`,
         '',
         '',
         '',
         { v: Math.floor(totalSum), t: 'n', z: '#,##0' }
       ]);
+
+      if (maintenanceSum > 0) {
+        rows.push([]);
+        rows.push(['[유지수수료 상세 내역]']);
+        rows.push(['본부명', '지사명', '사원명(AP)', '고객명', '렌탈계약번호', '상품명', '지급회차범위', '금액']);
+        
+        hqMaintenancePayouts.forEach(m => {
+          const originContract = filteredData.find(d => d.resNo === m.resNo);
+          const branch = originContract ? originContract.branch : '-';
+          const empName = originContract ? originContract.empName : '-';
+          
+          rows.push([
+            m.hq,
+            branch,
+            empName,
+            m.customerName,
+            m.resNo,
+            m.productName,
+            m.fromInstallment === m.toInstallment ? `${m.fromInstallment}회차` : `${m.fromInstallment}회차 ~ ${m.toInstallment}회차`,
+            { v: m.amount, t: 'n', z: '#,##0' }
+          ]);
+        });
+        
+        rows.push([
+          '합계',
+          '',
+          '',
+          '',
+          '',
+          `${hqMaintenancePayouts.length}건`,
+          '',
+          { v: maintenanceSum, t: 'n', z: '#,##0' }
+        ]);
+      }
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
       
@@ -2545,6 +2766,7 @@ const ERP_Dashboard = () => {
                   { dot: 'bg-blue-600', label: '월별 실적 대시보드', action: () => setIsMonthlyDashboardModalOpen(true) },
                   { dot: 'bg-green-500', label: '헬스케어 명단 추출', action: () => setIsHealthcareModalOpen(true) },
                   { dot: 'bg-yellow-500', label: '날짜별 메모 확인', action: () => setIsMemoHistoryModalOpen(true) },
+                  { dot: 'bg-indigo-500', label: '유지수수료 내역 및 세팅', action: () => setIsMaintenanceHistoryModalOpen(true) },
                 ].map((item, idx) => (
                   <motion.button
                     key={idx}
@@ -3848,6 +4070,7 @@ const ERP_Dashboard = () => {
                                       <th className="px-4 py-3 text-right">전체</th>
                                       <th className="px-4 py-3 text-right">판매</th>
                                       <th className="px-4 py-3 text-right text-orange-600">촉진</th>
+                                      <th className="px-4 py-3 text-center">오버라이딩</th>
                                       <th className="px-4 py-3 text-center border-l border-slate-100 bg-blue-50/30">구간별 수수료 설정 (건 / 단가)</th>
                                       <th className="px-4 py-3 text-center">삭제</th>
                                     </tr>
@@ -3887,6 +4110,12 @@ const ERP_Dashboard = () => {
                                         </td>
                                         <td className="px-4 py-3 text-right font-bold text-orange-500">
                                           {(pr.totalAmount - pr.salesAmount).toLocaleString()}
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                          <input type="checkbox" checked={pr.applyOverriding !== false} onChange={(e) => {
+                                            const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, applyOverriding: e.target.checked } : r);
+                                            setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                          }} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
                                         </td>
                                         <td className="px-2 py-3 border-l border-slate-100 bg-blue-50/10">
                                           <div className="flex flex-col gap-1.5">
@@ -4139,7 +4368,9 @@ const ERP_Dashboard = () => {
                             id: Date.now().toString(),
                             targetHqs: ['ALL'],
                             targetProducts: ['ALL'],
-                            tiers: [{ startMonth: 1, endMonth: 36, amount: 0 }]
+                            tiers: [{ startMonth: 1, endMonth: 36, amount: 0 }],
+                            applyStartDate: '',
+                            applyEndDate: ''
                           }, ...maintenanceRules]);
                         }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
                           <Plus size={16} /> 새 규칙 추가
@@ -4237,6 +4468,39 @@ const ERP_Dashboard = () => {
                                 }} className="p-2 mb-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="규칙 삭제">
                                   <X size={20} />
                                 </button>
+                              </div>
+                            </div>
+
+                            {/* 정책 적용 범위 (계약 시작/종료일) 추가 */}
+                            <div className="flex flex-col sm:flex-row gap-4 items-center bg-slate-50 p-4 rounded-xl border border-slate-200 mt-1">
+                              <div className="w-full sm:flex-1">
+                                <label className="text-xs font-bold text-slate-500">정책 적용 계약일 (시작일)</label>
+                                <input
+                                  type="date"
+                                  value={rule.applyStartDate || ''}
+                                  onChange={e => {
+                                    const n = [...maintenanceRules];
+                                    n[idx].applyStartDate = e.target.value;
+                                    setMaintenanceRules(n);
+                                  }}
+                                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold bg-white"
+                                />
+                              </div>
+                              <div className="w-full sm:flex-1">
+                                <label className="text-xs font-bold text-slate-500">정책 적용 계약일 (종료일)</label>
+                                <input
+                                  type="date"
+                                  value={rule.applyEndDate || ''}
+                                  onChange={e => {
+                                    const n = [...maintenanceRules];
+                                    n[idx].applyEndDate = e.target.value;
+                                    setMaintenanceRules(n);
+                                  }}
+                                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold bg-white"
+                                />
+                              </div>
+                              <div className="w-full sm:flex-[2] text-[11px] text-slate-400 font-bold self-end pb-2">
+                                * 지정 시, 해당 기간 내에 가입/계약된 고객에게만 이 수수료율이 적용됩니다. (공란인 경우 제한 없음)
                               </div>
                             </div>
 
@@ -5016,6 +5280,471 @@ const ERP_Dashboard = () => {
                   </button>
                 </div>
                 )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* ================= 유지수수료 내역 및 세팅 모달 ================= */}
+        <AnimatePresence>
+          {isMaintenanceHistoryModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="max-w-6xl w-full max-h-[85vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-100"
+              >
+                {/* 모달 헤더 */}
+                <div className="px-6 py-4 bg-slate-900 text-white flex justify-between items-center shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-600 rounded-xl shadow-lg">
+                      <Calculator size={20} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold">유지수수료 내역 및 초기 세팅</h3>
+                      <p className="text-xs text-slate-400">기존 지급 완료된 회차를 세팅하거나 전체 내역을 확인합니다.</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setIsMaintenanceHistoryModalOpen(false);
+                      setMSetupSelected([]);
+                      setMSetupInputs({});
+                      setMSetupMemos({});
+                    }}
+                    className="p-2 hover:bg-slate-800 rounded-full transition-colors"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                {/* 탭 네비게이션 */}
+                <div className="flex bg-slate-100 border-b border-slate-200 px-6 pt-2 shrink-0">
+                  <button
+                    onClick={() => setMSetupTab('view')}
+                    className={`px-5 py-2.5 text-sm font-bold rounded-t-xl transition-all border-b-2 ${
+                      mSetupTab === 'view'
+                        ? 'bg-white text-indigo-600 border-indigo-600 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-900 border-transparent'
+                    }`}
+                  >
+                    지급 내역 조회 (History)
+                  </button>
+                  <button
+                    onClick={() => setMSetupTab('setup')}
+                    className={`px-5 py-2.5 text-sm font-bold rounded-t-xl transition-all border-b-2 ${
+                      mSetupTab === 'setup'
+                        ? 'bg-white text-indigo-600 border-indigo-600 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-900 border-transparent'
+                    }`}
+                  >
+                    기존 지급회차 세팅 (Initial Setup)
+                  </button>
+                </div>
+
+                {/* 탭 컨텐츠 */}
+                <div className="flex-1 overflow-y-auto p-6 bg-[#f8fafc]">
+                  
+                  {/* 탭 1: 지급 내역 조회 */}
+                  {mSetupTab === 'view' && (() => {
+                    const filteredHistory = maintenanceHistory.filter(h => {
+                      const searchLower = mHistorySearch.toLowerCase().trim();
+                      if (!searchLower) return true;
+                      return (
+                        (h.resNo || '').toLowerCase().includes(searchLower) ||
+                        (h.customerName || '').toLowerCase().includes(searchLower) ||
+                        (h.productName || '').toLowerCase().includes(searchLower) ||
+                        (h.memo || '').toLowerCase().includes(searchLower)
+                      );
+                    });
+
+                    const limit = 10;
+                    const totalPages = Math.max(1, Math.ceil(filteredHistory.length / limit));
+                    const paginated = filteredHistory.slice((mHistoryPage - 1) * limit, mHistoryPage * limit);
+
+                    return (
+                      <div className="flex flex-col h-full gap-4">
+                        <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm shrink-0">
+                          <div className="relative flex-1 max-w-md">
+                            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                              type="text"
+                              value={mHistorySearch}
+                              onChange={e => {
+                                setMHistorySearch(e.target.value);
+                                setMHistoryPage(1);
+                              }}
+                              placeholder="계약번호, 고객명, 상품명, 메모 등으로 검색..."
+                              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 text-sm font-medium"
+                            />
+                          </div>
+                          <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                            총 {filteredHistory.length}건의 내역 발견
+                          </span>
+                        </div>
+
+                        <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                          <div className="overflow-x-auto flex-1">
+                            <table className="w-full text-left text-sm border-collapse">
+                              <thead>
+                                <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 text-[11px] uppercase tracking-wider">
+                                  <th className="py-3 px-4">계약번호</th>
+                                  <th className="py-3 px-4">고객명</th>
+                                  <th className="py-3 px-4">상품명</th>
+                                  <th className="py-3 px-4">지급년월</th>
+                                  <th className="py-3 px-4 text-center">지급회차</th>
+                                  <th className="py-3 px-4 text-right">지급액</th>
+                                  <th className="py-3 px-4">메모</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {paginated.length > 0 ? (
+                                  paginated.map((h, i) => (
+                                    <tr key={i} className="hover:bg-slate-50/50 transition-colors text-xs">
+                                      <td className="py-3 px-4 font-mono font-bold text-slate-700">{h.resNo}</td>
+                                      <td className="py-3 px-4 font-bold text-slate-900">{h.customerName || '-'}</td>
+                                      <td className="py-3 px-4 font-medium text-slate-600 truncate max-w-[200px]" title={h.productName}>{h.productName || '-'}</td>
+                                      <td className="py-3 px-4 text-slate-500 font-semibold">{h.payMonth}</td>
+                                      <td className="py-3 px-4 text-center">
+                                        <span className="inline-block px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-bold">
+                                          {h.payInstallment}회차
+                                        </span>
+                                      </td>
+                                      <td className="py-3 px-4 text-right font-black text-slate-800">
+                                        {h.amount.toLocaleString()}원
+                                      </td>
+                                      <td className="py-3 px-4 text-slate-500 font-medium truncate max-w-[150px]" title={h.memo}>{h.memo || '-'}</td>
+                                    </tr>
+                                  ))
+                                ) : (
+                                  <tr>
+                                    <td colSpan={7} className="py-8 text-center text-slate-400 font-bold">기록된 지급 내역이 없습니다.</td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* 페이지네이션 */}
+                          <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center shrink-0">
+                            <button
+                              onClick={() => setMHistoryPage(p => Math.max(1, p - 1))}
+                              disabled={mHistoryPage === 1}
+                              className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+                            >
+                              <ChevronLeft size={14} /> 이전
+                            </button>
+                            <span className="text-xs font-bold text-slate-500">
+                              페이지 {mHistoryPage} / {totalPages}
+                            </span>
+                            <button
+                              onClick={() => setMHistoryPage(p => Math.min(totalPages, p + 1))}
+                              disabled={mHistoryPage === totalPages}
+                              className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+                            >
+                              다음 <ChevronRight size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 탭 2: 기존 지급 회차 세팅 */}
+                  {mSetupTab === 'setup' && (() => {
+                    const getContractLastPaid = (resNo: string) => {
+                      let lastPaid = 0;
+                      maintenanceHistory.forEach(h => {
+                        if (h.resNo === resNo && h.payInstallment > lastPaid) {
+                          lastPaid = h.payInstallment;
+                        }
+                      });
+                      return lastPaid;
+                    };
+
+                    const handleSaveInitialSetup = async (targetResNo?: string) => {
+                      const targets = targetResNo ? [targetResNo] : mSetupSelected;
+                      if (targets.length === 0) {
+                        alert('저장할 항목을 선택해주세요.');
+                        return;
+                      }
+                      
+                      if (!confirm(`${targets.length}건의 초기 지급 회차 세팅을 완료하시겠습니까?\n세팅 후 정산 시 설정된 회차까지는 기지급 처리됩니다.`)) {
+                        return;
+                      }
+                      
+                      setIsSavingSetup(true);
+                      try {
+                        const rowsToSave = targets.map(resNo => {
+                          const item = data.find(d => d.resNo === resNo);
+                          const customerName = item ? item.memName : '';
+                          const productName = item ? item.prodName : '';
+                          
+                          const currentLastPaid = getContractLastPaid(resNo);
+                          const val = mSetupInputs[resNo] !== undefined ? mSetupInputs[resNo] : currentLastPaid;
+                          const memo = mSetupMemos[resNo] || 'ERP 초기 세팅';
+                          
+                          return [resNo, '기존소급', val, 0, customerName, productName, memo];
+                        });
+                        
+                        const res = await fetch('/api/sheets/maintenance/save', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ rows: rowsToSave })
+                        });
+                        
+                        if (!res.ok) throw new Error('Save failed');
+                        
+                        setNotification({ message: '성공적으로 세팅되었습니다.', type: 'success' });
+                        if (!targetResNo) {
+                          setMSetupSelected([]);
+                        }
+                        
+                        // 입력 캐시 초기화
+                        setMSetupInputs({});
+                        setMSetupMemos({});
+                        
+                        await loadMaintenanceHistory();
+                      } catch(e) {
+                        console.error(e);
+                        alert('세팅 저장 중 오류가 발생했습니다.');
+                      } finally {
+                        setIsSavingSetup(false);
+                      }
+                    };
+
+                    // 취소되지 않은 계약 리스트 필터링
+                    const activeContracts = data.filter(item => !item.status.includes('취소'));
+
+                    const filteredContracts = activeContracts.filter(item => {
+                      const searchLower = mSetupSearch.toLowerCase().trim();
+                      if (!searchLower) return true;
+                      return (
+                        (item.resNo || '').toLowerCase().includes(searchLower) ||
+                        (item.memName || '').toLowerCase().includes(searchLower) ||
+                        (item.prodName || '').toLowerCase().includes(searchLower)
+                      );
+                    });
+
+                    const limit = 10;
+                    const totalPages = Math.max(1, Math.ceil(filteredContracts.length / limit));
+                    const paginated = filteredContracts.slice((mSetupPage - 1) * limit, mSetupPage * limit);
+
+                    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+                      if (e.target.checked) {
+                        const pageResNos = paginated.map(p => p.resNo);
+                        setMSetupSelected(prev => Array.from(new Set([...prev, ...pageResNos])));
+                      } else {
+                        const pageResNos = paginated.map(p => p.resNo);
+                        setMSetupSelected(prev => prev.filter(id => !pageResNos.includes(id)));
+                      }
+                    };
+
+                    const isAllSelectedOnPage = paginated.length > 0 && paginated.every(p => mSetupSelected.includes(p.resNo));
+
+                    return (
+                      <div className="flex flex-col h-full gap-4">
+                        {/* 설명 가이드 */}
+                        <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl text-xs text-amber-800 leading-relaxed font-bold shadow-sm shrink-0">
+                          <div className="flex items-center gap-2 mb-1.5 text-sm font-black">
+                            <AlertCircle size={16} /> 기존 지급 완료 회차 세팅 가이드
+                          </div>
+                          - ERP 도입 전에 이미 유지수수료가 지급된 기존 계약에 대해, **몇 회차까지 이미 지급했는지** 등록하는 도구입니다.<br />
+                          - 예: **5회차**로 세팅하는 경우, 다음 수수료 정산 시 자동으로 **6회차**부터 수수료가 적용되어 정산됩니다 (중복 정산 방지).<br />
+                          - 세팅 값은 구글 시트에 이력 행으로 추가(append)됩니다. 입력값을 줄이거나 잘못 세팅한 경우에는 구글 시트의 `유지수수료내역` 시트에서 행을 직접 수정해 주시기 바랍니다.
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm shrink-0">
+                          <div className="relative flex-1 max-w-md w-full">
+                            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                              type="text"
+                              value={mSetupSearch}
+                              onChange={e => {
+                                setMSetupSearch(e.target.value);
+                                setMSetupPage(1);
+                              }}
+                              placeholder="고객명, 계약번호, 상품명 등으로 세팅 대상 검색..."
+                              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 text-sm font-medium"
+                            />
+                          </div>
+                          
+                          {/* 일괄 세팅 조정기 */}
+                          <div className="flex items-center gap-3 w-full sm:w-auto self-stretch sm:self-auto bg-slate-50 border border-slate-200 p-2 rounded-xl">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] font-black text-slate-500">선택 {mSetupSelected.length}건 일괄 세팅:</span>
+                              <input
+                                type="number"
+                                placeholder="회차"
+                                min="0"
+                                id="bulkInstallmentInput"
+                                className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-right font-bold text-xs outline-none focus:ring-2 focus:ring-indigo-100"
+                              />
+                              <span className="text-[11px] font-black text-slate-500">회차</span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const inputEl = document.getElementById('bulkInstallmentInput') as HTMLInputElement;
+                                const val = parseInt(inputEl?.value);
+                                if (isNaN(val) || val < 0) {
+                                  alert('올바른 회차 번호를 입력해 주세요.');
+                                  return;
+                                }
+                                const newInputs = { ...mSetupInputs };
+                                mSetupSelected.forEach(resNo => {
+                                  newInputs[resNo] = val;
+                                });
+                                setMSetupInputs(newInputs);
+                                if (inputEl) inputEl.value = '';
+                                setNotification({ message: '선택 건들에 임시 세팅값을 일괄 적용했습니다 (저장을 누르셔야 최종 반영됩니다).', type: 'info' });
+                              }}
+                              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-black rounded-lg transition-colors border border-indigo-100"
+                            >
+                              임시 적용
+                            </button>
+                            <button
+                              onClick={() => handleSaveInitialSetup()}
+                              disabled={isSavingSetup || mSetupSelected.length === 0}
+                              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-xs font-black rounded-lg transition-colors shadow-sm flex items-center gap-1"
+                            >
+                              {isSavingSetup ? <RefreshCw size={12} className="animate-spin" /> : <Save size={12} />}
+                              일괄 저장
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                          <div className="overflow-x-auto flex-1">
+                            <table className="w-full text-left text-sm border-collapse">
+                              <thead>
+                                <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 text-[11px] uppercase tracking-wider">
+                                  <th className="py-3 px-4 text-center w-12">
+                                    <input
+                                      type="checkbox"
+                                      checked={isAllSelectedOnPage}
+                                      onChange={handleSelectAll}
+                                      className="rounded text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                  </th>
+                                  <th className="py-3 px-4">계약번호</th>
+                                  <th className="py-3 px-4">고객명</th>
+                                  <th className="py-3 px-4">상품명</th>
+                                  <th className="py-3 px-4">계약일자</th>
+                                  <th className="py-3 px-4 text-center">기존 최종회차</th>
+                                  <th className="py-3 px-4 text-center w-24">새 최종회차</th>
+                                  <th className="py-3 px-4 w-40">세팅 메모</th>
+                                  <th className="py-3 px-4 text-center w-20">작업</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {paginated.length > 0 ? (
+                                  paginated.map((item) => {
+                                    const currentLastPaid = getContractLastPaid(item.resNo);
+                                    const isSelected = mSetupSelected.includes(item.resNo);
+                                    
+                                    const val = mSetupInputs[item.resNo] !== undefined ? mSetupInputs[item.resNo] : currentLastPaid;
+                                    const memo = mSetupMemos[item.resNo] || '';
+
+                                    return (
+                                      <tr key={item.resNo} className={`hover:bg-slate-50/50 transition-colors text-xs ${isSelected ? 'bg-indigo-50/10' : ''}`}>
+                                        <td className="py-3 px-4 text-center">
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onChange={e => {
+                                              if (e.target.checked) {
+                                                setMSetupSelected(prev => [...prev, item.resNo]);
+                                              } else {
+                                                setMSetupSelected(prev => prev.filter(id => id !== item.resNo));
+                                              }
+                                            }}
+                                            className="rounded text-indigo-600 focus:ring-indigo-500"
+                                          />
+                                        </td>
+                                        <td className="py-3 px-4 font-mono font-bold text-slate-700">{item.resNo}</td>
+                                        <td className="py-3 px-4 font-bold text-slate-900">{item.memName}</td>
+                                        <td className="py-3 px-4 font-medium text-slate-600 truncate max-w-[160px]" title={item.prodName}>{item.prodName}</td>
+                                        <td className="py-3 px-4 text-slate-500">{item.contractDate || '-'}</td>
+                                        <td className="py-3 px-4 text-center font-bold text-slate-500">
+                                          {currentLastPaid}회차
+                                        </td>
+                                        <td className="py-2 px-2 text-center">
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            value={val}
+                                            onChange={e => {
+                                              const v = parseInt(e.target.value);
+                                              setMSetupInputs(prev => ({
+                                                ...prev,
+                                                [item.resNo]: isNaN(v) ? 0 : v
+                                              }));
+                                            }}
+                                            className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-right font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-100"
+                                          />
+                                        </td>
+                                        <td className="py-2 px-2">
+                                          <input
+                                            type="text"
+                                            placeholder="메모 추가..."
+                                            value={memo}
+                                            onChange={e => {
+                                              setMSetupMemos(prev => ({
+                                                ...prev,
+                                                [item.resNo]: e.target.value
+                                              }));
+                                            }}
+                                            className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100"
+                                          />
+                                        </td>
+                                        <td className="py-2 px-4 text-center">
+                                          <button
+                                            onClick={() => handleSaveInitialSetup(item.resNo)}
+                                            disabled={isSavingSetup}
+                                            className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-bold shadow-sm disabled:bg-indigo-300 transition-colors"
+                                          >
+                                            저장
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })
+                                ) : (
+                                  <tr>
+                                    <td colSpan={9} className="py-8 text-center text-slate-400 font-bold">세팅 대상 계약을 발견하지 못했습니다.</td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* 페이지네이션 */}
+                          <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center shrink-0">
+                            <button
+                              onClick={() => setMSetupPage(p => Math.max(1, p - 1))}
+                              disabled={mSetupPage === 1}
+                              className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+                            >
+                              <ChevronLeft size={14} /> 이전
+                            </button>
+                            <span className="text-xs font-bold text-slate-500">
+                              페이지 {mSetupPage} / {totalPages}
+                            </span>
+                            <button
+                              onClick={() => setMSetupPage(p => Math.min(totalPages, p + 1))}
+                              disabled={mSetupPage === totalPages}
+                              className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
+                            >
+                              다음 <ChevronRight size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                </div>
               </motion.div>
             </div>
           )}
