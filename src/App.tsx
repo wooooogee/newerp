@@ -1360,9 +1360,17 @@ const ERP_Dashboard = () => {
         
         if (!hqSummary[rule.targetName]) hqSummary[rule.targetName] = { count: 0, amount: 0 };
         hqSummary[rule.targetName].amount += finalAmount;
+        hqSummary[rule.targetName].count += matchedCount;
+        
+        const specialName = `[특수수당] ${rule.targetName}`;
+        if (!summary[specialName]) summary[specialName] = { count: 0, amount: 0 };
+        summary[specialName].amount += finalAmount;
+        summary[specialName].count += matchedCount;
         
         totalAmount += finalAmount;
         totalPendingAmount += finalAmount;
+        totalCount += matchedCount;
+        totalPendingCount += matchedCount;
       }
     });
 
