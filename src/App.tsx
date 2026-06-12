@@ -3234,7 +3234,7 @@ const ERP_Dashboard = () => {
                   { dot: 'bg-blue-600', label: '월별 실적 대시보드', action: () => setIsMonthlyDashboardModalOpen(true) },
                   { dot: 'bg-green-500', label: '헬스케어 명단 추출', action: () => setIsHealthcareModalOpen(true) },
                   { dot: 'bg-yellow-500', label: '날짜별 메모 확인', action: () => setIsMemoHistoryModalOpen(true) },
-                  { dot: 'bg-indigo-500', label: '유지수수료 내역 및 세팅', action: () => setIsMaintenanceHistoryModalOpen(true) },
+                  { dot: 'bg-indigo-500', label: '유지수수료 지급 관리', action: () => setIsMaintenanceHistoryModalOpen(true) },
                 ].map((item, idx) => (
                   <motion.button
                     key={idx}
@@ -6145,9 +6145,12 @@ const ERP_Dashboard = () => {
                               <thead>
                                 <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 text-[11px] uppercase tracking-wider sticky top-0 z-20 shadow-sm">
                                   <th className="py-3 px-4 w-28 bg-slate-50">계약일자</th>
+                                  <th className="py-3 px-4 w-24 bg-slate-50">본부명</th>
+                                  <th className="py-3 px-4 w-24 bg-slate-50">영업자</th>
                                   <th className="py-3 px-4 w-28 bg-slate-50">회원번호</th>
                                   <th className="py-3 px-4 w-24 bg-slate-50">고객명</th>
                                   <th className="py-3 px-4 w-32 bg-slate-50">상품명</th>
+                                  <th className="py-3 px-4 w-20 bg-slate-50 text-center">회차</th>
                                   <th className="py-3 px-4 bg-slate-50">지급 회차 관리 (클릭하여 지급 완료 처리)</th>
                                 </tr>
                               </thead>
@@ -6182,9 +6185,12 @@ const ERP_Dashboard = () => {
                                     return (
                                       <tr key={item.resNo} className="hover:bg-slate-50/50 transition-colors text-xs">
                                         <td className="py-3 px-4 font-medium text-slate-600">{item.contractDate || '-'}</td>
+                                        <td className="py-3 px-4 font-bold text-slate-800">{item.hq || '-'}</td>
+                                        <td className="py-3 px-4 font-medium text-slate-700">{item.empName || '-'}</td>
                                         <td className="py-3 px-4 font-mono font-bold text-slate-700">{item.memNo || '-'}</td>
                                         <td className="py-3 px-4 font-bold text-slate-900">{item.memName}</td>
                                         <td className="py-3 px-4 font-medium text-slate-600 truncate max-w-[120px]" title={item.prodName}>{item.prodName}</td>
+                                        <td className="py-3 px-4 text-center font-bold text-slate-600">{config.maxInstallment}회</td>
                                         <td className="py-3 px-4">
                                           <div className="flex flex-wrap gap-2">
                                             {Array.from({ length: config.maxInstallment }, (_, i) => i + 1).map(inst => {
@@ -6192,21 +6198,16 @@ const ERP_Dashboard = () => {
                                               if (amount === 0) return null; // 금액이 0이면 무시
                                               const isPaid = paidInstallments.has(inst);
                                               return (
-                                                <label 
+                                                <div 
                                                   key={inst}
+                                                  onClick={() => togglePayment(inst, !isPaid)}
                                                   className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer select-none transition-all ${
-                                                    isPaid ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:bg-slate-50'
+                                                    isPaid ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:bg-slate-50'
                                                   }`}
                                                   title={`${amount.toLocaleString()}원`}
                                                 >
-                                                  <input 
-                                                    type="checkbox"
-                                                    checked={isPaid}
-                                                    onChange={e => togglePayment(inst, e.target.checked)}
-                                                    className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                                  />
                                                   <span className="font-bold text-[10px]">{inst}회</span>
-                                                </label>
+                                                </div>
                                               );
                                             })}
                                           </div>
@@ -6216,7 +6217,7 @@ const ERP_Dashboard = () => {
                                   })
                                 ) : (
                                   <tr>
-                                    <td colSpan={4} className="py-8 text-center text-slate-400 font-bold">표시할 계약건이 없습니다.</td>
+                                    <td colSpan={8} className="py-8 text-center text-slate-400 font-bold">표시할 계약건이 없습니다.</td>
                                   </tr>
                                 )}
                               </tbody>
