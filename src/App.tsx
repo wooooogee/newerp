@@ -361,6 +361,7 @@ const ERP_Dashboard = () => {
   const [maintenanceTab, setMaintenanceTab] = useState<'eligible' | 'overdue'>('eligible');
   const [activeHqId, setActiveHqId] = useState<string | null>(null);
   const [previewTarget, setPreviewTarget] = useState<string | null>(null);
+  const [expandedHqs, setExpandedHqs] = useState<Record<string, boolean>>({});
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
   const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('구좌수');
@@ -5300,7 +5301,7 @@ const ERP_Dashboard = () => {
                     
                     const targets = previewTarget === 'ALL' ? combinedHqs : [previewTarget];
 
-                    return targets.map(hqName => {
+                    const targetSummaries = targets.map(hqName => {
                       const items = settlementStats.hqGroups[hqName] || [];
                       const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
                       const maintenanceSum = hqMaintenancePayouts.reduce((sum, p) => sum + p.amount, 0);
@@ -5324,10 +5325,9 @@ const ERP_Dashboard = () => {
                         generalSum += totalCommission;
                         salesSum += salesComm;
                       });
-                      const promoSum = Math.max(0, generalSum - salesSum);
-                      
-                      const totalSum = generalSum + maintenanceSum + specialSum;
 
+                      const totalSum = generalSum + maintenanceSum + specialSum;
+                      
                       let payDateDisplay = payDateFilter || '';
                       if (!payDateDisplay && items.length > 0) {
                         const { displayPayDate } = calculateCommissionDetails(items[0], stats);
@@ -5341,9 +5341,34 @@ const ERP_Dashboard = () => {
                       const targetMonth = payDateDisplay.substring(0, 7);
                       const [y, m] = targetMonth.split('.').length > 1 ? targetMonth.split('.') : targetMonth.split('-');
 
+                      const finalPayable = setting?.settlementType?.includes('개인')
+                        ? (totalSum - Math.floor(totalSum * 0.033))
+                        : totalSum;
+
+                      return {
+                        hqName,
+                        payDateDisplay,
+                        bankName: setting?.bankName || '-',
+                        accountNumber: setting?.accountNumber || '-',
+                        accountHolder: setting?.accountHolder || '-',
+                        settlementType: setting?.settlementType || '개인',
+                        totalSum,
+                        finalPayable,
+                        items,
+                        hqMaintenancePayouts,
+                        maintenanceSum,
+                        specialSum,
+                        stats,
+                        y,
+                        m,
+                        setting
+                      };
+                    }).filter(Boolean) as any[];
+
+                    const renderHqDetailCard = (s: any) => {
                       const productSummary: Record<string, { count: number, sales: number, promo: number, total: number }> = {};
-                      items.forEach(item => {
-                        const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, stats);
+                      s.items.forEach((item: any) => {
+                        const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, s.stats);
                         if (!productSummary[item.prodName]) productSummary[item.prodName] = { count: 0, sales: 0, promo: 0, total: 0 };
                         productSummary[item.prodName].count += 1;
                         productSummary[item.prodName].sales += salesComm;
@@ -5351,18 +5376,29 @@ const ERP_Dashboard = () => {
                         productSummary[item.prodName].total += totalCommission;
                       });
 
-                      const activeTab = previewTabs[hqName] || 'summary';
+                      const activeTab = previewTabs[s.hqName] || 'summary';
+                      const generalSum = s.totalSum - s.maintenanceSum - s.specialSum;
 
                       return (
-                        <div key={hqName} className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 mb-8">
-                          <h1 className="text-center text-2xl font-black mb-8 text-slate-800">{y}년 {parseInt(m)}월 수수료 정산 내역서</h1>
+                        <div className="bg-slate-50 p-5 rounded-xl border border-slate-300 shadow-inner space-y-4">
+                          <div className="flex justify-between items-center">
+                            <h4 className="text-sm font-black text-slate-800">[{s.hqName}] {s.y}년 {parseInt(s.m)}월 상세 정산 명세</h4>
+                            <button 
+                              onClick={async () => {
+                                await exportProfessionalSettlement(s.hqName);
+                              }}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1 shadow-sm"
+                            >
+                              <Download size={12} /> 개별 엑셀 다운로드
+                            </button>
+                          </div>
                           
-                          <div className="flex border-b border-slate-200 mb-6 gap-2">
+                          <div className="flex border-b border-slate-200 gap-1.5">
                             {['summary', 'tax', 'products', 'details', 'maintenance', 'special'].map(tab => {
-                              if (tab === 'maintenance' && hqMaintenancePayouts.length === 0) return null;
-                              if (tab === 'products' && items.length === 0) return null;
-                              if (tab === 'details' && items.length === 0) return null;
-                              if (tab === 'special' && specialSum === 0) return null;
+                              if (tab === 'maintenance' && s.hqMaintenancePayouts.length === 0) return null;
+                              if (tab === 'products' && s.items.length === 0) return null;
+                              if (tab === 'details' && s.items.length === 0) return null;
+                              if (tab === 'special' && s.specialSum === 0) return null;
                               const tabNames: Record<string, string> = {
                                 'summary': '정산내역 요약',
                                 'tax': '세금계산서 요약',
@@ -5372,8 +5408,8 @@ const ERP_Dashboard = () => {
                                 'special': '특수수당 내역'
                               };
                               return (
-                                <button key={tab} onClick={() => setPreviewTabs(prev => ({...prev, [hqName]: tab}))}
-                                  className={`px-4 py-2 font-bold text-sm transition-colors border-b-2 ${activeTab === tab ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+                                <button key={tab} onClick={() => setPreviewTabs(prev => ({...prev, [s.hqName]: tab}))}
+                                  className={`px-3 py-1 font-bold text-xs transition-colors border-b-2 ${activeTab === tab ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
                                   {tabNames[tab]}
                                 </button>
                               );
@@ -5381,80 +5417,78 @@ const ERP_Dashboard = () => {
                           </div>
 
                           {activeTab === 'summary' && (
-                            <div className="space-y-6">
-                              <table className="w-full border-collapse border border-blue-900 text-sm">
+                            <div className="space-y-4 bg-white p-4 rounded-lg border border-slate-200">
+                              <table className="w-full border-collapse border border-blue-900 text-[11px]">
                                 <thead>
-                                  <tr className="bg-blue-900 text-white font-bold text-center text-xs">
-                                    <th className="border border-blue-900 p-2">지급일자</th>
-                                    <th className="border border-blue-900 p-2">대상자/지사명</th>
-                                    <th className="border border-blue-900 p-2">은행</th>
-                                    <th className="border border-blue-900 p-2">계좌번호</th>
-                                    <th className="border border-blue-900 p-2">예금주</th>
+                                  <tr className="bg-blue-900 text-white font-bold text-center">
+                                    <th className="border border-blue-900 p-1.5">지급일자</th>
+                                    <th className="border border-blue-900 p-1.5">대상자/지사명</th>
+                                    <th className="border border-blue-900 p-1.5">은행</th>
+                                    <th className="border border-blue-900 p-1.5">계좌번호</th>
+                                    <th className="border border-blue-900 p-1.5">예금주</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   <tr className="text-center font-medium">
-                                    <td className="border border-slate-300 p-2 font-mono">{payDateDisplay}</td>
-                                    <td className="border border-slate-300 p-2 font-bold text-slate-800">{hqName}</td>
-                                    <td className="border border-slate-300 p-2">{setting?.bankName || '-'}</td>
-                                    <td className="border border-slate-300 p-2 font-mono">{setting?.accountNumber || '-'}</td>
-                                    <td className="border border-slate-300 p-2">{setting?.accountHolder || '-'}</td>
+                                    <td className="border border-slate-300 p-1.5 font-mono">{s.payDateDisplay}</td>
+                                    <td className="border border-slate-300 p-1.5 font-bold text-slate-800">{s.hqName}</td>
+                                    <td className="border border-slate-300 p-1.5">{s.bankName}</td>
+                                    <td className="border border-slate-300 p-1.5 font-mono">{s.accountNumber}</td>
+                                    <td className="border border-slate-300 p-1.5">{s.accountHolder}</td>
                                   </tr>
                                 </tbody>
                               </table>
 
-                              <div className="font-bold text-sm text-slate-700 mt-4">■ 정산 항목별 요약</div>
-                              <table className="w-full border-collapse border border-slate-300 text-sm">
+                              <div className="font-bold text-[11px] text-slate-700">■ 정산 항목별 요약</div>
+                              <table className="w-full border-collapse border border-slate-300 text-[11px]">
                                 <thead>
-                                  <tr className="bg-slate-100 text-slate-700 text-xs font-bold text-center">
-                                    <th className="border border-slate-300 p-2 text-left">항목 구분</th>
-                                    <th className="border border-slate-300 p-2">구좌수</th>
-                                    <th className="border border-slate-300 p-2 text-right">금액(VAT포함)</th>
+                                  <tr className="bg-slate-100 text-slate-700 font-bold text-center">
+                                    <th className="border border-slate-300 p-1.5 text-left">항목 구분</th>
+                                    <th className="border border-slate-300 p-1.5">구좌수</th>
+                                    <th className="border border-slate-300 p-1.5 text-right">금액(VAT포함)</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {generalSum > 0 && (
-                                    <tr className="text-xs">
-                                      <td className="border border-slate-300 p-2 font-bold text-slate-600">일반 수수료 (일반 계약분)</td>
-                                      <td className="border border-slate-300 p-2 text-center">{items.length}구좌</td>
-                                      <td className="border border-slate-300 p-2 text-right font-bold text-slate-800">{generalSum.toLocaleString()}원</td>
+                                    <tr>
+                                      <td className="border border-slate-300 p-1.5 font-bold text-slate-600">일반 수수료 (일반 계약분)</td>
+                                      <td className="border border-slate-300 p-1.5 text-center">{s.items.length}구좌</td>
+                                      <td className="border border-slate-300 p-1.5 text-right font-bold text-slate-800">{generalSum.toLocaleString()}원</td>
                                     </tr>
                                   )}
-                                  {maintenanceSum > 0 && (
-                                    <tr className="text-xs">
-                                      <td className="border border-slate-300 p-2 font-bold text-slate-600">유지 수수료 (고객관리분)</td>
-                                      <td className="border border-slate-300 p-2 text-center">{hqMaintenancePayouts.length}건</td>
-                                      <td className="border border-slate-300 p-2 text-right font-bold text-slate-800">{maintenanceSum.toLocaleString()}원</td>
+                                  {s.maintenanceSum > 0 && (
+                                    <tr>
+                                      <td className="border border-slate-300 p-1.5 font-bold text-slate-600">유지 수수료 (고객관리분)</td>
+                                      <td className="border border-slate-300 p-1.5 text-center">{s.hqMaintenancePayouts.length}건</td>
+                                      <td className="border border-slate-300 p-1.5 text-right font-bold text-slate-800">{s.maintenanceSum.toLocaleString()}원</td>
                                     </tr>
                                   )}
-                                  {specialSum > 0 && (
-                                    <tr className="text-xs">
-                                      <td className="border border-slate-300 p-2 font-bold text-slate-600">
-                                        특수 수당 ({hqName === '조재윤' ? '모델비' : (hqName === '조민경' ? '컨설팅비' : '추가 인센티브')})
+                                  {s.specialSum > 0 && (
+                                    <tr>
+                                      <td className="border border-slate-300 p-1.5 font-bold text-slate-600">
+                                        특수 수당 ({s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '추가 인센티브')})
                                       </td>
-                                      <td className="border border-slate-300 p-2 text-center">
-                                        {settlementStats.hqSummary[hqName]?.count || 0}구좌
+                                      <td className="border border-slate-300 p-1.5 text-center">
+                                        {settlementStats.hqSummary[s.hqName]?.count || 0}구좌
                                       </td>
-                                      <td className="border border-slate-300 p-2 text-right font-bold text-slate-800">{specialSum.toLocaleString()}원</td>
+                                      <td className="border border-slate-300 p-1.5 text-right font-bold text-slate-800">{s.specialSum.toLocaleString()}원</td>
                                     </tr>
                                   )}
                                   <tr className="bg-blue-50/50 font-bold">
-                                    <td className="border border-slate-300 p-2 text-blue-900 bg-blue-50">총합계 금액</td>
-                                    <td className="border border-slate-300 p-2 text-center bg-blue-50">
-                                      {(items.length + (settlementStats.hqSummary[hqName]?.count || 0)) || '-'}
+                                    <td className="border border-slate-300 p-1.5 text-blue-900 bg-blue-50">총합계 금액</td>
+                                    <td className="border border-slate-300 p-1.5 text-center bg-blue-50">
+                                      {(s.items.length + (settlementStats.hqSummary[s.hqName]?.count || 0)) || '-'}
                                     </td>
-                                    <td className="border border-slate-300 p-2 text-right text-blue-900 bg-blue-50 text-base">
-                                      {totalSum.toLocaleString()}원
+                                    <td className="border border-slate-300 p-1.5 text-right text-blue-900 bg-blue-50">
+                                      {s.totalSum.toLocaleString()}원
                                     </td>
                                   </tr>
                                   <tr className="bg-amber-50/40 font-bold text-orange-700">
-                                    <td className="border border-slate-300 p-2 bg-amber-50" colSpan={2}>
-                                      {setting?.settlementType?.includes('개인') ? '최종 실지급액 (원천세 3.3% 공제 후)' : '실지급액 (세금계산서 발행액)'}
+                                    <td className="border border-slate-300 p-1.5 bg-amber-50" colSpan={2}>
+                                      {s.setting?.settlementType?.includes('개인') ? '최종 실지급액 (원천세 3.3% 공제 후)' : '실지급액 (세금계산서 발행액)'}
                                     </td>
-                                    <td className="border border-slate-300 p-2 text-right bg-amber-50 text-base">
-                                      {(setting?.settlementType?.includes('개인')
-                                        ? (totalSum - Math.floor(totalSum * 0.033))
-                                        : totalSum).toLocaleString()}원
+                                    <td className="border border-slate-300 p-1.5 text-right bg-amber-50">
+                                      {s.finalPayable.toLocaleString()}원
                                     </td>
                                   </tr>
                                 </tbody>
@@ -5463,211 +5497,302 @@ const ERP_Dashboard = () => {
                           )}
 
                           {activeTab === 'tax' && (
-                            <>
-                            <div className="mb-2 font-bold text-sm text-slate-700">■ {setting?.settlementType?.includes('개인') ? '원천징수 영수 요약 (3.3% 공제)' : '세금계산서 발행 요약 (부가세 포함)'}</div>
-                            <table className="w-full border-collapse border border-slate-300 text-sm text-center">
-                              <thead>
-                                <tr className="bg-blue-900 text-white text-xs">
-                                  <th className="border border-slate-300 p-2 text-left">항목</th>
-                                  <th className="border border-slate-300 p-2">{setting?.settlementType?.includes('개인') ? '정산금액' : '공급가액'}</th>
-                                  <th className="border border-slate-300 p-2">{setting?.settlementType?.includes('개인') ? '원천세(3.3%)' : '부가세(10%)'}</th>
-                                  <th className="border border-slate-300 p-2 font-bold">{setting?.settlementType?.includes('개인') ? '실지급액' : '합계금액(실지급액)'}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {generalSum > 0 && (
-                                  <tr>
-                                    <td className="border border-slate-300 p-2 bg-slate-50 font-bold text-left">일반 수수료 (일반 계약분)</td>
-                                    <td className="border border-slate-300 p-2">
-                                      {setting?.settlementType?.includes('개인') ? generalSum.toLocaleString() : Math.round(generalSum / 1.1).toLocaleString()}원
+                            <div className="bg-white p-4 rounded-lg border border-slate-200">
+                              <div className="mb-2 font-bold text-[11px] text-slate-700">■ {s.setting?.settlementType?.includes('개인') ? '원천징수 영수 요약 (3.3% 공제)' : '세금계산서 발행 요약 (부가세 포함)'}</div>
+                              <table className="w-full border-collapse border border-slate-300 text-[11px] text-center">
+                                <thead>
+                                  <tr className="bg-blue-900 text-white font-bold">
+                                    <th className="border border-slate-300 p-1.5 text-left">항목</th>
+                                    <th className="border border-slate-300 p-1.5">{s.setting?.settlementType?.includes('개인') ? '정산금액' : '공급가액'}</th>
+                                    <th className="border border-slate-300 p-1.5">{s.setting?.settlementType?.includes('개인') ? '원천세(3.3%)' : '부가세(10%)'}</th>
+                                    <th className="border border-slate-300 p-1.5 font-bold">{s.setting?.settlementType?.includes('개인') ? '실지급액' : '합계금액(실지급액)'}</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {generalSum > 0 && (
+                                    <tr>
+                                      <td className="border border-slate-300 p-1.5 bg-slate-50 font-bold text-left">일반 수수료 (일반 계약분)</td>
+                                      <td className="border border-slate-300 p-1.5">
+                                        {s.setting?.settlementType?.includes('개인') ? generalSum.toLocaleString() : Math.round(generalSum / 1.1).toLocaleString()}원
+                                      </td>
+                                      <td className="border border-slate-300 p-1.5 text-red-600">
+                                        {s.setting?.settlementType?.includes('개인') ? Math.floor(generalSum * 0.033).toLocaleString() : (generalSum - Math.round(generalSum / 1.1)).toLocaleString()}원
+                                      </td>
+                                      <td className="border border-slate-300 p-1.5 font-bold text-slate-800">
+                                        {s.setting?.settlementType?.includes('개인') ? (generalSum - Math.floor(generalSum * 0.033)).toLocaleString() : generalSum.toLocaleString()}원
+                                      </td>
+                                    </tr>
+                                  )}
+                                  {s.maintenanceSum > 0 && (
+                                    <tr>
+                                      <td className="border border-slate-300 p-1.5 bg-slate-50 font-bold text-left">유지 수수료 (고객관리분)</td>
+                                      <td className="border border-slate-300 p-1.5">
+                                        {s.setting?.settlementType?.includes('개인') ? s.maintenanceSum.toLocaleString() : Math.round(s.maintenanceSum / 1.1).toLocaleString()}원
+                                      </td>
+                                      <td className="border border-slate-300 p-1.5 text-red-600">
+                                        {s.setting?.settlementType?.includes('개인') ? Math.floor(s.maintenanceSum * 0.033).toLocaleString() : (s.maintenanceSum - Math.round(s.maintenanceSum / 1.1)).toLocaleString()}원
+                                      </td>
+                                      <td className="border border-slate-300 p-1.5 font-bold text-slate-800">
+                                        {s.setting?.settlementType?.includes('개인') ? (s.maintenanceSum - Math.floor(s.maintenanceSum * 0.033)).toLocaleString() : s.maintenanceSum.toLocaleString()}원
+                                      </td>
+                                    </tr>
+                                  )}
+                                  {s.specialSum > 0 && (
+                                    <tr>
+                                      <td className="border border-slate-300 p-1.5 bg-slate-50 font-bold text-left">특수 수당</td>
+                                      <td className="border border-slate-300 p-1.5">
+                                        {s.setting?.settlementType?.includes('개인') ? s.specialSum.toLocaleString() : Math.round(s.specialSum / 1.1).toLocaleString()}원
+                                      </td>
+                                      <td className="border border-slate-300 p-1.5 text-red-600">
+                                        {s.setting?.settlementType?.includes('개인') ? Math.floor(s.specialSum * 0.033).toLocaleString() : (s.specialSum - Math.round(s.specialSum / 1.1)).toLocaleString()}원
+                                      </td>
+                                      <td className="border border-slate-300 p-1.5 font-bold text-slate-800">
+                                        {s.setting?.settlementType?.includes('개인') ? (s.specialSum - Math.floor(s.specialSum * 0.033)).toLocaleString() : s.specialSum.toLocaleString()}원
+                                      </td>
+                                    </tr>
+                                  )}
+                                  <tr className="font-bold bg-blue-50/50">
+                                    <td className="border border-slate-300 p-1.5 bg-blue-100 text-blue-900 text-left">총 합계액</td>
+                                    <td className="border border-slate-300 p-1.5 text-blue-800">
+                                      {s.setting?.settlementType?.includes('개인') ? s.totalSum.toLocaleString() : Math.round(s.totalSum / 1.1).toLocaleString()}원
                                     </td>
-                                    <td className="border border-slate-300 p-2 text-red-600">
-                                      {setting?.settlementType?.includes('개인') ? Math.floor(generalSum * 0.033).toLocaleString() : (generalSum - Math.round(generalSum / 1.1)).toLocaleString()}원
+                                    <td className="border border-slate-300 p-1.5 text-red-600">
+                                      {s.setting?.settlementType?.includes('개인') ? Math.floor(s.totalSum * 0.033).toLocaleString() : (s.totalSum - Math.round(s.totalSum / 1.1)).toLocaleString()}원
                                     </td>
-                                    <td className="border border-slate-300 p-2 font-bold text-slate-800">
-                                      {setting?.settlementType?.includes('개인') ? (generalSum - Math.floor(generalSum * 0.033)).toLocaleString() : generalSum.toLocaleString()}원
+                                    <td className="border border-slate-300 p-1.5 text-blue-900">
+                                      {s.finalPayable.toLocaleString()}원
                                     </td>
                                   </tr>
-                                )}
-                                {maintenanceSum > 0 && (
-                                  <tr>
-                                    <td className="border border-slate-300 p-2 bg-slate-50 font-bold text-left">유지 수수료 (고객관리분)</td>
-                                    <td className="border border-slate-300 p-2">
-                                      {setting?.settlementType?.includes('개인') ? maintenanceSum.toLocaleString() : Math.round(maintenanceSum / 1.1).toLocaleString()}원
-                                    </td>
-                                    <td className="border border-slate-300 p-2 text-red-600">
-                                      {setting?.settlementType?.includes('개인') ? Math.floor(maintenanceSum * 0.033).toLocaleString() : (maintenanceSum - Math.round(maintenanceSum / 1.1)).toLocaleString()}원
-                                    </td>
-                                    <td className="border border-slate-300 p-2 font-bold text-slate-800">
-                                      {setting?.settlementType?.includes('개인') ? (maintenanceSum - Math.floor(maintenanceSum * 0.033)).toLocaleString() : maintenanceSum.toLocaleString()}원
-                                    </td>
-                                  </tr>
-                                )}
-                                {specialSum > 0 && (
-                                  <tr>
-                                    <td className="border border-slate-300 p-2 bg-slate-50 font-bold text-left">특수 수당</td>
-                                    <td className="border border-slate-300 p-2">
-                                      {setting?.settlementType?.includes('개인') ? specialSum.toLocaleString() : Math.round(specialSum / 1.1).toLocaleString()}원
-                                    </td>
-                                    <td className="border border-slate-300 p-2 text-red-600">
-                                      {setting?.settlementType?.includes('개인') ? Math.floor(specialSum * 0.033).toLocaleString() : (specialSum - Math.round(specialSum / 1.1)).toLocaleString()}원
-                                    </td>
-                                    <td className="border border-slate-300 p-2 font-bold text-slate-800">
-                                      {setting?.settlementType?.includes('개인') ? (specialSum - Math.floor(specialSum * 0.033)).toLocaleString() : specialSum.toLocaleString()}원
-                                    </td>
-                                  </tr>
-                                )}
-                                <tr className="font-bold bg-blue-50/50">
-                                  <td className="border border-slate-300 p-2 bg-blue-100 text-blue-900 text-left">총 합계액</td>
-                                  <td className="border border-slate-300 p-2 text-blue-800">
-                                    {setting?.settlementType?.includes('개인') ? totalSum.toLocaleString() : Math.round(totalSum / 1.1).toLocaleString()}원
-                                  </td>
-                                  <td className="border border-slate-300 p-2 text-red-600">
-                                    {setting?.settlementType?.includes('개인') ? Math.floor(totalSum * 0.033).toLocaleString() : (totalSum - Math.round(totalSum / 1.1)).toLocaleString()}원
-                                  </td>
-                                  <td className="border border-slate-300 p-2 text-blue-900 text-lg">
-                                    {setting?.settlementType?.includes('개인') ? (totalSum - Math.floor(totalSum * 0.033)).toLocaleString() : totalSum.toLocaleString()}원
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                            </>
+                                </tbody>
+                              </table>
+                            </div>
                           )}
 
-                        {activeTab === 'products' && (
-                          <>
-                        {/* Product Summary */}
-                        <div className="mb-2 font-bold text-sm text-slate-700">■ 상품별 수수료 요약</div>
-                        <table className="w-full mb-8 border-collapse border border-slate-300 text-sm">
-                          <thead>
-                            <tr className="bg-slate-100 text-slate-700 text-center text-xs font-bold">
-                              <th className="border border-slate-300 p-2 text-left">상품명</th>
-                              <th className="border border-slate-300 p-2">정산 건수</th>
-                              <th className="border border-slate-300 p-2">판매수수료 합</th>
-                              <th className="border border-slate-300 p-2">판매촉진비 합</th>
-                              <th className="border border-slate-300 p-2">총 수수료</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {Object.entries(productSummary).map(([pName, s]) => (
-                              <tr key={pName} className="text-center text-xs">
-                                <td className="border border-slate-300 p-2 text-left font-medium">{pName}</td>
-                                <td className="border border-slate-300 p-2">{s.count}건</td>
-                                <td className="border border-slate-300 p-2">{s.sales.toLocaleString()}</td>
-                                <td className="border border-slate-300 p-2">{s.promo.toLocaleString()}</td>
-                                <td className="border border-slate-300 p-2 font-bold text-blue-700">{s.total.toLocaleString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        </>
-                        )}
+                          {activeTab === 'products' && (
+                            <div className="bg-white p-4 rounded-lg border border-slate-200">
+                              <div className="mb-2 font-bold text-xs text-slate-700">■ 상품별 수수료 요약</div>
+                              <table className="w-full border-collapse border border-slate-300 text-[11px]">
+                                <thead>
+                                  <tr className="bg-slate-100 text-slate-700 text-center font-bold">
+                                    <th className="border border-slate-300 p-1.5 text-left">상품명</th>
+                                    <th className="border border-slate-300 p-1.5">정산 건수</th>
+                                    <th className="border border-slate-300 p-1.5">판매수수료 합</th>
+                                    <th className="border border-slate-300 p-1.5">판매촉진비 합</th>
+                                    <th className="border border-slate-300 p-1.5">총 수수료</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {Object.entries(productSummary).map(([pName, prStat]) => (
+                                    <tr key={pName} className="text-center">
+                                      <td className="border border-slate-300 p-1.5 text-left font-medium">{pName}</td>
+                                      <td className="border border-slate-300 p-1.5">{prStat.count}건</td>
+                                      <td className="border border-slate-300 p-1.5">{prStat.sales.toLocaleString()}</td>
+                                      <td className="border border-slate-300 p-1.5">{prStat.promo.toLocaleString()}</td>
+                                      <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{prStat.total.toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
 
-                        {activeTab === 'details' && (
-                          <>
-                        {/* Details Table */}
-                        <div className="mb-2 font-bold text-sm text-slate-700">■ 세부 실적 내역 ({items.length}건)</div>
+                          {activeTab === 'details' && (
+                            <div className="bg-white p-4 rounded-lg border border-slate-200">
+                              <div className="mb-2 font-bold text-xs text-slate-700">■ 일반수수료 세부 내역 ({s.items.length}건)</div>
+                              <div className="overflow-x-auto">
+                                <table className="w-full border-collapse border border-slate-300 text-[10px] whitespace-nowrap">
+                                  <thead>
+                                    <tr className="bg-slate-100 text-slate-700 text-center font-bold">
+                                      <th className="border border-slate-300 p-1.5">No</th>
+                                      <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
+                                      <th className="border border-slate-300 p-1.5">계약일자</th>
+                                      <th className="border border-slate-300 p-1.5">배송일자</th>
+                                      <th className="border border-slate-300 p-1.5">고객명</th>
+                                      <th className="border border-slate-300 p-1.5">영업사원</th>
+                                      <th className="border border-slate-300 p-1.5 text-left">상품명</th>
+                                      <th className="border border-slate-300 p-1.5 text-blue-700">합계금액</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {s.items.map((item: any, i: number) => {
+                                      const { totalCommission } = calculateCommissionDetails(item, s.stats);
+                                      return (
+                                        <tr key={i} className="text-center">
+                                          <td className="border border-slate-300 p-1.5">{i + 1}</td>
+                                          <td className="border border-slate-300 p-1.5">{item.rentalNo || '-'}</td>
+                                          <td className="border border-slate-300 p-1.5">{item.contractDate || '-'}</td>
+                                          <td className="border border-slate-300 p-1.5">{item.deliveryDate || '-'}</td>
+                                          <td className="border border-slate-300 p-1.5">{item.memName || '-'}</td>
+                                          <td className="border border-slate-300 p-1.5">{item.empName || '-'}</td>
+                                          <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={item.prodName}>{item.prodName}</td>
+                                          <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{totalCommission.toLocaleString()}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
+                          {activeTab === 'maintenance' && (
+                            <div className="bg-white p-4 rounded-lg border border-slate-200">
+                              <div className="mb-2 font-bold text-xs text-slate-700">■ 유지수수료 정산 내역 (총 {s.maintenanceSum.toLocaleString()}원)</div>
+                              <table className="w-full border-collapse border border-slate-300 text-[10px] whitespace-nowrap">
+                                <thead>
+                                  <tr className="bg-slate-100 text-slate-700 text-center font-bold">
+                                    <th className="border border-slate-300 p-1.5">No</th>
+                                    <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
+                                    <th className="border border-slate-300 p-1.5">고객명</th>
+                                    <th className="border border-slate-300 p-1.5 text-left">상품명</th>
+                                    <th className="border border-slate-300 p-1.5 text-blue-700">지급회차</th>
+                                    <th className="border border-slate-300 p-1.5 text-blue-700">지급금액</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {s.hqMaintenancePayouts.map((m: any, i: number) => (
+                                    <tr key={i} className="text-center">
+                                      <td className="border border-slate-300 p-1.5">{i + 1}</td>
+                                      <td className="border border-slate-300 p-1.5">{m.resNo}</td>
+                                      <td className="border border-slate-300 p-1.5">{m.customerName}</td>
+                                      <td className="border border-slate-300 p-1.5 text-left">{m.productName}</td>
+                                      <td className="border border-slate-300 p-1.5 font-bold text-blue-700">
+                                        {m.fromInstallment === m.toInstallment ? `${m.fromInstallment}회차` : `${m.fromInstallment}회차 ~ ${m.toInstallment}회차`}
+                                      </td>
+                                      <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{m.amount.toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          {activeTab === 'special' && (
+                            <div className="bg-white p-4 rounded-lg border border-slate-200">
+                              <div className="mb-2 font-bold text-xs text-slate-700">■ 특수수당 정산 내역 (총 {s.specialSum.toLocaleString()}원)</div>
+                              <table className="w-full border-collapse border border-slate-300 text-[10px] whitespace-nowrap">
+                                <thead>
+                                  <tr className="bg-slate-100 text-slate-700 text-center font-bold">
+                                    <th className="border border-slate-300 p-1.5">No</th>
+                                    <th className="border border-slate-300 p-1.5">수급자명</th>
+                                    <th className="border border-slate-300 p-1.5">수당 종류</th>
+                                    <th className="border border-slate-300 p-1.5">지급 구좌수</th>
+                                    <th className="border border-slate-300 p-1.5 text-blue-700">지급금액</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr className="text-center">
+                                    <td className="border border-slate-300 p-1.5">1</td>
+                                    <td className="border border-slate-300 p-1.5 font-bold">{s.hqName}</td>
+                                    <td className="border border-slate-300 p-1.5">
+                                      {s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '추가 인센티브')}
+                                    </td>
+                                    <td className="border border-slate-300 p-1.5 font-mono">
+                                      {settlementStats.hqSummary[s.hqName]?.count || 0}구좌
+                                    </td>
+                                    <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{s.specialSum.toLocaleString()}원</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <div className="space-y-6">
+                      <div className="bg-white p-6 rounded-xl border border-slate-200">
+                        <h4 className="text-sm font-bold text-slate-800 mb-4">■ 전원 지급 계좌 및 정산 요약</h4>
                         <div className="overflow-x-auto">
-                          <table className="w-full border-collapse border border-slate-300 text-[11px] whitespace-nowrap">
+                          <table className="w-full border-collapse border border-slate-300 text-xs text-center">
                             <thead>
-                              <tr className="bg-slate-100 text-slate-700 text-center font-bold">
-                                <th className="border border-slate-300 p-1.5">No</th>
-                                <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
-                                <th className="border border-slate-300 p-1.5">계약일자</th>
-                                <th className="border border-slate-300 p-1.5">배송일자</th>
-                                <th className="border border-slate-300 p-1.5">고객명</th>
-                                <th className="border border-slate-300 p-1.5">영업사원</th>
-                                <th className="border border-slate-300 p-1.5 text-left">상품명</th>
-                                <th className="border border-slate-300 p-1.5 text-blue-700">합계금액</th>
+                              <tr className="bg-slate-800 text-white font-bold">
+                                <th className="border border-slate-300 p-2.5 w-12">상세</th>
+                                <th className="border border-slate-300 p-2.5">지급일자</th>
+                                <th className="border border-slate-300 p-2.5 text-left">본부 / 대상자</th>
+                                <th className="border border-slate-300 p-2.5">은행</th>
+                                <th className="border border-slate-300 p-2.5">계좌번호</th>
+                                <th className="border border-slate-300 p-2.5">예금주</th>
+                                <th className="border border-slate-300 p-2.5">정산유형</th>
+                                <th className="border border-slate-300 p-2.5 text-right text-blue-300">총 정산금액</th>
+                                <th className="border border-slate-300 p-2.5 text-right text-amber-300">최종 실지급액</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {items.map((item, i) => {
-                                const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, stats);
+                              {targetSummaries.map((s) => {
+                                const isExpanded = !!expandedHqs[s.hqName];
                                 return (
-                                  <tr key={i} className="text-center">
-                                    <td className="border border-slate-300 p-1.5">{i + 1}</td>
-                                    <td className="border border-slate-300 p-1.5">{item.rentalNo || '-'}</td>
-                                    <td className="border border-slate-300 p-1.5">{item.contractDate || '-'}</td>
-                                    <td className="border border-slate-300 p-1.5">{item.deliveryDate || '-'}</td>
-                                    <td className="border border-slate-300 p-1.5">{item.memName || '-'}</td>
-                                    <td className="border border-slate-300 p-1.5">{item.empName || '-'}</td>
-                                    <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={item.prodName}>{item.prodName}</td>
-                                    <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{totalCommission.toLocaleString()}</td>
-                                  </tr>
+                                  <React.Fragment key={s.hqName}>
+                                    {/* 요약 행 */}
+                                    <tr className={`hover:bg-slate-50 font-medium ${isExpanded ? 'bg-blue-50/20' : ''}`}>
+                                      <td className="border border-slate-300 p-2">
+                                        <button
+                                          onClick={() => setExpandedHqs(prev => ({ ...prev, [s.hqName]: !prev[s.hqName] }))}
+                                          className="p-1 hover:bg-slate-200 rounded-md transition-colors text-slate-600 flex items-center justify-center w-full"
+                                          title="상세 정산 내역 토글"
+                                        >
+                                          {isExpanded ? (
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-minus"><path d="M5 12h14"/></svg>
+                                          ) : (
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-plus"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                                          )}
+                                        </button>
+                                      </td>
+                                      <td className="border border-slate-300 p-2 font-mono text-xs">{s.payDateDisplay}</td>
+                                      <td className="border border-slate-300 p-2 text-left font-bold text-slate-800">{s.hqName}</td>
+                                      <td className="border border-slate-300 p-2 text-xs">{s.bankName}</td>
+                                      <td className="border border-slate-300 p-2 font-mono text-xs">{s.accountNumber}</td>
+                                      <td className="border border-slate-300 p-2 text-xs">{s.accountHolder}</td>
+                                      <td className="border border-slate-300 p-2 text-xs">
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.settlementType.includes('개인') ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                          {s.settlementType}
+                                        </span>
+                                      </td>
+                                      <td className="border border-slate-300 p-2 text-right font-mono font-bold text-slate-700">{s.totalSum.toLocaleString()}원</td>
+                                      <td className="border border-slate-300 p-2 text-right font-mono font-bold text-blue-700 bg-blue-50/30">{s.finalPayable.toLocaleString()}원</td>
+                                    </tr>
+
+                                    {/* 상세 아코디언 펼침 행 */}
+                                    {isExpanded && (
+                                      <tr>
+                                        <td colSpan={9} className="border border-slate-300 p-4 bg-slate-50/50">
+                                          {renderHqDetailCard(s)}
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </React.Fragment>
                                 );
                               })}
                             </tbody>
                           </table>
                         </div>
-                        </>
-                        )}
 
-                        {activeTab === 'maintenance' && (
-                          <>
-                          <div className="mb-2 font-bold text-sm text-slate-700">■ 유지수수료 정산 내역 (총 {maintenanceSum.toLocaleString()}원)</div>
-                          <table className="w-full mb-8 border-collapse border border-slate-300 text-[11px] whitespace-nowrap">
-                            <thead>
-                              <tr className="bg-slate-100 text-slate-700 text-center font-bold">
-                                <th className="border border-slate-300 p-1.5">No</th>
-                                <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
-                                <th className="border border-slate-300 p-1.5">고객명</th>
-                                <th className="border border-slate-300 p-1.5 text-left">상품명</th>
-                                <th className="border border-slate-300 p-1.5 text-blue-700">지급회차</th>
-                                <th className="border border-slate-300 p-1.5 text-blue-700">지급금액</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {hqMaintenancePayouts.map((m, i) => (
-                                <tr key={i} className="text-center">
-                                  <td className="border border-slate-300 p-1.5">{i + 1}</td>
-                                  <td className="border border-slate-300 p-1.5">{m.resNo}</td>
-                                  <td className="border border-slate-300 p-1.5">{m.customerName}</td>
-                                  <td className="border border-slate-300 p-1.5 text-left">{m.productName}</td>
-                                  <td className="border border-slate-300 p-1.5 font-bold text-blue-700">
-                                    {m.fromInstallment === m.toInstallment ? `${m.fromInstallment}회차` : `${m.fromInstallment}회차 ~ ${m.toInstallment}회차`}
-                                  </td>
-                                  <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{m.amount.toLocaleString()}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          </>
-                        )}
-
-                        {activeTab === 'special' && (
-                          <>
-                          <div className="mb-2 font-bold text-sm text-slate-700">■ 특수수당 정산 내역 (총 {specialSum.toLocaleString()}원)</div>
-                          <table className="w-full mb-8 border-collapse border border-slate-300 text-[11px] whitespace-nowrap">
-                            <thead>
-                              <tr className="bg-slate-100 text-slate-700 text-center font-bold">
-                                <th className="border border-slate-300 p-1.5">No</th>
-                                <th className="border border-slate-300 p-1.5">수급자명</th>
-                                <th className="border border-slate-300 p-1.5">수당 종류</th>
-                                <th className="border border-slate-300 p-1.5">지급 구좌수</th>
-                                <th className="border border-slate-300 p-1.5 text-blue-700">지급금액</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr className="text-center">
-                                <td className="border border-slate-300 p-1.5">1</td>
-                                <td className="border border-slate-300 p-1.5 font-bold">{hqName}</td>
-                                <td className="border border-slate-300 p-1.5">
-                                  {hqName === '조재윤' ? '모델비' : (hqName === '조민경' ? '컨설팅비' : '추가 인센티브')}
-                                </td>
-                                <td className="border border-slate-300 p-1.5 font-mono">
-                                  {settlementStats.hqSummary[hqName]?.count || 0}구좌
-                                </td>
-                                <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{specialSum.toLocaleString()}원</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                          </>
-                        )}
+                        {/* 총 지급액 요약 바 */}
+                        <div className="mt-6 p-4 bg-slate-900 text-white rounded-xl flex justify-between items-center shadow-md">
+                          <div className="text-sm font-semibold text-slate-400">
+                            총 정산 대상자: <span className="text-white font-bold text-base">{targetSummaries.length}명</span>
+                          </div>
+                          <div className="text-right flex items-center gap-6">
+                            <div>
+                              <span className="text-xs text-slate-400 block">총 정산금액(VAT포함)</span>
+                              <span className="text-sm font-bold font-mono text-slate-200">
+                                {targetSummaries.reduce((sum, s) => sum + s.totalSum, 0).toLocaleString()}원
+                              </span>
+                            </div>
+                            <div className="border-l border-slate-700 h-8"></div>
+                            <div>
+                              <span className="text-xs text-amber-400 block font-bold">최종 실지급액 합계 (총 입금액)</span>
+                              <span className="text-base font-black font-mono text-amber-300">
+                                {targetSummaries.reduce((sum, s) => sum + s.finalPayable, 0).toLocaleString()}원
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                      );
-                    });
-                  })()}
+                      </div>
+                    </div>
+                  );
+                })()}
                 </div>
                 
                 {maintenancePayouts.length > 0 && (
