@@ -360,16 +360,12 @@ const ERP_Dashboard = () => {
   const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('구좌수');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 유지수수료 내역 및 세팅 모달 상태
-  const [mSetupTab, setMSetupTab] = useState<'view' | 'setup'>('view');
+  // 유지수수료 내역 및 관리 모달 상태
+  const [mHistoryProductFilter, setMHistoryProductFilter] = useState('전체');
+  const [mHistoryMonthFilter, setMHistoryMonthFilter] = useState('전체');
   const [mHistorySearch, setMHistorySearch] = useState('');
   const [mHistoryPage, setMHistoryPage] = useState(1);
-  const [mSetupSearch, setMSetupSearch] = useState('');
-  const [mSetupPage, setMSetupPage] = useState(1);
-  const [mSetupSelected, setMSetupSelected] = useState<string[]>([]);
-  const [mSetupInputs, setMSetupInputs] = useState<Record<string, number>>({});
-  const [mSetupMemos, setMSetupMemos] = useState<Record<string, string>>({});
-  const [isSavingSetup, setIsSavingSetup] = useState(false);
+  const [mHistorySyncing, setMHistorySyncing] = useState(false);
 
   // 수동 수수료 정산 상태
   interface ManualProduct {
@@ -5278,124 +5274,235 @@ const ERP_Dashboard = () => {
                       <Calculator size={20} className="text-white" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold">유지수수료 내역 및 초기 세팅</h3>
-                      <p className="text-xs text-slate-400">기존 지급 완료된 회차를 세팅하거나 전체 내역을 확인합니다.</p>
+                      <h3 className="text-lg font-bold">유지수수료 지급 관리</h3>
+                      <p className="text-xs text-slate-400">상품별/월별 필터를 걸고 수수료 지급 완료를 체킹하세요.</p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => {
-                      setIsMaintenanceHistoryModalOpen(false);
-                      setMSetupSelected([]);
-                      setMSetupInputs({});
-                      setMSetupMemos({});
-                    }}
-                    className="p-2 hover:bg-slate-800 rounded-full transition-colors"
-                  >
-                    <X size={20} />
-                  </button>
+                  <div className="flex items-center gap-4">
+                    {/* 저장 버튼 */}
+                    <button
+                      onClick={async () => {
+                        setMHistorySyncing(true);
+                        try {
+                          const res = await fetch('/api/sheets/maintenance/sync', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ history: maintenanceHistory })
+                          });
+                          if (!res.ok) throw new Error('Sync failed');
+                          setNotification({ message: '변경사항이 성공적으로 저장되었습니다.', type: 'success' });
+                        } catch(e) {
+                          alert('저장 중 오류가 발생했습니다.');
+                        } finally {
+                          setMHistorySyncing(false);
+                        }
+                      }}
+                      disabled={mHistorySyncing}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-xl font-bold text-sm transition-colors flex items-center gap-2"
+                    >
+                      {mHistorySyncing ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+                      변경사항 시트에 저장
+                    </button>
+                    <button 
+                      onClick={() => setIsMaintenanceHistoryModalOpen(false)}
+                      className="p-2 hover:bg-slate-800 rounded-full transition-colors"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
                 </div>
 
-                {/* 탭 네비게이션 */}
-                <div className="flex bg-slate-100 border-b border-slate-200 px-6 pt-2 shrink-0">
-                  <button
-                    onClick={() => setMSetupTab('view')}
-                    className={`px-5 py-2.5 text-sm font-bold rounded-t-xl transition-all border-b-2 ${
-                      mSetupTab === 'view'
-                        ? 'bg-white text-indigo-600 border-indigo-600 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-900 border-transparent'
-                    }`}
-                  >
-                    지급 내역 조회 (History)
-                  </button>
-                  <button
-                    onClick={() => setMSetupTab('setup')}
-                    className={`px-5 py-2.5 text-sm font-bold rounded-t-xl transition-all border-b-2 ${
-                      mSetupTab === 'setup'
-                        ? 'bg-white text-indigo-600 border-indigo-600 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-900 border-transparent'
-                    }`}
-                  >
-                    기존 지급회차 세팅 (Initial Setup)
-                  </button>
-                </div>
+                {/* 필터 및 컨텐츠 */}
+                <div className="flex-1 overflow-y-auto p-6 bg-[#f8fafc] flex flex-col gap-4">
+                  {(() => {
+                    const uniqueContractMonths = Array.from(new Set<string>(data.map(d => (d.contractDate || d.hcRegDate || '').substring(0, 7)).filter(d => d && d.length >= 7))).sort().reverse();
+                    
+                    const getMaintenanceConfig = (item: any) => {
+                      const hq = hqSettings.find(h => h.hqName === item.hq);
+                      const productRule = hq?.productRules.find(p => p.productName === item.prodName);
+                      let rulesToApply: any[] = [];
+                      const cDate = (item.contractDate || item.hcRegDate || '').replace(/\./g, '-');
 
-                {/* 탭 컨텐츠 */}
-                <div className="flex-1 overflow-y-auto p-6 bg-[#f8fafc]">
-                  
-                  {/* 탭 1: 지급 내역 조회 */}
-                  {mSetupTab === 'view' && (() => {
-                    const filteredHistory = maintenanceHistory.filter(h => {
-                      const searchLower = mHistorySearch.toLowerCase().trim();
-                      if (!searchLower) return true;
-                      return (
-                        (h.resNo || '').toLowerCase().includes(searchLower) ||
-                        (h.customerName || '').toLowerCase().includes(searchLower) ||
-                        (h.productName || '').toLowerCase().includes(searchLower) ||
-                        (h.memo || '').toLowerCase().includes(searchLower)
-                      );
+                      if (productRule?.applyMaintenance && productRule.maintenanceRules && productRule.maintenanceRules.length > 0) {
+                        rulesToApply = productRule.maintenanceRules.filter((r: any) => {
+                          if (r.applyStartDate && cDate < r.applyStartDate) return false;
+                          if (r.applyEndDate && cDate > r.applyEndDate) return false;
+                          return true;
+                        });
+                      }
+                      
+                      if (rulesToApply.length === 0) {
+                        rulesToApply = maintenanceRules.filter(r => {
+                          const hqMatch = r.targetHqs.includes('ALL') || r.targetHqs.includes(item.hq);
+                          const prodMatch = r.targetProducts.includes('ALL') || r.targetProducts.includes(item.prodName);
+                          if (!hqMatch || !prodMatch) return false;
+                          if (r.applyStartDate && cDate < r.applyStartDate) return false;
+                          if (r.applyEndDate && cDate > r.applyEndDate) return false;
+                          return true;
+                        });
+                      }
+
+                      let maxInstallment = 0;
+                      rulesToApply.forEach(r => {
+                        r.tiers.forEach((t: any) => {
+                          if (t.endMonth > maxInstallment) maxInstallment = t.endMonth;
+                        });
+                      });
+
+                      const getAmount = (month: number) => {
+                        for (const r of rulesToApply) {
+                          for (const t of r.tiers) {
+                            if (month >= t.startMonth && month <= t.endMonth) return t.amount;
+                          }
+                        }
+                        return 0;
+                      };
+
+                      return { maxInstallment, getAmount, hasRule: maxInstallment > 0 };
+                    };
+
+                    const maintenanceContracts = data.filter(item => !item.status.includes('취소')).filter(item => {
+                      const config = getMaintenanceConfig(item);
+                      if (!config.hasRule) return false;
+
+                      if (mHistoryProductFilter !== '전체' && item.prodName !== mHistoryProductFilter) return false;
+                      const itemMonth = (item.contractDate || item.hcRegDate || '').substring(0, 7);
+                      if (mHistoryMonthFilter !== '전체' && itemMonth !== mHistoryMonthFilter) return false;
+                      
+                      if (mHistorySearch) {
+                        const lowerSearch = mHistorySearch.toLowerCase();
+                        if (!(item.resNo || '').toLowerCase().includes(lowerSearch) &&
+                            !(item.memName || '').toLowerCase().includes(lowerSearch) &&
+                            !(item.prodName || '').toLowerCase().includes(lowerSearch)) return false;
+                      }
+                      return true;
                     });
 
                     const limit = 10;
-                    const totalPages = Math.max(1, Math.ceil(filteredHistory.length / limit));
-                    const paginated = filteredHistory.slice((mHistoryPage - 1) * limit, mHistoryPage * limit);
+                    const totalPages = Math.max(1, Math.ceil(maintenanceContracts.length / limit));
+                    const paginated = maintenanceContracts.slice((mHistoryPage - 1) * limit, mHistoryPage * limit);
 
                     return (
-                      <div className="flex flex-col h-full gap-4">
-                        <div className="flex justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm shrink-0">
-                          <div className="relative flex-1 max-w-md">
-                            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input
-                              type="text"
-                              value={mHistorySearch}
-                              onChange={e => {
-                                setMHistorySearch(e.target.value);
-                                setMHistoryPage(1);
-                              }}
-                              placeholder="계약번호, 고객명, 상품명, 메모 등으로 검색..."
-                              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 text-sm font-medium"
-                            />
+                      <>
+                        <div className="flex flex-col md:flex-row gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm shrink-0 items-center">
+                          <div className="flex flex-1 gap-2 flex-wrap">
+                            <select
+                              value={mHistoryProductFilter}
+                              onChange={e => { setMHistoryProductFilter(e.target.value); setMHistoryPage(1); }}
+                              className="px-3 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 text-sm font-bold bg-slate-50"
+                            >
+                              <option value="전체">상품 전체</option>
+                              {uniqueProducts.filter(p => p !== '전체').map(p => (
+                                <option key={p} value={p}>{p}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={mHistoryMonthFilter}
+                              onChange={e => { setMHistoryMonthFilter(e.target.value); setMHistoryPage(1); }}
+                              className="px-3 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 text-sm font-bold bg-slate-50"
+                            >
+                              <option value="전체">계약월 전체</option>
+                              {uniqueContractMonths.map(m => (
+                                <option key={m} value={m}>{m}</option>
+                              ))}
+                            </select>
+                            <div className="relative flex-1 min-w-[200px]">
+                              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <input
+                                type="text"
+                                value={mHistorySearch}
+                                onChange={e => { setMHistorySearch(e.target.value); setMHistoryPage(1); }}
+                                placeholder="고객명, 계약번호 검색..."
+                                className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 text-sm font-medium bg-slate-50"
+                              />
+                            </div>
                           </div>
-                          <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
-                            총 {filteredHistory.length}건의 내역 발견
+                          <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 whitespace-nowrap">
+                            총 {maintenanceContracts.length}건
                           </span>
                         </div>
 
-                        <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                          <div className="overflow-x-auto flex-1">
-                            <table className="w-full text-left text-sm border-collapse">
+                        <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col relative">
+                          {mHistorySyncing && (
+                            <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center">
+                              <RefreshCw size={32} className="animate-spin text-indigo-600" />
+                            </div>
+                          )}
+                          <div className="overflow-x-auto overflow-y-auto flex-1">
+                            <table className="w-full text-left text-sm border-collapse min-w-[800px]">
                               <thead>
-                                <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 text-[11px] uppercase tracking-wider">
-                                  <th className="py-3 px-4">계약번호</th>
-                                  <th className="py-3 px-4">고객명</th>
-                                  <th className="py-3 px-4">상품명</th>
-                                  <th className="py-3 px-4">지급년월</th>
-                                  <th className="py-3 px-4 text-center">지급회차</th>
-                                  <th className="py-3 px-4 text-right">지급액</th>
-                                  <th className="py-3 px-4">메모</th>
+                                <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 text-[11px] uppercase tracking-wider sticky top-0 z-20 shadow-sm">
+                                  <th className="py-3 px-4 w-32 bg-slate-50">계약번호</th>
+                                  <th className="py-3 px-4 w-24 bg-slate-50">고객명</th>
+                                  <th className="py-3 px-4 w-32 bg-slate-50">상품명</th>
+                                  <th className="py-3 px-4 bg-slate-50">지급 회차 관리 (클릭하여 지급 완료 처리)</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
                                 {paginated.length > 0 ? (
-                                  paginated.map((h, i) => (
-                                    <tr key={i} className="hover:bg-slate-50/50 transition-colors text-xs">
-                                      <td className="py-3 px-4 font-mono font-bold text-slate-700">{h.resNo}</td>
-                                      <td className="py-3 px-4 font-bold text-slate-900">{h.customerName || '-'}</td>
-                                      <td className="py-3 px-4 font-medium text-slate-600 truncate max-w-[200px]" title={h.productName}>{h.productName || '-'}</td>
-                                      <td className="py-3 px-4 text-slate-500 font-semibold">{h.payMonth}</td>
-                                      <td className="py-3 px-4 text-center">
-                                        <span className="inline-block px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-bold">
-                                          {h.payInstallment}회차
-                                        </span>
-                                      </td>
-                                      <td className="py-3 px-4 text-right font-black text-slate-800">
-                                        {h.amount.toLocaleString()}원
-                                      </td>
-                                      <td className="py-3 px-4 text-slate-500 font-medium truncate max-w-[150px]" title={h.memo}>{h.memo || '-'}</td>
-                                    </tr>
-                                  ))
+                                  paginated.map((item) => {
+                                    const config = getMaintenanceConfig(item);
+                                    const paidInstallments = new Set(
+                                      maintenanceHistory.filter(h => h.resNo === item.resNo).map(h => h.payInstallment)
+                                    );
+
+                                    const togglePayment = (installment: number, isChecked: boolean) => {
+                                      const amount = config.getAmount(installment);
+                                      if (isChecked) {
+                                        setMaintenanceHistory(prev => [
+                                          ...prev,
+                                          {
+                                            resNo: item.resNo,
+                                            payMonth: new Date().toISOString().substring(0, 7),
+                                            payInstallment: installment,
+                                            amount,
+                                            customerName: item.memName,
+                                            productName: item.prodName,
+                                            memo: ''
+                                          }
+                                        ]);
+                                      } else {
+                                        setMaintenanceHistory(prev => prev.filter(h => !(h.resNo === item.resNo && h.payInstallment === installment)));
+                                      }
+                                    };
+
+                                    return (
+                                      <tr key={item.resNo} className="hover:bg-slate-50/50 transition-colors text-xs">
+                                        <td className="py-3 px-4 font-mono font-bold text-slate-700">{item.resNo}</td>
+                                        <td className="py-3 px-4 font-bold text-slate-900">{item.memName}</td>
+                                        <td className="py-3 px-4 font-medium text-slate-600 truncate max-w-[120px]" title={item.prodName}>{item.prodName}</td>
+                                        <td className="py-3 px-4">
+                                          <div className="flex flex-wrap gap-2">
+                                            {Array.from({ length: config.maxInstallment }, (_, i) => i + 1).map(inst => {
+                                              const amount = config.getAmount(inst);
+                                              if (amount === 0) return null; // 금액이 0이면 무시
+                                              const isPaid = paidInstallments.has(inst);
+                                              return (
+                                                <label 
+                                                  key={inst}
+                                                  className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border cursor-pointer select-none transition-all ${
+                                                    isPaid ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:bg-slate-50'
+                                                  }`}
+                                                  title={`${amount.toLocaleString()}원`}
+                                                >
+                                                  <input 
+                                                    type="checkbox"
+                                                    checked={isPaid}
+                                                    onChange={e => togglePayment(inst, e.target.checked)}
+                                                    className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                                  />
+                                                  <span className="font-bold text-[10px]">{inst}회</span>
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })
                                 ) : (
                                   <tr>
-                                    <td colSpan={7} className="py-8 text-center text-slate-400 font-bold">기록된 지급 내역이 없습니다.</td>
+                                    <td colSpan={4} className="py-8 text-center text-slate-400 font-bold">표시할 계약건이 없습니다.</td>
                                   </tr>
                                 )}
                               </tbody>
@@ -5416,310 +5523,16 @@ const ERP_Dashboard = () => {
                             </span>
                             <button
                               onClick={() => setMHistoryPage(p => Math.min(totalPages, p + 1))}
-                              disabled={mHistoryPage === totalPages}
+                              disabled={mHistoryPage === totalPages || totalPages === 0}
                               className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
                             >
                               다음 <ChevronRight size={14} />
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </>
                     );
                   })()}
-
-                  {/* 탭 2: 기존 지급 회차 세팅 */}
-                  {mSetupTab === 'setup' && (() => {
-                    const getContractLastPaid = (resNo: string) => {
-                      let lastPaid = 0;
-                      maintenanceHistory.forEach(h => {
-                        if (h.resNo === resNo && h.payInstallment > lastPaid) {
-                          lastPaid = h.payInstallment;
-                        }
-                      });
-                      return lastPaid;
-                    };
-
-                    const handleSaveInitialSetup = async (targetResNo?: string) => {
-                      const targets = targetResNo ? [targetResNo] : mSetupSelected;
-                      if (targets.length === 0) {
-                        alert('저장할 항목을 선택해주세요.');
-                        return;
-                      }
-                      
-                      if (!confirm(`${targets.length}건의 초기 지급 회차 세팅을 완료하시겠습니까?\n세팅 후 정산 시 설정된 회차까지는 기지급 처리됩니다.`)) {
-                        return;
-                      }
-                      
-                      setIsSavingSetup(true);
-                      try {
-                        const rowsToSave = targets.map(resNo => {
-                          const item = data.find(d => d.resNo === resNo);
-                          const customerName = item ? item.memName : '';
-                          const productName = item ? item.prodName : '';
-                          
-                          const currentLastPaid = getContractLastPaid(resNo);
-                          const val = mSetupInputs[resNo] !== undefined ? mSetupInputs[resNo] : currentLastPaid;
-                          const memo = mSetupMemos[resNo] || 'ERP 초기 세팅';
-                          
-                          return [resNo, '기존소급', val, 0, customerName, productName, memo];
-                        });
-                        
-                        const res = await fetch('/api/sheets/maintenance/save', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ rows: rowsToSave })
-                        });
-                        
-                        if (!res.ok) throw new Error('Save failed');
-                        
-                        setNotification({ message: '성공적으로 세팅되었습니다.', type: 'success' });
-                        if (!targetResNo) {
-                          setMSetupSelected([]);
-                        }
-                        
-                        // 입력 캐시 초기화
-                        setMSetupInputs({});
-                        setMSetupMemos({});
-                        
-                        await loadMaintenanceHistory();
-                      } catch(e) {
-                        console.error(e);
-                        alert('세팅 저장 중 오류가 발생했습니다.');
-                      } finally {
-                        setIsSavingSetup(false);
-                      }
-                    };
-
-                    // 취소되지 않은 계약 리스트 필터링
-                    const activeContracts = data.filter(item => !item.status.includes('취소'));
-
-                    const filteredContracts = activeContracts.filter(item => {
-                      const searchLower = mSetupSearch.toLowerCase().trim();
-                      if (!searchLower) return true;
-                      return (
-                        (item.resNo || '').toLowerCase().includes(searchLower) ||
-                        (item.memName || '').toLowerCase().includes(searchLower) ||
-                        (item.prodName || '').toLowerCase().includes(searchLower)
-                      );
-                    });
-
-                    const limit = 10;
-                    const totalPages = Math.max(1, Math.ceil(filteredContracts.length / limit));
-                    const paginated = filteredContracts.slice((mSetupPage - 1) * limit, mSetupPage * limit);
-
-                    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-                      if (e.target.checked) {
-                        const pageResNos = paginated.map(p => p.resNo);
-                        setMSetupSelected(prev => Array.from(new Set([...prev, ...pageResNos])));
-                      } else {
-                        const pageResNos = paginated.map(p => p.resNo);
-                        setMSetupSelected(prev => prev.filter(id => !pageResNos.includes(id)));
-                      }
-                    };
-
-                    const isAllSelectedOnPage = paginated.length > 0 && paginated.every(p => mSetupSelected.includes(p.resNo));
-
-                    return (
-                      <div className="flex flex-col h-full gap-4">
-                        {/* 설명 가이드 */}
-                        <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl text-xs text-amber-800 leading-relaxed font-bold shadow-sm shrink-0">
-                          <div className="flex items-center gap-2 mb-1.5 text-sm font-black">
-                            <AlertCircle size={16} /> 기존 지급 완료 회차 세팅 가이드
-                          </div>
-                          - ERP 도입 전에 이미 유지수수료가 지급된 기존 계약에 대해, **몇 회차까지 이미 지급했는지** 등록하는 도구입니다.<br />
-                          - 예: **5회차**로 세팅하는 경우, 다음 수수료 정산 시 자동으로 **6회차**부터 수수료가 적용되어 정산됩니다 (중복 정산 방지).<br />
-                          - 세팅 값은 구글 시트에 이력 행으로 추가(append)됩니다. 입력값을 줄이거나 잘못 세팅한 경우에는 구글 시트의 `유지수수료내역` 시트에서 행을 직접 수정해 주시기 바랍니다.
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm shrink-0">
-                          <div className="relative flex-1 max-w-md w-full">
-                            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input
-                              type="text"
-                              value={mSetupSearch}
-                              onChange={e => {
-                                setMSetupSearch(e.target.value);
-                                setMSetupPage(1);
-                              }}
-                              placeholder="고객명, 계약번호, 상품명 등으로 세팅 대상 검색..."
-                              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 text-sm font-medium"
-                            />
-                          </div>
-                          
-                          {/* 일괄 세팅 조정기 */}
-                          <div className="flex items-center gap-3 w-full sm:w-auto self-stretch sm:self-auto bg-slate-50 border border-slate-200 p-2 rounded-xl">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] font-black text-slate-500">선택 {mSetupSelected.length}건 일괄 세팅:</span>
-                              <input
-                                type="number"
-                                placeholder="회차"
-                                min="0"
-                                id="bulkInstallmentInput"
-                                className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-right font-bold text-xs outline-none focus:ring-2 focus:ring-indigo-100"
-                              />
-                              <span className="text-[11px] font-black text-slate-500">회차</span>
-                            </div>
-                            <button
-                              onClick={() => {
-                                const inputEl = document.getElementById('bulkInstallmentInput') as HTMLInputElement;
-                                const val = parseInt(inputEl?.value);
-                                if (isNaN(val) || val < 0) {
-                                  alert('올바른 회차 번호를 입력해 주세요.');
-                                  return;
-                                }
-                                const newInputs = { ...mSetupInputs };
-                                mSetupSelected.forEach(resNo => {
-                                  newInputs[resNo] = val;
-                                });
-                                setMSetupInputs(newInputs);
-                                if (inputEl) inputEl.value = '';
-                                setNotification({ message: '선택 건들에 임시 세팅값을 일괄 적용했습니다 (저장을 누르셔야 최종 반영됩니다).', type: 'info' });
-                              }}
-                              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-black rounded-lg transition-colors border border-indigo-100"
-                            >
-                              임시 적용
-                            </button>
-                            <button
-                              onClick={() => handleSaveInitialSetup()}
-                              disabled={isSavingSetup || mSetupSelected.length === 0}
-                              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-xs font-black rounded-lg transition-colors shadow-sm flex items-center gap-1"
-                            >
-                              {isSavingSetup ? <RefreshCw size={12} className="animate-spin" /> : <Save size={12} />}
-                              일괄 저장
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                          <div className="overflow-x-auto flex-1">
-                            <table className="w-full text-left text-sm border-collapse">
-                              <thead>
-                                <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 text-[11px] uppercase tracking-wider">
-                                  <th className="py-3 px-4 text-center w-12">
-                                    <input
-                                      type="checkbox"
-                                      checked={isAllSelectedOnPage}
-                                      onChange={handleSelectAll}
-                                      className="rounded text-indigo-600 focus:ring-indigo-500"
-                                    />
-                                  </th>
-                                  <th className="py-3 px-4">계약번호</th>
-                                  <th className="py-3 px-4">고객명</th>
-                                  <th className="py-3 px-4">상품명</th>
-                                  <th className="py-3 px-4">계약일자</th>
-                                  <th className="py-3 px-4 text-center">기존 최종회차</th>
-                                  <th className="py-3 px-4 text-center w-24">새 최종회차</th>
-                                  <th className="py-3 px-4 w-40">세팅 메모</th>
-                                  <th className="py-3 px-4 text-center w-20">작업</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
-                                {paginated.length > 0 ? (
-                                  paginated.map((item) => {
-                                    const currentLastPaid = getContractLastPaid(item.resNo);
-                                    const isSelected = mSetupSelected.includes(item.resNo);
-                                    
-                                    const val = mSetupInputs[item.resNo] !== undefined ? mSetupInputs[item.resNo] : currentLastPaid;
-                                    const memo = mSetupMemos[item.resNo] || '';
-
-                                    return (
-                                      <tr key={item.resNo} className={`hover:bg-slate-50/50 transition-colors text-xs ${isSelected ? 'bg-indigo-50/10' : ''}`}>
-                                        <td className="py-3 px-4 text-center">
-                                          <input
-                                            type="checkbox"
-                                            checked={isSelected}
-                                            onChange={e => {
-                                              if (e.target.checked) {
-                                                setMSetupSelected(prev => [...prev, item.resNo]);
-                                              } else {
-                                                setMSetupSelected(prev => prev.filter(id => id !== item.resNo));
-                                              }
-                                            }}
-                                            className="rounded text-indigo-600 focus:ring-indigo-500"
-                                          />
-                                        </td>
-                                        <td className="py-3 px-4 font-mono font-bold text-slate-700">{item.resNo}</td>
-                                        <td className="py-3 px-4 font-bold text-slate-900">{item.memName}</td>
-                                        <td className="py-3 px-4 font-medium text-slate-600 truncate max-w-[160px]" title={item.prodName}>{item.prodName}</td>
-                                        <td className="py-3 px-4 text-slate-500">{item.contractDate || '-'}</td>
-                                        <td className="py-3 px-4 text-center font-bold text-slate-500">
-                                          {currentLastPaid}회차
-                                        </td>
-                                        <td className="py-2 px-2 text-center">
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            value={val}
-                                            onChange={e => {
-                                              const v = parseInt(e.target.value);
-                                              setMSetupInputs(prev => ({
-                                                ...prev,
-                                                [item.resNo]: isNaN(v) ? 0 : v
-                                              }));
-                                            }}
-                                            className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-right font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-100"
-                                          />
-                                        </td>
-                                        <td className="py-2 px-2">
-                                          <input
-                                            type="text"
-                                            placeholder="메모 추가..."
-                                            value={memo}
-                                            onChange={e => {
-                                              setMSetupMemos(prev => ({
-                                                ...prev,
-                                                [item.resNo]: e.target.value
-                                              }));
-                                            }}
-                                            className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-100"
-                                          />
-                                        </td>
-                                        <td className="py-2 px-4 text-center">
-                                          <button
-                                            onClick={() => handleSaveInitialSetup(item.resNo)}
-                                            disabled={isSavingSetup}
-                                            className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-bold shadow-sm disabled:bg-indigo-300 transition-colors"
-                                          >
-                                            저장
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })
-                                ) : (
-                                  <tr>
-                                    <td colSpan={9} className="py-8 text-center text-slate-400 font-bold">세팅 대상 계약을 발견하지 못했습니다.</td>
-                                  </tr>
-                                )}
-                              </tbody>
-                            </table>
-                          </div>
-
-                          {/* 페이지네이션 */}
-                          <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center shrink-0">
-                            <button
-                              onClick={() => setMSetupPage(p => Math.max(1, p - 1))}
-                              disabled={mSetupPage === 1}
-                              className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
-                            >
-                              <ChevronLeft size={14} /> 이전
-                            </button>
-                            <span className="text-xs font-bold text-slate-500">
-                              페이지 {mSetupPage} / {totalPages}
-                            </span>
-                            <button
-                              onClick={() => setMSetupPage(p => Math.min(totalPages, p + 1))}
-                              disabled={mSetupPage === totalPages}
-                              className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1"
-                            >
-                              다음 <ChevronRight size={14} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
                 </div>
               </motion.div>
             </div>
