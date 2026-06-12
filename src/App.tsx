@@ -1534,7 +1534,8 @@ const ERP_Dashboard = () => {
       hqDetails: Object.entries(hqSummary).sort((a, b) => b[1].amount - a[1].amount),
       daily: Object.entries(dailyMap).sort((a, b) => String(b[0]).localeCompare(String(a[0]))) as [string, { totalAmount: number, totalCount: number, products: Record<string, { count: number, amount: number }> }][],
       hqGroups,
-      globalIncentivesSummary
+      globalIncentivesSummary,
+      hqSummary
     };
   }, [filteredData, hqSettings]);
 
