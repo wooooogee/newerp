@@ -1347,9 +1347,28 @@ const ERP_Dashboard = () => {
           amount: totalAmount,
           fromInstallment: paidFrom,
           toInstallment: currentInstallment,
+          empName: item.empName,
+          branch: item.branch,
         });
       }
     });
+
+    // 맥스 본부 김학민 고객 유지수수료 강제 주입 (7회차)
+    const isKimAlreadyPaid = maintenanceHistory.some(h => h.resNo === 'MAX-KIM-FORCED' && h.payInstallment === 7);
+    if (!isKimAlreadyPaid) {
+      payouts.push({
+        resNo: "MAX-KIM-FORCED",
+        customerName: "김학민",
+        hq: "맥스",
+        productName: "더좋은헬스케어580",
+        amount: 10000,
+        fromInstallment: 7,
+        toInstallment: 7,
+        empName: "이지안",
+        branch: "맥스",
+      });
+    }
+
     return payouts;
   }, [maintenanceRules, hqSettings, maintenanceHistory, payDateFilter]);
 
@@ -1849,7 +1868,7 @@ const ERP_Dashboard = () => {
       // 유지수수료 대상자도 사원별 요약에 세전 금액으로 합산
       maintenancePayouts.forEach(payout => {
         const originContract = filteredData.find(d => d.resNo === payout.resNo);
-        if (!originContract) return;
+        if (!originContract && !payout.empName) return;
 
         // 본부 정산유형 체크 - 법인(사업자) 본부인 경우 사원별 지급 요약에서 제외
         const setting = hqSettings.find(s => s.hqName === payout.hq);
@@ -1857,13 +1876,15 @@ const ERP_Dashboard = () => {
         if (!isIndiv) return;
 
         const role = '영업사원';
-        const key = `${payout.hq}|${originContract.branch || '-'}|${originContract.empName}|${role}`;
+        const branchVal = payout.branch || (originContract ? originContract.branch : '-');
+        const empNameVal = payout.empName || (originContract ? originContract.empName : '-');
+        const key = `${payout.hq}|${branchVal}|${empNameVal}|${role}`;
 
         if (!hqEmpSummaryMap.has(key)) {
           hqEmpSummaryMap.set(key, { 
             hq: payout.hq, 
-            branch: originContract.branch || '-', 
-            empName: originContract.empName, 
+            branch: branchVal, 
+            empName: empNameVal, 
             role, 
             count: 0,
             totalGross: 0 
@@ -2113,9 +2134,9 @@ const ERP_Dashboard = () => {
       const maintRows: any[][] = [['지급일', '본부', '지사', '사원명', '고객명', '계약번호', '상품명', '지급회차범위', '유지수수료']];
       maintenancePayouts.forEach((m) => {
         const originContract = filteredData.find(d => d.resNo === m.resNo);
-        const branch = originContract ? originContract.branch : '-';
-        const empName = originContract ? originContract.empName : '-';
-        const payDate = originContract ? originContract.payDate : payDateSample;
+        const branch = m.branch || (originContract ? originContract.branch : '-');
+        const empName = m.empName || (originContract ? originContract.empName : '-');
+        const payDate = m.payDate || (originContract ? originContract.payDate : payDateSample);
         
         maintRows.push([
           payDate,
@@ -2512,8 +2533,8 @@ const ERP_Dashboard = () => {
         
         hqMaintenancePayouts.forEach(m => {
           const originContract = filteredData.find(d => d.resNo === m.resNo);
-          const branch = originContract ? originContract.branch : '-';
-          const empName = originContract ? originContract.empName : '-';
+          const branch = m.branch || (originContract ? originContract.branch : '-');
+          const empName = m.empName || (originContract ? originContract.empName : '-');
           
           rows.push([
             m.hq,
