@@ -5432,7 +5432,8 @@ const ERP_Dashboard = () => {
                             <table className="w-full text-left text-sm border-collapse min-w-[800px]">
                               <thead>
                                 <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 text-[11px] uppercase tracking-wider sticky top-0 z-20 shadow-sm">
-                                  <th className="py-3 px-4 w-32 bg-slate-50">계약번호</th>
+                                  <th className="py-3 px-4 w-28 bg-slate-50">계약일자</th>
+                                  <th className="py-3 px-4 w-28 bg-slate-50">회원번호</th>
                                   <th className="py-3 px-4 w-24 bg-slate-50">고객명</th>
                                   <th className="py-3 px-4 w-32 bg-slate-50">상품명</th>
                                   <th className="py-3 px-4 bg-slate-50">지급 회차 관리 (클릭하여 지급 완료 처리)</th>
@@ -5468,7 +5469,8 @@ const ERP_Dashboard = () => {
 
                                     return (
                                       <tr key={item.resNo} className="hover:bg-slate-50/50 transition-colors text-xs">
-                                        <td className="py-3 px-4 font-mono font-bold text-slate-700">{item.resNo}</td>
+                                        <td className="py-3 px-4 font-medium text-slate-600">{item.contractDate || '-'}</td>
+                                        <td className="py-3 px-4 font-mono font-bold text-slate-700">{item.memNo || '-'}</td>
                                         <td className="py-3 px-4 font-bold text-slate-900">{item.memName}</td>
                                         <td className="py-3 px-4 font-medium text-slate-600 truncate max-w-[120px]" title={item.prodName}>{item.prodName}</td>
                                         <td className="py-3 px-4">
