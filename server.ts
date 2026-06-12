@@ -3,6 +3,7 @@ import path from 'path';
 import { google } from 'googleapis';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -648,6 +649,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
           };
         }).filter((r: any) => r.targetName);
         console.log(`[CloudSync] Loaded ${globalIncentives.length} global incentives from cloud.`);
+        console.log('[CloudSync] Global incentives detail:', JSON.stringify(globalIncentives, null, 2));
       }
     } catch (e: any) {
       console.log("[CloudSync] '특수수당설정' sheet might not exist yet.");
@@ -1077,6 +1079,28 @@ app.get('/api/sheets/data', async (req, res) => {
       return res.json([]);
     }
 
+    try {
+      fs.writeFileSync('c:/Users/xole9/Documents/GitHub/newerp/data_dump.json', JSON.stringify(rows, null, 2), 'utf8');
+      console.log('Dumped sheet data to data_dump.json');
+    } catch (err) {
+      console.error('Error writing dump file:', err);
+    }
+
+    console.log('--- SPECIAL COMMISSION TARGET DIAGNOSIS ---');
+    if (rows && rows.length > 0) {
+      const jaeyunRows = rows.filter(row => row.some(cell => String(cell).includes('조재윤')));
+      const minkyungRows = rows.filter(row => row.some(cell => String(cell).includes('조민경')));
+      console.log('조재윤을 포함하는 행 수:', jaeyunRows.length);
+      if (jaeyunRows.length > 0) {
+        console.log('조재윤 샘플 행 5개:', JSON.stringify(jaeyunRows.slice(0, 5), null, 2));
+      }
+      console.log('조민경을 포함하는 행 수:', minkyungRows.length);
+      if (minkyungRows.length > 0) {
+        console.log('조민경 샘플 행 5개:', JSON.stringify(minkyungRows.slice(0, 5), null, 2));
+      }
+    }
+    console.log('-------------------------------------------');
+
     res.json(rows);
   } catch (error: any) {
     return handleGoogleError(error, res);
@@ -1199,7 +1223,6 @@ app.post('/api/sheets/manual-settlement/save', async (req, res) => {
     return handleGoogleError(error, res);
   }
 });
-
 // Vite Middleware
 async function start() {
   try {

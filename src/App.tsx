@@ -307,8 +307,14 @@ const getHealthcareMaintenanceInfo = (item: ERPDataItem, filterStr: string) => {
 export const getDisplayPayDate = (item: any) => {
   let displayPayDate = item.payDate;
   
-  if ((item.hq === '조민경' || item.hq === '조재윤') && item.deliveryStatus && item.deliveryStatus.includes('완료') && item.deliveryDate) {
-    const delivDate = item.deliveryDate.replace(/\\./g, '-');
+  const isSpecialTarget = 
+    item.empName?.includes('조민경') || 
+    item.empName?.includes('조재윤') || 
+    item.empName?.includes('권성훈') || 
+    item.empName?.includes('황미주');
+
+  if (isSpecialTarget && item.deliveryStatus && item.deliveryStatus.includes('완료') && item.deliveryDate) {
+    const delivDate = item.deliveryDate.replace(/\./g, '-');
     const [y, m] = delivDate.split('-').map(Number);
     if (!isNaN(y) && !isNaN(m)) {
       const nextM = m === 12 ? 1 : m + 1;
@@ -834,10 +840,10 @@ const ERP_Dashboard = () => {
       isSpecialFixedProduct = true;
     }
     // 특수 규칙: 조민경, 조재윤
-    else if (item.hq === '조민경') {
+    else if (item.empName?.includes('조민경')) {
       unitPrice = 5000;
       salesPart = 5000;
-    } else if (item.hq === '조재윤') {
+    } else if (item.empName?.includes('조재윤')) {
       unitPrice = 10000;
       salesPart = 10000;
     } else if (productRule) {
@@ -864,12 +870,14 @@ const ERP_Dashboard = () => {
     let salesComm = salesPart;
 
     // 조재윤 최소 보장 로직 (개별 항목에 가중치 부여)
-    if (item.hq === '조재윤' && !isSpecialFixedProduct) {
-      // 조재윤은 hqTotalCountMap에서 해당 본부의 전체 건수를 합산해야 정확함
-      let jaeyunTotalCount = 0;
-      hqTotalCountMap.forEach((cnt, key) => {
-        if (key.startsWith('조재윤|')) jaeyunTotalCount += cnt;
-      });
+    if (item.empName?.includes('조재윤') && !isSpecialFixedProduct) {
+      // 조재윤 사원 본인의 당월 실적(지급월이 같은 것) 전체 건수를 집계
+      const targetPayDate = getDisplayPayDate(item);
+      const jaeyunTotalCount = data.filter(x => 
+        x.empName?.includes('조재윤') && 
+        getDisplayPayDate(x) === targetPayDate &&
+        !x.status.includes('취소')
+      ).length;
 
       const jaeyunCalcTotal = jaeyunTotalCount * 10000;
       if (jaeyunCalcTotal < 2000000 && jaeyunTotalCount > 0) {
@@ -961,7 +969,12 @@ const ERP_Dashboard = () => {
       const filteredForSettlement = data.filter(item => {
         const payMonth = item.payDate?.substring(0, 7);
         const isStandardTarget = payMonth === targetMonth;
-        const isSpecialHq = (item.hq === '조민경' || item.hq === '조재윤');
+        const isSpecialHq = !!(
+          item.empName?.includes('조민경') || 
+          item.empName?.includes('조재윤') || 
+          item.empName?.includes('권성훈') || 
+          item.empName?.includes('황미주')
+        );
         const normalizedDeliveryDate = item.deliveryDate?.replace(/\./g, '-');
         let isPrevDelivered = false;
         if (item.deliveryDate && item.deliveryStatus?.includes('완료')) {
@@ -1084,7 +1097,13 @@ const ERP_Dashboard = () => {
             matchesPayDate = itemPayDateClean.includes(normalizedPayFilter) || displayPayDate.includes(payDateFilter);
           }
           
-          if (!matchesPayDate && (item.hq === '조민경' || item.hq === '조재윤') && targetDateClean.length >= 6) {
+          const isSpecialTarget = 
+            item.empName?.includes('조민경') || 
+            item.empName?.includes('조재윤') || 
+            item.empName?.includes('권성훈') || 
+            item.empName?.includes('황미주');
+
+          if (!matchesPayDate && isSpecialTarget && targetDateClean.length >= 6) {
              let yStr = targetDateClean.substring(0, 4);
              if (targetDateClean.length === 6 && targetDateClean.startsWith('26')) {
                  yStr = '20' + targetDateClean.substring(0,2);
@@ -1365,8 +1384,20 @@ const ERP_Dashboard = () => {
         const targetPrefix2 = `${prevYearStr}.${prevMonthStr}`;
 
         data.forEach(item => {
+          if (item.status.includes('취소') || item.status.includes('해약')) return;
           if (rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
-          if (rule.targetHq !== 'ALL' && item.hq !== rule.targetHq) return;
+          let isMatch = false;
+          const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
+          if (rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '') {
+            if (rule.targetName === '조재윤' || rule.targetName === '조민경') {
+              isMatch = true;
+            } else {
+              isMatch = item.empName?.includes(rule.targetName) || false;
+            }
+          } else {
+            isMatch = normalizeHq(item.hq) === normalizeHq(rule.targetHq);
+          }
+          if (!isMatch) return;
 
           if (!rule.targetProducts.includes('ALL')) {
             if (!rule.targetProducts.some((p: string) => item.prodName.includes(p))) return;
@@ -1497,8 +1528,7 @@ const ERP_Dashboard = () => {
 
       if (normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360')) {
         amount = 50000;
-      } else if (item.hq === '조민경') amount = 5000;
-      else if (item.hq === '조재윤') amount = 10000;
+      }
 
       if (isExcluded) return;
 
@@ -1514,20 +1544,75 @@ const ERP_Dashboard = () => {
       stat.products[item.prodName].count += 1;
       stat.products[item.prodName].amount += amount;
 
-      if (!stat.hqs[item.hq]) stat.hqs[item.hq] = { count: 0, amount: 0 };
-      stat.hqs[item.hq].count += 1;
-      stat.hqs[item.hq].amount += amount;
+      let hqKey = item.hq;
+      if (item.empName?.includes('권성훈')) hqKey = '권성훈';
+      else if (item.empName?.includes('황미주')) hqKey = '황미주';
+
+      if (!stat.hqs[hqKey]) stat.hqs[hqKey] = { count: 0, amount: 0 };
+      stat.hqs[hqKey].count += 1;
+      stat.hqs[hqKey].amount += amount;
     });
 
     Object.keys(monthlyMap).forEach(month => {
       const stat = monthlyMap[month];
-      if (stat.hqs['조재윤']) {
-        const jaeyunTotal = stat.hqs['조재윤'].amount;
-        if (jaeyunTotal < 2000000 && stat.hqs['조재윤'].count > 0) {
-          const diff = 2000000 - jaeyunTotal;
-          stat.hqs['조재윤'].amount = 2000000;
-          stat.totalAmount += diff;
-        }
+      const [y, m] = month.split('-').map(Number);
+      if (!isNaN(y) && !isNaN(m)) {
+        const prevDate = new Date(y, m - 2, 1);
+        const prevYearStr = String(prevDate.getFullYear());
+        const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
+
+        globalIncentiveRules.forEach(rule => {
+          if (rule.targetName !== '조재윤' && rule.targetName !== '조민경') return;
+
+          let matchedCount = 0;
+          data.forEach(item => {
+            if (item.status.includes('취소') || item.status.includes('해약')) return;
+
+            let isMatch = false;
+            const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
+            if (rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '') {
+              isMatch = true;
+            } else {
+              isMatch = normalizeHq(item.hq) === normalizeHq(rule.targetHq);
+            }
+            if (!isMatch) return;
+
+            if (!rule.targetProducts.includes('ALL')) {
+              if (!rule.targetProducts.some((p: string) => item.prodName.includes(p))) return;
+            }
+
+            let dateStr = '';
+            if (rule.baseDateType === 'DELIVERY') {
+              dateStr = item.deliveryDate || '';
+              if (!item.deliveryStatus?.includes('완료')) return;
+            } else {
+              dateStr = item.contractDate || '';
+            }
+
+            let isMatchedDate = false;
+            const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+            if (match) {
+              let yVal = match[1];
+              if (yVal.length === 2) yVal = '20' + yVal;
+              const mVal = match[2].padStart(2, '0');
+              if (yVal === prevYearStr && mVal === prevMonthStr) {
+                isMatchedDate = true;
+              }
+            }
+
+            if (isMatchedDate) {
+              matchedCount++;
+            }
+          });
+
+          let commission = matchedCount * rule.commissionPerUnit;
+          const finalAmount = Math.max(commission, rule.minimumGuarantee);
+
+          if (finalAmount > 0) {
+            stat.hqs[rule.targetName] = { count: matchedCount, amount: finalAmount };
+            stat.totalAmount += finalAmount;
+          }
+        });
       }
     });
 
@@ -3050,6 +3135,7 @@ const ERP_Dashboard = () => {
                 );
               })()}
             </div>
+
 
             {/* 정산 요약 대시보드 */}
             {(payDateFilter || filteredData.length > 0) && (
