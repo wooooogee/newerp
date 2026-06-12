@@ -2070,8 +2070,15 @@ const ERP_Dashboard = () => {
 
   const exportProfessionalSettlement = async (hqName: string) => {
     try {
-      const items = settlementStats.hqGroups[hqName];
-      if (!items || items.length === 0) return;
+      const items = settlementStats.hqGroups[hqName] || [];
+      const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
+      const maintenanceSum = hqMaintenancePayouts.reduce((sum, m) => sum + m.amount, 0);
+      const specialSum = (settlementStats.globalIncentivesSummary || {})[hqName] || 0;
+
+      if (items.length === 0 && maintenanceSum === 0 && specialSum === 0) {
+        alert(`${hqName}의 정산 내역이 없습니다.`);
+        return;
+      }
 
       setNotification({ message: `${hqName} 정산 데이터를 불러오는 중...`, type: 'info' });
 
@@ -2130,19 +2137,25 @@ const ERP_Dashboard = () => {
         stats.set(key, (stats.get(key) || 0) + 1);
       });
 
-      const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
-      const maintenanceSum = hqMaintenancePayouts.reduce((sum, m) => sum + m.amount, 0);
-
-      let totalSum = maintenanceSum;
+      let generalSum = 0;
       let salesSum = 0;
       items.forEach(item => {
         const { totalCommission, salesComm } = calculateCommissionDetails(item, stats);
-        totalSum += totalCommission;
+        generalSum += totalCommission;
         salesSum += salesComm;
       });
 
-      const promoSum = Math.max(0, totalSum - salesSum);
-      const { displayPayDate: payDateDisplay } = calculateCommissionDetails(items[0], stats);
+      const promoSum = Math.max(0, generalSum - salesSum);
+      const totalSum = generalSum + maintenanceSum + specialSum;
+
+      let payDateDisplay = payDateFilter || '';
+      if (!payDateDisplay && items.length > 0) {
+        const { displayPayDate } = calculateCommissionDetails(items[0], stats);
+        payDateDisplay = displayPayDate;
+      } else if (!payDateDisplay) {
+        payDateDisplay = new Date().toISOString().substring(0, 10).replace(/-/g, '.');
+      }
+
       const rows: any[][] = [];
       const targetMonth = payDateDisplay.substring(0, 7);
       const [y, m] = targetMonth.split('.').length > 1 ? targetMonth.split('.') : targetMonth.split('-');
@@ -2206,6 +2219,21 @@ const ERP_Dashboard = () => {
           empMap.get(key).total += netAmount;
         });
 
+        // 특수수당 대상자도 해당 수급자에게 가산
+        if (specialSum > 0) {
+          const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+          const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+          const netAmount = calcNet(specialSum);
+          
+          const role = '영업사원';
+          const key = `${hqName}|${role}`;
+
+          if (!empMap.has(key)) {
+            empMap.set(key, { name: hqName, role, total: 0 });
+          }
+          empMap.get(key).total += netAmount;
+        }
+
         const roleWeight = (r: string) => ({ '영업사원': 1, '팀장': 2, '지점장': 3, '본부장': 4 }[r] || 5);
         const sorted = Array.from(empMap.values()).sort((a, b) => roleWeight(a.role) - roleWeight(b.role) || a.name.localeCompare(b.name));
         
@@ -2225,14 +2253,34 @@ const ERP_Dashboard = () => {
       if (setting?.settlementType === '개인') {
         rows.push(['원천징수 영수 요약 (3.3% 공제)']);
         rows.push(['구분', '정산금액', '원천세(3.3%)', '실지급액']);
-        rows.push(['판매 수수료', { v: salesSum, t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }, { v: salesSum - Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }]);
-        rows.push(['판매 촉진비', { v: promoSum, t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }, { v: promoSum - Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }]);
+        if (salesSum > 0) {
+          rows.push(['일반 수수료(판매)', { v: salesSum, t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }, { v: salesSum - Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }]);
+        }
+        if (promoSum > 0) {
+          rows.push(['판매 촉진비', { v: promoSum, t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }, { v: promoSum - Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }]);
+        }
+        if (maintenanceSum > 0) {
+          rows.push(['유지 수수료', { v: maintenanceSum, t: 'n', z: '#,##0' }, { v: Math.floor(maintenanceSum * 0.033), t: 'n', z: '#,##0' }, { v: maintenanceSum - Math.floor(maintenanceSum * 0.033), t: 'n', z: '#,##0' }]);
+        }
+        if (specialSum > 0) {
+          rows.push(['특수 수당', { v: specialSum, t: 'n', z: '#,##0' }, { v: Math.floor(specialSum * 0.033), t: 'n', z: '#,##0' }, { v: specialSum - Math.floor(specialSum * 0.033), t: 'n', z: '#,##0' }]);
+        }
         rows.push(['합계', { v: totalSum, t: 'n', z: '#,##0' }, { v: Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }, { v: totalSum - Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }]);
       } else {
         rows.push(['세금계산서 발행 요약 (부가세 10% 포함)']);
         rows.push(['구분', '공급가액', '부가세(10%)', '합계금액(실지급액)']);
-        rows.push(['판매 수수료', { v: Math.round(salesSum / 1.1), t: 'n', z: '#,##0' }, { v: salesSum - Math.round(salesSum / 1.1), t: 'n', z: '#,##0' }, { v: salesSum, t: 'n', z: '#,##0' }]);
-        rows.push(['판매 촉진비', { v: Math.round(promoSum / 1.1), t: 'n', z: '#,##0' }, { v: promoSum - Math.round(promoSum / 1.1), t: 'n', z: '#,##0' }, { v: promoSum, t: 'n', z: '#,##0' }]);
+        if (salesSum > 0) {
+          rows.push(['일반 수수료(판매)', { v: Math.round(salesSum / 1.1), t: 'n', z: '#,##0' }, { v: salesSum - Math.round(salesSum / 1.1), t: 'n', z: '#,##0' }, { v: salesSum, t: 'n', z: '#,##0' }]);
+        }
+        if (promoSum > 0) {
+          rows.push(['판매 촉진비', { v: Math.round(promoSum / 1.1), t: 'n', z: '#,##0' }, { v: promoSum - Math.round(promoSum / 1.1), t: 'n', z: '#,##0' }, { v: promoSum, t: 'n', z: '#,##0' }]);
+        }
+        if (maintenanceSum > 0) {
+          rows.push(['유지 수수료', { v: Math.round(maintenanceSum / 1.1), t: 'n', z: '#,##0' }, { v: maintenanceSum - Math.round(maintenanceSum / 1.1), t: 'n', z: '#,##0' }, { v: maintenanceSum, t: 'n', z: '#,##0' }]);
+        }
+        if (specialSum > 0) {
+          rows.push(['특수 수당', { v: Math.round(specialSum / 1.1), t: 'n', z: '#,##0' }, { v: specialSum - Math.round(specialSum / 1.1), t: 'n', z: '#,##0' }, { v: specialSum, t: 'n', z: '#,##0' }]);
+        }
         rows.push(['합계', { v: Math.round(totalSum / 1.1), t: 'n', z: '#,##0' }, { v: totalSum - Math.round(totalSum / 1.1), t: 'n', z: '#,##0' }, { v: totalSum, t: 'n', z: '#,##0' }]);
       }
       rows[10] = [];
@@ -2269,17 +2317,32 @@ const ERP_Dashboard = () => {
         ]);
       }
 
+      if (specialSum > 0) {
+        rows.push([
+          '-',
+          '특수수당 합계',
+          settlementStats.hqSummary[hqName]?.count || 0,
+          { v: 0, t: 'n', z: '#,##0' },
+          { v: specialSum, t: 'n', z: '#,##0' },
+          { v: specialSum, t: 'n', z: '#,##0' }
+        ]);
+      }
+
+      const totalItemsCount = items.length + 
+        (maintenanceSum > 0 ? hqMaintenancePayouts.length : 0) + 
+        (specialSum > 0 ? (settlementStats.hqSummary[hqName]?.count || 0) : 0);
+
       rows.push([
         '계',
         '',
-        items.length + (maintenanceSum > 0 ? hqMaintenancePayouts.length : 0),
+        totalItemsCount,
         { v: Math.floor(salesSum), t: 'n', z: '#,##0' },
-        { v: Math.floor(promoSum), t: 'n', z: '#,##0' },
+        { v: Math.floor(promoSum + maintenanceSum + specialSum), t: 'n', z: '#,##0' },
         { v: Math.floor(totalSum), t: 'n', z: '#,##0' }
       ]);
       rows.push([]);
 
-      rows.push(['[상세 내역]']);
+      rows.push(['[일반수수료 상세 내역]']);
       rows.push(['본부명', '지사명', '계약일자', '사원명(AP)', '고객명', '렌탈계약번호', '배송일자', '정산상품명', '정산기준일', '공급수수료(지급총계)']);
 
       items.forEach(item => {
@@ -2298,9 +2361,9 @@ const ERP_Dashboard = () => {
         ]);
       });
 
-      if (maintenanceSum > 0) {
+      if (items.length > 0) {
         rows.push([
-          '수수료 소계',
+          '일반수수료 소계',
           '',
           '',
           '',
@@ -2309,8 +2372,10 @@ const ERP_Dashboard = () => {
           '',
           '',
           '',
-          { v: Math.floor(totalSum - maintenanceSum), t: 'n', z: '#,##0' }
+          { v: Math.floor(generalSum), t: 'n', z: '#,##0' }
         ]);
+      }
+      if (maintenanceSum > 0) {
         rows.push([
           '유지수수료 합계',
           '',
@@ -2324,6 +2389,20 @@ const ERP_Dashboard = () => {
           { v: maintenanceSum, t: 'n', z: '#,##0' }
         ]);
       }
+      if (specialSum > 0) {
+        rows.push([
+          '특수수당 합계',
+          '',
+          '',
+          '',
+          '',
+          `${settlementStats.hqSummary[hqName]?.count || 0}건`,
+          '',
+          '',
+          '',
+          { v: specialSum, t: 'n', z: '#,##0' }
+        ]);
+      }
 
       rows.push([
         '최종 실지급액 합계',
@@ -2331,7 +2410,7 @@ const ERP_Dashboard = () => {
         '',
         '',
         '',
-        `${items.length + (maintenanceSum > 0 ? hqMaintenancePayouts.length : 0)}건`,
+        `${totalItemsCount}건`,
         '',
         '',
         '',
@@ -2369,6 +2448,23 @@ const ERP_Dashboard = () => {
           `${hqMaintenancePayouts.length}건`,
           '',
           { v: maintenanceSum, t: 'n', z: '#,##0' }
+        ]);
+      }
+
+      if (specialSum > 0) {
+        rows.push([]);
+        rows.push(['[특수수당 상세 내역]']);
+        rows.push(['대상자명', '수당 종류', '지급 기준 구좌수', '수당 단가', '최종 수당 금액']);
+        const rule = globalIncentiveRules.find(r => r.targetName === hqName);
+        const detail = rule ? (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : '특수수당';
+        const matchedCount = settlementStats.hqSummary[hqName]?.count || 0;
+        const unitPrice = rule ? rule.commissionPerUnit : 0;
+        rows.push([
+          hqName,
+          detail,
+          matchedCount,
+          { v: unitPrice, t: 'n', z: '#,##0' },
+          { v: specialSum, t: 'n', z: '#,##0' }
         ]);
       }
 
@@ -5262,16 +5358,18 @@ const ERP_Dashboard = () => {
                           <h1 className="text-center text-2xl font-black mb-8 text-slate-800">{y}년 {parseInt(m)}월 수수료 정산 내역서</h1>
                           
                           <div className="flex border-b border-slate-200 mb-6 gap-2">
-                            {['summary', 'tax', 'products', 'details', 'maintenance'].map(tab => {
+                            {['summary', 'tax', 'products', 'details', 'maintenance', 'special'].map(tab => {
                               if (tab === 'maintenance' && hqMaintenancePayouts.length === 0) return null;
                               if (tab === 'products' && items.length === 0) return null;
                               if (tab === 'details' && items.length === 0) return null;
+                              if (tab === 'special' && specialSum === 0) return null;
                               const tabNames: Record<string, string> = {
                                 'summary': '정산내역 요약',
                                 'tax': '세금계산서 요약',
                                 'products': '상품별 요약',
-                                'details': '세부 실적 내역',
-                                'maintenance': '유지수수료 정산내역'
+                                'details': '일반수수료 내역',
+                                'maintenance': '유지수수료 내역',
+                                'special': '특수수당 내역'
                               };
                               return (
                                 <button key={tab} onClick={() => setPreviewTabs(prev => ({...prev, [hqName]: tab}))}
@@ -5532,6 +5630,36 @@ const ERP_Dashboard = () => {
                                   <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{m.amount.toLocaleString()}</td>
                                 </tr>
                               ))}
+                            </tbody>
+                          </table>
+                          </>
+                        )}
+
+                        {activeTab === 'special' && (
+                          <>
+                          <div className="mb-2 font-bold text-sm text-slate-700">■ 특수수당 정산 내역 (총 {specialSum.toLocaleString()}원)</div>
+                          <table className="w-full mb-8 border-collapse border border-slate-300 text-[11px] whitespace-nowrap">
+                            <thead>
+                              <tr className="bg-slate-100 text-slate-700 text-center font-bold">
+                                <th className="border border-slate-300 p-1.5">No</th>
+                                <th className="border border-slate-300 p-1.5">수급자명</th>
+                                <th className="border border-slate-300 p-1.5">수당 종류</th>
+                                <th className="border border-slate-300 p-1.5">지급 구좌수</th>
+                                <th className="border border-slate-300 p-1.5 text-blue-700">지급금액</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr className="text-center">
+                                <td className="border border-slate-300 p-1.5">1</td>
+                                <td className="border border-slate-300 p-1.5 font-bold">{hqName}</td>
+                                <td className="border border-slate-300 p-1.5">
+                                  {hqName === '조재윤' ? '모델비' : (hqName === '조민경' ? '컨설팅비' : '추가 인센티브')}
+                                </td>
+                                <td className="border border-slate-300 p-1.5 font-mono">
+                                  {settlementStats.hqSummary[hqName]?.count || 0}구좌
+                                </td>
+                                <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{specialSum.toLocaleString()}원</td>
+                              </tr>
                             </tbody>
                           </table>
                           </>
