@@ -963,7 +963,20 @@ const ERP_Dashboard = () => {
         const isStandardTarget = payMonth === targetMonth;
         const isSpecialHq = (item.hq === '조민경' || item.hq === '조재윤');
         const normalizedDeliveryDate = item.deliveryDate?.replace(/\./g, '-');
-        const isPrevDelivered = normalizedDeliveryDate?.startsWith(prevMonth) && item.deliveryStatus?.includes('완료');
+        let isPrevDelivered = false;
+        if (item.deliveryDate && item.deliveryStatus?.includes('완료')) {
+          const match = item.deliveryDate.match(/(\d{2,4})[-.\s]+(\d{1,2})/);
+          if (match) {
+            let y = match[1];
+            if (y.length === 2) y = '20' + y;
+            const m = match[2].padStart(2, '0');
+            const targetY = String(prevDate.getFullYear());
+            const targetM = String(prevDate.getMonth() + 1).padStart(2, '0');
+            if (y === targetY && m === targetM) {
+              isPrevDelivered = true;
+            }
+          }
+        }
         const isNotCancelled = !item.status.includes('취소');
         return (isStandardTarget || (isSpecialHq && isPrevDelivered)) && isNotCancelled;
       });
@@ -1069,6 +1082,33 @@ const ERP_Dashboard = () => {
             matchesPayDate = itemPayDateClean === fullYearFilter || itemPayDateClean.includes(fullYearFilter);
           } else {
             matchesPayDate = itemPayDateClean.includes(normalizedPayFilter) || displayPayDate.includes(payDateFilter);
+          }
+          
+          if (!matchesPayDate && (item.hq === '조민경' || item.hq === '조재윤') && targetDateClean.length >= 6) {
+             let yStr = targetDateClean.substring(0, 4);
+             if (targetDateClean.length === 6 && targetDateClean.startsWith('26')) {
+                 yStr = '20' + targetDateClean.substring(0,2);
+             }
+             const mStr = targetDateClean.length >= 6 ? targetDateClean.substring(targetDateClean.length - 2) : '';
+             if (yStr.length === 4 && mStr.length === 2) {
+                 const year = parseInt(yStr);
+                 const month = parseInt(mStr);
+                 const prevDate = new Date(year, month - 2, 1);
+                 
+                 if (item.deliveryDate && item.deliveryStatus?.includes('완료')) {
+                   const match = item.deliveryDate.match(/(\d{2,4})[-.\s]+(\d{1,2})/);
+                   if (match) {
+                     let y = match[1];
+                     if (y.length === 2) y = '20' + y;
+                     const m = match[2].padStart(2, '0');
+                     const targetY = String(prevDate.getFullYear());
+                     const targetM = String(prevDate.getMonth() + 1).padStart(2, '0');
+                     if (y === targetY && m === targetM) {
+                       matchesPayDate = true;
+                     }
+                   }
+                 }
+             }
           }
         }
 
@@ -1326,7 +1366,6 @@ const ERP_Dashboard = () => {
 
         data.forEach(item => {
           if (rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
-          if (rule.targetHq === 'ALL' && rule.targetProducts.includes('ALL')) return;
           if (rule.targetHq !== 'ALL' && item.hq !== rule.targetHq) return;
 
           if (!rule.targetProducts.includes('ALL')) {
@@ -1341,7 +1380,17 @@ const ERP_Dashboard = () => {
             dateStr = item.contractDate || '';
           }
 
-          const isMatchedDate = dateStr.startsWith(targetPrefix1) || dateStr.startsWith(targetPrefix2);
+          let isMatchedDate = false;
+          const match = dateStr.match(/(\d{2,4})[-.\s]+(\d{1,2})/);
+          if (match) {
+            let y = match[1];
+            if (y.length === 2) y = '20' + y;
+            const m = match[2].padStart(2, '0');
+            if (y === prevYearStr && m === prevMonthStr) {
+              isMatchedDate = true;
+            }
+          }
+
           if (isMatchedDate) {
             matchedCount++;
           }
@@ -1372,6 +1421,21 @@ const ERP_Dashboard = () => {
         totalCount += matchedCount;
         totalPendingCount += matchedCount;
       }
+    });
+
+    maintenancePayouts.forEach(m => {
+      if (!hqSummary[m.hq]) hqSummary[m.hq] = { count: 0, amount: 0 };
+      hqSummary[m.hq].amount += m.amount;
+      
+      if (!summary[m.prodName]) summary[m.prodName] = { count: 0, amount: 0 };
+      summary[m.prodName].amount += m.amount;
+      
+      totalAmount += m.amount;
+      
+      // 이미 지급된 내역은 유지수수료 히스토리에 있으므로, payout 배열에 남은 것은 이번 달 미지급분(또는 지급예정)으로 간주
+      // 또는 m.item.paymentStatus를 확인할 수 있으나 maintenancePayouts 자체가 지급 대상 목록임.
+      // (기존 엑셀 로직에서도 maintenanceSum을 그대로 합계에 더하고 있음)
+      totalPendingAmount += m.amount;
     });
 
     return {
@@ -1416,6 +1480,19 @@ const ERP_Dashboard = () => {
 
       let amount = rule?.totalAmount || 0;
       const normalizedProd = normalize(item.prodName);
+      
+      if (amount === 0 && rule?.applyMaintenance) {
+        if (rule.maintenanceRules && rule.maintenanceRules.length > 0) {
+          const tier = rule.maintenanceRules[0].tiers?.find((t: any) => t.startMonth === 1 || t.startMonth <= 1);
+          if (tier) amount = tier.amount;
+        } else {
+          const mRule = maintenanceRules.find(r => r.targetProducts.some(p => normalizedProd.includes(p.replace(/[\s()]/g, '').toLowerCase())));
+          if (mRule) {
+             const tier = mRule.tiers?.find((t: any) => t.startMonth === 1 || t.startMonth <= 1);
+             if (tier) amount = tier.amount;
+          }
+        }
+      }
       const isExcluded = normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360') || normalizedProd.includes('에이모바일');
 
       if (normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360')) {
