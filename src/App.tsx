@@ -1169,7 +1169,7 @@ const ERP_Dashboard = () => {
 
       if (activeRules.length === 0) return;
 
-      const baseDateStr = item.contractDate || item.deliveryDate;
+      const baseDateStr = item.payDate || item.contractDate || item.deliveryDate;
       if (!baseDateStr) return;
       
       const bdMatch = baseDateStr.match(/(\d{4})[-\.](\d{1,2})/);
