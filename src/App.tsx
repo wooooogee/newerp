@@ -979,10 +979,10 @@ const ERP_Dashboard = () => {
       const excelData = filteredForSettlement.map((item, idx) => {
         const { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting, settlementType, vat, withholdingTax, finalPayable, productRule } = calculateCommissionDetails(item, stats);
 
-        const isProductOvApplied = productRule ? productRule.applyOverriding !== false : true;
-        const defaultOv = setting?.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 };
-        const ov = (isProductOvApplied && productRule?.overriding) ? productRule.overriding : defaultOv;
-        const actualOv = (setting?.enableOverriding && isProductOvApplied) ? ov : { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
+        const isProductOvApplied = productRule ? productRule.applyOverriding === true : false;
+        const actualOv = (isProductOvApplied && productRule?.overriding) 
+          ? productRule.overriding 
+          : { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
 
         let salespersonShare, teamLeaderShare, branchManagerShare, hqManagerShare;
         salespersonShare = actualOv.salesperson;
@@ -1883,30 +1883,24 @@ const ERP_Dashboard = () => {
       rows[1] = [];
 
       // --- 오버라이딩 대상 여부 확인 및 요약 행 구성 ---
-      if (setting?.enableOverriding || hqName === '다이렉트') {
-        rows[2] = ['지급일자', '성명', '역할', '은행', '계좌번호', '예금주', '지급액(실지급)'];
-        
-        // 사원별 집계 (해당 본부만)
-        const empMap = new Map<string, any>();
-        items.forEach(item => {
-          if (item.status.includes('취소')) return;
-          const { totalCommission, productRule } = calculateCommissionDetails(item, stats);
-          const isProductOvApplied = productRule ? productRule.applyOverriding !== false : true;
-          const defaultOv = setting?.overriding || { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
-          const ov = (isProductOvApplied && productRule?.overriding) ? productRule.overriding : defaultOv;
-          let shares = { '영업사원': 0, '팀장': 0, '지점장': 0, '본부장': 0 };
+      rows[2] = ['지급일자', '성명', '역할', '은행', '계좌번호', '예금주', '지급액(실지급)'];
+      
+      // 사원별 집계 (해당 본부만)
+      const empMap = new Map<string, any>();
+      items.forEach(item => {
+        if (item.status.includes('취소')) return;
+        const { totalCommission, productRule } = calculateCommissionDetails(item, stats);
+        const isProductOvApplied = productRule ? productRule.applyOverriding === true : false;
+        const ov = (isProductOvApplied && productRule?.overriding) 
+          ? productRule.overriding 
+          : { salesperson: totalCommission, teamLeader: 0, branchManager: 0, hqManager: 0 };
           
-          if (setting?.enableOverriding && isProductOvApplied) {
-            shares['영업사원'] = ov.salesperson;
-            shares['팀장'] = ov.teamLeader;
-            shares['지점장'] = ov.branchManager;
-            shares['본부장'] = ov.hqManager;
-          } else {
-            shares['영업사원'] = totalCommission;
-            shares['팀장'] = 0;
-            shares['지점장'] = 0;
-            shares['본부장'] = 0;
-          }
+        let shares = {
+          '영업사원': ov.salesperson,
+          '팀장': ov.teamLeader,
+          '지점장': ov.branchManager,
+          '본부장': ov.hqManager
+        };
           
           const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
           const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
@@ -1957,17 +1951,6 @@ const ERP_Dashboard = () => {
           }
           rows.push([payDateDisplay, p.name, p.role, b, a, h, { v: p.total, t: 'n', z: '#,##0' }]);
         });
-      } else {
-        rows[2] = ['지급일자', '지사명', '은행', '계좌번호', '예금주', '총지급 금액'];
-        rows[3] = [
-          payDateDisplay,
-          hqName,
-          setting?.bankName || '-',
-          setting?.accountNumber || '-',
-          setting?.accountHolder || '-',
-          { v: totalSum, t: 'n', z: '#,##0' }
-        ];
-      }
       rows.push([]);
 
       // 세금 요약 섹션
@@ -4086,7 +4069,8 @@ const ERP_Dashboard = () => {
                                   </thead>
                                   <tbody className="divide-y divide-slate-100">
                                     {s.productRules.map((pr, pIdx) => (
-                                      <tr key={pIdx} className="hover:bg-slate-50 transition-colors">
+                                      <React.Fragment key={pIdx}>
+                                      <tr className="hover:bg-slate-50 transition-colors">
                                         <td className="px-4 py-3 font-bold text-slate-700">
                                           <input
                                             type="text" value={pr.productName}
@@ -4121,39 +4105,11 @@ const ERP_Dashboard = () => {
                                           {(pr.totalAmount - pr.salesAmount).toLocaleString()}
                                         </td>
                                         <td className="px-4 py-3 text-center align-top">
-                                          <div className="flex flex-col items-center gap-2">
-                                            <input type="checkbox" checked={pr.applyOverriding !== false} onChange={(e) => {
+                                          <div className="flex flex-col items-center gap-2 mt-2">
+                                            <input type="checkbox" checked={pr.applyOverriding === true} onChange={(e) => {
                                               const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, applyOverriding: e.target.checked } : r);
                                               setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                             }} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
-                                            {pr.applyOverriding !== false && (
-                                              <div className="grid grid-cols-2 gap-1 text-[9px] mt-1">
-                                                {['salesperson', 'teamLeader', 'branchManager', 'hqManager'].map((role, rIdx) => {
-                                                  const roleLabels = ['영업', '팀장', '지사', '본부'];
-                                                  const currOv = pr.overriding || s.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 };
-                                                  return (
-                                                    <div key={role} className="flex flex-col items-center gap-0.5">
-                                                      <span className="text-[8px] text-slate-400">{roleLabels[rIdx]}</span>
-                                                      <input
-                                                        type="number"
-                                                        value={(currOv as any)[role]}
-                                                        onChange={(e) => {
-                                                          const val = parseInt(e.target.value) || 0;
-                                                          const updated = s.productRules.map((r, i) => {
-                                                            if (i !== pIdx) return r;
-                                                            const newOv = { ...(r.overriding || s.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 }) };
-                                                            (newOv as any)[role] = val;
-                                                            return { ...r, overriding: newOv };
-                                                          });
-                                                          setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                                        }}
-                                                        className="w-12 px-1 py-0.5 text-center border border-slate-200 rounded"
-                                                      />
-                                                    </div>
-                                                  );
-                                                })}
-                                              </div>
-                                            )}
                                           </div>
                                         </td>
                                         <td className="px-2 py-3 border-l border-slate-100 bg-blue-50/10 align-top">
@@ -4198,6 +4154,47 @@ const ERP_Dashboard = () => {
                                           </button>
                                         </td>
                                       </tr>
+                                      {pr.applyOverriding === true && (
+                                        <tr className="bg-indigo-50/40 border-b border-indigo-100">
+                                          <td colSpan={7} className="px-6 py-4">
+                                            <div className="flex flex-col gap-2">
+                                              <h6 className="text-[11px] font-black text-indigo-800 flex items-center gap-1.5"><Users size={12} /> {pr.productName} 오버라이딩 배분 구조 (고정금액)</h6>
+                                              <div className="grid grid-cols-4 gap-4 mt-2">
+                                                {[
+                                                  { key: 'salesperson', label: '영업사원' },
+                                                  { key: 'teamLeader', label: '팀장' },
+                                                  { key: 'branchManager', label: '지점장' },
+                                                  { key: 'hqManager', label: '본부장' }
+                                                ].map(f => {
+                                                  const currOv = pr.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 };
+                                                  return (
+                                                    <div key={f.key} className="flex flex-col gap-1">
+                                                      <label className="text-[10px] font-bold text-indigo-400">
+                                                        {f.label} (₩)
+                                                      </label>
+                                                      <input
+                                                        type="number" value={(currOv as any)[f.key]}
+                                                        onChange={(e) => {
+                                                          const val = parseInt(e.target.value) || 0;
+                                                          const updated = s.productRules.map((r, i) => {
+                                                            if (i !== pIdx) return r;
+                                                            const newOv = { ...(r.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 }) };
+                                                            (newOv as any)[f.key] = val;
+                                                            return { ...r, overriding: newOv };
+                                                          });
+                                                          setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                        }}
+                                                        className="p-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-300 transition-all"
+                                                      />
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      )}
+                                      </React.Fragment>
                                     ))}
                                   </tbody>
                                 </table>
@@ -4206,49 +4203,6 @@ const ERP_Dashboard = () => {
                                 )}
                               </div>
 
-                              {/* Overriding Configuration */}
-                              <div className="mt-8 p-6 bg-indigo-50 rounded-2xl border border-indigo-100">
-                                <div className="flex items-center justify-between mb-4">
-                                  <div className="flex flex-col">
-                                    <h5 className="text-sm font-black text-indigo-900 flex items-center gap-2">
-                                      <Users size={16} /> 오버라이딩 배분 구조
-                                    </h5>
-                                    <p className="text-[10px] text-indigo-400 mt-0.5">수수료를 각 직급별로 나누어 정산하는 구조를 설정합니다.</p>
-                                  </div>
-                                  <div className="flex items-center gap-4">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[11px] font-bold text-indigo-600">지급방식: 고정금액(₩)</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[11px] font-bold text-indigo-400">활성화</span>
-                                      <input
-                                        type="checkbox" checked={s.enableOverriding}
-                                        onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, enableOverriding: e.target.checked } : h))}
-                                        className="w-4 h-4 rounded text-indigo-600 cursor-pointer"
-                                      />
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="grid grid-cols-4 gap-4">
-                                  {[
-                                    { key: 'salesperson', label: '영업사원' },
-                                    { key: 'teamLeader', label: '팀장' },
-                                    { key: 'branchManager', label: '지점장' },
-                                    { key: 'hqManager', label: '본부장' }
-                                  ].map(f => (
-                                    <div key={f.key} className="flex flex-col gap-1">
-                                      <label className="text-[10px] font-bold text-indigo-400">
-                                        {f.label} (₩)
-                                      </label>
-                                      <input
-                                        type="number" value={(s.overriding as any)[f.key]}
-                                        onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, overriding: { ...h.overriding, [f.key]: parseFloat(e.target.value) || 0 } } : h))}
-                                        className="p-2.5 bg-white border border-indigo-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-300 transition-all"
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
                             </div>
                           </div>
                         );
