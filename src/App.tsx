@@ -1352,9 +1352,25 @@ const ERP_Dashboard = () => {
     return payouts;
   }, [maintenanceRules, hqSettings, maintenanceHistory, payDateFilter]);
 
+  const maintenanceFilteredData = React.useMemo(() => {
+    return data.filter(item => {
+      const matchesSearch =
+        item.memName.includes(searchTerm) ||
+        item.contractDate.includes(searchTerm) ||
+        item.prodName.includes(searchTerm);
+
+      const matchesProduct = productFilter === '전체' || item.prodName === productFilter;
+      const matchesHq = hqFilter === '전체' || item.hq === hqFilter;
+      const matchesBranch = branchFilter === '전체' || item.branch === branchFilter;
+      const matchesDelivery = deliveryFilter === '전체' || item.deliveryStatus === deliveryFilter;
+
+      return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesDelivery;
+    });
+  }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter]);
+
   const maintenancePayouts = React.useMemo(() => {
-    return calculateMaintenancePayouts(filteredData);
-  }, [filteredData, calculateMaintenancePayouts]);
+    return calculateMaintenancePayouts(maintenanceFilteredData);
+  }, [maintenanceFilteredData, calculateMaintenancePayouts]);
 
   const settlementStats = React.useMemo(() => {
     const summary: Record<string, { count: number, amount: number }> = {};
@@ -1367,7 +1383,7 @@ const ERP_Dashboard = () => {
     let totalPendingCount = 0;
 
     filteredData.forEach(item => {
-      if (item.status.includes('취소')) return; // B열(status)에 '취소'가 포함된 경우 제외
+      if (item.status.includes('취소') || item.status.includes('해약')) return; // B열(status)에 '취소'나 '해약'이 포함된 경우 제외
       const date = item.payDate || '미지정';
       const hqSetting = hqSettings.find(h => h.hqName === item.hq);
       const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
