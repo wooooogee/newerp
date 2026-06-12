@@ -1517,8 +1517,8 @@ const ERP_Dashboard = () => {
         hqSummary[rule.targetName].amount += finalAmount;
         hqSummary[rule.targetName].count += matchedCount;
         
-        const detail = rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : `${rule.targetName} 수당`));
-        const specialName = detail;
+        const detail = rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
+        const specialName = `[${detail}] ${rule.targetName}`;
         if (!summary[specialName]) summary[specialName] = { count: 0, amount: 0 };
         summary[specialName].amount += finalAmount;
         summary[specialName].count += matchedCount;
