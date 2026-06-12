@@ -1310,6 +1310,7 @@ const ERP_Dashboard = () => {
       let paidFrom = lastPaid + 1;
       
       for (let i = lastPaid + 1; i <= currentInstallment; i++) {
+        if (i === 1) continue; // 1회차는 일반수수료(1회차)를 받으므로 유지수수료 지급에서 제외
         let matchedTierAmount = 0;
         
         if (usingProductRule) {
