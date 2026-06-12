@@ -4486,7 +4486,7 @@ const ERP_Dashboard = () => {
                                                 if (i !== pIdx) return r;
                                                 const newR = { ...r, applyMaintenance: e.target.checked };
                                                 if (e.target.checked && !newR.maintenanceRules) {
-                                                  newR.maintenanceRules = [{ id: Date.now().toString(), applyStartDate: '', applyEndDate: '', tiers: [{ startMonth: 1, endMonth: 36, amount: 0 }] }];
+                                                  newR.maintenanceRules = [{ id: Date.now().toString(), applyStartDate: '', applyEndDate: '', tiers: [{ startMonth: 2, endMonth: 36, amount: 0 }] }];
                                                 }
                                                 return newR;
                                               });
@@ -4580,6 +4580,9 @@ const ERP_Dashboard = () => {
                                         <tr key={`mrule-${mIdx}`} className="bg-emerald-50/40 border-b border-emerald-100">
                                           <td colSpan={8} className="px-6 py-4">
                                             <div className="flex flex-col gap-3">
+                                              <div className="bg-emerald-50 text-emerald-800 text-[10px] font-bold p-2.5 rounded-lg border border-emerald-200">
+                                                ℹ️ [유지수수료 안내] 입력하신 판매수수료는 1회차 고정 지급액이 되며, 유지수수료 규칙은 2회차부터 구간을 설정할 수 있습니다. (1회차 입력 불가)
+                                              </div>
                                               <div className="flex items-center justify-between">
                                                 <h6 className="text-[11px] font-black text-emerald-800 flex items-center gap-1.5">
                                                   <Calendar size={12} /> {pr.productName} 유지수수료 규칙 {mIdx + 1}
@@ -4623,21 +4626,21 @@ const ERP_Dashboard = () => {
                                               <div className="flex flex-col gap-2">
                                                 {mRule.tiers.map((t, tIdx) => (
                                                   <div key={tIdx} className="flex items-center gap-3">
-                                                    <input type="number" value={t.startMonth} onChange={(e) => {
+                                                    <input type="number" value={t.startMonth} min={2} onChange={(e) => {
                                                       const updated = s.productRules.map((r, i) => {
                                                         if (i !== pIdx) return r;
                                                         const newRules = [...(r.maintenanceRules || [])];
-                                                        newRules[mIdx].tiers[tIdx].startMonth = parseInt(e.target.value) || 1;
+                                                        newRules[mIdx].tiers[tIdx].startMonth = Math.max(2, parseInt(e.target.value) || 2);
                                                         return { ...r, maintenanceRules: newRules };
                                                       });
                                                       setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                                     }} className="w-16 px-2 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
                                                     <span className="text-[11px] text-emerald-600 font-bold">회차 ~ </span>
-                                                    <input type="number" value={t.endMonth} onChange={(e) => {
+                                                    <input type="number" value={t.endMonth} min={2} onChange={(e) => {
                                                       const updated = s.productRules.map((r, i) => {
                                                         if (i !== pIdx) return r;
                                                         const newRules = [...(r.maintenanceRules || [])];
-                                                        newRules[mIdx].tiers[tIdx].endMonth = parseInt(e.target.value) || 36;
+                                                        newRules[mIdx].tiers[tIdx].endMonth = Math.max(2, parseInt(e.target.value) || 2);
                                                         return { ...r, maintenanceRules: newRules };
                                                       });
                                                       setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
@@ -4670,7 +4673,7 @@ const ERP_Dashboard = () => {
                                                   const updated = s.productRules.map((r, i) => {
                                                     if (i !== pIdx) return r;
                                                     const newRules = [...(r.maintenanceRules || [])];
-                                                    const lastEnd = newRules[mIdx].tiers.length > 0 ? newRules[mIdx].tiers[newRules[mIdx].tiers.length - 1].endMonth : 0;
+                                                    const lastEnd = newRules[mIdx].tiers.length > 0 ? newRules[mIdx].tiers[newRules[mIdx].tiers.length - 1].endMonth : 1;
                                                     newRules[mIdx].tiers.push({ startMonth: lastEnd + 1, endMonth: lastEnd + 12, amount: 0 });
                                                     return { ...r, maintenanceRules: newRules };
                                                   });
