@@ -5572,7 +5572,9 @@ const ERP_Dashboard = () => {
                                   <tr className="bg-blue-50/50 font-bold">
                                     <td className="border border-slate-300 p-1.5 text-blue-900 bg-blue-50">총합계 금액</td>
                                     <td className="border border-slate-300 p-1.5 text-center bg-blue-50">
-                                      {(s.items.length + (settlementStats.hqSummary[s.hqName]?.count || 0)) || '-'}
+                                      {(s.items.length + 
+                                        (s.maintenanceSum > 0 ? s.hqMaintenancePayouts.length : 0) + 
+                                        (s.specialSum > 0 ? (settlementStats.hqSummary[s.hqName]?.count || 0) : 0)) || '-'}
                                     </td>
                                     <td className="border border-slate-300 p-1.5 text-right text-blue-900 bg-blue-50">
                                       {s.totalSum.toLocaleString()}원
