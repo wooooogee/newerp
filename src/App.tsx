@@ -1762,7 +1762,11 @@ const ERP_Dashboard = () => {
       Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
         if ((amt as number) > 0) specialAdditions[name] = (specialAdditions[name] || 0) + (amt as number);
       });
-      const combinedHqs = Array.from(new Set([...Object.keys(settlementStats.hqGroups), ...Object.keys(specialAdditions)]));
+      const combinedHqs = Array.from(new Set([
+        ...Object.keys(settlementStats.hqGroups), 
+        ...Object.keys(specialAdditions),
+        ...maintenancePayouts.map(m => m.hq)
+      ]));
 
       let totalNetPay = 0;
       combinedHqs.forEach(hq => {
@@ -5389,7 +5393,11 @@ const ERP_Dashboard = () => {
                     Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
                       if ((amt as number) > 0) specialAdditions[name] = amt as number;
                     });
-                    const combinedHqs = Array.from(new Set([...Object.keys(settlementStats.hqGroups), ...Object.keys(specialAdditions)]));
+                    const combinedHqs = Array.from(new Set([
+                      ...Object.keys(settlementStats.hqGroups), 
+                      ...Object.keys(specialAdditions),
+                      ...maintenancePayouts.map(m => m.hq)
+                    ]));
                     
                     const targets = previewTarget === 'ALL' ? combinedHqs : [previewTarget];
 
