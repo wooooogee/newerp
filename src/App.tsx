@@ -1227,7 +1227,7 @@ const ERP_Dashboard = () => {
     const currentMonth = parseInt(currentYearMonth.substring(4, 6));
 
     items.forEach(item => {
-      if (item.status.includes('취소')) return;
+      if (item.status.includes('취소') || item.status.includes('해약')) return;
       
       const overdueCount = parseInt(item.raw[20]) || 0; // U열
       if (overdueCount > 0) return; // 연체 시 미지급
@@ -1310,7 +1310,6 @@ const ERP_Dashboard = () => {
       let paidFrom = lastPaid + 1;
       
       for (let i = lastPaid + 1; i <= currentInstallment; i++) {
-        if (i === 1) continue; // 1회차는 일반수수료(1회차)를 받으므로 유지수수료 지급에서 제외
         let matchedTierAmount = 0;
         
         if (usingProductRule) {
@@ -1551,7 +1550,7 @@ const ERP_Dashboard = () => {
     }> = {};
 
     data.forEach(item => {
-      if (item.status.includes('취소')) return; // B열(status)에 '취소'가 포함된 경우 제외
+      if (item.status.includes('취소') || item.status.includes('해약')) return; // B열(status)에 '취소'나 '해약'이 포함된 경우 제외
       const displayPayDate = getDisplayPayDate(item);
       const month = displayPayDate?.substring(0, 7) || '미지정';
       const hqSetting = hqSettings.find(h => h.hqName === item.hq);
