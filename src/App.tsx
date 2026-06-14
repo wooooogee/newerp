@@ -249,6 +249,7 @@ const getHealthcareMaintenanceInfo = (item: ERPDataItem, filterStr: string) => {
   const today = new Date();
   let baseYear = today.getFullYear();
   let baseMonth = today.getMonth() + 1;
+  let filterDay = 0;
 
   if (filterStr) {
     const clean = filterStr.replace(/[-./\s]/g, '');
@@ -258,6 +259,27 @@ const getHealthcareMaintenanceInfo = (item: ERPDataItem, filterStr: string) => {
     } else if (clean.length === 8) {
       baseYear = parseInt(clean.substring(0, 4));
       baseMonth = parseInt(clean.substring(4, 6));
+      filterDay = parseInt(clean.substring(6, 8));
+    } else {
+      const match = filterStr.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+      if (match) {
+        filterDay = parseInt(match[3]);
+      }
+    }
+  }
+
+  if (filterDay > 0) {
+    const displayPayDate = getDisplayPayDate(item);
+    const targetDateStr = displayPayDate || item.payDate || item.contractDate || item.deliveryDate;
+    let itemDay = 0;
+    if (targetDateStr) {
+      const itemMatch = targetDateStr.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+      if (itemMatch) {
+        itemDay = parseInt(itemMatch[3]);
+      }
+    }
+    if (itemDay === 0 || itemDay !== filterDay) {
+      return null;
     }
   }
 
@@ -1226,11 +1248,41 @@ const ERP_Dashboard = () => {
     const currentYear = parseInt(currentYearMonth.substring(0, 4));
     const currentMonth = parseInt(currentYearMonth.substring(4, 6));
 
+    // payDateFilter가 YYYY.MM.DD 형식일 경우 일(Day) 정보 추출
+    let filterDay = 0;
+    if (payDateFilter) {
+      const clean = payDateFilter.replace(/[-./\s]/g, '');
+      if (clean.length === 8) {
+        filterDay = parseInt(clean.substring(6, 8));
+      } else {
+        const filterMatch = payDateFilter.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+        if (filterMatch) {
+          filterDay = parseInt(filterMatch[3]);
+        }
+      }
+    }
+
     items.forEach(item => {
       if (item.status.includes('취소') || item.status.includes('해약')) return;
       
       const overdueCount = parseInt(item.raw[20]) || 0; // U열
       if (overdueCount > 0) return; // 연체 시 미지급
+      
+      // 지급일의 일(Day) 기준 매칭
+      if (filterDay > 0) {
+        const displayPayDate = getDisplayPayDate(item);
+        const targetDateStr = displayPayDate || item.payDate || item.contractDate || item.deliveryDate;
+        let itemDay = 0;
+        if (targetDateStr) {
+          const itemMatch = targetDateStr.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+          if (itemMatch) {
+            itemDay = parseInt(itemMatch[3]);
+          }
+        }
+        if (itemDay === 0 || itemDay !== filterDay) {
+          return; // 지급일(Day)이 불일치하므로 제외
+        }
+      }
       
       const hqName = item.hq;
       const prodName = item.prodName.replace(/[\s()]/g, '').toLowerCase();
@@ -1354,22 +1406,25 @@ const ERP_Dashboard = () => {
     });
 
     // 맥스 본부 이지안 고객 유지수수료 강제 주입 (7회차 - 2구좌)
-    for (let g = 1; g <= 2; g++) {
-      const resNoForced = `MAX-LEE-FORCED-${g}`;
-      const isLeeAlreadyPaid = maintenanceHistory.some(h => h.resNo === resNoForced && h.payInstallment === 7);
-      if (!isLeeAlreadyPaid) {
-        payouts.push({
-          resNo: resNoForced,
-          memNo: g === 1 ? "J2511010332" : "J2511010331",
-          customerName: "이지안",
-          hq: "맥스",
-          productName: "더좋은헬스케어580",
-          amount: 10000,
-          fromInstallment: 7,
-          toInstallment: 7,
-          empName: "김학민",
-          branch: "맥스",
-        });
+    // 이지안 고객의 지급일은 25일이므로, filterDay가 지정되어 있고 25가 아닌 경우에는 주입하지 않음
+    if (!filterDay || filterDay === 25) {
+      for (let g = 1; g <= 2; g++) {
+        const resNoForced = `MAX-LEE-FORCED-${g}`;
+        const isLeeAlreadyPaid = maintenanceHistory.some(h => h.resNo === resNoForced && h.payInstallment === 7);
+        if (!isLeeAlreadyPaid) {
+          payouts.push({
+            resNo: resNoForced,
+            memNo: g === 1 ? "J2511010332" : "J2511010331",
+            customerName: "이지안",
+            hq: "맥스",
+            productName: "더좋은헬스케어580",
+            amount: 10000,
+            fromInstallment: 7,
+            toInstallment: 7,
+            empName: "김학민",
+            branch: "맥스",
+          });
+        }
       }
     }
 
