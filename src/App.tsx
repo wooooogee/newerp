@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
@@ -366,6 +366,9 @@ const ERP_Dashboard = () => {
   const [selectedItem, setSelectedItem] = useState<ERPDataItem | null>(null);
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
   const [previewTabs, setPreviewTabs] = useState<Record<string, string>>({});
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [saveSettingsStatus, setSaveSettingsStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
@@ -389,6 +392,25 @@ const ERP_Dashboard = () => {
   const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
   const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('구좌수');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 정산 설정 비밀번호 처리 함수
+  const handleOpenSettings = () => {
+    setPasswordInput('');
+    setPasswordError(false);
+    setIsPasswordModalOpen(true);
+  };
+
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordInput === '880805') {
+      setIsPasswordModalOpen(false);
+      setPasswordError(false);
+      setIsSettingsModalOpen(true);
+    } else {
+      setPasswordError(true);
+      setPasswordInput('');
+    }
+  };
 
   // 유지수수료 내역 및 관리 모달 상태
   const [mHistoryProductFilter, setMHistoryProductFilter] = useState('전체');
@@ -3255,7 +3277,7 @@ const ERP_Dashboard = () => {
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">본부 및 정산 관리</p>
             <div className="grid gap-2">
               <motion.button
-                onClick={() => setIsSettingsModalOpen(true)}
+                onClick={handleOpenSettings}
                 whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.99 }}
                 className="flex items-center justify-center gap-2.5 bg-slate-800 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-slate-900"
@@ -3329,7 +3351,7 @@ const ERP_Dashboard = () => {
               </h2>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setIsSettingsModalOpen(true)}
+                  onClick={handleOpenSettings}
                   className="p-2 bg-slate-200 text-slate-600 rounded-full hover:bg-slate-300 transition-colors shadow-sm"
                   title="정산 마스터 설정"
                 >
@@ -4534,6 +4556,68 @@ const ERP_Dashboard = () => {
                       </>
                     );
                   })()}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* 비밀번호 확인 모달 */}
+        <AnimatePresence>
+          {isPasswordModalOpen && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsPasswordModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="relative bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-slate-100"
+              >
+                <div className="p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600">
+                      <Lock size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black text-slate-800">보안 인증</h3>
+                      <p className="text-xs text-slate-400">정산 마스터 설정 진입을 위해 비밀번호를 입력하세요.</p>
+                    </div>
+                  </div>
+                  
+                  <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                    <div>
+                      <input
+                        type="password"
+                        placeholder="비밀번호 입력"
+                        value={passwordInput}
+                        onChange={(e) => {
+                          setPasswordInput(e.target.value);
+                          setPasswordError(false);
+                        }}
+                        className={`w-full px-4 py-3 bg-slate-50 border ${passwordError ? 'border-red-400 focus:ring-red-100' : 'border-slate-200 focus:ring-blue-100'} rounded-xl text-center text-lg font-black tracking-widest focus:ring-4 outline-none transition-all`}
+                        autoFocus
+                      />
+                      {passwordError && (
+                        <p className="text-[11px] text-red-500 font-semibold mt-2 text-center">비밀번호가 올바르지 않습니다. 다시 입력해 주세요.</p>
+                      )}
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsPasswordModalOpen(false)}
+                        className="flex-1 py-2.5 border border-slate-200 rounded-xl text-[12px] font-bold text-slate-500 hover:bg-slate-50 transition-colors"
+                      >
+                        취소
+                      </button>
+                      <button
+                        type="submit"
+                        className="flex-1 py-2.5 bg-slate-800 text-white rounded-xl text-[12px] font-bold hover:bg-slate-900 transition-colors shadow-sm"
+                      >
+                        확인
+                      </button>
+                    </div>
+                  </form>
                 </div>
               </motion.div>
             </div>
