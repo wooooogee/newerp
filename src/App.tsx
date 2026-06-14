@@ -2429,16 +2429,28 @@ const ERP_Dashboard = () => {
         const roleWeight = (r: string) => ({ '영업사원': 1, '팀장': 2, '지점장': 3, '본부장': 4 }[r] || 5);
         const sorted = Array.from(empMap.values()).sort((a, b) => roleWeight(a.role) - roleWeight(b.role) || a.name.localeCompare(b.name));
         
-        sorted.forEach(p => {
-          let b = '-', a = '-', h = '-';
-          if (hqName === '다이렉트') {
-            const bInfo = employeeBankMap.get(p.name);
-            if (bInfo) { b = bInfo.bank; a = bInfo.account; h = bInfo.holder; }
-          } else {
-            b = setting?.bankName || '-'; a = setting?.accountNumber || '-'; h = setting?.accountHolder || '-';
-          }
-          rows.push([payDateDisplay, p.name, p.role, b, a, h, { v: p.total, t: 'n', z: '#,##0' }]);
-        });
+        const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+
+        if (hqName !== '다이렉트' && !isIndiv) {
+          // 사업자일 경우 단 하나의 합산 행으로 표시
+          const totalAmount = sorted.reduce((sum, p) => sum + p.total, 0);
+          const b = setting?.bankName || '-';
+          const a = setting?.accountNumber || '-';
+          const h = setting?.accountHolder || '-';
+          rows.push([payDateDisplay, h, '본부', b, a, h, { v: totalAmount, t: 'n', z: '#,##0' }]);
+        } else {
+          // 다이렉트이거나 개인/프리랜서일 경우 영업자별로 나눠서 표시
+          sorted.forEach(p => {
+            let b = '-', a = '-', h = '-';
+            if (hqName === '다이렉트') {
+              const bInfo = employeeBankMap.get(p.name);
+              if (bInfo) { b = bInfo.bank; a = bInfo.account; h = bInfo.holder; }
+            } else {
+              b = setting?.bankName || '-'; a = setting?.accountNumber || '-'; h = setting?.accountHolder || '-';
+            }
+            rows.push([payDateDisplay, p.name, p.role, b, a, h, { v: p.total, t: 'n', z: '#,##0' }]);
+          });
+        }
       rows.push([]);
 
       // 세금 요약 섹션
@@ -2475,8 +2487,8 @@ const ERP_Dashboard = () => {
         }
         rows.push(['합계', { v: Math.round(totalSum / 1.1), t: 'n', z: '#,##0' }, { v: totalSum - Math.round(totalSum / 1.1), t: 'n', z: '#,##0' }, { v: totalSum, t: 'n', z: '#,##0' }]);
       }
-      rows[10] = [];
-      rows[11] = ['렌탈사', '상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계'];
+      rows.push([]);
+      rows.push(['렌탈사', '상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계']);
       const productSummary: Record<string, { count: number, sales: number, promo: number, total: number }> = {};
       items.forEach(item => {
         const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, stats);
@@ -5745,7 +5757,39 @@ const ERP_Dashboard = () => {
                     <Monitor size={20} /> 
                     {previewTarget === 'ALL' ? '전사 통합 정산 보고서 미리보기' : `${previewTarget} 정산서 미리보기`}
                   </h3>
-                  <button onClick={() => setPreviewTarget(null)} className="p-2 hover:bg-slate-700 rounded-full transition-colors"><X size={20} /></button>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={async () => {
+                        const specialAdditions: Record<string, number> = {};
+                        Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
+                          if ((amt as number) > 0) specialAdditions[name] = amt as number;
+                        });
+                        const combinedHqs = Array.from(new Set([
+                          ...Object.keys(settlementStats.hqGroups), 
+                          ...Object.keys(specialAdditions),
+                          ...maintenancePayouts.map(m => m.hq)
+                        ]));
+                        
+                        const targets = previewTarget === 'ALL' ? combinedHqs : [previewTarget];
+                        
+                        for (let i = 0; i < targets.length; i++) {
+                          const hq = targets[i];
+                          const items = settlementStats.hqGroups[hq] || [];
+                          const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hq);
+                          const specialSum = specialAdditions[hq] || 0;
+                          
+                          if (items.length > 0 || hqMaintenancePayouts.length > 0 || specialSum > 0) {
+                            await exportProfessionalSettlement(hq);
+                            await new Promise(resolve => setTimeout(resolve, 300));
+                          }
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      <Download size={14} /> 일괄 다운로드 (Excel)
+                    </button>
+                    <button onClick={() => setPreviewTarget(null)} className="p-2 hover:bg-slate-700 rounded-full transition-colors"><X size={20} /></button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-8 bg-slate-50 space-y-12">
                   {(() => {
