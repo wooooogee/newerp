@@ -3754,14 +3754,21 @@ const ERP_Dashboard = () => {
                     <Calendar size={13} className="text-slate-400 group-hover:text-blue-600" />
                     <span className="bg-slate-100 text-[10px] font-black text-blue-600 rounded px-1.5 py-0.5 group-hover:bg-blue-600 group-hover:text-white transition-colors">지급일</span>
                   </button>
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm">
-                    <select
-                      value={payDateFilter}
-                      onChange={(e) => setPayDateFilter(e.target.value === '전체' ? '' : e.target.value)}
-                      className="bg-transparent text-[12px] font-bold text-slate-700 outline-none"
-                    >
-                      {uniquePayDates.map(date => <option key={date} value={date}>{date}</option>)}
-                    </select>
+                  <div className="relative flex items-center">
+                    <span className="absolute -top-6 left-0 bg-rose-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-md animate-bounce flex items-center gap-1">
+                      <span className="w-1 h-1 rounded-full bg-white animate-ping"></span>
+                      1순위 필수 설정
+                    </span>
+                    <div className="flex items-center gap-1 px-3 py-1.5 bg-rose-50/50 border-2 border-rose-500 rounded-lg shadow-md hover:border-rose-600 transition-colors">
+                      <span className="text-[10px] font-black text-rose-600 uppercase">지급일 정산:</span>
+                      <select
+                        value={payDateFilter}
+                        onChange={(e) => setPayDateFilter(e.target.value === '전체' ? '' : e.target.value)}
+                        className="bg-transparent text-[12px] font-black text-rose-700 outline-none cursor-pointer"
+                      >
+                        {uniquePayDates.map(date => <option key={date} value={date}>{date}</option>)}
+                      </select>
+                    </div>
                   </div>
                   <button onClick={resetFilters} className="p-2 border border-slate-200 rounded-lg text-slate-400 hover:text-blue-600 bg-white transition-all shadow-sm">
                     <RefreshCw size={14} />
