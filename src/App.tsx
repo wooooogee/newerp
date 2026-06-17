@@ -983,7 +983,10 @@ const ERP_Dashboard = () => {
   }, [notification]);
 
   useEffect(() => {
-    if (isAuthenticated) loadData();
+    if (isAuthenticated) {
+      loadData();
+      loadReconHistory();
+    }
   }, [isAuthenticated]);
 
   // 일괄 업데이트 기능 (지급완료/취소 등)
@@ -1688,7 +1691,6 @@ const ERP_Dashboard = () => {
       const salesPayable = comm.finalPayable || comm.totalCommission;
 
       if (!isPaid) {
-        totalPendingEnexAmount += amount;
         totalPendingAmount += salesPayable;
         totalPendingCount += 1;
       }
@@ -1819,6 +1821,10 @@ const ERP_Dashboard = () => {
       totalPendingAmount += m.amount;
     });
 
+    totalPendingEnexAmount = historyReconData
+      .filter(d => d['정산기준일'] === payDateFilter)
+      .reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
+
     return {
       totalCount,
       totalAmount,
@@ -1832,7 +1838,7 @@ const ERP_Dashboard = () => {
       globalIncentivesSummary,
       hqSummary
     };
-  }, [filteredData, hqSettings]);
+  }, [filteredData, hqSettings, historyReconData, payDateFilter]);
 
   const monthlyStats = React.useMemo(() => {
     const monthlyMap: Record<string, {
@@ -7137,13 +7143,7 @@ const ERP_Dashboard = () => {
                                     <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(row['거래처입금액']).toLocaleString()}</td>
                                     <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(row['내부지급액합계']).toLocaleString()}</td>
                                     <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{Number(row['최종순수익']).toLocaleString()}</td>
-                                    <td className="py-2 px-4 text-center">
-                                      {row['비고'] === '정상' ? (
-                                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">{row['비고']}</span>
-                                      ) : (
-                                        <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">{row['비고']}</span>
-                                      )}
-                                    </td>
+                                    <td className={`py-2 px-4 text-center font-bold ${row['비고'] === '정상' ? 'text-emerald-600' : 'text-rose-600'}`}>{row['비고']}</td>
                                   </tr>
                                 ))}
                               </tbody>

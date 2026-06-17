@@ -1275,7 +1275,7 @@ app.get('/api/sheets/reconciliation/load', async (req, res) => {
         obj[h] = row[idx] || '';
       });
       return obj;
-    }).filter((h: any) => h['계약ID']);
+    }).filter((h: any) => h['계약ID'] || h['계약ID(렌탈번호)']);
 
     res.json({ history });
   } catch (error: any) {
