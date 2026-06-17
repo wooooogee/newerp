@@ -1357,7 +1357,7 @@ app.post('/api/sheets/reconciliation/save', async (req, res) => {
       spreadsheetId: sheetId,
       range: '유통사대사내역!A1',
       valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
+      insertDataOption: 'OVERWRITE',
       requestBody: { values: rows }
     });
 

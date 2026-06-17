@@ -832,8 +832,8 @@ const ERP_Dashboard = () => {
     try {
       setReconLoading(true);
       const rows = reconData.map(d => [
-        d['정산기준일'], d['계약ID'], d['고객명'], d['본부명'], d['지사명'], d['사원명'],
-        d['상품명'], d['거래처배송일'], d['내부배송일자'], d['수수료지급일자'],
+        d['정산기준일'], d['계약ID(렌탈번호)'], d['고객명'], d['본부명'], d['지사명'], d['사원명'],
+        d['상품명'], d['계약일자'], d['거래처 배송일'], d['내부 배송일자'], d['수수료지급일자'],
         d['구좌수'], d['거래처입금액'], d['내부지급액합계'], d['최종순수익'], d['비고']
       ]);
       const res = await fetch('/api/sheets/reconciliation/save', {
