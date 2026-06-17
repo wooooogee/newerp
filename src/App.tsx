@@ -832,8 +832,8 @@ const ERP_Dashboard = () => {
     try {
       setReconLoading(true);
       const rows = reconData.map(d => [
-        d['정산기준일'], d['계약ID(렌탈번호)'], d['고객명'], d['본부명'], d['지사명'], d['사원명'],
-        d['상품명'], d['계약일자'], d['거래처 배송일'], d['내부 배송일자'], d['수수료지급일자'],
+        d['정산기준일'], d['계약ID(렌탈번호)'], d['고객명'], d['본부명'],
+        d['상품명'], d['계약일자'], d['내부 배송일자'],
         d['구좌수'], d['거래처입금액'], d['내부지급액합계'], d['최종순수익'], d['비고']
       ]);
       const res = await fetch('/api/sheets/reconciliation/save', {
@@ -6944,23 +6944,35 @@ const ERP_Dashboard = () => {
                     <button
                       onClick={() => {
                         const baseData = reconTab === 'NEW' ? reconData : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate);
-                        const totalGuzwa = baseData.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
-                        const totalExt = baseData.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
-                        const totalInt = baseData.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
-                        const totalNet = baseData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+                        
+                        const mappedData = baseData.map(d => ({
+                          '정산기준일': d['정산기준일'] || '',
+                          '계약ID': d['계약ID(렌탈번호)'] || d['계약ID'] || '',
+                          '고객명': d['고객명'] || '',
+                          '본부명': d['본부명'] || '',
+                          '상품명': d['상품명'] || '',
+                          '계약일자': d['계약일자'] || '',
+                          '배송일자': d['내부 배송일자'] || d['배송일자'] || '',
+                          '구좌수': d['구좌수'] || 0,
+                          '거래처입금액': d['거래처입금액'] || 0,
+                          '내부지급액합계': d['내부지급액합계'] || 0,
+                          '최종순수익': d['최종순수익'] || 0,
+                          '비고': d['비고'] || ''
+                        }));
+
+                        const totalGuzwa = mappedData.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
+                        const totalExt = mappedData.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
+                        const totalInt = mappedData.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
+                        const totalNet = mappedData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
 
                         const sumRow = {
-                          '계약ID(렌탈번호)': '총계',
+                          '정산기준일': '',
+                          '계약ID': '총계',
                           '고객명': '',
                           '본부명': '',
-                          '지사명': '',
-                          '사원명': '',
                           '상품명': '',
                           '계약일자': '',
-                          '거래처 배송일': '',
-                          '내부 배송일자': '',
-                          '수수료지급일자': '',
-                          '정산기준일': '',
+                          '배송일자': '',
                           '구좌수': totalGuzwa,
                           '거래처입금액': totalExt,
                           '내부지급액합계': totalInt,
@@ -6968,7 +6980,7 @@ const ERP_Dashboard = () => {
                           '비고': ''
                         };
 
-                        const exportData = [...baseData, sumRow];
+                        const exportData = [...mappedData, sumRow];
                         const ws = XLSX.utils.json_to_sheet(exportData);
                         const wb = XLSX.utils.book_new();
                         XLSX.utils.book_append_sheet(wb, ws, "Reconciliation");
@@ -7133,12 +7145,12 @@ const ERP_Dashboard = () => {
                                 {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).map((row, idx) => (
                                   <tr key={idx} className="hover:bg-slate-50 transition-colors text-xs">
                                     <td className="py-2 px-4 text-slate-600 font-mono">{row['정산기준일']}</td>
-                                    <td className="py-2 px-4 text-slate-700 font-bold font-mono">{row['계약ID(렌탈번호)']}</td>
+                                    <td className="py-2 px-4 text-slate-700 font-bold font-mono">{row['계약ID']}</td>
                                     <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명']}</td>
                                     <td className="py-2 px-4 text-slate-600">{row['본부명']}</td>
                                     <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['상품명']}>{row['상품명']}</td>
                                     <td className="py-2 px-4 text-slate-600 font-mono">{row['계약일자']}</td>
-                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['내부 배송일자']}</td>
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['배송일자']}</td>
                                     <td className="py-2 px-4 text-center font-bold text-blue-600">{row['구좌수']}</td>
                                     <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(row['거래처입금액']).toLocaleString()}</td>
                                     <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(row['내부지급액합계']).toLocaleString()}</td>

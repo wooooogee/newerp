@@ -1319,7 +1319,7 @@ app.post('/api/sheets/reconciliation/save', async (req, res) => {
       });
       sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
       
-      const headers = [['정산기준일', '계약ID', '고객명', '본부명', '지사명', '사원명', '상품명', '거래처배송일', '내부배송일자', '수수료지급일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고']];
+      const headers = [['정산기준일', '계약ID', '고객명', '본부명', '상품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고']];
       await sheets.spreadsheets.values.append({
         spreadsheetId: sheetId,
         range: '유통사대사내역!A1',
