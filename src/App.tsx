@@ -384,7 +384,16 @@ const ERP_Dashboard = () => {
   const [isHealthcareModalOpen, setIsHealthcareModalOpen] = useState(false);
   const [isMaintenanceStatusModalOpen, setIsMaintenanceStatusModalOpen] = useState(false);
   const [isMaintenanceHistoryModalOpen, setIsMaintenanceHistoryModalOpen] = useState(false);
-  const [maintenanceTab, setMaintenanceTab] = useState<'eligible' | 'overdue'>('eligible');
+  const [isReconciliationModalOpen, setIsReconciliationModalOpen] = useState(false);
+  const [isReconCalendarModalOpen, setIsReconCalendarModalOpen] = useState(false);
+  const [reconCalendarViewDate, setReconCalendarViewDate] = useState(new Date());
+  const [reconTab, setReconTab] = useState<'NEW' | 'HISTORY'>('NEW');
+  const [reconDate, setReconDate] = useState('');
+  const [reconData, setReconData] = useState<any[]>([]);
+  const [reconHistoryDates, setReconHistoryDates] = useState<string[]>([]);
+  const [selectedHistoryDate, setSelectedHistoryDate] = useState<string>('');
+  const [historyReconData, setHistoryReconData] = useState<any[]>([]);
+  const [reconLoading, setReconLoading] = useState(false);
   const [activeHqId, setActiveHqId] = useState<string | null>(null);
   const [previewTarget, setPreviewTarget] = useState<string | null>(null);
   const [expandedHqs, setExpandedHqs] = useState<Record<string, boolean>>({});
@@ -696,6 +705,160 @@ const ERP_Dashboard = () => {
   };
 
   // 구글 시트 데이터 로드
+  const loadReconHistory = async () => {
+    try {
+      setReconLoading(true);
+      const res = await fetch('/api/sheets/reconciliation/load');
+      const json = await res.json();
+      if (json.history) {
+        setHistoryReconData(json.history);
+        const dates = Array.from(new Set(json.history.map((h: any) => h['정산기준일']))).sort().reverse();
+        setReconHistoryDates(dates as string[]);
+        if (dates.length > 0 && !selectedHistoryDate) {
+          setSelectedHistoryDate(dates[0] as string);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setNotification({ message: '내역을 불러오지 못했습니다.', type: 'info' });
+    } finally {
+      setReconLoading(false);
+    }
+  };
+
+  const fetchEnexData = async () => {
+    if (!reconDate) {
+      setNotification({ message: '정산기준일을 먼저 입력해주세요.', type: 'info' });
+      return;
+    }
+    
+    try {
+      setReconLoading(true);
+      const res = await fetch('/api/sheets/reconciliation/fetch-enex');
+      const json = await res.json();
+      
+      if (!json.success) {
+        setNotification({ message: json.message || '에넥스수수료 데이터를 불러오는데 실패했습니다.', type: 'info' });
+        return;
+      }
+      
+      const excelData = json.data;
+
+      const localStatsMap = new Map<string, number>();
+      data.forEach(d => {
+        if (!d.hq || !d.prodName) return;
+        const k = `${d.hq}|${d.prodName}`;
+        localStatsMap.set(k, (localStatsMap.get(k) || 0) + 1);
+      });
+
+      const newReconData = excelData.map((row: any) => {
+        const rentalNo = String(row['계약ID'] || row['계약ID(렌탈번호)'] || '').trim();
+        if (!rentalNo) return null;
+        
+        const matchedInternals = data.filter(d => d.rentalNo === rentalNo);
+        const extDeposit = Number((row['수수료 합계\n (TOTAL)'] || row['수수료 합계 (TOTAL)'] || row['수수료 합계(TOTAL)'] || row['수수료 합계'] || 0).toString().replace(/,/g, ''));
+        
+        if (matchedInternals.length > 0) {
+          const firstMatch = matchedInternals[0];
+          const hqName = firstMatch.hq;
+          const branchName = firstMatch.branch;
+          const empName = firstMatch.empName;
+          const prodName = firstMatch.prodName;
+          const custName = firstMatch.memName;
+          const intContractDate = firstMatch.contractDate;
+          const intDeliveryDate = firstMatch.deliveryDate;
+          const payDate = firstMatch.payDate;
+          const extDeliveryDate = row['배송일'] || '';
+          const accountCount = matchedInternals.length; 
+          
+          let internalPayable = 0;
+          matchedInternals.forEach(internalItem => {
+              const commission = calculateCommissionDetails(internalItem, localStatsMap);
+              internalPayable += commission.finalPayable || commission.totalCommission;
+          });
+
+          return {
+            '계약ID(렌탈번호)': rentalNo,
+            '고객명': custName || row['고객명'],
+            '본부명': hqName,
+            '지사명': branchName,
+            '사원명': empName,
+            '상품명': prodName,
+            '계약일자': intContractDate,
+            '거래처 배송일': extDeliveryDate,
+            '내부 배송일자': intDeliveryDate,
+            '수수료지급일자': payDate,
+            '정산기준일': reconDate,
+            '구좌수': accountCount,
+            '거래처입금액': extDeposit,
+            '내부지급액합계': internalPayable,
+            '최종순수익': extDeposit - internalPayable,
+            '비고': '정상'
+          };
+        } else {
+          return {
+            '계약ID(렌탈번호)': rentalNo,
+            '고객명': row['고객명'],
+            '본부명': '',
+            '지사명': '',
+            '사원명': '',
+            '상품명': row['상품명'],
+            '계약일자': '',
+            '거래처 배송일': row['배송일'] || '',
+            '내부 배송일자': '',
+            '수수료지급일자': '',
+            '정산기준일': reconDate,
+            '구좌수': row['실적(건)'] || 1, 
+            '거래처입금액': extDeposit,
+            '내부지급액합계': 0,
+            '최종순수익': extDeposit,
+            '비고': '내부 데이터 누락'
+          };
+        }
+      }).filter(Boolean);
+      
+      setReconData(newReconData);
+      setNotification({ message: '에넥스수수료 데이터를 성공적으로 불러왔습니다.', type: 'success' });
+    } catch (e) {
+       console.error(e);
+       setNotification({ message: '에넥스수수료 데이터를 불러오지 못했습니다.', type: 'info' });
+    } finally {
+      setReconLoading(false);
+    }
+  };
+
+  const saveReconData = async () => {
+    if (reconData.length === 0) return;
+    try {
+      setReconLoading(true);
+      const rows = reconData.map(d => [
+        d['정산기준일'], d['계약ID'], d['고객명'], d['본부명'], d['지사명'], d['사원명'],
+        d['상품명'], d['거래처배송일'], d['내부배송일자'], d['수수료지급일자'],
+        d['구좌수'], d['거래처입금액'], d['내부지급액합계'], d['최종순수익'], d['비고']
+      ]);
+      const res = await fetch('/api/sheets/reconciliation/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows })
+      });
+      const responseData = await res.json();
+      if (responseData.success) {
+        setNotification({ message: '대사 내역이 성공적으로 저장되었습니다.', type: 'success' });
+        setReconData([]);
+        setReconDate('');
+        setReconTab('HISTORY');
+        loadReconHistory();
+      } else {
+        setNotification({ message: '저장에 실패했습니다.', type: 'info' });
+      }
+    } catch (e) {
+      console.error(e);
+      setNotification({ message: '저장 중 오류가 발생했습니다.', type: 'info' });
+    } finally {
+      setReconLoading(false);
+    }
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -1474,6 +1637,13 @@ const ERP_Dashboard = () => {
   }, [maintenanceFilteredData, calculateMaintenancePayouts]);
 
   const settlementStats = React.useMemo(() => {
+    const statsMap = new Map<string, number>();
+    data.forEach(item => {
+      if (item.status.includes('취소') || item.status.includes('해약')) return;
+      const key = `${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`;
+      statsMap.set(key, (statsMap.get(key) || 0) + 1);
+    });
+
     const summary: Record<string, { count: number, amount: number }> = {};
     const hqSummary: Record<string, { count: number, amount: number }> = {};
     const dailyMap: Record<string, { totalAmount: number, totalCount: number, products: Record<string, { count: number, amount: number }> }> = {};
@@ -1481,6 +1651,7 @@ const ERP_Dashboard = () => {
     let totalCount = 0;
     let totalAmount = 0;
     let totalPendingAmount = 0;
+    let totalPendingEnexAmount = 0;
     let totalPendingCount = 0;
 
     filteredData.forEach(item => {
@@ -1513,9 +1684,12 @@ const ERP_Dashboard = () => {
       if (isExcluded) return;
 
       const isPaid = item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료'));
+      const comm = calculateCommissionDetails(item, statsMap);
+      const salesPayable = comm.finalPayable || comm.totalCommission;
 
       if (!isPaid) {
-        totalPendingAmount += amount;
+        totalPendingEnexAmount += amount;
+        totalPendingAmount += salesPayable;
         totalPendingCount += 1;
       }
 
@@ -1649,6 +1823,7 @@ const ERP_Dashboard = () => {
       totalCount,
       totalAmount,
       totalPendingAmount,
+      totalPendingEnexAmount,
       totalPendingCount,
       details: Object.entries(summary).sort((a, b) => b[1].amount - a[1].amount),
       hqDetails: Object.entries(hqSummary).sort((a, b) => b[1].amount - a[1].amount),
@@ -3324,10 +3499,9 @@ const ERP_Dashboard = () => {
               <nav className="flex flex-col gap-1">
                 {[
                   { dot: 'bg-blue-600', label: '월별 실적 대시보드', action: () => setIsMonthlyDashboardModalOpen(true) },
-                  { dot: 'bg-green-500', label: '헬스케어 명단 추출', action: () => setIsHealthcareModalOpen(true) },
                   { dot: 'bg-emerald-500', label: '유지수수료 현황 조회', action: () => { setMaintenanceTab('eligible'); setIsMaintenanceStatusModalOpen(true); } },
-                  { dot: 'bg-yellow-500', label: '날짜별 메모 확인', action: () => setIsMemoHistoryModalOpen(true) },
                   { dot: 'bg-indigo-500', label: '유지수수료 지급 관리', action: () => setIsMaintenanceHistoryModalOpen(true) },
+                  { dot: 'bg-orange-500', label: '유통사 대사 작업', action: () => { setIsReconciliationModalOpen(true); if (reconHistoryDates.length === 0) loadReconHistory(); } },
                 ].map((item, idx) => (
                   <motion.button
                     key={idx}
@@ -3506,7 +3680,19 @@ const ERP_Dashboard = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="flex flex-col gap-4"
               >
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                  <div className="lg:col-span-1 bg-indigo-900 p-6 rounded-2xl shadow-xl border border-indigo-800 text-white relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                      <FileText size={80} />
+                    </div>
+                    <div className="relative z-10">
+                      <div className="text-indigo-300 text-[11px] font-bold uppercase tracking-wider mb-2">에넥스 입금예정액</div>
+                      <div className="text-3xl font-black mb-1">{settlementStats.totalPendingEnexAmount.toLocaleString()}원</div>
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded text-[12px] font-bold">
+                        미입금 {settlementStats.totalPendingCount}구좌
+                      </div>
+                    </div>
+                  </div>
                   <div className="lg:col-span-1 bg-slate-900 p-6 rounded-2xl shadow-xl border border-slate-800 text-white relative overflow-hidden group">
                     <button
                       onClick={() => setIsSettlementModalOpen(true)}
@@ -3823,6 +4009,10 @@ const ERP_Dashboard = () => {
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원명</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">상품명</th>
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700 leading-tight whitespace-nowrap">
+                      전체수수료<br/>
+                      <span className="text-[10px] text-slate-400 font-normal">(본부설정기준)</span>
+                    </th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">렌탈번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송현황</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송일자</th>
@@ -3839,29 +4029,35 @@ const ERP_Dashboard = () => {
                     const PAGE_SIZE = 20;
                     const paginatedData = filteredData.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-                    return paginatedData.map((item, idx) => (
-                      <motion.tr
-                        initial={{ opacity: 0, y: 5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.01 }}
-                        key={item.uniqueKey}
-                        className={`hover:bg-blue-50/50 transition-colors group cursor-pointer border-b border-slate-50 text-[12px] ${item.status.includes('취소') ? 'text-red-500' : ''}`}
-                        onClick={() => setSelectedItem(item)}
-                      >
-                        <td className="px-3 py-3.5 text-slate-500 font-mono text-center border-r border-slate-50 whitespace-nowrap">{item.contractDate}</td>
-                        <td className="px-3 py-3.5 text-center border-r border-slate-50 font-bold">
-                          {item.status.includes('취소') ? (
-                            <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded-md">취소</span>
-                          ) : (
-                            <span className={`px-2 py-0.5 rounded-md ${item.status === '가입' ? 'text-blue-600 bg-blue-50' : 'text-slate-400'}`}>
-                              {item.status}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold">{item.memNo}</td>
-                        <td className="px-3 py-3.5 border-r border-slate-50 font-black text-slate-900">{item.memName}</td>
-                        <td className="px-3 py-3.5 border-r border-slate-50 font-bold text-slate-600 truncate max-w-[150px]" title={item.prodName}>{item.prodName}</td>
-                        <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-500">{item.rentalNo}</td>
+                    return paginatedData.map((item, idx) => {
+                      const count = data.filter(i => i.hq === item.hq && i.prodName === item.prodName).length;
+                      const dummyMap = new Map<string, number>([[`${item.hq}|${item.prodName}`, count]]);
+                      const { totalCommission } = calculateCommissionDetails(item, dummyMap);
+
+                      return (
+                        <motion.tr
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.01 }}
+                          key={item.uniqueKey}
+                          className={`hover:bg-blue-50/50 transition-colors group cursor-pointer border-b border-slate-50 text-[12px] ${item.status.includes('취소') ? 'text-red-500' : ''}`}
+                          onClick={() => setSelectedItem(item)}
+                        >
+                          <td className="px-3 py-3.5 text-slate-500 font-mono text-center border-r border-slate-50 whitespace-nowrap">{item.contractDate}</td>
+                          <td className="px-3 py-3.5 text-center border-r border-slate-50 font-bold">
+                            {item.status.includes('취소') ? (
+                              <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded-md">취소</span>
+                            ) : (
+                              <span className={`px-2 py-0.5 rounded-md ${item.status === '가입' ? 'text-blue-600 bg-blue-50' : 'text-slate-400'}`}>
+                                {item.status}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold">{item.memNo}</td>
+                          <td className="px-3 py-3.5 border-r border-slate-50 font-black text-slate-900">{item.memName}</td>
+                          <td className="px-3 py-3.5 border-r border-slate-50 font-bold text-slate-600 truncate max-w-[150px]" title={item.prodName}>{item.prodName}</td>
+                          <td className="px-3 py-3.5 border-r border-slate-50 text-right font-black text-slate-700 bg-amber-50/10 whitespace-nowrap">{Math.floor(totalCommission).toLocaleString()}원</td>
+                          <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-500">{item.rentalNo}</td>
                         <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
                           <span className={`px-2 py-1 rounded-md text-[10px] font-black border ${item.deliveryStatus.includes('완료') ? 'bg-blue-50 text-blue-600 border-blue-100' :
                             item.deliveryStatus.includes('취소') ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-orange-50 text-orange-600 border-orange-100'
@@ -3890,8 +4086,9 @@ const ERP_Dashboard = () => {
                           </button>
                         </td>
                       </motion.tr>
-                    ));
-                  })()}
+                    );
+                  });
+                })()}
                 </tbody>
               </table>
 
@@ -6703,6 +6900,386 @@ const ERP_Dashboard = () => {
                               다음 <ChevronRight size={14} />
                             </button>
                           </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* ================= 유통사 대사 작업 모달 ================= */}
+        <AnimatePresence>
+          {isReconciliationModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden"
+              >
+                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-lg font-bold text-slate-800">유통사 대사 작업</h2>
+                    <div className="flex gap-1 ml-4 bg-slate-200/50 p-1 rounded-lg">
+                      <button
+                        onClick={() => setReconTab('NEW')}
+                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${reconTab === 'NEW' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      >새 대사 작업</button>
+                      <button
+                        onClick={() => { setReconTab('HISTORY'); loadReconHistory(); }}
+                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${reconTab === 'HISTORY' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      >과거 내역 조회</button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const baseData = reconTab === 'NEW' ? reconData : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate);
+                        const totalGuzwa = baseData.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
+                        const totalExt = baseData.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
+                        const totalInt = baseData.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
+                        const totalNet = baseData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+
+                        const sumRow = {
+                          '계약ID(렌탈번호)': '총계',
+                          '고객명': '',
+                          '본부명': '',
+                          '지사명': '',
+                          '사원명': '',
+                          '상품명': '',
+                          '계약일자': '',
+                          '거래처 배송일': '',
+                          '내부 배송일자': '',
+                          '수수료지급일자': '',
+                          '정산기준일': '',
+                          '구좌수': totalGuzwa,
+                          '거래처입금액': totalExt,
+                          '내부지급액합계': totalInt,
+                          '최종순수익': totalNet,
+                          '비고': ''
+                        };
+
+                        const exportData = [...baseData, sumRow];
+                        const ws = XLSX.utils.json_to_sheet(exportData);
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, "Reconciliation");
+                        XLSX.writeFile(wb, `유통사_대사결과_${reconTab === 'NEW' ? reconDate : selectedHistoryDate}.xlsx`);
+                      }}
+                      disabled={(reconTab === 'NEW' ? reconData.length : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).length) === 0}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-100 disabled:opacity-50"
+                    >
+                      <Download size={14} /> 엑셀 다운로드
+                    </button>
+                    <button onClick={() => setIsReconciliationModalOpen(false)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-lg transition-colors"><X size={20} /></button>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-auto p-4 bg-[#f8fafc]">
+                  {reconTab === 'NEW' ? (
+                    <div className="flex flex-col gap-4">
+                      <div className="flex items-end gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                        <div className="flex-1">
+                          <label className="block text-xs font-bold text-slate-600 mb-1">정산기준일 설정 (YYYY-MM-DD)</label>
+                          <button
+                            onClick={() => {
+                              const uniqueDates = Array.from(new Set(data.map(d => d.payDate).filter(Boolean))).sort().reverse();
+                              if (uniqueDates.length > 0) {
+                                setReconCalendarViewDate(reconDate ? new Date(reconDate.replace(/\./g, '-')) : new Date((uniqueDates[0] as string).replace(/\./g, '-')));
+                              } else {
+                                setReconCalendarViewDate(new Date());
+                              }
+                              setIsReconCalendarModalOpen(true);
+                            }}
+                            className="w-[200px] border border-slate-300 rounded p-2 text-sm bg-white text-left text-slate-700 flex justify-between items-center"
+                          >
+                            <span>{reconDate || '선택하세요'}</span>
+                            <Calendar size={16} className="text-slate-400" />
+                          </button>
+                        </div>
+                        <div className="flex-1 flex flex-col justify-end">
+                          <button
+                            onClick={fetchEnexData}
+                            disabled={!reconDate || reconLoading}
+                            className="w-full px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 disabled:opacity-50 border border-slate-300"
+                          >
+                            {reconLoading ? '불러오는 중...' : '에넥스수수료 데이터 불러오기'}
+                          </button>
+                        </div>
+                        <div>
+                          <button
+                            onClick={saveReconData}
+                            disabled={reconData.length === 0 || reconLoading}
+                            className="px-6 py-2 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-2"
+                          >
+                            <Save size={16} /> 저장하기
+                          </button>
+                        </div>
+                      </div>
+
+                      {reconData.length > 0 && (
+                        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden flex-1 flex flex-col min-h-[400px]">
+                          <div className="overflow-auto flex-1">
+                            <table className="w-full text-left border-collapse min-w-max">
+                              <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm text-[11px] text-slate-500 uppercase tracking-wider">
+                                <tr>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">정산기준일</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">계약ID</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">고객명</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">본부명</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">상품명</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">계약일자</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">배송일자</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200 text-center">구좌수</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">거래처입금액</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">내부지급액합계</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">최종순수익</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200 text-center">비고</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {reconData.map((row, idx) => (
+                                  <tr key={idx} className="hover:bg-slate-50 transition-colors text-xs">
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['정산기준일']}</td>
+                                    <td className="py-2 px-4 text-slate-700 font-bold font-mono">{row['계약ID(렌탈번호)']}</td>
+                                    <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명']}</td>
+                                    <td className="py-2 px-4 text-slate-600">{row['본부명']}</td>
+                                    <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['상품명']}>{row['상품명']}</td>
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['계약일자']}</td>
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['내부 배송일자']}</td>
+                                    <td className="py-2 px-4 text-center font-bold text-blue-600">{row['구좌수']}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(row['거래처입금액']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(row['내부지급액합계']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{Number(row['최종순수익']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-center">
+                                      {row['비고'] === '정상' ? (
+                                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">{row['비고']}</span>
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">{row['비고']}</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200">
+                                <tr>
+                                  <td colSpan={7} className="py-3 px-4 text-center">총계</td>
+                                  <td className="py-3 px-4 text-center text-blue-600">{reconData.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-slate-800">{reconData.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-indigo-600">{reconData.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-emerald-600">{reconData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0).toLocaleString()}</td>
+                                  <td></td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-4 h-full">
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex gap-4 items-center">
+                        <label className="text-sm font-bold text-slate-600">조회할 정산기준일</label>
+                        <select
+                          value={selectedHistoryDate}
+                          onChange={(e) => setSelectedHistoryDate(e.target.value)}
+                          className="border border-slate-300 rounded p-2 text-sm min-w-[150px] font-bold"
+                        >
+                          {reconHistoryDates.map(date => (
+                            <option key={date} value={date}>{date}</option>
+                          ))}
+                        </select>
+                        <div className="ml-auto text-sm bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
+                          총 거래처입금액:{' '}
+                          <span className="font-bold text-indigo-600 text-lg">
+                            {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, cur) => acc + Number(cur['거래처입금액'] || 0), 0).toLocaleString()}원
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden flex-1 flex flex-col min-h-[400px]">
+                        {reconLoading ? (
+                          <div className="flex-1 flex items-center justify-center p-8">
+                            <RefreshCw className="animate-spin text-slate-400" size={32} />
+                          </div>
+                        ) : (
+                          <div className="overflow-auto flex-1">
+                            <table className="w-full text-left border-collapse min-w-max">
+                              <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm text-[11px] text-slate-500 uppercase tracking-wider">
+                                <tr>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">정산기준일</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">계약ID</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">고객명</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">본부명</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">상품명</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">계약일자</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">배송일자</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200 text-center">구좌수</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">거래처입금액</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">내부지급액합계</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">최종순수익</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200 text-center">비고</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).map((row, idx) => (
+                                  <tr key={idx} className="hover:bg-slate-50 transition-colors text-xs">
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['정산기준일']}</td>
+                                    <td className="py-2 px-4 text-slate-700 font-bold font-mono">{row['계약ID(렌탈번호)']}</td>
+                                    <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명']}</td>
+                                    <td className="py-2 px-4 text-slate-600">{row['본부명']}</td>
+                                    <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['상품명']}>{row['상품명']}</td>
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['계약일자']}</td>
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['내부 배송일자']}</td>
+                                    <td className="py-2 px-4 text-center font-bold text-blue-600">{row['구좌수']}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(row['거래처입금액']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(row['내부지급액합계']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{Number(row['최종순수익']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-center">
+                                      {row['비고'] === '정상' ? (
+                                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">{row['비고']}</span>
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">{row['비고']}</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200">
+                                <tr>
+                                  <td colSpan={7} className="py-3 px-4 text-center">총계</td>
+                                  <td className="py-3 px-4 text-center text-blue-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-slate-800">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-indigo-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-emerald-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0).toLocaleString()}</td>
+                                  <td></td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {isReconCalendarModalOpen && (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsReconCalendarModalOpen(false)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+              >
+                <div className="p-6">
+                  {(() => {
+                    const year = reconCalendarViewDate.getFullYear();
+                    const month = reconCalendarViewDate.getMonth();
+
+                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                    const firstDay = new Date(year, month, 1).getDay();
+                    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+                    const prevMonthLastDay = new Date(year, month, 0).getDate();
+                    const prevMonthDays = Array.from({ length: firstDay }, (_, i) => prevMonthLastDay - firstDay + i + 1);
+
+                    const allDatesWithData = new Set(data.map(d => d.payDate).filter(Boolean));
+
+                    return (
+                      <>
+                        <div className="flex justify-between items-center mb-6">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Select Payment Date</span>
+                            <h3 className="text-xl font-black text-slate-900">{year}년 {month + 1}월</h3>
+                          </div>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => setReconCalendarViewDate(new Date(year, month - 1, 1))}
+                              className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"
+                            >
+                              <ChevronRight size={20} className="rotate-180" />
+                            </button>
+                            <button
+                              onClick={() => setReconCalendarViewDate(new Date(year, month + 1, 1))}
+                              className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"
+                            >
+                              <ChevronRight size={20} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                          {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
+                            <span key={d} className={`text-[10px] font-bold ${i === 0 ? 'text-rose-500' : i === 6 ? 'text-blue-500' : 'text-slate-400'}`}>
+                              {d}
+                            </span>
+                          ))}
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1">
+                          {prevMonthDays.map(d => (
+                            <div key={`prev-${d}`} className="h-10 flex items-center justify-center text-[13px] text-slate-200">
+                              {d}
+                            </div>
+                          ))}
+                          {days.map(d => {
+                            const dateStr = `${year}.${String(month + 1).padStart(2, '0')}.${String(d).padStart(2, '0')}`;
+                            const hasData = allDatesWithData.has(dateStr);
+                            const isSelected = reconDate === dateStr;
+
+                            return (
+                              <motion.button
+                                key={d}
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => {
+                                  if (hasData) {
+                                    setReconDate(dateStr);
+                                    setIsReconCalendarModalOpen(false);
+                                  }
+                                }}
+                                className={`
+                                  h-10 rounded-xl flex flex-col items-center justify-center text-[13px] relative transition-all
+                                  ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 font-black' :
+                                    hasData ? 'text-slate-900 font-black hover:bg-slate-100' : 'text-slate-300 hover:bg-slate-50 cursor-not-allowed opacity-50'}
+                                `}
+                              >
+                                {d}
+                                {hasData && !isSelected && (
+                                  <div className="absolute bottom-1.5 w-1 h-1 bg-blue-500 rounded-full" />
+                                )}
+                              </motion.button>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-6 flex flex-col gap-2">
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full" />
+                            <span>점 표시: 데이터가 있는 날짜 (검정색)</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setReconDate('');
+                              setIsReconCalendarModalOpen(false);
+                            }}
+                            className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[13px] font-bold transition-colors"
+                          >
+                            선택 해제
+                          </button>
                         </div>
                       </>
                     );

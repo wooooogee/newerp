@@ -1203,6 +1203,171 @@ app.post('/api/sheets/manual-settlement/save', async (req, res) => {
     return handleGoogleError(error, res);
   }
 });
+// 유통사 대사 내역 조회 API
+app.get('/api/sheets/reconciliation/fetch-enex', async (req, res) => {
+  try {
+    const auth = await getAuthenticatedClient(req, res);
+    if (!auth) return res.status(401).json({ success: false, message: '인증되지 않았습니다.' });
+    const sheets = google.sheets({ version: 'v4', auth });
+    
+    const metaData = await sheets.spreadsheets.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID
+    });
+    const sheetExists = metaData.data.sheets?.some(s => s.properties?.title === '에넥스수수료');
+    
+    if (!sheetExists) {
+      return res.status(404).json({ success: false, message: '에넥스수수료 시트가 존재하지 않습니다.' });
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: '에넥스수수료',
+    });
+    
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+    
+    const headers = rows[0];
+    console.log("Enex Headers: ", headers);
+    const data = rows.slice(1).map(row => {
+      const obj: any = {};
+      headers.forEach((h: string, i: number) => {
+        obj[h] = row[i] || '';
+      });
+      return obj;
+    });
+    
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching enex data:', error);
+    res.status(500).json({ success: false, error: '에넥스수수료 데이터를 불러오는데 실패했습니다.' });
+  }
+});
+
+app.get('/api/sheets/reconciliation/load', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '유통사대사내역',
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length < 2) {
+      return res.json({ history: [] });
+    }
+
+    const headers = (rows[0] || []).map((h: any) => (String(h) || '').trim());
+    const history = rows.slice(1).map((row: string[]) => {
+      const obj: any = {};
+      headers.forEach((h: string, idx: number) => {
+        obj[h] = row[idx] || '';
+      });
+      return obj;
+    }).filter((h: any) => h['계약ID']);
+
+    res.json({ history });
+  } catch (error: any) {
+    if (error.response?.status === 400 || error.message?.toLowerCase().includes('not found')) {
+      return res.json({ history: [] });
+    }
+    console.error("[Reconciliation Load Error]", error.message);
+    return handleGoogleError(error, res);
+  }
+});
+
+// 유통사 대사 내역 저장 API
+app.post('/api/sheets/reconciliation/save', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { rows } = req.body as { rows: any[][] };
+  if (!rows || rows.length === 0) return res.status(400).json({ error: 'No data to save' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let historySheet = sheetsList.find(s => s.properties?.title === '유통사대사내역');
+    let sheetInternalId: number | null | undefined = historySheet?.properties?.sheetId;
+    
+    if (!historySheet) {
+      console.log("[Reconciliation] Creating '유통사대사내역' sheet...");
+      const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '유통사대사내역' } } }]
+        }
+      });
+      sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+      
+      const headers = [['정산기준일', '계약ID', '고객명', '본부명', '지사명', '사원명', '상품명', '거래처배송일', '내부배송일자', '수수료지급일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고']];
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '유통사대사내역!A1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: headers }
+      });
+      
+      if (sheetInternalId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+    }
+
+    // Append rows
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: '유통사대사내역!A1',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: rows }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[Reconciliation Save Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
 // Vite Middleware
 async function start() {
   try {
