@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { HealthcareModal } from './HealthcareModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -381,8 +382,13 @@ const ERP_Dashboard = () => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
-  const [isHealthcareModalOpen, setIsHealthcareModalOpen] = useState(false);
+  const [isHealthcareCalendarModalOpen, setIsHealthcareCalendarModalOpen] = useState(false);
+  const [hcCalendarViewDate, setHcCalendarViewDate] = useState(new Date());
+  const [isHealthcareListModalOpen, setIsHealthcareListModalOpen] = useState(false);
+  const [healthcareFilter, setHealthcareFilter] = useState<{ type: 'date' | 'month', value: string } | null>(null);
+  const [detailSource, setDetailSource] = useState<'main' | 'healthcare'>('main');
   const [isMaintenanceStatusModalOpen, setIsMaintenanceStatusModalOpen] = useState(false);
+  const [maintenanceTab, setMaintenanceTab] = useState<'eligible' | 'overdue'>('eligible');
   const [isMaintenanceHistoryModalOpen, setIsMaintenanceHistoryModalOpen] = useState(false);
   const [isReconciliationModalOpen, setIsReconciliationModalOpen] = useState(false);
   const [isReconCalendarModalOpen, setIsReconCalendarModalOpen] = useState(false);
@@ -3523,6 +3529,22 @@ const ERP_Dashboard = () => {
             </div>
           </section>
 
+          <section className="mt-4">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">헬스케어</p>
+            <div className="grid gap-2">
+              <nav className="flex flex-col gap-1">
+                <motion.button
+                  onClick={() => setIsHealthcareCalendarModalOpen(true)}
+                  whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                >
+                  <span className={`w-2 h-2 rounded-full bg-pink-500`} />
+                  <span className="font-medium">헬스케어 명단</span>
+                </motion.button>
+              </nav>
+            </div>
+          </section>
+
           <div className="mt-auto pt-4 border-t border-slate-100 text-[11px] text-slate-400 leading-relaxed">
             운영자: 관리자 (Admin)<br />
             IP: 192.168.0.104
@@ -4162,7 +4184,7 @@ const ERP_Dashboard = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                onClick={() => setSelectedItem(null)}
+                onClick={() => { setSelectedItem(null); setDetailSource('main'); }}
                 className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
               />
               <motion.div
@@ -4177,7 +4199,7 @@ const ERP_Dashboard = () => {
                     회원 상세 정보
                   </h3>
                   <button
-                    onClick={() => setSelectedItem(null)}
+                    onClick={() => { setSelectedItem(null); setDetailSource('main'); }}
                     className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
                   >
                     <X size={20} />
@@ -4186,6 +4208,7 @@ const ERP_Dashboard = () => {
 
                 <div className="flex-1 overflow-auto p-6 space-y-8">
                   {/* 정산 요약 - 실시간 계산 결과 */}
+                  {detailSource !== 'healthcare' && (
                   <section className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
                     <h4 className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
                       <TrendingUp size={14} /> 실시간 정산 분석 (본부 설정 기준)
@@ -4243,6 +4266,7 @@ const ERP_Dashboard = () => {
                       })()}
                     </div>
                   </section>
+                  )}
 
                   {/* 회원정보 */}
                   <section>
@@ -4521,101 +4545,95 @@ const ERP_Dashboard = () => {
         </AnimatePresence>
 
         <AnimatePresence>
-          {isHealthcareModalOpen && (
+          {isHealthcareCalendarModalOpen && (
             <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setIsHealthcareModalOpen(false)}
-                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-              />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col"
-              >
-                <div className="p-8">
-                  <div className="flex justify-between items-center mb-6">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-black text-green-600 uppercase tracking-widest">Excel Export</span>
-                      <h3 className="text-xl font-black text-slate-900">헬스케어 명단 추출</h3>
-                    </div>
-                    <button onClick={() => setIsHealthcareModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                      <X size={20} />
-                    </button>
-                  </div>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsHealthcareCalendarModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+                <div className="p-6">
+                  {(() => {
+                    const year = hcCalendarViewDate.getFullYear();
+                    const month = hcCalendarViewDate.getMonth();
 
-                  <div className="space-y-6">
-                    <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
-                      <p className="text-[12px] text-green-800 font-medium leading-relaxed">
-                        관리대장 <span className="font-bold underline">S열(헬스케어등록일)</span>에 입력된 날짜를 기준으로 월별 명단을 생성합니다.
-                      </p>
-                    </div>
+                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                    const firstDay = new Date(year, month, 1).getDay();
+                    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-                    <div className="grid gap-4">
-                      <div className="flex flex-col gap-2">
-                        <label className="text-[11px] font-bold text-slate-400 uppercase ml-1">특정 일자 선택 (등록일 기준)</label>
-                        <div className="flex gap-2">
-                          <select
-                            id="hcSpecificDate"
-                            className="flex-1 bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-[14px] font-bold focus:outline-none focus:ring-2 focus:ring-green-200"
-                          >
-                            {uniqueHcRegDates.length > 0 ? (
-                              uniqueHcRegDates.map(date => (
-                                <option key={date} value={date}>{date}</option>
-                              ))
-                            ) : (
-                              <option disabled>데이터 없음</option>
-                            )}
-                          </select>
+                    const prevMonthLastDay = new Date(year, month, 0).getDate();
+                    const prevMonthDays = Array.from({ length: firstDay }, (_, i) => prevMonthLastDay - firstDay + i + 1);
+
+                    const allHcRegDates = new Set(data.map(d => d.hcRegDate?.trim().replace(/\./g, '-')).filter(Boolean));
+
+                    return (
+                      <>
+                        <div className="flex justify-between items-center mb-6">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">Select Healthcare Date</span>
+                            <h3 className="text-xl font-black text-slate-900">{year}년 {month + 1}월</h3>
+                          </div>
+                          <div className="flex gap-1">
+                            <button onClick={() => setHcCalendarViewDate(new Date(year, month - 1, 1))} className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"><ChevronRight size={20} className="rotate-180" /></button>
+                            <button onClick={() => setHcCalendarViewDate(new Date(year, month + 1, 1))} className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"><ChevronRight size={20} /></button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                          {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
+                            <span key={d} className={`text-[10px] font-bold ${i === 0 ? 'text-rose-500' : i === 6 ? 'text-blue-500' : 'text-slate-400'}`}>{d}</span>
+                          ))}
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1">
+                          {prevMonthDays.map(d => <div key={`prev-${d}`} className="h-10 flex items-center justify-center text-[13px] text-slate-200">{d}</div>)}
+                          {days.map(d => {
+                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                            const hasData = allHcRegDates.has(dateStr);
+
+                            return (
+                              <motion.button
+                                key={d} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                                onClick={() => {
+                                  setHealthcareFilter({ type: 'date', value: dateStr });
+                                  setIsHealthcareListModalOpen(true);
+                                  setIsHealthcareCalendarModalOpen(false);
+                                }}
+                                className={`h-10 rounded-xl flex flex-col items-center justify-center text-[13px] relative transition-all ${hasData ? 'text-slate-900 font-black hover:bg-slate-100' : 'text-slate-300 hover:bg-slate-50'}`}
+                              >
+                                {d}
+                                {hasData && <div className="absolute bottom-1.5 w-1 h-1 bg-green-500 rounded-full" />}
+                              </motion.button>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-6 flex flex-col gap-2">
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium mb-2">
+                            <div className="w-2 h-2 bg-green-500 rounded-full" />
+                            <span>점 표시: 데이터가 있는 날짜 (초록색)</span>
+                          </div>
                           <button
                             onClick={() => {
-                              const date = (document.getElementById('hcSpecificDate') as HTMLSelectElement).value;
-                              if (date && date !== '데이터 없음') exportHealthcareExcel(date, 'date');
+                              const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+                              setHealthcareFilter({ type: 'month', value: monthStr });
+                              setIsHealthcareListModalOpen(true);
+                              setIsHealthcareCalendarModalOpen(false);
                             }}
-                            className="px-6 bg-green-600 text-white rounded-xl font-black text-[13px] hover:bg-green-700 shadow-lg shadow-green-500/20 transition-all"
+                            className="w-full py-3 bg-green-50 hover:bg-green-100 text-green-700 rounded-xl text-[13px] font-bold transition-colors mb-1"
                           >
-                            추출
+                            이 달({month + 1}월) 전체 보기
+                          </button>
+                          <button
+                            onClick={() => {
+                              setHealthcareFilter(null);
+                              setIsHealthcareListModalOpen(true);
+                              setIsHealthcareCalendarModalOpen(false);
+                            }}
+                            className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[13px] font-bold transition-colors"
+                          >
+                            필터 해제 (전체 보기)
                           </button>
                         </div>
-                      </div>
-
-                      <div className="relative py-2">
-                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100" /></div>
-                        <div className="relative flex justify-center text-[10px] font-bold uppercase"><span className="bg-white px-2 text-slate-300">OR 월별 선택</span></div>
-                      </div>
-
-                      <div className="flex items-center justify-between px-1">
-                        <label className="text-[11px] font-bold text-slate-400 uppercase">대상 연도</label>
-                        <select id="healthcareYear" className="bg-transparent text-sm font-black text-slate-900 focus:outline-none">
-                          <option value="2026">2026년</option>
-                          <option value="2025">2025년</option>
-                          <option value="2024">2024년</option>
-                        </select>
-                      </div>
-
-                      <div className="grid grid-cols-4 gap-2">
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
-                          <button
-                            key={m}
-                            onClick={() => {
-                              const year = parseInt((document.getElementById('healthcareYear') as HTMLSelectElement).value);
-                              exportHealthcareExcel(m, 'month', year);
-                            }}
-                            className="py-3 bg-slate-50 hover:bg-green-600 hover:text-white border border-slate-200 rounded-xl text-[14px] font-black transition-all"
-                          >
-                            {m}월
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 text-[11px] text-slate-400 text-center italic">
-                      * S열에 유효한 날짜가 입력된 데이터만 추출됩니다.
-                    </div>
-                  </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </motion.div>
             </div>
@@ -5612,6 +5630,18 @@ const ERP_Dashboard = () => {
           )}
         </AnimatePresence>
         <AnimatePresence>
+          <HealthcareModal 
+            isOpen={isHealthcareListModalOpen} 
+            onClose={() => setIsHealthcareListModalOpen(false)} 
+            data={data} 
+            initialFilter={healthcareFilter}
+            onRowClick={(item) => {
+              setSelectedItem(item);
+              setDetailSource('healthcare');
+            }}
+            onOpenCalendar={() => setIsHealthcareCalendarModalOpen(true)}
+          />
+
           {isMonthlyDashboardModalOpen && (
             <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMonthlyDashboardModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
