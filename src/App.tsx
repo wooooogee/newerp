@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { HealthcareModal } from './HealthcareModal';
+import { MultiSelectDropdown } from './MultiSelectDropdown';
+import { DeliveryStatusModal } from './DeliveryStatusModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -29,6 +31,7 @@ interface ERPDataItem {
   paymentStatus: string;  // T(19)
   status: string;         // B(1)
   memo: string;           // U(20)?
+  deliveryMemo: string;   // Y(24)
   raw: any[];
   hcPaidCount?: number;
 }
@@ -353,9 +356,9 @@ const ERP_Dashboard = () => {
   const [headers, setHeaders] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [productFilter, setProductFilter] = useState('전체');
-  const [hqFilter, setHqFilter] = useState('전체');
-  const [branchFilter, setBranchFilter] = useState('전체');
+  const [productFilter, setProductFilter] = useState<string[]>([]);
+  const [hqFilter, setHqFilter] = useState<string[]>([]);
+  const [branchFilter, setBranchFilter] = useState<string[]>([]);
   const [deliveryFilter, setDeliveryFilter] = useState('전체');
   const [payDateFilter, setPayDateFilter] = React.useState('');
   const [currentPage, setCurrentPage] = React.useState(1);
@@ -378,6 +381,7 @@ const ERP_Dashboard = () => {
   const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
+  const [isDeliveryStatusModalOpen, setIsDeliveryStatusModalOpen] = useState(false);
   const [isManualSettlementModalOpen, setIsManualSettlementModalOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
@@ -893,6 +897,7 @@ const ERP_Dashboard = () => {
             paymentStatus: '',
             hcRegDate: '2026-04-16',
             memo: '',
+            deliveryMemo: '',
             raw: new Array(30).fill('보류 데이터')
           },
         ];
@@ -962,6 +967,7 @@ const ERP_Dashboard = () => {
             hcRegDate: String(row[18] || ''),       // S(18)
             paymentStatus: String(row[19] || ''),   // T(19)
             memo: String(row[20] || ''),            // U(20)
+            deliveryMemo: String(row[24] || ''),    // Y(24)
             raw: row.length < 30 ? [...row, ...new Array(30 - row.length).fill('')] : row,
           };
         }).filter((item: ERPDataItem) => item.contractDate);
@@ -1345,9 +1351,9 @@ const ERP_Dashboard = () => {
           item.contractDate.includes(searchTerm) ||
           item.prodName.includes(searchTerm);
 
-        const matchesProduct = productFilter === '전체' || item.prodName === productFilter;
-        const matchesHq = hqFilter === '전체' || item.hq === hqFilter;
-        const matchesBranch = branchFilter === '전체' || item.branch === branchFilter;
+        const matchesProduct = productFilter.length === 0 || productFilter.includes(item.prodName);
+        const matchesHq = hqFilter.length === 0 || hqFilter.includes(item.hq);
+        const matchesBranch = branchFilter.length === 0 || branchFilter.includes(item.branch);
         const matchesDelivery = deliveryFilter === '전체' || item.deliveryStatus === deliveryFilter;
 
         const isPaid = item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료'));
@@ -1632,9 +1638,9 @@ const ERP_Dashboard = () => {
         item.contractDate.includes(searchTerm) ||
         item.prodName.includes(searchTerm);
 
-      const matchesProduct = productFilter === '전체' || item.prodName === productFilter;
-      const matchesHq = hqFilter === '전체' || item.hq === hqFilter;
-      const matchesBranch = branchFilter === '전체' || item.branch === branchFilter;
+      const matchesProduct = productFilter.length === 0 || productFilter.includes(item.prodName);
+      const matchesHq = hqFilter.length === 0 || hqFilter.includes(item.hq);
+      const matchesBranch = branchFilter.length === 0 || branchFilter.includes(item.branch);
       const matchesDelivery = deliveryFilter === '전체' || item.deliveryStatus === deliveryFilter;
 
       return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesDelivery;
@@ -3173,9 +3179,9 @@ const ERP_Dashboard = () => {
 
   const resetFilters = () => {
     setSearchTerm('');
-    setProductFilter('전체');
-    setHqFilter('전체');
-    setBranchFilter('전체');
+    setProductFilter([]);
+    setHqFilter([]);
+    setBranchFilter([]);
     setDeliveryFilter('전체');
     setPayDateFilter('');
     setPaymentStatusFilter('전체');
@@ -3386,15 +3392,25 @@ const ERP_Dashboard = () => {
           </h1>
         </div>
 
-        <div className="hidden md:flex items-center gap-5 text-[12px] text-slate-400">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-4 sm:gap-5 text-[12px] text-slate-400">
+          <div className="hidden md:flex items-center gap-1.5">
             <div className={`w-2 h-2 ${loading ? 'bg-orange-400 animate-pulse' : 'bg-emerald-500'} rounded-full shadow-[0_0_6px_rgba(16,185,129,0.4)]`} />
             <span className="font-medium text-slate-200">{loading ? 'Processing...' : 'DB 연결됨'}</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="hidden lg:flex items-center gap-2">
             <span>마지막 업데이트:</span>
             <span className="text-slate-200 font-mono tracking-tight">{lastUpdate}</span>
           </div>
+          <a
+            href="https://totalsign.netlify.app/admin/dashboard"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 sm:gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-bold text-xs sm:text-sm transition-all shadow-lg shadow-blue-500/20"
+          >
+            <ExternalLink size={16} />
+            <span className="hidden sm:inline">통합 가입신청 시스템</span>
+            <span className="sm:hidden">통합가입신청</span>
+          </a>
         </div>
       </motion.header>
 
@@ -3525,6 +3541,22 @@ const ERP_Dashboard = () => {
                     <span className="font-medium">{item.label}</span>
                   </motion.button>
                 ))}
+              </nav>
+            </div>
+          </section>
+
+          <section className="mt-4">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">배송 관리</p>
+            <div className="grid gap-2">
+              <nav className="flex flex-col gap-1">
+                <motion.button
+                  onClick={() => setIsDeliveryStatusModalOpen(true)}
+                  whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                >
+                  <span className={`w-2 h-2 rounded-full bg-blue-500`} />
+                  <span className="font-medium">배송현황</span>
+                </motion.button>
               </nav>
             </div>
           </section>
@@ -3929,25 +3961,25 @@ const ERP_Dashboard = () => {
                   </div>
                 </div>
 
-                <div className="md:ml-auto flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg">
-                    <span className="text-[11px] font-bold text-slate-400">상품</span>
-                    <select value={productFilter} onChange={(e) => setProductFilter(e.target.value)} className="bg-transparent text-[12px] font-bold text-slate-700 outline-none max-w-[120px]">
-                      {uniqueProducts.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg">
-                    <span className="text-[11px] font-bold text-slate-400">본부</span>
-                    <select value={hqFilter} onChange={(e) => setHqFilter(e.target.value)} className="bg-transparent text-[12px] font-bold text-slate-700 outline-none max-w-[120px]">
-                      {uniqueHqs.map(h => <option key={h} value={h}>{h}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg">
-                    <span className="text-[11px] font-bold text-slate-400">지사</span>
-                    <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="bg-transparent text-[12px] font-bold text-slate-700 outline-none max-w-[120px]">
-                      {uniqueBranches.map(b => <option key={b} value={b}>{b}</option>)}
-                    </select>
-                  </div>
+                <div className="md:ml-auto flex flex-wrap items-center gap-2">
+                  <MultiSelectDropdown 
+                    label="상품" 
+                    options={uniqueProducts.filter(p => p !== '전체')} 
+                    selectedOptions={productFilter} 
+                    onChange={setProductFilter} 
+                  />
+                  <MultiSelectDropdown 
+                    label="본부" 
+                    options={uniqueHqs.filter(h => h !== '전체')} 
+                    selectedOptions={hqFilter} 
+                    onChange={setHqFilter} 
+                  />
+                  <MultiSelectDropdown 
+                    label="지사" 
+                    options={uniqueBranches.filter(b => b !== '전체')} 
+                    selectedOptions={branchFilter} 
+                    onChange={setBranchFilter} 
+                  />
                 </div>
               </div>
 
@@ -5630,6 +5662,12 @@ const ERP_Dashboard = () => {
           )}
         </AnimatePresence>
         <AnimatePresence>
+          <DeliveryStatusModal
+            isOpen={isDeliveryStatusModalOpen}
+            onClose={() => setIsDeliveryStatusModalOpen(false)}
+            data={data}
+            onUpdateDeliveryMemo={updateCell}
+          />
           <HealthcareModal 
             isOpen={isHealthcareListModalOpen} 
             onClose={() => setIsHealthcareListModalOpen(false)} 
