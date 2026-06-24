@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { HealthcareModal } from './HealthcareModal';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { DeliveryStatusModal } from './DeliveryStatusModal';
+import { DeliveryDashboardModal } from './DeliveryDashboardModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -382,6 +383,7 @@ const ERP_Dashboard = () => {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
   const [isDeliveryStatusModalOpen, setIsDeliveryStatusModalOpen] = useState(false);
+  const [isDeliveryDashboardOpen, setIsDeliveryDashboardOpen] = useState(false);
   const [isManualSettlementModalOpen, setIsManualSettlementModalOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
@@ -3557,6 +3559,14 @@ const ERP_Dashboard = () => {
                   <span className={`w-2 h-2 rounded-full bg-blue-500`} />
                   <span className="font-medium">배송현황</span>
                 </motion.button>
+                <motion.button
+                  onClick={() => setIsDeliveryDashboardOpen(true)}
+                  whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                >
+                  <span className={`w-2 h-2 rounded-full bg-indigo-500`} />
+                  <span className="font-medium">배송 대시보드</span>
+                </motion.button>
               </nav>
             </div>
           </section>
@@ -5667,6 +5677,11 @@ const ERP_Dashboard = () => {
             onClose={() => setIsDeliveryStatusModalOpen(false)}
             data={data}
             onUpdateDeliveryMemo={updateCell}
+          />
+          <DeliveryDashboardModal
+            isOpen={isDeliveryDashboardOpen}
+            onClose={() => setIsDeliveryDashboardOpen(false)}
+            data={data}
           />
           <HealthcareModal 
             isOpen={isHealthcareListModalOpen} 
