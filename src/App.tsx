@@ -89,16 +89,26 @@ interface HQSetting {
   productRules: ProductRule[];
 }
 
+export interface GlobalIncentiveInstallment {
+  id: string;
+  startRound: number;
+  endRound: number;
+  amount: number;
+}
+
 export interface GlobalIncentiveRule {
   id: string;
   incentiveName?: string;
   targetName: string;
   payDay: number;
-  targetHq: string;
+  targetHq: string; // Legacy
+  targetHqs: string[];
   targetProducts: string[];
   baseDateType: 'CONTRACT' | 'DELIVERY';
   commissionPerUnit: number;
   minimumGuarantee: number;
+  useInstallments?: boolean;
+  installments?: GlobalIncentiveInstallment[];
 }
 
 export interface MaintenanceTier {
@@ -512,9 +522,9 @@ const ERP_Dashboard = () => {
     const saved = localStorage.getItem('erp_global_incentives');
     if (saved) return JSON.parse(saved);
     return [
-      { id: 'jaeyun', targetName: '조재윤', payDay: 25, targetHq: 'ALL', targetProducts: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 10000, minimumGuarantee: 2000000 },
-      { id: 'minkyung', targetName: '조민경', payDay: 25, targetHq: 'ALL', targetProducts: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 5000, minimumGuarantee: 0 },
-      { id: 'sunghoon', targetName: '권성훈', payDay: 25, targetHq: 'ALL', targetProducts: ['ALL'], baseDateType: 'CONTRACT', commissionPerUnit: 0, minimumGuarantee: 2500000 }
+      { id: 'jaeyun', targetName: '조재윤', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 10000, minimumGuarantee: 2000000, useInstallments: false, installments: [] },
+      { id: 'minkyung', targetName: '조민경', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 5000, minimumGuarantee: 0, useInstallments: false, installments: [] },
+      { id: 'sunghoon', targetName: '권성훈', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], baseDateType: 'CONTRACT', commissionPerUnit: 0, minimumGuarantee: 2500000, useInstallments: false, installments: [] }
     ];
   });
 
@@ -1738,6 +1748,7 @@ const ERP_Dashboard = () => {
 
     globalIncentiveRules.forEach(rule => {
       let matchedCount = 0;
+      let commission = 0;
       const filterClean = payDateFilter.replace(/[-./]/g, '');
       if (filterClean.length >= 6) {
         const year = parseInt(filterClean.substring(0, 4));
@@ -1750,17 +1761,19 @@ const ERP_Dashboard = () => {
 
         data.forEach(item => {
           if (item.status.includes('취소') || item.status.includes('해약')) return;
-          if (rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
+          if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
           let isMatch = false;
           const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
-          if (rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '') {
+          const hasAll = rule.targetHqs?.includes('ALL') || rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '';
+          if (hasAll) {
             if (rule.targetName === '조재윤' || rule.targetName === '조민경') {
               isMatch = true;
             } else {
               isMatch = item.empName?.includes(rule.targetName) || false;
             }
           } else {
-            isMatch = normalizeHq(item.hq) === normalizeHq(rule.targetHq);
+            isMatch = rule.targetHqs?.some(hq => normalizeHq(item.hq) === normalizeHq(hq));
+            if (!isMatch && rule.targetHq) isMatch = normalizeHq(item.hq) === normalizeHq(rule.targetHq);
           }
           if (!isMatch) return;
 
@@ -1789,11 +1802,19 @@ const ERP_Dashboard = () => {
 
           if (isMatchedDate) {
             matchedCount++;
+            if (rule.useInstallments && rule.installments) {
+              const paidCount = item.hcPaidCount || 0;
+              const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
+              if (applicableInstallment) {
+                 commission += applicableInstallment.amount;
+              }
+            } else {
+              commission += rule.commissionPerUnit;
+            }
           }
         });
       }
 
-      let commission = matchedCount * rule.commissionPerUnit;
       const finalAmount = Math.max(commission, rule.minimumGuarantee);
 
       const payDayStr1 = `.${rule.payDay}`;
@@ -1937,15 +1958,18 @@ const ERP_Dashboard = () => {
           if (rule.targetName !== '조재윤' && rule.targetName !== '조민경') return;
 
           let matchedCount = 0;
+          let commission = 0;
           data.forEach(item => {
             if (item.status.includes('취소') || item.status.includes('해약')) return;
 
             let isMatch = false;
             const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
-            if (rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '') {
+            const hasAll = rule.targetHqs?.includes('ALL') || rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '';
+            if (hasAll) {
               isMatch = true;
             } else {
-              isMatch = normalizeHq(item.hq) === normalizeHq(rule.targetHq);
+              isMatch = rule.targetHqs?.some(hq => normalizeHq(item.hq) === normalizeHq(hq));
+              if (!isMatch && rule.targetHq) isMatch = normalizeHq(item.hq) === normalizeHq(rule.targetHq);
             }
             if (!isMatch) return;
 
@@ -1974,10 +1998,18 @@ const ERP_Dashboard = () => {
 
             if (isMatchedDate) {
               matchedCount++;
+              if (rule.useInstallments && rule.installments) {
+                const paidCount = item.hcPaidCount || 0;
+                const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
+                if (applicableInstallment) {
+                   commission += applicableInstallment.amount;
+                }
+              } else {
+                commission += rule.commissionPerUnit;
+              }
             }
           });
 
-          let commission = matchedCount * rule.commissionPerUnit;
           const finalAmount = Math.max(commission, rule.minimumGuarantee);
 
           if (finalAmount > 0) {
@@ -5517,18 +5549,21 @@ const ERP_Dashboard = () => {
                   <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
                     <div className="max-w-5xl mx-auto space-y-6">
                       <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold">특수 수당(글로벌 인센티브) 정책 관리</h2>
+                        <h2 className="text-xl font-bold">특수수당 정책 관리</h2>
                         <button onClick={() => {
                           setGlobalIncentiveRules([{
                             id: Date.now().toString(),
-                            incentiveName: '글로벌인센티브',
+                            incentiveName: '',
                             targetName: '신규 대상자',
                             payDay: 25,
                             targetHq: '',
-                            targetProducts: [],
+                            targetHqs: ['ALL'],
+                            targetProducts: ['ALL'],
                             baseDateType: 'DELIVERY',
                             commissionPerUnit: 0,
-                            minimumGuarantee: 0
+                            minimumGuarantee: 0,
+                            useInstallments: false,
+                            installments: []
                           }, ...globalIncentiveRules]);
                         }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
                           <Plus size={16} /> 새 규칙 추가
@@ -5540,11 +5575,11 @@ const ERP_Dashboard = () => {
                           <div className="text-center py-12 text-slate-400 font-bold">등록된 특수 수당 규칙이 없습니다.</div>
                         )}
                         {globalIncentiveRules.map((rule, idx) => (
-                          <div key={rule.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-4">
+                          <div key={rule.id} className="relative bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-4">
                             <div className="flex gap-4 items-center">
                               <div className="flex-1">
                                 <label className="text-xs font-bold text-slate-500">수당 종류 (예: 글로벌인센티브, 모델비, 컨설팅비)</label>
-                                <input type="text" value={rule.incentiveName || '글로벌인센티브'} onChange={e => {
+                                <input type="text" placeholder="글로벌인센티브" value={rule.incentiveName ?? ''} onChange={e => {
                                   const n = [...globalIncentiveRules]; n[idx].incentiveName = e.target.value; setGlobalIncentiveRules(n);
                                 }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
                               </div>
@@ -5569,14 +5604,43 @@ const ERP_Dashboard = () => {
                             </div>
 
                             <div className="flex gap-4 items-start">
-                              <div className="flex-1">
-                                <label className="text-xs font-bold text-slate-500">대상 본부 (실적 수집 대상)</label>
-                                <select value={rule.targetHq} onChange={e => {
-                                  const n = [...globalIncentiveRules]; n[idx].targetHq = e.target.value; setGlobalIncentiveRules(n);
-                                }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
-                                  <option value="ALL">전체 본부 대상</option>
-                                  {hqSettings.map(h => <option key={h.id} value={h.hqName}>{h.hqName}</option>)}
-                                </select>
+                              <div className="flex-[1.5]">
+                                <label className="text-xs font-bold text-slate-500">대상 본부 (다중선택 가능)</label>
+                                <div className="mt-1 flex flex-col gap-2">
+                                  <select onChange={e => {
+                                    if (!e.target.value) return;
+                                    const n = [...globalIncentiveRules];
+                                    if (!n[idx].targetHqs) n[idx].targetHqs = ['ALL'];
+                                    if (e.target.value === 'ALL') n[idx].targetHqs = ['ALL'];
+                                    else {
+                                      if (n[idx].targetHqs.includes('ALL')) n[idx].targetHqs = [];
+                                      if (!n[idx].targetHqs.includes(e.target.value)) n[idx].targetHqs.push(e.target.value);
+                                    }
+                                    setGlobalIncentiveRules(n);
+                                    e.target.value = '';
+                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
+                                    <option value="">본부 추가...</option>
+                                    <option value="ALL">전체 본부 대상</option>
+                                    {hqSettings.map(h => <option key={h.id} value={h.hqName}>{h.hqName}</option>)}
+                                  </select>
+                                  {(rule.targetHqs || ['ALL']).includes('ALL') ? (
+                                    <span className="inline-block px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">전체 본부 대상</span>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-2">
+                                      {(rule.targetHqs || []).map(h => (
+                                        <span key={h} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-100">
+                                          {h}
+                                          <button onClick={() => {
+                                            const n = [...globalIncentiveRules];
+                                            n[idx].targetHqs = n[idx].targetHqs.filter(x => x !== h);
+                                            if (n[idx].targetHqs.length === 0) n[idx].targetHqs = ['ALL'];
+                                            setGlobalIncentiveRules(n);
+                                          }} className="hover:text-red-500 transition-colors"><X size={14} /></button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                               <div className="flex-[2]">
                                 <label className="text-xs font-bold text-slate-500">대상 상품 (다중선택 가능)</label>
@@ -5628,20 +5692,68 @@ const ERP_Dashboard = () => {
                               </div>
                             </div>
 
-                            <div className="flex gap-4 items-center bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mt-2">
-                              <div className="flex-1">
-                                <label className="text-[10px] uppercase tracking-wider font-black text-indigo-400">건당 수수료 (원)</label>
-                                <input type="number" value={rule.commissionPerUnit} onChange={e => {
-                                  const n = [...globalIncentiveRules]; n[idx].commissionPerUnit = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
-                                }} className="w-full mt-1 px-3 py-2 border border-indigo-200 rounded-lg text-right font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-200 transition-all bg-white" />
+                            <div className="flex flex-col gap-2 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mt-2">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[11px] font-bold text-indigo-700 flex items-center gap-2">
+                                  <input type="checkbox" checked={rule.useInstallments || false} onChange={e => {
+                                    const n = [...globalIncentiveRules];
+                                    n[idx].useInstallments = e.target.checked;
+                                    if (e.target.checked && (!n[idx].installments || n[idx].installments.length === 0)) {
+                                      n[idx].installments = [{ id: Date.now().toString(), startRound: 1, endRound: 1, amount: 0 }];
+                                    }
+                                    setGlobalIncentiveRules(n);
+                                  }} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                                  회차별 차등 지급 사용 (체크 시 건당 수수료 대신 적용)
+                                </label>
                               </div>
-                              <div className="flex-1">
-                                <label className="text-[10px] uppercase tracking-wider font-black text-orange-400">최소 보장 금액 (원) - 없으면 0</label>
-                                <input type="number" value={rule.minimumGuarantee} onChange={e => {
-                                  const n = [...globalIncentiveRules]; n[idx].minimumGuarantee = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
-                                }} className="w-full mt-1 px-3 py-2 border border-orange-200 rounded-lg text-right font-black text-orange-500 outline-none focus:ring-2 focus:ring-orange-200 transition-all bg-white" />
-                              </div>
-                              <div className="pt-5 pl-2">
+
+                              {rule.useInstallments ? (
+                                <div className="flex flex-col gap-2 mt-2">
+                                  {(rule.installments || []).map((ins, insIdx) => (
+                                    <div key={ins.id} className="flex gap-2 items-center">
+                                      <input type="number" value={ins.startRound} onChange={e => {
+                                        const n = [...globalIncentiveRules]; n[idx].installments![insIdx].startRound = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
+                                      }} className="w-16 px-2 py-1 text-sm border border-indigo-200 rounded outline-none" min="1" />
+                                      <span className="text-xs text-indigo-400">회차 ~</span>
+                                      <input type="number" value={ins.endRound} onChange={e => {
+                                        const n = [...globalIncentiveRules]; n[idx].installments![insIdx].endRound = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
+                                      }} className="w-16 px-2 py-1 text-sm border border-indigo-200 rounded outline-none" min="1" />
+                                      <span className="text-xs text-indigo-400">회차</span>
+                                      <input type="number" value={ins.amount} onChange={e => {
+                                        const n = [...globalIncentiveRules]; n[idx].installments![insIdx].amount = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
+                                      }} className="w-32 px-2 py-1 text-sm text-right font-bold text-indigo-600 border border-indigo-200 rounded outline-none ml-2" />
+                                      <span className="text-xs text-indigo-400">원</span>
+                                      <button onClick={() => {
+                                        const n = [...globalIncentiveRules]; n[idx].installments!.splice(insIdx, 1); setGlobalIncentiveRules(n);
+                                      }} className="ml-2 text-slate-400 hover:text-red-500"><X size={14} /></button>
+                                    </div>
+                                  ))}
+                                  <button onClick={() => {
+                                    const n = [...globalIncentiveRules];
+                                    if (!n[idx].installments) n[idx].installments = [];
+                                    const lastRound = n[idx].installments!.length > 0 ? n[idx].installments![n[idx].installments!.length - 1].endRound : 0;
+                                    n[idx].installments!.push({ id: Date.now().toString(), startRound: lastRound + 1, endRound: lastRound + 1, amount: 0 });
+                                    setGlobalIncentiveRules(n);
+                                  }} className="self-start text-xs text-indigo-600 font-bold px-2 py-1 bg-indigo-100 rounded hover:bg-indigo-200 mt-1">+ 회차 구간 추가</button>
+                                </div>
+                              ) : (
+                                <div className="flex gap-4 items-center mt-2">
+                                  <div className="flex-1">
+                                    <label className="text-[10px] uppercase tracking-wider font-black text-indigo-400">건당 수수료 (원)</label>
+                                    <input type="number" value={rule.commissionPerUnit} onChange={e => {
+                                      const n = [...globalIncentiveRules]; n[idx].commissionPerUnit = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
+                                    }} className="w-full mt-1 px-3 py-2 border border-indigo-200 rounded-lg text-right font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-200 transition-all bg-white" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <label className="text-[10px] uppercase tracking-wider font-black text-orange-400">최소 보장 금액 (원) - 없으면 0</label>
+                                    <input type="number" value={rule.minimumGuarantee} onChange={e => {
+                                      const n = [...globalIncentiveRules]; n[idx].minimumGuarantee = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
+                                    }} className="w-full mt-1 px-3 py-2 border border-orange-200 rounded-lg text-right font-black text-orange-500 outline-none focus:ring-2 focus:ring-orange-200 transition-all bg-white" />
+                                  </div>
+                                </div>
+                              )}
+                              
+                              <div className="absolute right-4 top-4">
                                 <button onClick={() => {
                                   if(confirm('이 규칙을 삭제하시겠습니까?')) {
                                     const n = [...globalIncentiveRules]; n.splice(idx, 1); setGlobalIncentiveRules(n);

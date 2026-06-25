@@ -368,7 +368,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       }
 
       const incentiveHeaders = [
-        'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액'
+        'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰'
       ];
       
       const incentiveRows: any[][] = [incentiveHeaders];
@@ -381,7 +381,11 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           (rule.targetProducts || []).join(', '),
           rule.baseDateType || 'DELIVERY',
           rule.commissionPerUnit || 0,
-          rule.minimumGuarantee || 0
+          rule.minimumGuarantee || 0,
+          rule.incentiveName || '',
+          JSON.stringify(rule.targetHqs || ['ALL']),
+          rule.useInstallments ? 'Y' : 'N',
+          JSON.stringify(rule.installments || [])
         ]);
       });
 
@@ -634,18 +638,40 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         const iCommissionPerUnit = iCol('건당수수료');
         const iMinimumGuarantee = iCol('최소보장금액');
 
+        const iIncentiveName = iCol('수당종류');
+        const iTargetHqs = iCol('대상본부배열');
+        const iUseInstallments = iCol('할부사용여부');
+        const iInstallments = iCol('할부룰');
+
         globalIncentives = incRows.slice(1).map((row: string[]) => {
           const productsStr = iTargetProducts >= 0 ? (row[iTargetProducts] || '') : '';
           const targetProducts = productsStr ? productsStr.split(',').map(s => s.trim()).filter(s => s) : ['ALL'];
+          
+          let targetHqs = ['ALL'];
+          if (iTargetHqs >= 0 && row[iTargetHqs]) {
+            try { targetHqs = JSON.parse(row[iTargetHqs]); } catch(e){}
+          } else if (iTargetHq >= 0 && row[iTargetHq]) {
+             targetHqs = [row[iTargetHq]];
+          }
+
+          let installments = [];
+          if (iInstallments >= 0 && row[iInstallments]) {
+            try { installments = JSON.parse(row[iInstallments]); } catch(e){}
+          }
+
           return {
             id: iId >= 0 ? row[iId] : Date.now().toString() + Math.random(),
+            incentiveName: iIncentiveName >= 0 ? row[iIncentiveName] : '',
             targetName: iTargetName >= 0 ? row[iTargetName] : '',
             payDay: iPayDay >= 0 ? (parseInt(row[iPayDay]) || 1) : 1,
             targetHq: iTargetHq >= 0 ? row[iTargetHq] : '',
+            targetHqs,
             targetProducts,
             baseDateType: iBaseDateType >= 0 ? row[iBaseDateType] : 'DELIVERY',
             commissionPerUnit: iCommissionPerUnit >= 0 ? (parseInt(row[iCommissionPerUnit]) || 0) : 0,
-            minimumGuarantee: iMinimumGuarantee >= 0 ? (parseInt(row[iMinimumGuarantee]) || 0) : 0
+            minimumGuarantee: iMinimumGuarantee >= 0 ? (parseInt(row[iMinimumGuarantee]) || 0) : 0,
+            useInstallments: iUseInstallments >= 0 ? (row[iUseInstallments] === 'Y') : false,
+            installments
           };
         }).filter((r: any) => r.targetName);
         console.log(`[CloudSync] Loaded ${globalIncentives.length} global incentives from cloud.`);
