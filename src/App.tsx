@@ -5676,7 +5676,7 @@ const ERP_Dashboard = () => {
             isOpen={isDeliveryStatusModalOpen}
             onClose={() => setIsDeliveryStatusModalOpen(false)}
             data={data}
-            onUpdateDeliveryMemo={updateCell}
+            onUpdateDeliveryMemo={(rowIdx, val) => updateCell(rowIdx, 24, val)}
           />
           <DeliveryDashboardModal
             isOpen={isDeliveryDashboardOpen}

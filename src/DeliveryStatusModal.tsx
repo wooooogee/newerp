@@ -124,6 +124,20 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
     }));
 
     const ws = (window as any).XLSX.utils.json_to_sheet(exportData);
+    
+    // 엑셀파일 셀 너비(폭) 여유있게 설정
+    ws['!cols'] = [
+      { wch: 15 }, // 계약일자
+      { wch: 25 }, // 상품명
+      { wch: 15 }, // 회원명
+      { wch: 20 }, // 렌탈번호
+      { wch: 12 }, // 배송현황
+      { wch: 15 }, // 본부명
+      { wch: 15 }, // 지사명
+      { wch: 12 }, // 사원명
+      { wch: 30 }  // 배송관련 메모
+    ];
+
     const wb = (window as any).XLSX.utils.book_new();
     (window as any).XLSX.utils.book_append_sheet(wb, ws, "배송현황");
     (window as any).XLSX.writeFile(wb, `배송현황_${new Date().getTime()}.xlsx`);
