@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { HealthcareModal } from './HealthcareModal';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
@@ -3652,21 +3652,35 @@ const ERP_Dashboard = () => {
                 const hqCounts = new Map<string, number>();
                 let totalContracts = 0;
                 let cancelCount = 0;
+                let deliveryCompleteCount = 0;
                 const seenRentalNos = new Set<string>();
                 const cancelSeenRentalNos = new Set<string>();
+                const deliveryCompleteSeenRentalNos = new Set<string>();
 
                 data.forEach(d => {
                   const dateStr = d.contractDate ? d.contractDate.replace(/\./g, '-').substring(0, 7) : '';
                   if (dateStr === topDashboardMonth) {
                     const isCancelled = d.status.includes('취소') || d.status.includes('해약') || d.deliveryStatus.includes('취소') || d.deliveryStatus.includes('반품');
+                    const isDeliveryComplete = d.deliveryStatus === '배송완료';
 
                     if (topDashboardMode === '상품개수' && d.rentalNo) {
+                      if (isDeliveryComplete) {
+                        if (!deliveryCompleteSeenRentalNos.has(d.rentalNo)) {
+                          deliveryCompleteSeenRentalNos.add(d.rentalNo);
+                          deliveryCompleteCount++;
+                        }
+                      }
+
                       if (isCancelled) {
                         if (cancelSeenRentalNos.has(d.rentalNo)) return;
                         cancelSeenRentalNos.add(d.rentalNo);
                       } else {
                         if (seenRentalNos.has(d.rentalNo)) return;
                         seenRentalNos.add(d.rentalNo);
+                      }
+                    } else {
+                      if (isDeliveryComplete) {
+                        deliveryCompleteCount++;
                       }
                     }
 
@@ -3726,15 +3740,30 @@ const ERP_Dashboard = () => {
                       </div>
                     </div>
 
-                    {/* 취소/해약 현황 */}
-                    <div className="flex flex-col">
-                      <div className="flex items-center justify-between mb-3 text-sm font-bold text-slate-700 bg-rose-50 px-3 py-2 rounded-lg">
-                        <span className="flex items-center gap-1.5"><AlertCircle size={14} className="text-rose-500" /> 취소 및 해약</span>
-                        <span className="text-rose-600">총 {cancelCount.toLocaleString()}{countUnit}</span>
+                    {/* 상태 현황 */}
+                    <div className="flex flex-col gap-4">
+                      {/* 배송완료 현황 */}
+                      <div className="flex flex-col flex-1">
+                        <div className="flex items-center justify-between mb-2 text-sm font-bold text-slate-700 bg-sky-50 px-3 py-1.5 rounded-lg">
+                          <span className="flex items-center gap-1.5"><Truck size={14} className="text-sky-500" /> 해당월 배송완료</span>
+                          <span className="text-sky-600">총 {deliveryCompleteCount.toLocaleString()}{countUnit}</span>
+                        </div>
+                        <div className="flex-1 flex flex-col items-center justify-center bg-sky-50/30 rounded-lg border border-sky-100/50 p-3">
+                          <div className="text-2xl font-black text-sky-500 mb-1">{deliveryCompleteCount.toLocaleString()}{countUnit}</div>
+                          <p className="text-[10px] text-slate-500 text-center">선택된 월 계약 중 배송완료 건수</p>
+                        </div>
                       </div>
-                      <div className="flex-1 flex flex-col items-center justify-center bg-rose-50/30 rounded-lg border border-rose-100/50 p-4 min-h-[100px]">
-                        <div className="text-3xl font-black text-rose-500 mb-2">{cancelCount.toLocaleString()}{countUnit}</div>
-                        <p className="text-xs text-slate-500 text-center">선택된 월의 총 취소/해약 수<br/>(배송취소, 반품 포함)</p>
+
+                      {/* 취소/해약 현황 */}
+                      <div className="flex flex-col flex-1">
+                        <div className="flex items-center justify-between mb-2 text-sm font-bold text-slate-700 bg-rose-50 px-3 py-1.5 rounded-lg">
+                          <span className="flex items-center gap-1.5"><AlertCircle size={14} className="text-rose-500" /> 취소 및 해약</span>
+                          <span className="text-rose-600">총 {cancelCount.toLocaleString()}{countUnit}</span>
+                        </div>
+                        <div className="flex-1 flex flex-col items-center justify-center bg-rose-50/30 rounded-lg border border-rose-100/50 p-3">
+                          <div className="text-2xl font-black text-rose-500 mb-1">{cancelCount.toLocaleString()}{countUnit}</div>
+                          <p className="text-[10px] text-slate-500 text-center">선택된 월의 총 취소/해약 수<br/>(배송취소, 반품 포함)</p>
+                        </div>
                       </div>
                     </div>
                   </div>
