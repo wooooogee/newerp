@@ -3658,29 +3658,32 @@ const ERP_Dashboard = () => {
                 const deliveryCompleteSeenRentalNos = new Set<string>();
 
                 data.forEach(d => {
-                  const dateStr = d.contractDate ? d.contractDate.replace(/\./g, '-').substring(0, 7) : '';
-                  if (dateStr === topDashboardMonth) {
+                  const contractDateStr = d.contractDate ? d.contractDate.replace(/\./g, '-').substring(0, 7) : '';
+                  const deliveryDateStr = d.deliveryDate ? d.deliveryDate.replace(/\./g, '-').substring(0, 7) : '';
+
+                  const isDeliveryComplete = d.deliveryStatus === '배송완료';
+
+                  if (isDeliveryComplete && deliveryDateStr === topDashboardMonth) {
+                    if (topDashboardMode === '상품개수' && d.rentalNo) {
+                      if (!deliveryCompleteSeenRentalNos.has(d.rentalNo)) {
+                        deliveryCompleteSeenRentalNos.add(d.rentalNo);
+                        deliveryCompleteCount++;
+                      }
+                    } else {
+                      deliveryCompleteCount++;
+                    }
+                  }
+
+                  if (contractDateStr === topDashboardMonth) {
                     const isCancelled = d.status.includes('취소') || d.status.includes('해약') || d.deliveryStatus.includes('취소') || d.deliveryStatus.includes('반품');
-                    const isDeliveryComplete = d.deliveryStatus === '배송완료';
 
                     if (topDashboardMode === '상품개수' && d.rentalNo) {
-                      if (isDeliveryComplete) {
-                        if (!deliveryCompleteSeenRentalNos.has(d.rentalNo)) {
-                          deliveryCompleteSeenRentalNos.add(d.rentalNo);
-                          deliveryCompleteCount++;
-                        }
-                      }
-
                       if (isCancelled) {
                         if (cancelSeenRentalNos.has(d.rentalNo)) return;
                         cancelSeenRentalNos.add(d.rentalNo);
                       } else {
                         if (seenRentalNos.has(d.rentalNo)) return;
                         seenRentalNos.add(d.rentalNo);
-                      }
-                    } else {
-                      if (isDeliveryComplete) {
-                        deliveryCompleteCount++;
                       }
                     }
 
