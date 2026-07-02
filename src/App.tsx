@@ -2061,7 +2061,7 @@ const ERP_Dashboard = () => {
     return Object.entries(monthlyMap).sort((a, b) => String(b[0]).localeCompare(String(a[0])));
   }, [data, hqSettings]);
 
-  const exportIntegratedSettlement = async () => {
+  const exportIntegratedSettlement = async (appendSheetData?: { name: string, data: any[][] }) => {
     try {
       if (filteredData.length === 0) return alert('정산 대상 데이터가 없습니다.');
 
@@ -2514,6 +2514,61 @@ const ERP_Dashboard = () => {
       applySheetStyles(wsMaint);
       
       XLSX.utils.book_append_sheet(wb, wsMaint, "유지수수료상세");
+
+      if (appendSheetData) {
+        const wsAppend = XLSX.utils.aoa_to_sheet(appendSheetData.data);
+        
+        const appendWidths = appendSheetData.data.reduce((acc, row) => {
+          row.forEach((cell, i) => {
+            let str = '';
+            if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+            else if (cell !== null && cell !== undefined) str = cell.toString();
+            const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+            if (!acc[i] || len > acc[i]) acc[i] = len;
+          });
+          return acc;
+        }, [] as number[]);
+        wsAppend['!cols'] = appendWidths.map(w => ({ wch: Math.min(w + 3, 40) }));
+
+        const numberStyle = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "right" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }, numFmt: "#,##0" };
+        const cellStyleAppend = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+        const headerStyleAppend = { fill: { fgColor: { rgb: "2F5597" } }, font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+
+        const range = XLSX.utils.decode_range(wsAppend['!ref'] || 'A1:A1');
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+             const addr = XLSX.utils.encode_cell({ r: R, c: C });
+             if (!wsAppend[addr]) continue;
+             
+             let fgColor = "FFFFFF";
+             const val = String(wsAppend[addr].v || '');
+             if (R > 0) {
+                const noteAddr = XLSX.utils.encode_cell({ r: R, c: 11 }); // 11 is column L (비고)
+                const noteVal = wsAppend[noteAddr] ? String(wsAppend[noteAddr].v || '') : '';
+                
+                if (noteVal && noteVal !== '정상' && noteVal !== '비고') {
+                   fgColor = "FFC7CE"; // light red
+                } else if (C === 11 && val === '정상') {
+                   fgColor = "E2EFDA"; // light green
+                }
+             }
+
+             wsAppend[addr].s = { 
+               ...cellStyleAppend, 
+               fill: { fgColor: { rgb: fgColor } }
+             };
+
+             if (R === 0) wsAppend[addr].s = headerStyleAppend;
+             else if (wsAppend[addr].t === 'n' || (val && !isNaN(Number(val)) && C >= 7 && C <= 10)) {
+               wsAppend[addr].s = { ...numberStyle, fill: { fgColor: { rgb: fgColor } } };
+               wsAppend[addr].t = 'n';
+               wsAppend[addr].v = Number(val);
+             }
+          }
+        }
+        
+        XLSX.utils.book_append_sheet(wb, wsAppend, appendSheetData.name);
+      }
 
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
@@ -7246,10 +7301,30 @@ const ERP_Dashboard = () => {
                         };
 
                         const exportData = [...mappedData, sumRow];
-                        const ws = XLSX.utils.json_to_sheet(exportData);
-                        const wb = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(wb, ws, "Reconciliation");
-                        XLSX.writeFile(wb, `유통사_대사결과_${reconTab === 'NEW' ? reconDate : selectedHistoryDate}.xlsx`);
+                        
+                        const headers = ['정산기준일', '계약ID', '고객명', '본부명', '상품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
+                        const aoaData = [headers];
+                        exportData.forEach(row => {
+                           aoaData.push([
+                             row['정산기준일'],
+                             row['계약ID'],
+                             row['고객명'],
+                             row['본부명'],
+                             row['상품명'],
+                             row['계약일자'],
+                             row['배송일자'],
+                             row['구좌수'],
+                             { v: row['거래처입금액'] || 0, t: 'n' },
+                             { v: row['내부지급액합계'] || 0, t: 'n' },
+                             { v: row['최종순수익'] || 0, t: 'n' },
+                             row['비고']
+                           ]);
+                        });
+
+                        exportIntegratedSettlement({
+                          name: '대사보고',
+                          data: aoaData
+                        });
                       }}
                       disabled={(reconTab === 'NEW' ? reconData.length : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).length) === 0}
                       className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-100 disabled:opacity-50"
