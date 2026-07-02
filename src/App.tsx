@@ -427,14 +427,6 @@ const ERP_Dashboard = () => {
   const [pendingExportDate, setPendingExportDate] = useState<string | null>(null);
   const [pendingAppendSheet, setPendingAppendSheet] = useState<{name: string, data: any[][]}|null>(null);
 
-  useEffect(() => {
-    if (pendingExportDate && payDateFilter === pendingExportDate) {
-      exportIntegratedSettlement({ name: pendingAppendSheet!.name, data: pendingAppendSheet!.data });
-      setPendingExportDate(null);
-      setPendingAppendSheet(null);
-    }
-  }, [pendingExportDate, payDateFilter, settlementStats]);
-
   // 정산 설정 비밀번호 처리 함수
   const handleOpenSettings = () => {
     setPasswordInput('');
@@ -2590,6 +2582,14 @@ const ERP_Dashboard = () => {
       alert('엑셀 보고서 생성 중 오류가 발생했습니다.');
     }
   };
+
+  useEffect(() => {
+    if (pendingExportDate && payDateFilter === pendingExportDate) {
+      exportIntegratedSettlement({ name: pendingAppendSheet!.name, data: pendingAppendSheet!.data });
+      setPendingExportDate(null);
+      setPendingAppendSheet(null);
+    }
+  }, [pendingExportDate, payDateFilter, settlementStats]);
 
   const exportProfessionalSettlement = async (hqName: string) => {
     try {
