@@ -1522,20 +1522,10 @@ const ERP_Dashboard = () => {
       const overdueCount = parseInt(item.raw[20]) || 0; // U열
       if (overdueCount > 0) return; // 연체 시 미지급
       
-      // 지급일의 일(Day) 기준 매칭
-      if (filterDay > 0) {
-        const displayPayDate = getDisplayPayDate(item);
-        const targetDateStr = displayPayDate || item.payDate || item.contractDate || item.deliveryDate;
-        let itemDay = 0;
-        if (targetDateStr) {
-          const itemMatch = targetDateStr.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
-          if (itemMatch) {
-            itemDay = parseInt(itemMatch[3]);
-          }
-        }
-        if (itemDay === 0 || itemDay !== filterDay) {
-          return; // 지급일(Day)이 불일치하므로 제외
-        }
+      // 유지수수료는 매월 25일에 지급됨.
+      // 특정 일(Day)로 필터링 시, 25일이 아니면 유지수수료 대상에서 모두 제외 (25일 필터일 경우에만 산출)
+      if (filterDay > 0 && filterDay !== 25) {
+        return;
       }
       
       const hqName = item.hq;
@@ -2486,7 +2476,16 @@ const ERP_Dashboard = () => {
         const originContract = filteredData.find(d => d.resNo === m.resNo);
         const branch = m.branch || (originContract ? originContract.branch : '-');
         const empName = m.empName || (originContract ? originContract.empName : '-');
-        const payDate = m.payDate || (originContract ? originContract.payDate : payDateSample);
+        
+        // 유지수수료 지급일은 무조건 해당 월의 25일로 고정
+        const filterClean = payDateFilter.replace(/[^0-9]/g, '');
+        let currentYearMonth = filterClean.length >= 6 ? filterClean.substring(0, 6) : '';
+        if (!currentYearMonth) {
+          const d = new Date();
+          currentYearMonth = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
+        }
+        const payDate = m.payDate || `${currentYearMonth.substring(0,4)}.${currentYearMonth.substring(4,6)}.25`;
+
         const memNo = m.memNo || (originContract ? originContract.memNo : '-');
         
         maintRows.push([
@@ -3314,12 +3313,25 @@ const ERP_Dashboard = () => {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0].replace(/-/g, '.');
 
-    // 시트 데이터의 지급일 중 오늘 이후인 것들
+    // 시트 데이터의 지급일 중 오늘 이후인 것들 (getDisplayPayDate 반영)
     const existingDates = data
-      .map(item => item.payDate)
+      .map(item => getDisplayPayDate(item) || item.payDate)
       .filter(d => d && d.trim() !== '' && d >= todayStr);
 
-    return ['전체', ...Array.from(new Set(existingDates)).sort((a: any, b: any) => String(a).localeCompare(String(b)))];
+    const datesSet = new Set(existingDates);
+
+    // 25일 지급일 강제 추가 (이번달, 다음달) - 유지수수료/글로벌인센티브 용도
+    const y = today.getFullYear();
+    const m = today.getMonth() + 1;
+    const thisMonth25 = `${y}.${String(m).padStart(2, '0')}.25`;
+    const nextM = m === 12 ? 1 : m + 1;
+    const nextY = m === 12 ? y + 1 : y;
+    const nextMonth25 = `${nextY}.${String(nextM).padStart(2, '0')}.25`;
+    
+    if (thisMonth25 >= todayStr) datesSet.add(thisMonth25);
+    if (nextMonth25 >= todayStr) datesSet.add(nextMonth25);
+
+    return ['전체', ...Array.from(datesSet).sort((a: any, b: any) => String(a).localeCompare(String(b)))];
   }, [data]);
 
   const resetFilters = () => {
