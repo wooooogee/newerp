@@ -426,6 +426,7 @@ const ERP_Dashboard = () => {
   
   const [pendingExportDate, setPendingExportDate] = useState<string | null>(null);
   const [pendingAppendSheet, setPendingAppendSheet] = useState<{name: string, data: any[][]}|null>(null);
+  const [originalPayDateFilter, setOriginalPayDateFilter] = useState<string | null>(null);
 
   // 정산 설정 비밀번호 처리 함수
   const handleOpenSettings = () => {
@@ -2585,11 +2586,17 @@ const ERP_Dashboard = () => {
 
   useEffect(() => {
     if (pendingExportDate && payDateFilter === pendingExportDate) {
-      exportIntegratedSettlement({ name: pendingAppendSheet!.name, data: pendingAppendSheet!.data });
-      setPendingExportDate(null);
-      setPendingAppendSheet(null);
+      (async () => {
+        await exportIntegratedSettlement({ name: pendingAppendSheet!.name, data: pendingAppendSheet!.data });
+        if (originalPayDateFilter !== null) {
+          setPayDateFilter(originalPayDateFilter);
+        }
+        setPendingExportDate(null);
+        setPendingAppendSheet(null);
+        setOriginalPayDateFilter(null);
+      })();
     }
-  }, [pendingExportDate, payDateFilter, settlementStats]);
+  }, [pendingExportDate, payDateFilter, settlementStats, originalPayDateFilter]);
 
   const exportProfessionalSettlement = async (hqName: string) => {
     try {
@@ -7333,9 +7340,17 @@ const ERP_Dashboard = () => {
                         });
 
                         const targetDate = reconTab === 'NEW' ? reconDate : selectedHistoryDate;
-                        setPayDateFilter(targetDate);
-                        setPendingAppendSheet({ name: '대사보고', data: aoaData });
-                        setPendingExportDate(targetDate);
+                        if (payDateFilter !== targetDate) {
+                          setOriginalPayDateFilter(payDateFilter);
+                          setPayDateFilter(targetDate);
+                          setPendingAppendSheet({ name: '대사보고', data: aoaData });
+                          setPendingExportDate(targetDate);
+                        } else {
+                          exportIntegratedSettlement({
+                            name: '대사보고',
+                            data: aoaData
+                          });
+                        }
                       }}
                       disabled={(reconTab === 'NEW' ? reconData.length : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).length) === 0}
                       className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-100 disabled:opacity-50"
