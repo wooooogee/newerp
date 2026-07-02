@@ -838,8 +838,46 @@ const ERP_Dashboard = () => {
           };
         }
       }).filter(Boolean);
+
+      const enexRentalNos = new Set(excelData.map((row: any) => String(row['계약ID'] || row['계약ID(렌탈번호)'] || '').trim()).filter(Boolean));
       
-      setReconData(newReconData);
+      const internalByRentalNo = new Map<string, any[]>();
+      data.filter(d => d.payDate === reconDate && d.rentalNo && !enexRentalNos.has(d.rentalNo)).forEach(d => {
+          if (!internalByRentalNo.has(d.rentalNo)) {
+              internalByRentalNo.set(d.rentalNo, []);
+          }
+          internalByRentalNo.get(d.rentalNo)!.push(d);
+      });
+
+      const missingInEnex = Array.from(internalByRentalNo.entries()).map(([rentalNo, items]) => {
+          const firstMatch = items[0];
+          let internalPayable = 0;
+          items.forEach(item => {
+              const commission = calculateCommissionDetails(item, localStatsMap);
+              internalPayable += commission.finalPayable || commission.totalCommission;
+          });
+
+          return {
+            '계약ID(렌탈번호)': rentalNo,
+            '고객명': firstMatch.memName,
+            '본부명': firstMatch.hq,
+            '지사명': firstMatch.branch,
+            '사원명': firstMatch.empName,
+            '상품명': firstMatch.prodName,
+            '계약일자': firstMatch.contractDate,
+            '거래처 배송일': '',
+            '내부 배송일자': firstMatch.deliveryDate,
+            '수수료지급일자': firstMatch.payDate,
+            '정산기준일': reconDate,
+            '구좌수': items.length,
+            '거래처입금액': 0,
+            '내부지급액합계': internalPayable,
+            '최종순수익': -internalPayable,
+            '비고': '에넥스 데이터 누락'
+          };
+      });
+      
+      setReconData([...newReconData, ...missingInEnex]);
       setNotification({ message: '에넥스수수료 데이터를 성공적으로 불러왔습니다.', type: 'success' });
     } catch (e) {
        console.error(e);
@@ -7265,6 +7303,16 @@ const ERP_Dashboard = () => {
                       </div>
 
                       {reconData.length > 0 && (
+                        <div className="flex justify-between items-center bg-blue-50/50 p-3 rounded-lg border border-blue-100 text-sm">
+                          <div className="flex gap-4 font-bold text-slate-700">
+                            <span>총 대상 건수: <span className="text-blue-600">{reconData.length}</span>건</span>
+                            <span>정상: <span className="text-emerald-600">{reconData.filter(d => d['비고'] === '정상').length}</span>건</span>
+                            <span className={reconData.some(d => d['비고'] !== '정상' && d['비고']) ? 'text-rose-600' : 'text-slate-500'}>이상(누락 등): {reconData.filter(d => d['비고'] !== '정상' && d['비고']).length}건</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {reconData.length > 0 && (
                         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden flex-1 flex flex-col min-h-[400px]">
                           <div className="overflow-auto flex-1">
                             <table className="w-full text-left border-collapse min-w-max">
@@ -7285,8 +7333,10 @@ const ERP_Dashboard = () => {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
-                                {reconData.map((row, idx) => (
-                                  <tr key={idx} className="hover:bg-slate-50 transition-colors text-xs">
+                                {reconData.map((row, idx) => {
+                                  const isError = row['비고'] !== '정상' && row['비고'] !== '';
+                                  return (
+                                  <tr key={idx} className={`transition-colors text-xs ${isError ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-slate-50'}`}>
                                     <td className="py-2 px-4 text-slate-600 font-mono">{row['정산기준일']}</td>
                                     <td className="py-2 px-4 text-slate-700 font-bold font-mono">{row['계약ID(렌탈번호)']}</td>
                                     <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명']}</td>
@@ -7306,7 +7356,8 @@ const ERP_Dashboard = () => {
                                       )}
                                     </td>
                                   </tr>
-                                ))}
+                                  );
+                                })}
                               </tbody>
                               <tfoot className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200">
                                 <tr>
@@ -7336,6 +7387,16 @@ const ERP_Dashboard = () => {
                             <option key={date} value={date}>{date}</option>
                           ))}
                         </select>
+                        {(() => {
+                           const currentHistoryData = historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate);
+                           return currentHistoryData.length > 0 ? (
+                             <div className="flex gap-4 font-bold text-sm text-slate-700 ml-4 bg-blue-50/50 px-4 py-2 rounded-lg border border-blue-100">
+                               <span>총 건수: <span className="text-blue-600">{currentHistoryData.length}</span></span>
+                               <span>정상: <span className="text-emerald-600">{currentHistoryData.filter(d => d['비고'] === '정상').length}</span></span>
+                               <span className={currentHistoryData.some(d => d['비고'] !== '정상' && d['비고']) ? 'text-rose-600' : 'text-slate-500'}>이상: {currentHistoryData.filter(d => d['비고'] !== '정상' && d['비고']).length}</span>
+                             </div>
+                           ) : null;
+                        })()}
                         <div className="ml-auto text-sm bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
                           총 거래처입금액:{' '}
                           <span className="font-bold text-indigo-600 text-lg">
@@ -7369,8 +7430,10 @@ const ERP_Dashboard = () => {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
-                                {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).map((row, idx) => (
-                                  <tr key={idx} className="hover:bg-slate-50 transition-colors text-xs">
+                                {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).map((row, idx) => {
+                                  const isError = row['비고'] !== '정상' && row['비고'] !== '';
+                                  return (
+                                  <tr key={idx} className={`transition-colors text-xs ${isError ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-slate-50'}`}>
                                     <td className="py-2 px-4 text-slate-600 font-mono">{row['정산기준일']}</td>
                                     <td className="py-2 px-4 text-slate-700 font-bold font-mono">{row['계약ID']}</td>
                                     <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명']}</td>
@@ -7382,9 +7445,16 @@ const ERP_Dashboard = () => {
                                     <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(row['거래처입금액']).toLocaleString()}</td>
                                     <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(row['내부지급액합계']).toLocaleString()}</td>
                                     <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{Number(row['최종순수익']).toLocaleString()}</td>
-                                    <td className={`py-2 px-4 text-center font-bold ${row['비고'] === '정상' ? 'text-emerald-600' : 'text-rose-600'}`}>{row['비고']}</td>
+                                    <td className="py-2 px-4 text-center">
+                                      {row['비고'] === '정상' ? (
+                                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">{row['비고']}</span>
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">{row['비고']}</span>
+                                      )}
+                                    </td>
                                   </tr>
-                                ))}
+                                  );
+                                })}
                               </tbody>
                               <tfoot className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200">
                                 <tr>
