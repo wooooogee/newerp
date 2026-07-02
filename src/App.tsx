@@ -423,6 +423,17 @@ const ERP_Dashboard = () => {
   const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
   const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('구좌수');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [pendingExportDate, setPendingExportDate] = useState<string | null>(null);
+  const [pendingAppendSheet, setPendingAppendSheet] = useState<{name: string, data: any[][]}|null>(null);
+
+  useEffect(() => {
+    if (pendingExportDate && payDateFilter === pendingExportDate) {
+      exportIntegratedSettlement({ name: pendingAppendSheet!.name, data: pendingAppendSheet!.data });
+      setPendingExportDate(null);
+      setPendingAppendSheet(null);
+    }
+  }, [pendingExportDate, payDateFilter, settlementStats]);
 
   // 정산 설정 비밀번호 처리 함수
   const handleOpenSettings = () => {
@@ -7321,10 +7332,10 @@ const ERP_Dashboard = () => {
                            ]);
                         });
 
-                        exportIntegratedSettlement({
-                          name: '대사보고',
-                          data: aoaData
-                        });
+                        const targetDate = reconTab === 'NEW' ? reconDate : selectedHistoryDate;
+                        setPayDateFilter(targetDate);
+                        setPendingAppendSheet({ name: '대사보고', data: aoaData });
+                        setPendingExportDate(targetDate);
                       }}
                       disabled={(reconTab === 'NEW' ? reconData.length : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).length) === 0}
                       className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-100 disabled:opacity-50"
