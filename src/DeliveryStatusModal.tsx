@@ -19,12 +19,14 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
+  const [isPendingFirstRental, setIsPendingFirstRental] = useState(false);
+  const [isUnpaidMutualAid, setIsUnpaidMutualAid] = useState(false);
   const itemsPerPage = 12;
 
   // 필터가 변경될 때 페이지 1로 초기화
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [filterMonth, productFilter, hqFilter, searchTerm, sortOrder]);
+  }, [filterMonth, productFilter, hqFilter, searchTerm, sortOrder, isPendingFirstRental, isUnpaidMutualAid]);
 
   // 조건: 상태가 '가입'이고 배송현황이 '배송대기'인 데이터 + 렌탈번호 중복 제거
   const baseData = useMemo(() => {
@@ -86,6 +88,12 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
         if (!searchString.includes(term)) return false;
       }
 
+      // 배송관련 메모 필터: 렌탈1회차출금 대기중
+      if (isPendingFirstRental && !item.deliveryMemo?.includes('렌탈1회차출금 대기중')) return false;
+
+      // 상조 미출금(연체 1이상) 필터
+      if (isUnpaidMutualAid && parseInt(item.memo || '0', 10) < 1) return false;
+
       return true;
     }).sort((a, b) => {
       if (sortOrder === 'desc') {
@@ -94,7 +102,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
         return a.contractDate.localeCompare(b.contractDate);
       }
     });
-  }, [baseData, filterMonth, productFilter, hqFilter, searchTerm, sortOrder]);
+  }, [baseData, filterMonth, productFilter, hqFilter, searchTerm, sortOrder, isPendingFirstRental, isUnpaidMutualAid]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
   const paginatedData = useMemo(() => {
@@ -204,6 +212,27 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
                   onChange={setHqFilter} 
                 />
 
+                <div className="flex items-center gap-4 ml-2 border-l border-slate-200 pl-4">
+                  <label className="flex items-center gap-1.5 text-sm text-slate-700 cursor-pointer hover:text-slate-900">
+                    <input 
+                      type="checkbox" 
+                      checked={isPendingFirstRental}
+                      onChange={(e) => setIsPendingFirstRental(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                    렌탈1회차출금 대기중
+                  </label>
+                  <label className="flex items-center gap-1.5 text-sm text-slate-700 cursor-pointer hover:text-slate-900">
+                    <input 
+                      type="checkbox" 
+                      checked={isUnpaidMutualAid}
+                      onChange={(e) => setIsUnpaidMutualAid(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                    />
+                    <span className="text-red-600 font-medium">상조 미출금</span>
+                  </label>
+                </div>
+
                 <div className="flex items-center gap-2 ml-auto">
                   <div className="relative">
                     <input
@@ -266,9 +295,11 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
                         <td colSpan={10} className="p-8 text-center text-slate-400">조회된 데이터가 없습니다.</td>
                       </tr>
                     ) : (
-                      paginatedData.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                          <td className="p-3 font-mono text-slate-600">{item.contractDate}</td>
+                      paginatedData.map((item, idx) => {
+                        const isOverdue = parseInt(item.memo || '0', 10) >= 1;
+                        return (
+                        <tr key={item.uniqueKey} className={`transition-colors ${isOverdue ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-slate-50'}`}>
+                          <td className={`p-3 font-mono ${isOverdue ? 'text-red-700' : 'text-slate-600'}`}>{item.contractDate}</td>
                           <td className="p-3 font-bold text-slate-800">{item.prodName}</td>
                           <td className="p-3 font-medium text-slate-700">{item.memName}</td>
                           <td className="p-3 font-mono text-blue-600 font-bold">{item.rentalNo}</td>
@@ -306,7 +337,8 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
                             </button>
                           </td>
                         </tr>
-                      ))
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
