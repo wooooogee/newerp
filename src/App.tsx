@@ -3155,12 +3155,13 @@ const ERP_Dashboard = () => {
       const today = new Date().toISOString().split('T')[0];
 
       const productCodeMap: Record<string, string> = {
-        '더좋은하이브리드698': 'A070',
-        '더좋은라이즈498': 'A071',
-        '더좋은하이브리드': 'A070',
-        '더좋은라이즈': 'A071',
         '하이브리드698': 'A070',
-        '라이즈498': 'A071'
+        '라이즈498': 'A071',
+        '프리미엄540': 'A072',
+        '헬스케어실버': 'A073',
+        '좋은건강크루즈': 'A074',
+        '헬스케어골드': 'A075',
+        '헬스케어580': 'A081'
       };
 
       const parseResNo = (resNo: string) => {
