@@ -5,6 +5,9 @@ import { HealthcareModal } from './HealthcareModal';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { DeliveryStatusModal } from './DeliveryStatusModal';
 import { DeliveryDashboardModal } from './DeliveryDashboardModal';
+import { CertificateDispatchModal } from './CertificateDispatchModal';
+import { CertificateDispatchHistoryModal } from './CertificateDispatchHistoryModal';
+import { CustomDialog } from './CustomDialog';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -394,7 +397,52 @@ const ERP_Dashboard = () => {
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
   const [isDeliveryStatusModalOpen, setIsDeliveryStatusModalOpen] = useState(false);
   const [isDeliveryDashboardOpen, setIsDeliveryDashboardOpen] = useState(false);
+  const [isCertificateDispatchModalOpen, setIsCertificateDispatchModalOpen] = useState(false);
+  const [isCertificateDispatchHistoryModalOpen, setIsCertificateDispatchHistoryModalOpen] = useState(false);
   const [isManualSettlementModalOpen, setIsManualSettlementModalOpen] = useState(false);
+
+  // Custom Dialog State
+  const [dialogState, setDialogState] = useState<{
+    isOpen: boolean;
+    type: 'alert' | 'confirm';
+    title: string;
+    message: string;
+    resolve: ((val: boolean) => void) | null;
+  }>({
+    isOpen: false,
+    type: 'alert',
+    title: '',
+    message: '',
+    resolve: null
+  });
+
+  useEffect(() => {
+    (window as any).customConfirm = (message: string, title?: string): Promise<boolean> => {
+      return new Promise((resolve) => {
+        setDialogState({
+          isOpen: true,
+          type: 'confirm',
+          title: title || '확인',
+          message,
+          resolve
+        });
+      });
+    };
+
+    (window as any).customAlert = (message: string, title?: string): Promise<boolean> => {
+      return new Promise((resolve) => {
+        setDialogState({
+          isOpen: true,
+          type: 'alert',
+          title: title || '알림',
+          message,
+          resolve: (val) => {
+            resolve(val);
+          }
+        });
+      });
+    };
+  }, []);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
@@ -3728,6 +3776,30 @@ const ERP_Dashboard = () => {
           </section>
 
           <section className="mt-4">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">증서 관리</p>
+            <div className="grid gap-2">
+              <nav className="flex flex-col gap-1">
+                <motion.button
+                  onClick={() => setIsCertificateDispatchModalOpen(true)}
+                  whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                >
+                  <span className={`w-2 h-2 rounded-full bg-teal-500`} />
+                  <span className="font-medium">증서발송대장</span>
+                </motion.button>
+                <motion.button
+                  onClick={() => setIsCertificateDispatchHistoryModalOpen(true)}
+                  whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                >
+                  <span className={`w-2 h-2 rounded-full bg-emerald-500`} />
+                  <span className="font-medium">증서발송이력</span>
+                </motion.button>
+              </nav>
+            </div>
+          </section>
+
+          <section className="mt-4">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">헬스케어</p>
             <div className="grid gap-2">
               <nav className="flex flex-col gap-1">
@@ -4230,8 +4302,8 @@ const ERP_Dashboard = () => {
                   </div>
                   {filteredData.length > 0 && (
                     <button
-                      onClick={() => {
-                        if (confirm(`현재 필터링된 ${filteredData.length}건을 모두 '지급완료' 처리하시겠습니까?\n\n(참고: 취소된 건은 제외됩니다)`)) {
+                      onClick={async () => {
+                        if (await (window as any).customConfirm(`현재 필터링된 ${filteredData.length}건을 모두 '지급완료' 처리하시겠습니까?\n\n(참고: 취소된 건은 제외됩니다)`, '일괄 지급완료')) {
                           const validItems = filteredData.filter(item => !item.deliveryStatus.includes('취소'));
                           const updates = validItems.map(item => ({
                             rowIdx: item.originalRowIdx,
@@ -5946,10 +6018,33 @@ const ERP_Dashboard = () => {
             data={data}
             onUpdateDeliveryMemo={(rowIdx, val) => updateCell(rowIdx, 24, val)}
           />
-          <DeliveryDashboardModal
+           <DeliveryDashboardModal
             isOpen={isDeliveryDashboardOpen}
             onClose={() => setIsDeliveryDashboardOpen(false)}
             data={data}
+          />
+          <CertificateDispatchModal
+            isOpen={isCertificateDispatchModalOpen}
+            onClose={() => setIsCertificateDispatchModalOpen(false)}
+            data={data}
+          />
+          <CertificateDispatchHistoryModal
+            isOpen={isCertificateDispatchHistoryModalOpen}
+            onClose={() => setIsCertificateDispatchHistoryModalOpen(false)}
+          />
+          <CustomDialog
+            isOpen={dialogState.isOpen}
+            type={dialogState.type}
+            title={dialogState.title}
+            message={dialogState.message}
+            onConfirm={() => {
+              if (dialogState.resolve) dialogState.resolve(true);
+              setDialogState(prev => ({ ...prev, isOpen: false }));
+            }}
+            onCancel={() => {
+              if (dialogState.resolve) dialogState.resolve(false);
+              setDialogState(prev => ({ ...prev, isOpen: false }));
+            }}
           />
           <HealthcareModal 
             isOpen={isHealthcareListModalOpen} 

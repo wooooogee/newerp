@@ -6,9 +6,13 @@ interface MultiSelectDropdownProps {
   options: string[];
   selectedOptions: string[];
   onChange: (selected: string[]) => void;
+  className?: string;
+  displayClassName?: string;
 }
 
-export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, options, selectedOptions, onChange }) => {
+export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ 
+  label, options, selectedOptions, onChange, className, displayClassName 
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -43,9 +47,13 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label,
       : `${selectedOptions[0]} 외 ${selectedOptions.length - 1}건`;
 
   return (
-    <div className="relative flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors" ref={dropdownRef} onClick={() => setIsOpen(!isOpen)}>
+    <div 
+      className={className || "relative flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors"} 
+      ref={dropdownRef} 
+      onClick={() => setIsOpen(!isOpen)}
+    >
       <span className="text-[11px] font-bold text-slate-400 shrink-0">{label}</span>
-      <div className="flex items-center justify-between min-w-[60px] max-w-[120px]">
+      <div className={displayClassName || "flex items-center justify-between min-w-[60px] max-w-[120px]"}>
         <span className="text-[12px] font-bold text-slate-700 truncate">{displayValue}</span>
         <ChevronDown size={14} className={`text-slate-400 ml-1 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </div>

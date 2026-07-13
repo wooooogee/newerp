@@ -13,6 +13,23 @@ const PORT = Number(process.env.PORT) || 3002;
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 
+app.get('/api/debug/cache', (req, res) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sheetsCache = (global as any).sheetsCache || new Map();
+  const keys = Array.from(sheetsCache.keys());
+  const headers: Record<string, any> = {};
+  for (const key of keys) {
+    const cached = sheetsCache.get(key);
+    if (cached && cached.data && cached.data.length > 0) {
+      headers[key] = {
+        header: cached.data[0],
+        firstRow: cached.data[1]
+      };
+    }
+  }
+  res.json({ keys, headers });
+});
+
 // Google OAuth Helper
 const getOAuthClient = () => {
   const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
@@ -50,6 +67,8 @@ const getOAuthClient = () => {
     redirectUri
   );
 };
+
+
 
 // Debug endpoint for the user to check their own config
 app.get('/api/auth/debug', (req, res) => {
@@ -1089,7 +1108,7 @@ app.get('/api/sheets/data', async (req, res) => {
                           sheetsList[0];
       
       const sheetName = targetSheet?.properties?.title || 'Sheet1';
-      range = `${sheetName}!A:AC`;
+      range = `${sheetName}!A:ZZ`;
       console.log('Fetching from sheet:', sheetName);
     } catch (e) {
       console.warn('Could not fetch spreadsheet metadata, falling back to A:AC', e);
@@ -1133,7 +1152,7 @@ app.get('/api/sheets/sheetData', async (req, res) => {
     
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: `${sheetName}!A:Z`,
+      range: `${sheetName}!A:ZZ`,
     });
 
     const rows = response.data.values;
@@ -1229,6 +1248,87 @@ app.post('/api/sheets/manual-settlement/save', async (req, res) => {
     return handleGoogleError(error, res);
   }
 });
+
+app.post('/api/sheets/saveCertificateDispatch', async (req, res) => {
+  const auth = await getAuthenticatedClient(req, res);
+  if (!auth) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { rows } = req.body;
+  if (!rows || !Array.isArray(rows)) {
+    return res.status(400).json({ error: '유효하지 않은 데이터입니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let dispatchSheet = sheetsList.find(s => s.properties?.title === '증서발송리스트');
+    let sheetInternalId: number | null | undefined = dispatchSheet?.properties?.sheetId;
+
+    if (!dispatchSheet) {
+      console.log("[CloudSync] Creating '증서발송리스트' sheet...");
+      const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '증서발송리스트' } } }]
+        }
+      });
+      sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+
+      const headers = [['발송날짜', '구분', '회원명', '공란', '휴대폰번호', '*회원명', '*회원번호1', '*생년월일', '*가입일자', '*가입상품', '*월불입금1', '*월불입금2', '우편번호', '*주소', '*담당자', '*담당자전화번호', '회원번호2', '회원번호3']];
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '증서발송리스트!A1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: headers }
+      });
+
+      if (sheetInternalId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+    }
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: '증서발송리스트!A1',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: rows }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[Certificate Dispatch Save Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
 // 유통사 대사 내역 조회 API
 app.get('/api/sheets/reconciliation/fetch-enex', async (req, res) => {
   try {
