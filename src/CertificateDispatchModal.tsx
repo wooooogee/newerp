@@ -41,10 +41,23 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             const rows = sheet1Data.slice(1);
             setSheet1List(rows); // Skip header
             
+            // 관리대장 데이터(data)를 회원번호 기준으로 가입상태 맵 생성
+            const maintenanceStatusMap = new Map<string, string>();
+            data.forEach(item => {
+              if (item.memNo) {
+                maintenanceStatusMap.set(String(item.memNo).trim(), String(item.status || '').trim());
+              }
+            });
+
             // 최근월 찾아서 기본 선택
             const months = new Set<string>();
             rows.forEach((raw: any) => {
-              if (String(raw[8] || '').trim() === '가입') {
+              const memNo = String(raw[1] || '').trim();
+              const status = maintenanceStatusMap.has(memNo)
+                ? (maintenanceStatusMap.get(memNo) || '')
+                : String(raw[8] || '').trim();
+
+              if (status === '가입') {
                 const cDate = String(raw[2] || '');
                 if (cDate) {
                   const m = cDate.match(/^(\d{4})[-./]?(\d{2})/);
@@ -74,78 +87,90 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       
       fetchAdditionalData();
     }
-  }, [isOpen]);
+  }, [isOpen, data]);
 
   // Combine data
   const combinedData = useMemo(() => {
-    return sheet1List
-      .filter(raw => String(raw[8] || '').trim() === '가입')
-      .map((raw, idx) => {
-        const hq = String(raw[38] || '');         // AM(38): 본부명
-      const empCode = String(raw[39] || '');    // AN(39): 사원코드
-      const empName = String(raw[10] || '');    // K(10): 사원명
-      const status = String(raw[8] || '');      // I(8): 회원상태
-      const contractDate = String(raw[2] || ''); // C(2): 계약일자
-      const memNo = String(raw[1] || '');       // B(1): 회원번호
-      const memName = String(raw[5] || '');     // F(5): 회원명
-      const resNo = String(raw[7] || '');       // H(7): 주민등록번호
-      const prodName = String(raw[11] || '');   // L(11): 상품명
-      const firstPayDate = String(raw[20] || '');// U(20): 최초납입일
-      let zipCode = String(raw[44] || '');      // AS(44): 우편번호
-      const address = String(raw[45] || '');    // AT(45): 주소
-      const workAddress = String(raw[47] || '');// AV(47): 직장주소
-      const cert = String(raw[49] || '');       // AX(49): 증서
-      const deliveryType = String(raw[58] || '');// BG(58): 배송구분
-      const rentalNo = String(raw[59] || '');   // BH(59): 렌탈계약번호
-
-      // 우편번호 '-' 제거 로직
-      if (zipCode.includes('-')) {
-        zipCode = zipCode.replace(/-/g, '');
+    // 관리대장 데이터(data)를 회원번호 기준으로 가입상태 맵 생성
+    const maintenanceStatusMap = new Map<string, string>();
+    data.forEach(item => {
+      if (item.memNo) {
+        maintenanceStatusMap.set(String(item.memNo).trim(), String(item.status || '').trim());
       }
-
-      // 사원연락처 (사원리스트 B열(1) === AN열 사원코드 일 때 L열(11) 추출)
-      let empPhone = '';
-      if (empCode && empList.length > 0) {
-        const emp = empList.find(e => e[1] === empCode);
-        if (emp) {
-          empPhone = String(emp[11] || '');
-        }
-      }
-
-      // 월불입금1, 월불입금2 (월불입금 A열(0) === L열(11) 상품명 일 때 E열(4), F열(5) 추출)
-      let monthlyPay1 = '';
-      let monthlyPay2 = '';
-      if (prodName && paymentList.length > 0) {
-        const payment = paymentList.find(p => p[0] === prodName);
-        if (payment) {
-          monthlyPay1 = String(payment[4] || '');
-          monthlyPay2 = String(payment[5] || '');
-        }
-      }
-
-      // 생년월일 추출 로직 (주민등록번호 앞 6자리 활용)
-      let birthDate = '';
-      if (resNo && resNo.length >= 6) {
-        const prefix = resNo.substring(0, 6);
-        const yearStr = prefix.substring(0, 2);
-        const yearNum = parseInt(yearStr, 10);
-        const fullYear = yearNum <= 24 ? `20${yearStr}` : `19${yearStr}`;
-        birthDate = `${fullYear}${prefix.substring(2, 6)}`;
-      }
-
-      // 휴대폰번호: AB열(27)
-      const phone = String(raw[27] || '');
-
-      return {
-        id: idx,
-        extracted: {
-          status, contractDate, memNo, memName, resNo, prodName, firstPayDate,
-          hq, empCode, empName, zipCode, address, workAddress, cert, deliveryType, rentalNo,
-          empPhone, monthlyPay1, monthlyPay2, birthDate, phone
-        }
-      };
     });
-  }, [sheet1List, empList, paymentList]);
+
+    return sheet1List
+      .map((raw, idx) => {
+        const memNo = String(raw[1] || '').trim();
+        // 관리대장 시트의 가입상태를 우선하여 가져오고, 없으면 시트1의 기존 값(raw[8]) 사용
+        const status = maintenanceStatusMap.has(memNo)
+          ? (maintenanceStatusMap.get(memNo) || '')
+          : String(raw[8] || '').trim();
+
+        const hq = String(raw[38] || '');         // AM(38): 본부명
+        const empCode = String(raw[39] || '');    // AN(39): 사원코드
+        const empName = String(raw[10] || '');    // K(10): 사원명
+        const contractDate = String(raw[2] || ''); // C(2): 계약일자
+        const memName = String(raw[5] || '');     // F(5): 회원명
+        const resNo = String(raw[7] || '');       // H(7): 주민등록번호
+        const prodName = String(raw[11] || '');   // L(11): 상품명
+        const firstPayDate = String(raw[20] || '');// U(20): 최초납입일
+        let zipCode = String(raw[44] || '');      // AS(44): 우편번호
+        const address = String(raw[45] || '');    // AT(45): 주소
+        const workAddress = String(raw[47] || '');// AV(47): 직장주소
+        const cert = String(raw[49] || '');       // AX(49): 증서
+        const deliveryType = String(raw[58] || '');// BG(58): 배송구분
+        const rentalNo = String(raw[59] || '');   // BH(59): 렌탈계약번호
+
+        // 우편번호 '-' 제거 로직
+        if (zipCode.includes('-')) {
+          zipCode = zipCode.replace(/-/g, '');
+        }
+
+        // 사원연락처 (사원리스트 B열(1) === AN열 사원코드 일 때 L열(11) 추출)
+        let empPhone = '';
+        if (empCode && empList.length > 0) {
+          const emp = empList.find(e => e[1] === empCode);
+          if (emp) {
+            empPhone = String(emp[11] || '');
+          }
+        }
+
+        // 월불입금1, 월불입금2 (월불입금 A열(0) === L열(11) 상품명 일 때 E열(4), F열(5) 추출)
+        let monthlyPay1 = '';
+        let monthlyPay2 = '';
+        if (prodName && paymentList.length > 0) {
+          const payment = paymentList.find(p => p[0] === prodName);
+          if (payment) {
+            monthlyPay1 = String(payment[4] || '');
+            monthlyPay2 = String(payment[5] || '');
+          }
+        }
+
+        // 생년월일 추출 로직 (주민등록번호 앞 6자리 활용)
+        let birthDate = '';
+        if (resNo && resNo.length >= 6) {
+          const prefix = resNo.substring(0, 6);
+          const yearStr = prefix.substring(0, 2);
+          const yearNum = parseInt(yearStr, 10);
+          const fullYear = yearNum <= 24 ? `20${yearStr}` : `19${yearStr}`;
+          birthDate = `${fullYear}${prefix.substring(2, 6)}`;
+        }
+
+        // 휴대폰번호: AB열(27)
+        const phone = String(raw[27] || '');
+
+        return {
+          id: idx,
+          extracted: {
+            status, contractDate, memNo, memName, resNo, prodName, firstPayDate,
+            hq, empCode, empName, zipCode, address, workAddress, cert, deliveryType, rentalNo,
+            empPhone, monthlyPay1, monthlyPay2, birthDate, phone
+          }
+        };
+      })
+      .filter(item => item.extracted.status === '가입');
+  }, [sheet1List, empList, paymentList, data]);
 
   // 계약일자 월 목록 추출 (YYYY-MM)
   const availableMonths = useMemo(() => {
