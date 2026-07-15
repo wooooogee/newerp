@@ -31,11 +31,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       const fetchAdditionalData = async () => {
         setLoading(true);
         try {
-          const [sheet1Res, empRes, payRes, historyRes] = await Promise.all([
+          const [sheet1Res, empRes, payRes] = await Promise.all([
             fetch('/api/sheets/sheetData?sheetName=시트1'),
             fetch('/api/sheets/sheetData?sheetName=사원리스트'),
-            fetch('/api/sheets/sheetData?sheetName=월불입금'),
-            fetch('/api/sheets/sheetData?sheetName=증서발송리스트')
+            fetch('/api/sheets/sheetData?sheetName=월불입금')
           ]);
           
           if (sheet1Res.ok) {
@@ -79,19 +78,6 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             const payData = await payRes.json();
             setPaymentList(payData.slice(1)); // Skip header
           }
-              if (historyRes.ok) {
-                const historyData = await historyRes.json();
-                const nos = new Set<string>();
-                if (historyData && historyData.length > 1) {
-                  historyData.slice(1).forEach((raw: any) => {
-                    const memNo = String(raw[6] || '').trim().toUpperCase(); // *회원번호1 (G열, index 6)
-                    if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
-                      nos.add(memNo);
-                    }
-                  });
-                }
-                setDispatchedHistoryNos(nos);
-              }
         } catch (error) {
           console.error('Failed to load additional sheet data:', error);
         } finally {
@@ -102,6 +88,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       fetchAdditionalData();
     }
   }, [isOpen, data]);
+
+  // 모달이 열릴 때 음영 초기화 (과거 이력 로드 배제)
+  useEffect(() => {
+    if (isOpen) {
+      setDispatchedHistoryNos(new Set());
+    }
+  }, [isOpen]);
 
   // Combine data
   const combinedData = useMemo(() => {
@@ -529,19 +522,22 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [saving, setSaving] = useState(false);
 
   const handleSaveDispatch = async () => {
-    if (processedData.length === 0) {
-      await (window as any).customAlert('저장할 데이터가 없습니다.');
+    // 체크박스로 선택된 데이터만 필터링
+    const targetData = processedData.filter(item => selectedIds.has(item.id));
+
+    if (targetData.length === 0) {
+      await (window as any).customAlert('선택된 발송 대상이 없습니다. 목록 좌측의 체크박스를 선택해 주세요.', '알림');
       return;
     }
 
-    if (!await (window as any).customConfirm(`현재 필터링 및 통합된 ${processedData.length}건의 데이터를 구글 시트 '증서발송리스트'에 저장하시겠습니까?`, '증서 발송 저장')) {
+    if (!await (window as any).customConfirm(`현재 선택된 ${targetData.length}건의 데이터를 구글 시트 '증서발송리스트'에 저장하시겠습니까?`, '증서 발송 저장')) {
       return;
     }
 
     setSaving(true);
     try {
       const todayStr = new Date().toISOString().slice(0, 10);
-      const rows = processedData.map(item => {
+      const rows = targetData.map(item => {
         const ext = item.extracted;
         const isPost = String(ext.workAddress || '').trim() === '우편';
         const type = isPost ? '우편' : '알림톡';
@@ -576,17 +572,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
       if (response.ok) {
         await (window as any).customAlert('증서발송리스트에 성공적으로 저장되었습니다!', '저장 완료');
-            // 로컬 상태에 새로 저장된 회원번호들을 추가해 즉시 음영 반영
-            setDispatchedHistoryNos(prev => {
-              const next = new Set(prev);
-              processedData.forEach(item => {
-                const memNo = String(item.extracted.memNo || '').trim().toUpperCase();
-                if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
-                  next.add(memNo);
-                }
-              });
-              return next;
-            });
+        // 로컬 상태에 새로 저장된 회원번호들을 추가해 즉시 음영 반영
+        setDispatchedHistoryNos(prev => {
+          const next = new Set(prev);
+          targetData.forEach(item => {
+            const memNo = String(item.extracted.memNo || '').trim().toUpperCase();
+            if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
+              next.add(memNo);
+            }
+          });
+          return next;
+        });
       } else {
         const err = await response.json();
         await (window as any).customAlert(`저장 실패: ${err.error || '알 수 없는 오류'}`, '오류 발생');
@@ -671,7 +667,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                 </button>
                 <button
                   onClick={handleSaveDispatch}
-                  disabled={saving}
+                  disabled={saving || selectedIds.size === 0}
                   className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-[13px] font-bold transition-colors border border-blue-200"
                 >
                   <Save size={16} />
