@@ -41,21 +41,20 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             const rows = sheet1Data.slice(1);
             setSheet1List(rows); // Skip header
             
-            // 관리대장 데이터(data)를 회원번호 기준으로 가입상태 맵 생성
+            // 관리대장 데이터(data)를 회원번호 기준으로 가입상태 맵 생성 (대소문자 무시)
             const maintenanceStatusMap = new Map<string, string>();
             data.forEach(item => {
               if (item.memNo) {
-                maintenanceStatusMap.set(String(item.memNo).trim(), String(item.status || '').trim());
+                maintenanceStatusMap.set(String(item.memNo).trim().toUpperCase(), String(item.status || '').trim());
               }
             });
 
             // 최근월 찾아서 기본 선택
             const months = new Set<string>();
             rows.forEach((raw: any) => {
-              const memNo = String(raw[1] || '').trim();
-              const status = maintenanceStatusMap.has(memNo)
-                ? (maintenanceStatusMap.get(memNo) || '')
-                : String(raw[8] || '').trim();
+              const memNo = String(raw[1] || '').trim().toUpperCase();
+              // 관리대장 시트에 없는 경우 가입상태를 빈값으로 취급하여 제외
+              const status = maintenanceStatusMap.get(memNo) || '';
 
               if (status === '가입') {
                 const cDate = String(raw[2] || '');
@@ -91,21 +90,20 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
   // Combine data
   const combinedData = useMemo(() => {
-    // 관리대장 데이터(data)를 회원번호 기준으로 가입상태 맵 생성
+    // 관리대장 데이터(data)를 회원번호 기준으로 가입상태 맵 생성 (대소문자 무시)
     const maintenanceStatusMap = new Map<string, string>();
     data.forEach(item => {
       if (item.memNo) {
-        maintenanceStatusMap.set(String(item.memNo).trim(), String(item.status || '').trim());
+        maintenanceStatusMap.set(String(item.memNo).trim().toUpperCase(), String(item.status || '').trim());
       }
     });
 
     return sheet1List
       .map((raw, idx) => {
         const memNo = String(raw[1] || '').trim();
-        // 관리대장 시트의 가입상태를 우선하여 가져오고, 없으면 시트1의 기존 값(raw[8]) 사용
-        const status = maintenanceStatusMap.has(memNo)
-          ? (maintenanceStatusMap.get(memNo) || '')
-          : String(raw[8] || '').trim();
+        const memNoKey = memNo.toUpperCase();
+        // 관리대장 시트의 가입상태를 가져오고, 없으면 '' 처리 (시트1의 기존 값 raw[8]은 무시하여 엄격 매칭)
+        const status = maintenanceStatusMap.get(memNoKey) || '';
 
         const hq = String(raw[38] || '');         // AM(38): 본부명
         const empCode = String(raw[39] || '');    // AN(39): 사원코드
