@@ -218,10 +218,12 @@ app.post('/api/auth/login', async (req, res) => {
   // 세션 쿠키 발행 헬퍼 함수
   const issueSession = (role: string, orgName: string) => {
     const userSession = { username, role, orgName };
+    const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    
     res.cookie('user_auth', JSON.stringify(userSession), {
       httpOnly: true,
-      secure: true,
-      sameSite: 'none',
+      secure: isSecure,
+      sameSite: isSecure ? 'none' : 'lax',
       signed: true,
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
@@ -264,9 +266,10 @@ app.post('/api/auth/login', async (req, res) => {
               const roleVal = String(matchedRow[0] || '').trim(); // 관리자 / 본부 / 지사 / 지점 등
               const orgNameVal = String(matchedRow[1] || '').trim(); // 조직명
               
-              // 구분이 '관리자'인 경우 role을 'admin'으로, orgName을 '관리자'로 매핑
-              const role = roleVal === '관리자' ? 'admin' : roleVal;
-              const orgName = roleVal === '관리자' ? '관리자' : orgNameVal;
+              // 구분이 '관리자', '어드민', 'admin', 'ADMIN'인 경우 모두 어드민 권한 매핑
+              const isAdminRole = ['관리자', '어드민', 'admin', 'ADMIN'].includes(roleVal);
+              const role = isAdminRole ? 'admin' : roleVal;
+              const orgName = isAdminRole ? '관리자' : orgNameVal;
 
               return issueSession(role, orgName);
             }
