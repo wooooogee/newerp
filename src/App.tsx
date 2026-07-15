@@ -3781,7 +3781,7 @@ const ERP_Dashboard = () => {
                   whileTap={{ scale: 0.99 }}
                   className="flex items-center justify-center gap-2.5 bg-slate-800 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-slate-900"
                 >
-                  <Save size={16} /> 本部별 정산 설정
+                  <Save size={16} /> 본부별 수수료 설정
                 </motion.button>
 
                 <motion.button
