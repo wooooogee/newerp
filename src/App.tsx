@@ -607,7 +607,48 @@ const ERP_Dashboard = () => {
     ];
   });
 
-  const [settingsTab, setSettingsTab] = useState<'hq' | 'global_incentive' | 'maintenance'>('hq');
+  const [settingsTab, setSettingsTab] = useState<'hq' | 'global_incentive' | 'maintenance' | 'member'>('hq');
+
+  const [members, setMembers] = useState<{role: string, orgName: string, username: string, password: string}[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+
+  const loadMembersFromCloud = async () => {
+    setLoadingMembers(true);
+    try {
+      const res = await fetch('/api/sheets/members/load');
+      const data = await res.json();
+      if (data.members) setMembers(data.members);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
+  const saveMembersToCloud = async () => {
+    setLoadingMembers(true);
+    try {
+      const res = await fetch('/api/sheets/members/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ members })
+      });
+      const data = await res.json();
+      if (data.success) alert('회원 정보가 구글 시트에 저장되었습니다.');
+      else alert('저장 실패: ' + data.error);
+    } catch (err) {
+      console.error(err);
+      alert('저장 중 오류가 발생했습니다.');
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (settingsTab === 'member' && members.length === 0) {
+      loadMembersFromCloud();
+    }
+  }, [settingsTab]);
 
   const [maintenanceRules, setMaintenanceRules] = useState<MaintenanceFeeRule[]>(() => {
     const saved = localStorage.getItem('erp_maintenance_rules');
@@ -5383,7 +5424,7 @@ const ERP_Dashboard = () => {
                 {/* Modal Header */}
                 <div className="px-8 py-5 border-b border-slate-100 bg-slate-900 text-white flex justify-between items-center">
                   <div>
-                    <h3 className="text-xl font-bold flex items-center gap-2"><Settings size={22} className="text-accent-blue" /> 본부별 정산 및 수수료 마스터 설정</h3>
+                    <h3 className="text-xl font-bold flex items-center gap-2"><Settings size={22} className="text-accent-blue" /> 설정</h3>
                     <p className="text-xs text-slate-400 mt-1">각 거래처별 상품 수수료 및 오버라이딩 구조를 관리합니다.</p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -5438,7 +5479,10 @@ const ERP_Dashboard = () => {
                     본부별 정산 설정
                   </button>
                   <button onClick={() => setSettingsTab('global_incentive')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'global_incentive' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-                    특수 수당 (글로벌 인센티브) 관리
+                    특수 수당 설정
+                  </button>
+                  <button onClick={() => setSettingsTab('member')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'member' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                    회원관리
                   </button>
 
                 </div>
@@ -6134,6 +6178,87 @@ const ERP_Dashboard = () => {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : settingsTab === 'member' ? (
+                  <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
+                    <div className="max-w-5xl mx-auto space-y-6">
+                      <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold">회원 관리 (조직계정설정)</h2>
+                        <div className="flex gap-2">
+                          <button onClick={() => {
+                            if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
+                            loadMembersFromCloud();
+                          }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors disabled:opacity-50" disabled={loadingMembers}>
+                            <RefreshCw size={16} className={loadingMembers ? "animate-spin" : ""} /> {loadingMembers ? '불러오는 중...' : '시트에서 불러오기'}
+                          </button>
+                          <button onClick={() => {
+                            if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
+                            saveMembersToCloud();
+                          }} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors disabled:opacity-50" disabled={loadingMembers}>
+                            <Save size={16} /> 시트에 저장하기
+                          </button>
+                          <button onClick={() => {
+                            setMembers([{ role: '', orgName: '', username: '', password: '' }, ...members]);
+                          }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
+                            <Plus size={16} /> 새 회원 추가
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                          <thead className="text-xs text-slate-500 bg-slate-50 border-b border-slate-200 uppercase font-black">
+                            <tr>
+                              <th className="px-4 py-3 text-center">구분 (권한)</th>
+                              <th className="px-4 py-3 text-center">조직명 (본부/지사 등)</th>
+                              <th className="px-4 py-3 text-center">아이디</th>
+                              <th className="px-4 py-3 text-center">비밀번호</th>
+                              <th className="px-4 py-3 text-center w-16">관리</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {members.length === 0 && (
+                              <tr>
+                                <td colSpan={5} className="px-4 py-8 text-center text-slate-400 font-bold">등록된 회원이 없습니다.</td>
+                              </tr>
+                            )}
+                            {members.map((m, idx) => (
+                              <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                                <td className="px-4 py-2">
+                                  <input type="text" placeholder="총무, 관리자 등" value={m.role} onChange={e => {
+                                    const n = [...members]; n[idx].role = e.target.value; setMembers(n);
+                                  }} className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold" />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <input type="text" placeholder="조직명" value={m.orgName} onChange={e => {
+                                    const n = [...members]; n[idx].orgName = e.target.value; setMembers(n);
+                                  }} className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold" />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <input type="text" placeholder="아이디" value={m.username} onChange={e => {
+                                    const n = [...members]; n[idx].username = e.target.value; setMembers(n);
+                                  }} className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold text-blue-600" />
+                                </td>
+                                <td className="px-4 py-2">
+                                  <input type="text" placeholder="비밀번호" value={m.password} onChange={e => {
+                                    const n = [...members]; n[idx].password = e.target.value; setMembers(n);
+                                  }} className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold text-slate-600" />
+                                </td>
+                                <td className="px-4 py-2 text-center">
+                                  <button onClick={() => {
+                                    if(confirm('이 회원을 삭제하시겠습니까?')) {
+                                      const n = [...members]; n.splice(idx, 1); setMembers(n);
+                                    }
+                                  }} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="삭제">
+                                    <X size={16} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   </div>

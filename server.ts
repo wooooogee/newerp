@@ -651,6 +651,125 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     return handleGoogleError(error, res);
   }
 });
+// === 회원 관리 API ===
+app.get('/api/sheets/members/load', async (req, res) => {
+  try {
+    const client = await getAuthenticatedClient(req, res);
+    if (!client) return;
+
+    let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+    if (sheetId && sheetId.includes('spreadsheets/d/')) {
+      sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+    }
+    if (!sheetId) return res.status(400).json({ error: 'Spreadsheet ID not found' });
+
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    
+    // 조직계정설정 탭 확인
+    let accountSheet = sheetsList.find(s => s.properties?.title === '조직계정설정');
+    if (!accountSheet) {
+      return res.json({ members: [] });
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '조직계정설정!A:D',
+    });
+
+    const rows = response.data.values || [];
+    // 첫 행이 헤더라면 스킵
+    const members = [];
+    for (let i = 0; i < rows.length; i++) {
+      if (i === 0 && rows[i][0] === '구분') continue; // 헤더 스킵
+      const [role, orgName, username, password] = rows[i];
+      if (!username) continue; // 아이디가 없으면 스킵
+      members.push({ role: role || '', orgName: orgName || '', username: username || '', password: password || '' });
+    }
+
+    res.json({ members });
+  } catch (error: any) {
+    console.error("[Members] Load error:", error.message);
+    return handleGoogleError(error, res);
+  }
+});
+
+app.post('/api/sheets/members/save', async (req, res) => {
+  try {
+    const client = await getAuthenticatedClient(req, res);
+    if (!client) return;
+    const { members } = req.body;
+    if (!Array.isArray(members)) return res.status(400).json({ error: 'Invalid members data' });
+
+    let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+    if (sheetId && sheetId.includes('spreadsheets/d/')) {
+      sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+    }
+    if (!sheetId) return res.status(400).json({ error: 'Spreadsheet ID not found' });
+
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let accountSheet = sheetsList.find(s => s.properties?.title === '조직계정설정');
+    
+    let aSheetId = accountSheet?.properties?.sheetId;
+
+    if (!accountSheet) {
+      const addSheetRes = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: { requests: [{ addSheet: { properties: { title: '조직계정설정' } } }] }
+      });
+      aSheetId = addSheetRes.data.replies?.[0]?.addSheet?.properties?.sheetId;
+    }
+
+    // 헤더 포함
+    const rows = [['구분', '조직명', '아이디', '비밀번호']];
+    members.forEach(m => {
+      rows.push([m.role || '', m.orgName || '', m.username || '', m.password || '']);
+    });
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: sheetId,
+      range: '조직계정설정!A:D'
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: '조직계정설정!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rows }
+    });
+
+    if (aSheetId != null) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [
+            {
+              repeatCell: {
+                range: { sheetId: aSheetId, startRowIndex: 0, endRowIndex: 1 },
+                cell: {
+                  userEnteredFormat: {
+                    backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                    textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                    horizontalAlignment: 'CENTER'
+                  }
+                },
+                fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+              }
+            }
+          ]
+        }
+      });
+    }
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[Members] Save error:", error.message);
+    return handleGoogleError(error, res);
+  }
+});
 
 app.get('/api/sheets/settings/load', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
