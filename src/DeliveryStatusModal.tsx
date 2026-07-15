@@ -91,8 +91,8 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
       // 배송관련 메모 필터: 렌탈1회차출금 대기중
       if (isPendingFirstRental && !item.deliveryMemo?.includes('렌탈1회차출금 대기중')) return false;
 
-      // 상조 미출금(연체 1이상) 필터
-      if (isUnpaidMutualAid && parseInt(item.memo || '0', 10) < 1) return false;
+      // 상조 미출금(최초납입일 U열 값이 '- -') 필터
+      if (isUnpaidMutualAid && String(item.memo || '').trim() !== '- -') return false;
 
       return true;
     }).sort((a, b) => {
