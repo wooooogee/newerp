@@ -115,17 +115,17 @@ async function getAuthenticatedClient(req: express.Request, res?: express.Respon
   if (!tokens && req.cookies.google_tokens) {
     tokens = JSON.parse(req.cookies.google_tokens);
   }
+  // 환경변수에 등록된 리프레시 토큰이 있을 경우 자동 연동용으로 세팅
+  if (!tokens && process.env.GOOGLE_REFRESH_TOKEN) {
+    tokens = {
+      refresh_token: process.env.GOOGLE_REFRESH_TOKEN.trim()
+    };
+  }
   if (!tokens) return null;
   
   const client = getOAuthClient();
   try {
     client.setCredentials(tokens);
-    
-    // If the token is about to expire or expired, and we have a refresh token, 
-    // the library will try to refresh it on the first request.
-    // However, if the client_id/secret changed, this refresh will fail with unauthorized_client.
-    
-    // We can't easily "test" it without making a request, but we can catch errors in the handlers.
     return client;
   } catch (e) {
     if (res && !fs.existsSync(TOKEN_PATH)) res.clearCookie('google_tokens');
@@ -189,21 +189,59 @@ app.get(['/auth/callback', '/auth/callback/'], async (req, res) => {
       maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     });
     
-    res.send(`
+    const refreshToken = tokens.refresh_token;
+    let htmlContent = `
       <html>
+        <head>
+          <title>구글 시트 연동 완료</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc; color: #1e293b; }
+            .card { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); max-w: 500px; width: 100%; border: 1px solid #e2e8f0; text-align: center; }
+            h2 { color: #10b981; font-weight: 800; margin-top: 0; }
+            p { font-size: 14px; color: #64748b; line-height: 1.6; }
+            .token-box { background: #f1f5f9; padding: 12px; border-radius: 12px; font-family: monospace; font-size: 11px; word-break: break-all; margin: 20px 0; border: 1px solid #cbd5e1; text-align: left; max-height: 85px; overflow-y: auto; }
+            .btn { background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+            .btn:hover { background: #2563eb; }
+            .copy-btn { background: #10b981; margin-right: 8px; }
+            .copy-btn:hover { background: #059669; }
+          </style>
+        </head>
         <body>
+          <div class="card">
+            <h2>🎉 구글 시트 연동 성공!</h2>
+            <p>구글 계정 연동에 성공했습니다. 이제 팝업창을 닫아도 됩니다.</p>
+    `;
+    
+    if (refreshToken) {
+      htmlContent += `
+        <div style="border-top: 1px solid #e2e8f0; margin-top: 20px; padding-top: 20px;">
+          <p style="font-weight: bold; color: #475569;">💡 자동 로그인(연동 유지) 설정 가이드</p>
+          <p style="font-size: 12px; text-align: left; color: #64748b;">매번 수동 연동 없이 항상 구글 시트 데이터를 가져오려면, 아래 <b>Refresh Token</b>을 복사하여 Netlify/서버 환경 변수의 <b><code>GOOGLE_REFRESH_TOKEN</code></b> 값으로 등록해 주세요.</p>
+          <div class="token-box" id="tokenText">${refreshToken}</div>
+          <button class="btn copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('tokenText').innerText); alert('토큰이 복사되었습니다! 환경변수 GOOGLE_REFRESH_TOKEN 에 등록하세요.')">토큰 복사하기</button>
+          <button class="btn" onclick="window.close()">닫기</button>
+        </div>
+      `;
+    } else {
+      htmlContent += `
+        <p style="font-size: 12px; color: #94a3b8; margin-top: 20px; line-height: 1.5;">
+          (이미 최초 연동이 완료되어 리프레시 토큰이 생략되었습니다. 만약 환경변수용 리프레시 토큰 재발급이 필요하다면 <a href="https://myaccount.google.com/permissions" target="_blank" style="color: #3b82f6; text-decoration: underline;">구글 계정 권한 설정</a>에서 이 앱의 권한을 해제한 후 다시 연동을 진행해 주세요.)
+        </p>
+        <button class="btn" onclick="window.close()">닫기</button>
+      `;
+    }
+    
+    htmlContent += `
+          </div>
           <script>
             if (window.opener) {
               window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-              window.close();
-            } else {
-              window.location.href = '/';
             }
           </script>
-          <p>Google Sheets Connected! You can close this window.</p>
         </body>
       </html>
-    `);
+    `;
+    res.send(htmlContent);
   } catch (error: any) {
     console.error('Auth callback error:', error);
     const errorMsg = error.response?.data?.error_description || error.message || 'Unknown error';
@@ -226,7 +264,8 @@ app.get(['/auth/callback', '/auth/callback/'], async (req, res) => {
 
 app.get('/api/auth/status', (req, res) => {
   const hasGlobalToken = fs.existsSync(TOKEN_PATH);
-  res.json({ authenticated: hasGlobalToken || !!req.cookies.google_tokens });
+  const hasEnvToken = !!process.env.GOOGLE_REFRESH_TOKEN;
+  res.json({ authenticated: hasGlobalToken || hasEnvToken || !!req.cookies.google_tokens });
 });
 
 app.post('/api/auth/login', async (req, res) => {
