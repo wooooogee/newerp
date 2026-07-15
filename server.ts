@@ -113,7 +113,16 @@ async function getAuthenticatedClient(req: express.Request, res?: express.Respon
     }
   }
   if (!tokens && req.cookies.google_tokens) {
-    tokens = JSON.parse(req.cookies.google_tokens);
+    try {
+      tokens = JSON.parse(req.cookies.google_tokens);
+      // 쿠키에 토큰이 있고 서버 로컬 파일이 없는 경우 복구
+      if (tokens && !fs.existsSync(TOKEN_PATH)) {
+        fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
+        console.log('[Self-Healing] Restored global token file from request cookie.');
+      }
+    } catch (e) {
+      console.error('Failed to parse google_tokens cookie or write token file:', e);
+    }
   }
   // 환경변수에 등록된 리프레시 토큰이 있을 경우 자동 연동용으로 세팅
   if (!tokens && process.env.GOOGLE_REFRESH_TOKEN) {
@@ -182,11 +191,13 @@ app.get(['/auth/callback', '/auth/callback/'], async (req, res) => {
       console.warn('Cannot write to file system (might be serverless environment). Relying on cookies.', fsError);
     }
     
+    const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
     res.cookie('google_tokens', JSON.stringify(tokens), {
       httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+      secure: isSecure,
+      sameSite: isSecure ? 'none' : 'lax',
+      path: '/',
+      maxAge: 10 * 365 * 24 * 60 * 60 * 1000 // 10 years
     });
     
     const refreshToken = tokens.refresh_token;
@@ -287,7 +298,7 @@ app.post('/api/auth/login', async (req, res) => {
       secure: isSecure,
       sameSite: isSecure ? 'none' : 'lax',
       signed: true,
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      path: '/'
     });
     return res.json({ success: true, user: userSession });
   };

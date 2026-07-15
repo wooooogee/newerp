@@ -421,25 +421,41 @@ const ERP_Dashboard = () => {
     resolve: null
   });
 
-  // 앱 시동 시 로그인 상태 확인
+  // 앱 시동 시 모든 인증 상태 (ERP 로그인 + 구글 연동) 순차 확인
   useEffect(() => {
-    const checkAuth = async () => {
+    const initializeAuth = async () => {
       try {
-        const response = await fetch('/api/auth/user');
-        const resData = await response.json();
-        if (response.ok && resData.authenticated) {
-          setCurrentUser(resData.user);
+        const hasSession = sessionStorage.getItem('erp_logged_in') === 'true';
+
+        if (hasSession) {
+          // 1. ERP 로그인 상태 확인
+          const userRes = await fetch('/api/auth/user');
+          const userResData = await userRes.json();
+          if (userRes.ok && userResData.authenticated) {
+            setCurrentUser(userResData.user);
+          } else {
+            setCurrentUser(null);
+            sessionStorage.removeItem('erp_logged_in');
+          }
         } else {
+          // 브라우저 탭/창 종료 후 재접속한 경우 -> 자동 로그인 쿠키 무효화를 위해 로그아웃 호출
+          await fetch('/api/auth/logout', { method: 'POST' });
           setCurrentUser(null);
         }
+
+        // 2. 구글 연동 상태 확인
+        const googleRes = await fetch('/api/auth/status');
+        const googleResData = await googleRes.json();
+        setIsAuthenticated(!!googleResData.authenticated);
       } catch (err) {
-        console.error('Failed to check auth status:', err);
+        console.error('Failed to initialize auth status:', err);
         setCurrentUser(null);
+        setIsAuthenticated(false);
       } finally {
         setIsAuthChecking(false);
       }
     };
-    checkAuth();
+    initializeAuth();
   }, []);
 
   useEffect(() => {
@@ -788,20 +804,7 @@ const ERP_Dashboard = () => {
     localStorage.setItem('erp_hq_settings_v2', JSON.stringify(hqSettings));
   }, [hqSettings]);
 
-  // 구글 연동 상태 체크
-  const checkAuthStatus = async () => {
-    try {
-      const res = await fetch('/api/auth/status');
-      const { authenticated } = await res.json();
-      setIsAuthenticated(authenticated);
-    } catch (error) {
-      console.error('Auth check fail:', error);
-    }
-  };
 
-  useEffect(() => {
-    checkAuthStatus();
-  }, []);
 
   // 구글 연동 팝업
   const handleConnect = async () => {
@@ -3672,7 +3675,10 @@ const ERP_Dashboard = () => {
 
   if (!currentUser) {
     return (
-      <LoginScreen onLoginSuccess={(user) => setCurrentUser(user)} />
+      <LoginScreen onLoginSuccess={(user) => {
+        sessionStorage.setItem('erp_logged_in', 'true');
+        setCurrentUser(user);
+      }} />
     );
   }
 
@@ -3958,6 +3964,7 @@ const ERP_Dashboard = () => {
                 if (await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')) {
                   try {
                     await fetch('/api/auth/logout', { method: 'POST' });
+                    sessionStorage.removeItem('erp_logged_in');
                     setCurrentUser(null);
                   } catch (err) {
                     console.error('Logout error:', err);
