@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { DeliveryStatusModal } from './DeliveryStatusModal';
@@ -366,6 +367,8 @@ export const getDisplayPayDate = (item: any) => {
   return displayPayDate;
 };
 const ERP_Dashboard = () => {
+  const [currentUser, setCurrentUser] = useState<{ username: string; role: string; orgName: string } | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [data, setData] = useState<ERPDataItem[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -415,6 +418,27 @@ const ERP_Dashboard = () => {
     message: '',
     resolve: null
   });
+
+  // 앱 시동 시 로그인 상태 확인
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/auth/user');
+        const resData = await response.json();
+        if (response.ok && resData.authenticated) {
+          setCurrentUser(resData.user);
+        } else {
+          setCurrentUser(null);
+        }
+      } catch (err) {
+        console.error('Failed to check auth status:', err);
+        setCurrentUser(null);
+      } finally {
+        setIsAuthChecking(false);
+      }
+    };
+    checkAuth();
+  }, []);
 
   useEffect(() => {
     (window as any).customConfirm = (message: string, title?: string): Promise<boolean> => {
@@ -1003,7 +1027,18 @@ const ERP_Dashboard = () => {
             raw: new Array(30).fill('보류 데이터')
           },
         ];
-        setData(initialData);
+        
+        let finalData = initialData;
+        if (currentUser && currentUser.role !== 'admin') {
+          const orgNameClean = (currentUser.orgName || '').trim();
+          if (currentUser.role === '본부') {
+            finalData = initialData.filter(item => String(item.hq || '').trim() === orgNameClean);
+          } else if (currentUser.role === '지사' || currentUser.role === '지점') {
+            finalData = initialData.filter(item => String(item.branch || '').trim() === orgNameClean);
+          }
+        }
+
+        setData(finalData);
         setLoading(false);
         return;
       }
@@ -1074,7 +1109,18 @@ const ERP_Dashboard = () => {
           };
         }).filter((item: ERPDataItem) => item.contractDate);
 
-      setData(formatted);
+      // 로그인 권한 필터링 추가
+      let finalData = formatted;
+      if (currentUser && currentUser.role !== 'admin') {
+        const orgNameClean = (currentUser.orgName || '').trim();
+        if (currentUser.role === '본부') {
+          finalData = formatted.filter(item => String(item.hq || '').trim() === orgNameClean);
+        } else if (currentUser.role === '지사' || currentUser.role === '지점') {
+          finalData = formatted.filter(item => String(item.branch || '').trim() === orgNameClean);
+        }
+      }
+
+      setData(finalData);
       setLastUpdate(new Date().toLocaleString('ko-KR', { hour12: false }));
     } catch (error: any) {
       console.error('Load fail:', error);
@@ -1097,11 +1143,13 @@ const ERP_Dashboard = () => {
   }, [notification]);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (currentUser) {
       loadData();
-      loadReconHistory();
+      if (currentUser.role === 'admin' && isAuthenticated) {
+        loadReconHistory();
+      }
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, currentUser]);
 
   // 일괄 업데이트 기능 (지급완료/취소 등)
   const batchUpdateCells = async (updates: { rowIdx: number, colIdx: number, newValue: string }[]) => {
@@ -3556,6 +3604,21 @@ const ERP_Dashboard = () => {
     }
   };
   // =======================================================
+  if (isAuthChecking) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-white gap-4">
+        <div className="animate-spin w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full" />
+        <p className="text-sm font-bold tracking-widest text-slate-500 uppercase">인증 세션 확인 중...</p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <LoginScreen onLoginSuccess={(user) => setCurrentUser(user)} />
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-[#f1f5f9] font-sans selection:bg-blue-100 overflow-hidden relative">
       <AnimatePresence>
@@ -3694,27 +3757,33 @@ const ERP_Dashboard = () => {
             </div>
           </section>
 
-          <section>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">본부 및 정산 관리</p>
+          {currentUser?.role === 'admin' && (
+            <section>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">본부 및 정산 관리</p>
+              <div className="grid gap-2">
+                <motion.button
+                  onClick={handleOpenSettings}
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  className="flex items-center justify-center gap-2.5 bg-slate-800 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-slate-900"
+                >
+                  <Save size={16} /> 本部별 정산 설정
+                </motion.button>
+
+                <motion.button
+                  onClick={() => setIsManualSettlementModalOpen(true)}
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  className="flex items-center justify-center gap-2.5 bg-purple-600 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-purple-700"
+                >
+                  <Calculator size={16} /> 수동 수수료 정산
+                </motion.button>
+              </div>
+            </section>
+          )}
+
+          <section className={currentUser?.role === 'admin' ? 'mt-4' : ''}>
             <div className="grid gap-2">
-              <motion.button
-                onClick={handleOpenSettings}
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.99 }}
-                className="flex items-center justify-center gap-2.5 bg-slate-800 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-slate-900"
-              >
-                <Save size={16} /> 본부별 정산 설정
-              </motion.button>
-
-              <motion.button
-                onClick={() => setIsManualSettlementModalOpen(true)}
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.99 }}
-                className="flex items-center justify-center gap-2.5 bg-purple-600 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-purple-700"
-              >
-                <Calculator size={16} /> 수동 수수료 정산
-              </motion.button>
-
               <motion.button
                 onClick={loadData}
                 whileHover={{ backgroundColor: '#f8fafc' }}
@@ -3727,29 +3796,31 @@ const ERP_Dashboard = () => {
             </div>
           </section>
 
-          <section>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">정산 및 리포트</p>
-            <div className="grid gap-2">
-              <nav className="flex flex-col gap-1">
-                {[
-                  { dot: 'bg-blue-600', label: '월별 실적 대시보드', action: () => setIsMonthlyDashboardModalOpen(true) },
-                  { dot: 'bg-emerald-500', label: '유지수수료 현황 조회', action: () => { setMaintenanceTab('eligible'); setIsMaintenanceStatusModalOpen(true); } },
-                  { dot: 'bg-indigo-500', label: '유지수수료 지급 관리', action: () => setIsMaintenanceHistoryModalOpen(true) },
-                  { dot: 'bg-orange-500', label: '유통사 대사 작업', action: () => { setIsReconciliationModalOpen(true); if (reconHistoryDates.length === 0) loadReconHistory(); } },
-                ].map((item, idx) => (
-                  <motion.button
-                    key={idx}
-                    onClick={item.action}
-                    whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                    className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
-                  >
-                    <span className={`w-2 h-2 rounded-full ${item.dot}`} />
-                    <span className="font-medium">{item.label}</span>
-                  </motion.button>
-                ))}
-              </nav>
-            </div>
-          </section>
+          {currentUser?.role === 'admin' && (
+            <section className="mt-4">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">정산 및 리포트</p>
+              <div className="grid gap-2">
+                <nav className="flex flex-col gap-1">
+                  {[
+                    { dot: 'bg-blue-600', label: '월별 실적 대시보드', action: () => setIsMonthlyDashboardModalOpen(true) },
+                    { dot: 'bg-emerald-500', label: '유지수수료 현황 조회', action: () => { setMaintenanceTab('eligible'); setIsMaintenanceStatusModalOpen(true); } },
+                    { dot: 'bg-indigo-500', label: '유지수수료 지급 관리', action: () => setIsMaintenanceHistoryModalOpen(true) },
+                    { dot: 'bg-orange-500', label: '유통사 대사 작업', action: () => { setIsReconciliationModalOpen(true); if (reconHistoryDates.length === 0) loadReconHistory(); } },
+                  ].map((item, idx) => (
+                    <motion.button
+                      key={idx}
+                      onClick={item.action}
+                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                    >
+                      <span className={`w-2 h-2 rounded-full ${item.dot}`} />
+                      <span className="font-medium">{item.label}</span>
+                    </motion.button>
+                  ))}
+                </nav>
+              </div>
+            </section>
+          )}
 
           <section className="mt-4">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">배송 관리</p>
@@ -3815,9 +3886,26 @@ const ERP_Dashboard = () => {
             </div>
           </section>
 
-          <div className="mt-auto pt-4 border-t border-slate-100 text-[11px] text-slate-400 leading-relaxed">
-            운영자: 관리자 (Admin)<br />
-            IP: 192.168.0.104
+          <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-2">
+            <div className="text-[11px] text-slate-500 leading-relaxed font-semibold">
+              접속자: <span className="text-slate-800">{currentUser?.orgName}</span> ({currentUser?.role})
+            </div>
+            <button
+              onClick={async () => {
+                if (await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')) {
+                  try {
+                    await fetch('/api/auth/logout', { method: 'POST' });
+                    setCurrentUser(null);
+                  } catch (err) {
+                    console.error('Logout error:', err);
+                  }
+                }
+              }}
+              className="w-full py-2 bg-slate-50 hover:bg-rose-50 hover:text-rose-600 rounded-lg text-slate-600 text-[11px] font-bold transition-all border border-slate-200 hover:border-rose-100 flex items-center justify-center gap-1.5"
+            >
+              <Lock size={12} />
+              로그아웃
+            </button>
           </div>
         </motion.aside>
 
@@ -3833,15 +3921,17 @@ const ERP_Dashboard = () => {
                   </span>
                 )}
               </h2>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleOpenSettings}
-                  className="p-2 bg-slate-200 text-slate-600 rounded-full hover:bg-slate-300 transition-colors shadow-sm"
-                  title="정산 마스터 설정"
-                >
-                  <Settings size={20} />
-                </button>
-              </div>
+              {currentUser?.role === 'admin' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleOpenSettings}
+                    className="p-2 bg-slate-200 text-slate-600 rounded-full hover:bg-slate-300 transition-colors shadow-sm"
+                    title="정산 마스터 설정"
+                  >
+                    <Settings size={20} />
+                  </button>
+                </div>
+              )}
             </div>
 
                         {/* 구좌 현황 대시보드 (수수료 대시보드 위) */}
@@ -4004,7 +4094,7 @@ const ERP_Dashboard = () => {
 
 
             {/* 정산 요약 대시보드 */}
-            {(payDateFilter || filteredData.length > 0) && (
+            {currentUser?.role === 'admin' && (payDateFilter || filteredData.length > 0) && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -4339,15 +4429,21 @@ const ERP_Dashboard = () => {
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원명</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">상품명</th>
-                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700 leading-tight whitespace-nowrap">
-                      전체수수료<br/>
-                      <span className="text-[10px] text-slate-400 font-normal">(본부설정기준)</span>
-                    </th>
+                    {currentUser?.role === 'admin' && (
+                      <th className="px-3 py-3 font-bold text-center border-r border-slate-700 leading-tight whitespace-nowrap">
+                        전체수수료<br/>
+                        <span className="text-[10px] text-slate-400 font-normal">(본부설정기준)</span>
+                      </th>
+                    )}
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">렌탈번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송현황</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송일자</th>
-                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700 text-blue-300">지급일자</th>
-                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700">지급상태</th>
+                    {currentUser?.role === 'admin' && (
+                      <>
+                        <th className="px-3 py-3 font-bold text-center border-r border-slate-700 text-blue-300">지급일자</th>
+                        <th className="px-3 py-3 font-bold text-center border-r border-slate-700">지급상태</th>
+                      </>
+                    )}
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700 w-[110px]">본부명</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700 w-[110px]">지사명</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">사원명</th>
@@ -4386,7 +4482,9 @@ const ERP_Dashboard = () => {
                           <td className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold">{item.memNo}</td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-black text-slate-900">{item.memName}</td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-bold text-slate-600 truncate max-w-[150px]" title={item.prodName}>{item.prodName}</td>
-                          <td className="px-3 py-3.5 border-r border-slate-50 text-right font-black text-slate-700 bg-amber-50/10 whitespace-nowrap">{Math.floor(totalCommission).toLocaleString()}원</td>
+                          {currentUser?.role === 'admin' && (
+                            <td className="px-3 py-3.5 border-r border-slate-50 text-right font-black text-slate-700 bg-amber-50/10 whitespace-nowrap">{Math.floor(totalCommission).toLocaleString()}원</td>
+                          )}
                           <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-500">{item.rentalNo}</td>
                         <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
                           <span className={`px-2 py-1 rounded-md text-[10px] font-black border ${item.deliveryStatus.includes('완료') ? 'bg-blue-50 text-blue-600 border-blue-100' :
@@ -4396,17 +4494,21 @@ const ERP_Dashboard = () => {
                           </span>
                         </td>
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-400 whitespace-nowrap">{item.deliveryDate || '-'}</td>
-                        <td className="px-3 py-3.5 border-r border-slate-50 text-center font-black text-indigo-600 bg-indigo-50/20 whitespace-nowrap">
-                          {item.payDate || '-'}
-                        </td>
-                        <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded text-[10px] font-black ${(item.paymentStatus === '지급완료' || item.hc.includes('지급완료'))
-                            ? 'bg-emerald-500 text-white'
-                            : 'bg-slate-100 text-slate-400'
-                            }`}>
-                            {(item.paymentStatus === '지급완료' || item.hc.includes('지급완료')) ? '지급완료' : '지급예정'}
-                          </span>
-                        </td>
+                        {currentUser?.role === 'admin' && (
+                          <>
+                            <td className="px-3 py-3.5 border-r border-slate-50 text-center font-black text-indigo-600 bg-indigo-50/20 whitespace-nowrap">
+                              {item.payDate || '-'}
+                            </td>
+                            <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
+                              <span className={`px-2 py-1 rounded text-[10px] font-black ${(item.paymentStatus === '지급완료' || item.hc.includes('지급완료'))
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-slate-100 text-slate-400'
+                                }`}>
+                                {(item.paymentStatus === '지급완료' || item.hc.includes('지급완료')) ? '지급완료' : '지급예정'}
+                              </span>
+                            </td>
+                          </>
+                        )}
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-600 truncate max-w-[100px]">{item.hq}</td>
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-600 truncate max-w-[100px]">{item.branch}</td>
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-400 whitespace-nowrap">{item.empName}</td>
@@ -4601,79 +4703,81 @@ const ERP_Dashboard = () => {
                   </section>
 
                   {/* 수수료정보 및 메모 */}
-                  <section>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <div className="w-1 h-3 bg-orange-500 rounded-full" />
-                      수수료 정보 및 메모
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex flex-col gap-1">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase">수수료지급일자</div>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            defaultValue={selectedItem.payDate}
-                            id="editPayDate"
-                            className="flex-1 text-[13px] font-bold bg-white border border-slate-200 px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
-                          />
-                          <button
-                            onClick={() => {
-                              const val = (document.getElementById('editPayDate') as HTMLInputElement).value;
-                              updateCell(selectedItem.originalRowIdx, 14, val);
-                            }}
-                            className="p-1 px-2 bg-blue-600 text-white text-[10px] font-bold rounded"
-                          >
-                            저장
-                          </button>
+                  {currentUser?.role === 'admin' && (
+                    <section>
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <div className="w-1 h-3 bg-orange-500 rounded-full" />
+                        수수료 정보 및 메모
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex flex-col gap-1">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase">수수료지급일자</div>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              defaultValue={selectedItem.payDate}
+                              id="editPayDate"
+                              className="flex-1 text-[13px] font-bold bg-white border border-slate-200 px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            />
+                            <button
+                              onClick={() => {
+                                const val = (document.getElementById('editPayDate') as HTMLInputElement).value;
+                                updateCell(selectedItem.originalRowIdx, 14, val);
+                              }}
+                              className="p-1 px-2 bg-blue-600 text-white text-[10px] font-bold rounded"
+                            >
+                              저장
+                            </button>
+                          </div>
+                        </div>
+                        <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex flex-col gap-1">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase">지급상태</div>
+                          <div className="flex gap-2">
+                            <select
+                              defaultValue={selectedItem.paymentStatus}
+                              id="editPaymentStatus"
+                              className="flex-1 text-[13px] font-bold bg-white border border-slate-200 px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            >
+                              <option value="">지급 예정</option>
+                              <option value="지급완료">지급 완료</option>
+                            </select>
+                            <button
+                              onClick={() => {
+                                const val = (document.getElementById('editPaymentStatus') as HTMLSelectElement).value;
+                                updateCell(selectedItem.originalRowIdx, 19, val);
+                              }}
+                              className="p-1 px-2 bg-emerald-600 text-white text-[10px] font-bold rounded"
+                            >
+                              저장
+                            </button>
+                          </div>
+                        </div>
+                        <div className="col-span-2 p-3 bg-yellow-50 border border-yellow-100 rounded-lg flex flex-col gap-1">
+                          <div className="text-[10px] font-bold text-yellow-600 uppercase tracking-tight flex items-center gap-1.5">
+                            <FileText size={10} /> 정산 및 지급 관련 메모
+                          </div>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              defaultValue={selectedItem.memo}
+                              id="editMemo"
+                              placeholder="메모를 입력하세요..."
+                              className="flex-1 text-[13px] font-medium bg-white border border-yellow-200 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-yellow-200"
+                            />
+                            <button
+                              onClick={() => {
+                                const val = (document.getElementById('editMemo') as HTMLInputElement).value;
+                                updateCell(selectedItem.originalRowIdx, 20, val);
+                              }}
+                              className="px-4 bg-yellow-500 text-white text-[12px] font-bold rounded-lg shadow-sm hover:bg-yellow-600 transition-colors"
+                            >
+                              메모 저장
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex flex-col gap-1">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase">지급상태</div>
-                        <div className="flex gap-2">
-                          <select
-                            defaultValue={selectedItem.paymentStatus}
-                            id="editPaymentStatus"
-                            className="flex-1 text-[13px] font-bold bg-white border border-slate-200 px-2 py-1 rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
-                          >
-                            <option value="">지급 예정</option>
-                            <option value="지급완료">지급 완료</option>
-                          </select>
-                          <button
-                            onClick={() => {
-                              const val = (document.getElementById('editPaymentStatus') as HTMLSelectElement).value;
-                              updateCell(selectedItem.originalRowIdx, 19, val);
-                            }}
-                            className="p-1 px-2 bg-emerald-600 text-white text-[10px] font-bold rounded"
-                          >
-                            저장
-                          </button>
-                        </div>
-                      </div>
-                      <div className="col-span-2 p-3 bg-yellow-50 border border-yellow-100 rounded-lg flex flex-col gap-1">
-                        <div className="text-[10px] font-bold text-yellow-600 uppercase tracking-tight flex items-center gap-1.5">
-                          <FileText size={10} /> 정산 및 지급 관련 메모
-                        </div>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            defaultValue={selectedItem.memo}
-                            id="editMemo"
-                            placeholder="메모를 입력하세요..."
-                            className="flex-1 text-[13px] font-medium bg-white border border-yellow-200 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-yellow-200"
-                          />
-                          <button
-                            onClick={() => {
-                              const val = (document.getElementById('editMemo') as HTMLInputElement).value;
-                              updateCell(selectedItem.originalRowIdx, 20, val);
-                            }}
-                            className="px-4 bg-yellow-500 text-white text-[12px] font-bold rounded-lg shadow-sm hover:bg-yellow-600 transition-colors"
-                          >
-                            메모 저장
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </section>
+                    </section>
+                  )}
 
                   {/* 영업자정보 */}
                   <section>
