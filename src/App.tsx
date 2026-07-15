@@ -4218,56 +4218,60 @@ const ERP_Dashboard = () => {
                                 <button onClick={() => setIsExportDropdownOpen(false)} className="hover:text-slate-600"><X size={10} /></button>
                               </div>
                               <div className="max-h-60 overflow-y-auto">
-                                <button
-                                  onClick={() => {
-                                    setPreviewTarget('ALL');
-                                    setIsExportDropdownOpen(false);
-                                  }}
-                                  className="w-full text-left px-4 py-2 hover:bg-blue-50 text-[12px] font-black text-blue-700 border-b border-slate-50 flex justify-between items-center bg-blue-50/20"
-                                >
-                                  <span>전사 통합 정산 보고서 미리보기</span>
-                                  <FileText size={12} />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    exportIntegratedSettlement();
-                                    setIsExportDropdownOpen(false);
-                                  }}
-                                  className="w-full text-left px-4 py-2 hover:bg-emerald-50 text-[12px] font-black text-emerald-700 border-b border-slate-50 flex justify-between items-center bg-emerald-50/20"
-                                >
-                                  <span>전사 통합 정산 보고서 (Excel)</span>
-                                  <Download size={12} />
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    setIsExportDropdownOpen(false);
-                                    const specialAdditions: Record<string, number> = {};
-                                    Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
-                                      if ((amt as number) > 0) specialAdditions[name] = amt as number;
-                                    });
-                                    const combinedHqs = Array.from(new Set([
-                                      ...Object.keys(settlementStats.hqGroups), 
-                                      ...Object.keys(specialAdditions),
-                                      ...maintenancePayouts.map(m => m.hq)
-                                    ]));
-                                    
-                                    for (let i = 0; i < combinedHqs.length; i++) {
-                                      const hq = combinedHqs[i];
-                                      const items = settlementStats.hqGroups[hq] || [];
-                                      const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hq);
-                                      const specialSum = specialAdditions[hq] || 0;
-                                      
-                                      if (items.length > 0 || hqMaintenancePayouts.length > 0 || specialSum > 0) {
-                                        await exportProfessionalSettlement(hq);
-                                        await new Promise(resolve => setTimeout(resolve, 300));
-                                      }
-                                    }
-                                  }}
-                                  className="w-full text-left px-4 py-2 hover:bg-teal-50 text-[12px] font-black text-teal-700 border-b border-slate-50 flex justify-between items-center bg-teal-50/20"
-                                >
-                                  <span>본부별 정산서 일괄 다운로드 (Excel)</span>
-                                  <Download size={12} />
-                                </button>
+                                {isSuperAdmin && (
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        setPreviewTarget('ALL');
+                                        setIsExportDropdownOpen(false);
+                                      }}
+                                      className="w-full text-left px-4 py-2 hover:bg-blue-50 text-[12px] font-black text-blue-700 border-b border-slate-50 flex justify-between items-center bg-blue-50/20"
+                                    >
+                                      <span>전사 통합 정산 보고서 미리보기</span>
+                                      <FileText size={12} />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        exportIntegratedSettlement();
+                                        setIsExportDropdownOpen(false);
+                                      }}
+                                      className="w-full text-left px-4 py-2 hover:bg-emerald-50 text-[12px] font-black text-emerald-700 border-b border-slate-50 flex justify-between items-center bg-emerald-50/20"
+                                    >
+                                      <span>전사 통합 정산 보고서 (Excel)</span>
+                                      <Download size={12} />
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        setIsExportDropdownOpen(false);
+                                        const specialAdditions: Record<string, number> = {};
+                                        Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
+                                          if ((amt as number) > 0) specialAdditions[name] = amt as number;
+                                        });
+                                        const combinedHqs = Array.from(new Set([
+                                          ...Object.keys(settlementStats.hqGroups), 
+                                          ...Object.keys(specialAdditions),
+                                          ...maintenancePayouts.map(m => m.hq)
+                                        ]));
+                                        
+                                        for (let i = 0; i < combinedHqs.length; i++) {
+                                          const hq = combinedHqs[i];
+                                          const items = settlementStats.hqGroups[hq] || [];
+                                          const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hq);
+                                          const specialSum = specialAdditions[hq] || 0;
+                                          
+                                          if (items.length > 0 || hqMaintenancePayouts.length > 0 || specialSum > 0) {
+                                            await exportProfessionalSettlement(hq);
+                                            await new Promise(resolve => setTimeout(resolve, 300));
+                                          }
+                                        }
+                                      }}
+                                      className="w-full text-left px-4 py-2 hover:bg-teal-50 text-[12px] font-black text-teal-700 border-b border-slate-50 flex justify-between items-center bg-teal-50/20"
+                                    >
+                                      <span>본부별 정산서 일괄 다운로드 (Excel)</span>
+                                      <Download size={12} />
+                                    </button>
+                                  </>
+                                )}
                                 {Object.keys(settlementStats.hqGroups).map(hq => (
                                   <div key={hq} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 flex items-center pr-3 group">
                                     <button
