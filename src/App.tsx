@@ -369,6 +369,7 @@ export const getDisplayPayDate = (item: any) => {
 const ERP_Dashboard = () => {
   const [currentUser, setCurrentUser] = useState<{ username: string; role: string; orgName: string } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === '관리자';
   const [data, setData] = useState<ERPDataItem[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1029,7 +1030,7 @@ const ERP_Dashboard = () => {
         ];
         
         let finalData = initialData;
-        if (currentUser && currentUser.role !== 'admin') {
+        if (currentUser && !isAdmin) {
           const orgNameClean = (currentUser.orgName || '').trim();
           if (currentUser.role === '본부') {
             finalData = initialData.filter(item => String(item.hq || '').trim() === orgNameClean);
@@ -1111,7 +1112,7 @@ const ERP_Dashboard = () => {
 
       // 로그인 권한 필터링 추가
       let finalData = formatted;
-      if (currentUser && currentUser.role !== 'admin') {
+      if (currentUser && !isAdmin) {
         const orgNameClean = (currentUser.orgName || '').trim();
         if (currentUser.role === '본부') {
           finalData = formatted.filter(item => String(item.hq || '').trim() === orgNameClean);
@@ -1145,7 +1146,7 @@ const ERP_Dashboard = () => {
   useEffect(() => {
     if (currentUser) {
       loadData();
-      if (currentUser.role === 'admin' && isAuthenticated) {
+      if (isAdmin && isAuthenticated) {
         loadReconHistory();
       }
     }
@@ -3757,7 +3758,7 @@ const ERP_Dashboard = () => {
             </div>
           </section>
 
-          {currentUser?.role === 'admin' && (
+          {isAdmin && (
             <section>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">본부 및 정산 관리</p>
               <div className="grid gap-2">
@@ -3782,7 +3783,7 @@ const ERP_Dashboard = () => {
             </section>
           )}
 
-          <section className={currentUser?.role === 'admin' ? 'mt-4' : ''}>
+          <section className={isAdmin ? 'mt-4' : ''}>
             <div className="grid gap-2">
               <motion.button
                 onClick={loadData}
@@ -3796,7 +3797,7 @@ const ERP_Dashboard = () => {
             </div>
           </section>
 
-          {currentUser?.role === 'admin' && (
+          {isAdmin && (
             <section className="mt-4">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">정산 및 리포트</p>
               <div className="grid gap-2">
@@ -3921,7 +3922,7 @@ const ERP_Dashboard = () => {
                   </span>
                 )}
               </h2>
-              {currentUser?.role === 'admin' && (
+              {isAdmin && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleOpenSettings}
@@ -4094,7 +4095,7 @@ const ERP_Dashboard = () => {
 
 
             {/* 정산 요약 대시보드 */}
-            {currentUser?.role === 'admin' && (payDateFilter || filteredData.length > 0) && (
+            {isAdmin && (payDateFilter || filteredData.length > 0) && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -4429,7 +4430,7 @@ const ERP_Dashboard = () => {
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원명</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">상품명</th>
-                    {currentUser?.role === 'admin' && (
+                    {isAdmin && (
                       <th className="px-3 py-3 font-bold text-center border-r border-slate-700 leading-tight whitespace-nowrap">
                         전체수수료<br/>
                         <span className="text-[10px] text-slate-400 font-normal">(본부설정기준)</span>
@@ -4438,7 +4439,7 @@ const ERP_Dashboard = () => {
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">렌탈번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송현황</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송일자</th>
-                    {currentUser?.role === 'admin' && (
+                    {isAdmin && (
                       <>
                         <th className="px-3 py-3 font-bold text-center border-r border-slate-700 text-blue-300">지급일자</th>
                         <th className="px-3 py-3 font-bold text-center border-r border-slate-700">지급상태</th>
@@ -4482,7 +4483,7 @@ const ERP_Dashboard = () => {
                           <td className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold">{item.memNo}</td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-black text-slate-900">{item.memName}</td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-bold text-slate-600 truncate max-w-[150px]" title={item.prodName}>{item.prodName}</td>
-                          {currentUser?.role === 'admin' && (
+                          {isAdmin && (
                             <td className="px-3 py-3.5 border-r border-slate-50 text-right font-black text-slate-700 bg-amber-50/10 whitespace-nowrap">{Math.floor(totalCommission).toLocaleString()}원</td>
                           )}
                           <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-500">{item.rentalNo}</td>
@@ -4494,7 +4495,7 @@ const ERP_Dashboard = () => {
                           </span>
                         </td>
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-400 whitespace-nowrap">{item.deliveryDate || '-'}</td>
-                        {currentUser?.role === 'admin' && (
+                        {isAdmin && (
                           <>
                             <td className="px-3 py-3.5 border-r border-slate-50 text-center font-black text-indigo-600 bg-indigo-50/20 whitespace-nowrap">
                               {item.payDate || '-'}
@@ -4703,7 +4704,7 @@ const ERP_Dashboard = () => {
                   </section>
 
                   {/* 수수료정보 및 메모 */}
-                  {currentUser?.role === 'admin' && (
+                  {isAdmin && (
                     <section>
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                         <div className="w-1 h-3 bg-orange-500 rounded-full" />
