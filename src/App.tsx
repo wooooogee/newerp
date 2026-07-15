@@ -369,7 +369,8 @@ export const getDisplayPayDate = (item: any) => {
 const ERP_Dashboard = () => {
   const [currentUser, setCurrentUser] = useState<{ username: string; role: string; orgName: string } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === '관리자';
+  const isSuperAdmin = currentUser?.role === 'admin' || currentUser?.role === '관리자';
+  const isAdmin = isSuperAdmin || currentUser?.role === '총무';
   const [data, setData] = useState<ERPDataItem[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -495,6 +496,7 @@ const ERP_Dashboard = () => {
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
   const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('구좌수');
+  const [tableDisplayMode, setTableDisplayMode] = useState<'구좌수' | '상품개수'>('구좌수');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [pendingExportDate, setPendingExportDate] = useState<string | null>(null);
@@ -1030,9 +1032,9 @@ const ERP_Dashboard = () => {
         ];
         
         let finalData = initialData;
-        if (currentUser && !isAdmin) {
+        if (currentUser && !isSuperAdmin) {
           const orgNameClean = (currentUser.orgName || '').trim();
-          if (currentUser.role === '본부') {
+          if (currentUser.role === '본부' || currentUser.role === '총무') {
             finalData = initialData.filter(item => String(item.hq || '').trim() === orgNameClean);
           } else if (currentUser.role === '지사' || currentUser.role === '지점') {
             finalData = initialData.filter(item => String(item.branch || '').trim() === orgNameClean);
@@ -1112,9 +1114,9 @@ const ERP_Dashboard = () => {
 
       // 로그인 권한 필터링 추가
       let finalData = formatted;
-      if (currentUser && !isAdmin) {
+      if (currentUser && !isSuperAdmin) {
         const orgNameClean = (currentUser.orgName || '').trim();
-        if (currentUser.role === '본부') {
+        if (currentUser.role === '본부' || currentUser.role === '총무') {
           finalData = formatted.filter(item => String(item.hq || '').trim() === orgNameClean);
         } else if (currentUser.role === '지사' || currentUser.role === '지점') {
           finalData = formatted.filter(item => String(item.branch || '').trim() === orgNameClean);
@@ -1146,7 +1148,7 @@ const ERP_Dashboard = () => {
   useEffect(() => {
     if (currentUser) {
       loadData();
-      if (isAdmin && isAuthenticated) {
+      if (isSuperAdmin && isAuthenticated) {
         loadReconHistory();
       }
     }
@@ -1575,9 +1577,18 @@ const ERP_Dashboard = () => {
         return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
       });
 
-    // 필터 변경 시 페이지 리셋
+    if (tableDisplayMode === '상품개수') {
+      const seen = new Set<string>();
+      return result.filter(item => {
+        if (!item.rentalNo) return true;
+        if (seen.has(item.rentalNo)) return false;
+        seen.add(item.rentalNo);
+        return true;
+      });
+    }
+
     return result;
-  }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, payDateFilter, paymentStatusFilter, sortOrder]);
+  }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, payDateFilter, paymentStatusFilter, sortOrder, tableDisplayMode]);
 
   // 필터 변경 시 페이지 리셋
   React.useEffect(() => {
@@ -3386,9 +3397,9 @@ const ERP_Dashboard = () => {
   );
 
   const uniqueBranches = React.useMemo(() => {
-    const filteredByHq = hqFilter === '전체'
+    const filteredByHq = hqFilter.length === 0 || hqFilter.includes('전체')
       ? data
-      : data.filter(item => item.hq === hqFilter);
+      : data.filter(item => hqFilter.includes(item.hq));
     return ['전체', ...Array.from(new Set(filteredByHq.map(item => item.branch).filter(Boolean)))];
   }, [data, hqFilter]);
 
@@ -3690,6 +3701,7 @@ const ERP_Dashboard = () => {
           animate={{ x: 0, opacity: 1 }}
           className="w-[240px] bg-white border-r border-slate-200 p-5 flex flex-col gap-6 shadow-sm z-40 shrink-0 overflow-y-auto"
         >
+          {isSuperAdmin && (
           <section>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Google Integration</p>
             <div className="grid gap-2">
@@ -3757,8 +3769,9 @@ const ERP_Dashboard = () => {
               )}
             </div>
           </section>
+          )}
 
-          {isAdmin && (
+          {isSuperAdmin && (
             <section>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">본부 및 정산 관리</p>
               <div className="grid gap-2">
@@ -3797,7 +3810,7 @@ const ERP_Dashboard = () => {
             </div>
           </section>
 
-          {isAdmin && (
+          {isSuperAdmin && (
             <section className="mt-4">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">정산 및 리포트</p>
               <div className="grid gap-2">
@@ -3847,45 +3860,49 @@ const ERP_Dashboard = () => {
             </div>
           </section>
 
-          <section className="mt-4">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">증서 관리</p>
-            <div className="grid gap-2">
-              <nav className="flex flex-col gap-1">
-                <motion.button
-                  onClick={() => setIsCertificateDispatchModalOpen(true)}
-                  whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
-                >
-                  <span className={`w-2 h-2 rounded-full bg-teal-500`} />
-                  <span className="font-medium">증서발송대장</span>
-                </motion.button>
-                <motion.button
-                  onClick={() => setIsCertificateDispatchHistoryModalOpen(true)}
-                  whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
-                >
-                  <span className={`w-2 h-2 rounded-full bg-emerald-500`} />
-                  <span className="font-medium">증서발송이력</span>
-                </motion.button>
-              </nav>
-            </div>
-          </section>
+          {isSuperAdmin && (
+            <>
+              <section className="mt-4">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">증서 관리</p>
+                <div className="grid gap-2">
+                  <nav className="flex flex-col gap-1">
+                    <motion.button
+                      onClick={() => setIsCertificateDispatchModalOpen(true)}
+                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                    >
+                      <span className={`w-2 h-2 rounded-full bg-teal-500`} />
+                      <span className="font-medium">증서발송대장</span>
+                    </motion.button>
+                    <motion.button
+                      onClick={() => setIsCertificateDispatchHistoryModalOpen(true)}
+                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                    >
+                      <span className={`w-2 h-2 rounded-full bg-emerald-500`} />
+                      <span className="font-medium">증서발송이력</span>
+                    </motion.button>
+                  </nav>
+                </div>
+              </section>
 
-          <section className="mt-4">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">헬스케어</p>
-            <div className="grid gap-2">
-              <nav className="flex flex-col gap-1">
-                <motion.button
-                  onClick={() => setIsHealthcareCalendarModalOpen(true)}
-                  whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
-                >
-                  <span className={`w-2 h-2 rounded-full bg-pink-500`} />
-                  <span className="font-medium">헬스케어 명단</span>
-                </motion.button>
-              </nav>
-            </div>
-          </section>
+              <section className="mt-4">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">헬스케어</p>
+                <div className="grid gap-2">
+                  <nav className="flex flex-col gap-1">
+                    <motion.button
+                      onClick={() => setIsHealthcareCalendarModalOpen(true)}
+                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                    >
+                      <span className={`w-2 h-2 rounded-full bg-pink-500`} />
+                      <span className="font-medium">헬스케어 명단</span>
+                    </motion.button>
+                  </nav>
+                </div>
+              </section>
+            </>
+          )}
 
           <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-2">
             <div className="text-[11px] text-slate-500 leading-relaxed font-semibold">
@@ -3969,6 +3986,7 @@ const ERP_Dashboard = () => {
               {(() => {
                 const prodCounts = new Map<string, number>();
                 const hqCounts = new Map<string, number>();
+                const branchCounts = new Map<string, number>();
                 let totalContracts = 0;
                 let cancelCount = 0;
                 let deliveryCompleteCount = 0;
@@ -4014,12 +4032,15 @@ const ERP_Dashboard = () => {
                       prodCounts.set(prod, (prodCounts.get(prod) || 0) + 1);
                       const hq = d.hq || '미지정';
                       hqCounts.set(hq, (hqCounts.get(hq) || 0) + 1);
+                      const branch = d.branch || '미지정';
+                      branchCounts.set(branch, (branchCounts.get(branch) || 0) + 1);
                     }
                   }
                 });
 
                 const sortedProds = Array.from(prodCounts.entries()).sort((a, b) => b[1] - a[1]);
                 const sortedHqs = Array.from(hqCounts.entries()).sort((a, b) => b[1] - a[1]);
+                const sortedBranches = Array.from(branchCounts.entries()).sort((a, b) => b[1] - a[1]);
                 const countUnit = topDashboardMode === '구좌수' ? '구좌' : '개';
 
                 return (
@@ -4043,22 +4064,44 @@ const ERP_Dashboard = () => {
                       </div>
                     </div>
 
-                    {/* 본부별 계약건수 */}
-                    <div className="flex flex-col">
-                      <div className="flex items-center justify-between mb-3 text-sm font-bold text-slate-700 bg-emerald-50 px-3 py-2 rounded-lg">
-                        <span className="flex items-center gap-1.5"><Building size={14} className="text-emerald-500" /> 본부별 {topDashboardMode === '구좌수' ? '계약건수' : '수량'}</span>
-                        <span className="text-emerald-600">총 {totalContracts.toLocaleString()}{countUnit}</span>
-                      </div>
-                      <div className="space-y-2 overflow-y-auto max-h-48 pr-2 custom-scrollbar">
-                        {sortedHqs.length > 0 ? sortedHqs.map(([h, count], idx) => (
-                          <div key={h} className="flex justify-between items-center text-xs">
-                            <div className="flex items-center gap-1.5 overflow-hidden">
-                              <span className="text-[10px] font-black text-slate-400 w-4">{idx + 1}</span>
-                              <span className="font-medium text-slate-600 truncate" title={h}>{h}</span>
+                    {/* 본부/지사별 계약건수 */}
+                    <div className="flex flex-col gap-4">
+                      {/* 본부별 계약건수 */}
+                      <div className="flex flex-col">
+                        <div className="flex items-center justify-between mb-3 text-sm font-bold text-slate-700 bg-emerald-50 px-3 py-2 rounded-lg">
+                          <span className="flex items-center gap-1.5"><Building size={14} className="text-emerald-500" /> 본부별 {topDashboardMode === '구좌수' ? '계약건수' : '수량'}</span>
+                          <span className="text-emerald-600">총 {totalContracts.toLocaleString()}{countUnit}</span>
+                        </div>
+                        <div className="space-y-2 overflow-y-auto max-h-48 pr-2 custom-scrollbar">
+                          {sortedHqs.length > 0 ? sortedHqs.map(([h, count], idx) => (
+                            <div key={h} className="flex justify-between items-center text-xs">
+                              <div className="flex items-center gap-1.5 overflow-hidden">
+                                <span className="text-[10px] font-black text-slate-400 w-4">{idx + 1}</span>
+                                <span className="font-medium text-slate-600 truncate" title={h}>{h}</span>
+                              </div>
+                              <span className="font-bold text-slate-800 shrink-0">{count.toLocaleString()}{countUnit}</span>
                             </div>
-                            <span className="font-bold text-slate-800 shrink-0">{count.toLocaleString()}{countUnit}</span>
-                          </div>
-                        )) : <div className="text-xs text-slate-400 text-center py-4">해당 월 데이터가 없습니다.</div>}
+                          )) : <div className="text-xs text-slate-400 text-center py-4">해당 월 데이터가 없습니다.</div>}
+                        </div>
+                      </div>
+
+                      {/* 지사별 계약건수 */}
+                      <div className="flex flex-col">
+                        <div className="flex items-center justify-between mb-3 text-sm font-bold text-slate-700 bg-teal-50 px-3 py-2 rounded-lg">
+                          <span className="flex items-center gap-1.5"><Building size={14} className="text-teal-500" /> 지사별 {topDashboardMode === '구좌수' ? '계약건수' : '수량'}</span>
+                          <span className="text-teal-600">총 {totalContracts.toLocaleString()}{countUnit}</span>
+                        </div>
+                        <div className="space-y-2 overflow-y-auto max-h-48 pr-2 custom-scrollbar">
+                          {sortedBranches.length > 0 ? sortedBranches.map(([b, count], idx) => (
+                            <div key={b} className="flex justify-between items-center text-xs">
+                              <div className="flex items-center gap-1.5 overflow-hidden">
+                                <span className="text-[10px] font-black text-slate-400 w-4">{idx + 1}</span>
+                                <span className="font-medium text-slate-600 truncate" title={b}>{b}</span>
+                              </div>
+                              <span className="font-bold text-slate-800 shrink-0">{count.toLocaleString()}{countUnit}</span>
+                            </div>
+                          )) : <div className="text-xs text-slate-400 text-center py-4">해당 월 데이터가 없습니다.</div>}
+                        </div>
                       </div>
                     </div>
 
@@ -4285,8 +4328,9 @@ const ERP_Dashboard = () => {
             )}
 
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-5">
-              <div className="flex flex-col md:flex-row md:items-center gap-4 pb-4 border-b border-slate-50">
-                <div className="flex items-center gap-3 min-w-max">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-50">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-3 min-w-max">
                   <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">배송현황</div>
                   <div className="flex flex-wrap gap-1.5">
                     {['전체', ...uniqueDeliveryStatus].map(status => (
@@ -4304,43 +4348,63 @@ const ERP_Dashboard = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 min-w-max ml-4">
-                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">지급상태</div>
-                  <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                    {['전체', '지급완료', '지급예정'].map(status => (
-                      <button
-                        key={status}
-                        onClick={() => setPaymentStatusFilter(status)}
-                        className={`px-3 py-1 rounded-md text-[11px] font-black transition-all ${paymentStatusFilter === status
-                          ? 'bg-white text-blue-600 shadow-sm'
-                          : 'text-slate-400 hover:text-slate-600'
-                          }`}
-                      >
-                        {status}
-                      </button>
-                    ))}
+                {isAdmin && (
+                  <div className="flex items-center gap-3 min-w-max ml-4">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">지급상태</div>
+                    <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                      {['전체', '지급완료', '지급예정'].map(status => (
+                        <button
+                          key={status}
+                          onClick={() => setPaymentStatusFilter(status)}
+                          className={`px-3 py-1 rounded-md text-[11px] font-black transition-all ${paymentStatusFilter === status
+                            ? 'bg-white text-blue-600 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-600'
+                            }`}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+                )}
                 </div>
 
-                <div className="md:ml-auto flex flex-wrap items-center gap-2">
-                  <MultiSelectDropdown 
-                    label="상품" 
-                    options={uniqueProducts.filter(p => p !== '전체')} 
-                    selectedOptions={productFilter} 
-                    onChange={setProductFilter} 
-                  />
-                  <MultiSelectDropdown 
-                    label="본부" 
-                    options={uniqueHqs.filter(h => h !== '전체')} 
-                    selectedOptions={hqFilter} 
-                    onChange={setHqFilter} 
-                  />
-                  <MultiSelectDropdown 
-                    label="지사" 
-                    options={uniqueBranches.filter(b => b !== '전체')} 
-                    selectedOptions={branchFilter} 
-                    onChange={setBranchFilter} 
-                  />
+                <div className="md:ml-auto flex flex-col md:flex-row md:items-center gap-4">
+                  <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 w-full sm:w-auto">
+                    <button
+                      onClick={() => setTableDisplayMode('구좌수')}
+                      className={`flex-1 sm:flex-none px-4 py-1.5 text-[12px] font-bold rounded-md transition-all ${tableDisplayMode === '구좌수' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      구좌수 기준
+                    </button>
+                    <button
+                      onClick={() => setTableDisplayMode('상품개수')}
+                      className={`flex-1 sm:flex-none px-4 py-1.5 text-[12px] font-bold rounded-md transition-all ${tableDisplayMode === '상품개수' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      상품개수(실물) 기준
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <MultiSelectDropdown 
+                      label="상품" 
+                      options={uniqueProducts.filter(p => p !== '전체')} 
+                      selectedOptions={productFilter} 
+                      onChange={setProductFilter} 
+                    />
+                    <MultiSelectDropdown 
+                      label="본부" 
+                      options={uniqueHqs.filter(h => h !== '전체')} 
+                      selectedOptions={hqFilter} 
+                      onChange={setHqFilter} 
+                    />
+                    <MultiSelectDropdown 
+                      label="지사" 
+                      options={uniqueBranches.filter(b => b !== '전체')} 
+                      selectedOptions={branchFilter} 
+                      onChange={setBranchFilter} 
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -4391,7 +4455,7 @@ const ERP_Dashboard = () => {
                       className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
                     />
                   </div>
-                  {filteredData.length > 0 && (
+                  {isAdmin && filteredData.length > 0 && (
                     <button
                       onClick={async () => {
                         if (await (window as any).customConfirm(`현재 필터링된 ${filteredData.length}건을 모두 '지급완료' 처리하시겠습니까?\n\n(참고: 취소된 건은 제외됩니다)`, '일괄 지급완료')) {
@@ -4613,7 +4677,7 @@ const ERP_Dashboard = () => {
 
                 <div className="flex-1 overflow-auto p-6 space-y-8">
                   {/* 정산 요약 - 실시간 계산 결과 */}
-                  {detailSource !== 'healthcare' && (
+                  {detailSource !== 'healthcare' && isAdmin && (
                   <section className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
                     <h4 className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
                       <TrendingUp size={14} /> 실시간 정산 분석 (본부 설정 기준)

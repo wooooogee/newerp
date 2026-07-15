@@ -5,6 +5,8 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import fs from 'fs';
 
+const TOKEN_PATH = path.join(process.cwd(), '.google_tokens.json');
+
 dotenv.config();
 
 export const app = express();
@@ -99,13 +101,22 @@ const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 
 // Auth Middleware
 async function getAuthenticatedClient(req: express.Request, res?: express.Response) {
-  const tokens = req.cookies.google_tokens;
+  let tokens;
+  if (fs.existsSync(TOKEN_PATH)) {
+    try {
+      tokens = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf-8'));
+    } catch (e) {
+      console.error('Failed to parse global tokens', e);
+    }
+  }
+  if (!tokens && req.cookies.google_tokens) {
+    tokens = JSON.parse(req.cookies.google_tokens);
+  }
   if (!tokens) return null;
   
   const client = getOAuthClient();
   try {
-    const parsedTokens = JSON.parse(tokens);
-    client.setCredentials(parsedTokens);
+    client.setCredentials(tokens);
     
     // If the token is about to expire or expired, and we have a refresh token, 
     // the library will try to refresh it on the first request.
@@ -114,7 +125,7 @@ async function getAuthenticatedClient(req: express.Request, res?: express.Respon
     // We can't easily "test" it without making a request, but we can catch errors in the handlers.
     return client;
   } catch (e) {
-    if (res) res.clearCookie('google_tokens');
+    if (res && !fs.existsSync(TOKEN_PATH)) res.clearCookie('google_tokens');
     return null;
   }
 }
@@ -160,6 +171,10 @@ app.get(['/auth/callback', '/auth/callback/'], async (req, res) => {
   const { code } = req.query;
   try {
     const { tokens } = await oauth2Client.getToken(code as string);
+    
+    // 글로벌 연동을 위해 서버 파일에 저장
+    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
+    
     res.cookie('google_tokens', JSON.stringify(tokens), {
       httpOnly: true,
       secure: true,
@@ -203,7 +218,8 @@ app.get(['/auth/callback', '/auth/callback/'], async (req, res) => {
 });
 
 app.get('/api/auth/status', (req, res) => {
-  res.json({ authenticated: !!req.cookies.google_tokens });
+  const hasGlobalToken = fs.existsSync(TOKEN_PATH);
+  res.json({ authenticated: hasGlobalToken || !!req.cookies.google_tokens });
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -283,11 +299,13 @@ app.post('/api/auth/login', async (req, res) => {
 
   // 2. 구글 시트 검증에 실패했거나 매칭되지 않은 경우, 2순위로 로컬 .env 어드민 설정값 대조
   if (adminId && adminPassword && username === adminId && password === adminPassword) {
+    console.log(`[LOGIN] admin fallback success for ${username}`);
     return issueSession('admin', '관리자');
   }
 
+  console.log(`[LOGIN] Both google sheet and admin fallback failed for ${username}`);
   // 둘 다 일치하지 않는 경우
-  return res.status(401).json({ error: '아이디 또는 비밀번호가 일치하지 않습니다.' });
+  return res.status(401).json({ error: '아이디 또는 비밀번호가 일치하지 않습니다. 관리자 계정으로 먼저 로그인하여 구글 연동을 진행해 주세요.' });
 });
 
 app.get('/api/auth/user', (req, res) => {
@@ -307,6 +325,7 @@ app.get('/api/auth/user', (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie('google_tokens');
   res.clearCookie('user_auth');
+  // DO NOT delete TOKEN_PATH here! It is a global token for all users.
   res.json({ success: true });
 });
 
