@@ -212,72 +212,11 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(400).json({ error: '아이디와 비밀번호를 입력해 주세요.' });
   }
 
-  // 1. .env 환경 변수에 설정된 기본 어드민 계정 검증
   const adminId = process.env.ADMIN_ID?.trim();
   const adminPassword = process.env.ADMIN_PASSWORD?.trim();
 
-  if (adminId && adminPassword && username === adminId && password === adminPassword) {
-    const userSession = { username, role: 'admin', orgName: '관리자' };
-    res.cookie('user_auth', JSON.stringify(userSession), {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      signed: true,
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
-    return res.json({ success: true, user: userSession });
-  }
-
-  // 2. 구글 시트의 '조직계정설정' 탭을 조회하여 검증
-  const client = await getAuthenticatedClient(req, res);
-  if (!client) {
-    return res.status(401).json({ error: '구글 시트 연동이 필요합니다. 관리자 계정으로 먼저 로그인하여 연동해 주세요.' });
-  }
-
-  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
-  if (sheetId && sheetId.includes('spreadsheets/d/')) {
-    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
-  }
-  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
-
-  try {
-    const sheets = google.sheets({ version: 'v4', auth: client });
-    
-    // 시트 목록을 가져와서 '조직계정설정' 탭이 있는지 확인
-    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
-    const sheetsList = spreadsheet.data.sheets || [];
-    const accountSheet = sheetsList.find(s => s.properties?.title === '조직계정설정');
-    
-    if (!accountSheet) {
-      return res.status(400).json({ 
-        error: '구글 시트에 [조직계정설정] 탭이 존재하지 않습니다. 관리자 계정으로 접속하여 탭을 생성하고 조직 정보를 입력해 주세요.' 
-      });
-    }
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: sheetId,
-      range: '조직계정설정!A:D',
-    });
-
-    const rows = response.data.values;
-    if (!rows || rows.length <= 1) {
-      return res.status(400).json({ error: '등록된 조직 계정이 없습니다. 구글 시트 [조직계정설정] 탭에 계정을 등록해 주세요.' });
-    }
-
-    // 헤더 건너뛰고 매칭되는 계정 탐색 (구분, 조직명, 아이디, 비밀번호)
-    const matchedRow = rows.slice(1).find(row => {
-      const rowId = String(row[2] || '').trim();
-      const rowPw = String(row[3] || '').trim();
-      return rowId === username && rowPw === password;
-    });
-
-    if (!matchedRow) {
-      return res.status(401).json({ error: '아이디 또는 비밀번호가 일치하지 않습니다.' });
-    }
-
-    const role = String(matchedRow[0] || '').trim(); // 본부 / 지사 / 지점 등
-    const orgName = String(matchedRow[1] || '').trim(); // 조직명
-
+  // 세션 쿠키 발행 헬퍼 함수
+  const issueSession = (role: string, orgName: string) => {
     const userSession = { username, role, orgName };
     res.cookie('user_auth', JSON.stringify(userSession), {
       httpOnly: true,
@@ -286,13 +225,66 @@ app.post('/api/auth/login', async (req, res) => {
       signed: true,
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
-
     return res.json({ success: true, user: userSession });
+  };
 
-  } catch (error: any) {
-    console.error('Login error:', error);
-    return res.status(500).json({ error: '로그인 중 오류가 발생했습니다. 구글 시트 상태를 확인해 주세요.' });
+  // 1. 구글 시트의 '조직계정설정' 탭을 1순위로 조회하여 검증
+  const client = await getAuthenticatedClient(req, res);
+  if (client) {
+    let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+    if (sheetId && sheetId.includes('spreadsheets/d/')) {
+      sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+    }
+
+    if (sheetId) {
+      try {
+        const sheets = google.sheets({ version: 'v4', auth: client });
+        
+        // 시트 목록을 가져와서 '조직계정설정' 탭이 있는지 확인
+        const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+        const sheetsList = spreadsheet.data.sheets || [];
+        const accountSheet = sheetsList.find(s => s.properties?.title === '조직계정설정');
+        
+        if (accountSheet) {
+          const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: sheetId,
+            range: '조직계정설정!A:D',
+          });
+
+          const rows = response.data.values;
+          if (rows && rows.length > 1) {
+            // 헤더 건너뛰고 매칭되는 계정 탐색 (구분, 조직명, 아이디, 비밀번호)
+            const matchedRow = rows.slice(1).find(row => {
+              const rowId = String(row[2] || '').trim();
+              const rowPw = String(row[3] || '').trim();
+              return rowId === username && rowPw === password;
+            });
+
+            if (matchedRow) {
+              const roleVal = String(matchedRow[0] || '').trim(); // 관리자 / 본부 / 지사 / 지점 등
+              const orgNameVal = String(matchedRow[1] || '').trim(); // 조직명
+              
+              // 구분이 '관리자'인 경우 role을 'admin'으로, orgName을 '관리자'로 매핑
+              const role = roleVal === '관리자' ? 'admin' : roleVal;
+              const orgName = roleVal === '관리자' ? '관리자' : orgNameVal;
+
+              return issueSession(role, orgName);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Google Sheet account verification failed, falling back to local admin check:', error);
+      }
+    }
   }
+
+  // 2. 구글 시트 검증에 실패했거나 매칭되지 않은 경우, 2순위로 로컬 .env 어드민 설정값 대조
+  if (adminId && adminPassword && username === adminId && password === adminPassword) {
+    return issueSession('admin', '관리자');
+  }
+
+  // 둘 다 일치하지 않는 경우
+  return res.status(401).json({ error: '아이디 또는 비밀번호가 일치하지 않습니다.' });
 });
 
 app.get('/api/auth/user', (req, res) => {
