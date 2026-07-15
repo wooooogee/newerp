@@ -23,6 +23,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
   const [filterCertNotSent, setFilterCertNotSent] = useState<boolean>(true);
   const [filterWorkAddressPost, setFilterWorkAddressPost] = useState<boolean>(false);
+  const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
 
   // Fetch '사원리스트' and '월불입금' data when modal opens
   useEffect(() => {
@@ -30,10 +31,11 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       const fetchAdditionalData = async () => {
         setLoading(true);
         try {
-          const [sheet1Res, empRes, payRes] = await Promise.all([
+          const [sheet1Res, empRes, payRes, historyRes] = await Promise.all([
             fetch('/api/sheets/sheetData?sheetName=시트1'),
             fetch('/api/sheets/sheetData?sheetName=사원리스트'),
-            fetch('/api/sheets/sheetData?sheetName=월불입금')
+            fetch('/api/sheets/sheetData?sheetName=월불입금'),
+            fetch('/api/sheets/sheetData?sheetName=증서발송리스트')
           ]);
           
           if (sheet1Res.ok) {
@@ -76,6 +78,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           if (payRes.ok) {
             const payData = await payRes.json();
             setPaymentList(payData.slice(1)); // Skip header
+          }
+          if (historyRes.ok) {
+            const historyData = await historyRes.json();
+            const nos = new Set<string>();
+            if (historyData && historyData.length > 1) {
+              historyData.slice(1).forEach((raw: any) => {
+                const memNo = String(raw[6] || '').trim().toUpperCase(); // *회원번호1 (G열, index 6)
+                if (memNo) nos.add(memNo);
+              });
+            }
+            setDispatchedHistoryNos(nos);
           }
         } catch (error) {
           console.error('Failed to load additional sheet data:', error);
@@ -338,6 +351,15 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
       if (response.ok) {
         await (window as any).customAlert('증서발송리스트에 성공적으로 저장되었습니다!', '저장 완료');
+        // 로컬 상태에 새로 저장된 회원번호들을 추가해 즉시 음영 반영
+        setDispatchedHistoryNos(prev => {
+          const next = new Set(prev);
+          processedData.forEach(item => {
+            const memNo = String(item.extracted.memNo || '').trim().toUpperCase();
+            if (memNo) next.add(memNo);
+          });
+          return next;
+        });
       } else {
         const err = await response.json();
         await (window as any).customAlert(`저장 실패: ${err.error || '알 수 없는 오류'}`, '오류 발생');
@@ -558,8 +580,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                         <tbody>
                           {processedData.slice(0, 100).map((item, idx) => {
                             const ext = item.extracted;
+                            const isDispatched = dispatchedHistoryNos.has(String(ext.memNo || '').trim().toUpperCase());
                             return (
-                              <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                              <tr key={idx} className={`border-b border-slate-100 transition-colors ${
+                                isDispatched 
+                                  ? 'bg-amber-50/60 hover:bg-amber-100/60' 
+                                  : 'hover:bg-slate-50/50'
+                              }`}>
                                 <td className="p-3 text-[12px] font-bold text-slate-800 whitespace-nowrap">{ext.memName}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap"></td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.phone}</td>

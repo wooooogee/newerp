@@ -16,6 +16,209 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
   const [historyList, setHistoryList] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  // 필터 또는 검색어 변경 시 선택 초기화
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [searchTerm, selectedMonth, selectedType]);
+
+  // 개별 선택 토글
+  const handleToggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+
+  // 라벨 인쇄 팝업 창 생성 및 인쇄 호출
+  const handlePrintLabels = () => {
+    const selectedItems = mappedList.filter(item => selectedIds.has(item.id) && item.type === '우편');
+    if (selectedItems.length === 0) return;
+
+    const printWindow = window.open('', '_blank', 'width=850,height=900');
+    if (!printWindow) {
+      alert('팝업 차단이 설정되어 있습니다. 팝업을 허용해 주세요.');
+      return;
+    }
+
+    const itemsPerPage = 10;
+    let pagesHtml = '';
+
+    for (let i = 0; i < selectedItems.length; i += itemsPerPage) {
+      const pageItems = selectedItems.slice(i, i + itemsPerPage);
+      let cellsHtml = '';
+
+      for (let j = 0; j < 10; j++) {
+        const item = pageItems[j];
+        if (item) {
+          cellsHtml += `
+            <div class="label-cell">
+              <div class="label-header">받는 사람</div>
+              <div class="label-address">\${item.address || ''}</div>
+              <div class="label-footer">
+                <div class="label-phone">\${item.phone || ''}</div>
+                <div class="label-name">\${item.memName || ''}</div>
+              </div>
+            </div>
+          `;
+        } else {
+          cellsHtml += `<div class="label-cell empty"></div>`;
+        }
+      }
+
+      pagesHtml += `<div class="label-page">\${cellsHtml}</div>`;
+    }
+
+    const htmlContent = `
+      <html>
+        <head>
+          <title>라벨 인쇄</title>
+          <style>
+            @page {
+              size: A4;
+              margin: 0;
+            }
+            body {
+              margin: 0;
+              padding: 0;
+              font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
+              background: #fff;
+              -webkit-print-color-adjust: exact;
+            }
+            .label-page {
+              width: 210mm;
+              height: 297mm;
+              box-sizing: border-box;
+              padding-top: 11mm;
+              padding-bottom: 11mm;
+              padding-left: 5.9mm;
+              padding-right: 5.9mm;
+              display: grid;
+              grid-template-columns: repeat(2, 99.1mm);
+              grid-template-rows: repeat(5, 55mm);
+              column-gap: 4mm;
+              row-gap: 0mm;
+              page-break-after: always;
+            }
+            .label-page:last-child {
+              page-break-after: avoid;
+            }
+            .label-cell {
+              border: 1px solid #444;
+              box-sizing: border-box;
+              padding: 5mm 6mm;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+              overflow: hidden;
+            }
+            .label-cell.empty {
+              border: 1px solid #444;
+              visibility: visible;
+            }
+            .label-header {
+              font-size: 13pt;
+              font-weight: bold;
+              color: #000;
+              border-bottom: 1.5px solid #000;
+              padding-bottom: 1.5mm;
+              margin-bottom: 3.5mm;
+              text-align: left;
+            }
+            .label-address {
+              font-size: 11.5pt;
+              line-height: 1.55;
+              color: #000;
+              word-break: break-all;
+              flex-grow: 1;
+              display: -webkit-box;
+              -webkit-line-clamp: 2;
+              -webkit-box-orient: vertical;
+              overflow: hidden;
+              margin-bottom: 2mm;
+              text-align: left;
+            }
+            .label-footer {
+              text-align: right;
+              margin-top: auto;
+            }
+            .label-phone {
+              font-size: 10pt;
+              color: #000;
+              margin-bottom: 1mm;
+              font-family: monospace;
+            }
+            .label-name {
+              font-size: 12.5pt;
+              font-weight: bold;
+              color: #000;
+            }
+            
+            @media screen {
+              body {
+                background: #f0f0f0;
+                padding: 20px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 20px;
+              }
+              .label-page {
+                background: white;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+                border-radius: 4px;
+              }
+              .print-btn-container {
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                z-index: 1000;
+              }
+              .print-btn {
+                background: #10b981;
+                color: white;
+                border: none;
+                padding: 12px 24px;
+                font-size: 14px;
+                font-weight: bold;
+                border-radius: 8px;
+                cursor: pointer;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+              }
+            }
+            @media print {
+              .print-btn-container {
+                display: none;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="print-btn-container">
+            <button class="print-btn" onclick="window.print()">인쇄하기 (Print)</button>
+          </div>
+          \${pagesHtml}
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 300);
+            }
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -118,6 +321,30 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
     });
   }, [mappedList, selectedMonth, selectedType, searchTerm]);
 
+  // 필터링된 항목 중 우편 대상들
+  const postItemsInFiltered = useMemo(() => {
+    return filteredData.filter(item => item.type === '우편');
+  }, [filteredData]);
+
+  // 우편 대상들 전체 선택 여부
+  const isAllSelected = useMemo(() => {
+    if (postItemsInFiltered.length === 0) return false;
+    return postItemsInFiltered.every(item => selectedIds.has(item.id));
+  }, [postItemsInFiltered, selectedIds]);
+
+  // 전체 선택 토글
+  const handleToggleSelectAll = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (isAllSelected) {
+        postItemsInFiltered.forEach(item => next.delete(item.id));
+      } else {
+        postItemsInFiltered.forEach(item => next.add(item.id));
+      }
+      return next;
+    });
+  };
+
   const handleExportExcel = () => {
     const excelData = filteredData.map(item => {
       return {
@@ -178,8 +405,20 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
               </div>
               <div className="flex items-center gap-2 sm:gap-3">
                 <button
+                  onClick={handlePrintLabels}
+                  disabled={selectedIds.size === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-bold transition-colors ${
+                    selectedIds.size === 0 
+                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200' 
+                      : 'bg-blue-600 text-white hover:bg-blue-500 shadow-md shadow-blue-500/10'
+                  }`}
+                >
+                  <FileText size={16} />
+                  라벨 인쇄 ({selectedIds.size}건)
+                </button>
+                <button
                   onClick={handleExportExcel}
-                  className="hidden sm:flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-[13px] font-bold transition-colors"
+                  className="hidden sm:flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-[13px] font-bold transition-colors border border-emerald-200"
                 >
                   <Download size={16} />
                   엑셀 다운로드
@@ -251,6 +490,16 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                       <table className="w-full text-left border-collapse min-w-[1200px]">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap w-[40px] text-center">
+                              {postItemsInFiltered.length > 0 && (
+                                <input
+                                  type="checkbox"
+                                  checked={isAllSelected}
+                                  onChange={handleToggleSelectAll}
+                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 align-middle"
+                                />
+                              )}
+                            </th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">발송날짜</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">구분</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">회원명</th>
@@ -271,8 +520,22 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                         </thead>
                         <tbody>
                           {filteredData.slice(0, 200).map((item, idx) => {
+                            const isPost = item.type === '우편';
+                            const isSelected = selectedIds.has(item.id);
                             return (
                               <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                                <td className="p-3 text-center whitespace-nowrap w-[40px]">
+                                  {isPost ? (
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => handleToggleSelect(item.id)}
+                                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 align-middle"
+                                    />
+                                  ) : (
+                                    <span className="text-[10px] text-slate-300 font-semibold select-none">-</span>
+                                  )}
+                                </td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap font-medium">{item.date}</td>
                                 <td className="p-3 text-[12px] whitespace-nowrap">
                                   <span className={`px-2 py-0.5 text-[11px] font-bold rounded-full ${
