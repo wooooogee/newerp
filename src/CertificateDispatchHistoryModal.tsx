@@ -61,10 +61,10 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
           cellsHtml += `
             <div class="label-cell">
               <div class="label-header">받는 사람</div>
-              <div class="label-address">\${item.address || ''}</div>
+              <div class="label-address">${item.address || ''}</div>
               <div class="label-footer">
-                <div class="label-phone">\${item.phone || ''}</div>
-                <div class="label-name">\${item.memName || ''}</div>
+                <div class="label-phone">${item.phone || ''}</div>
+                <div class="label-name">${item.memName || ''}</div>
               </div>
             </div>
           `;
@@ -73,7 +73,7 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
         }
       }
 
-      pagesHtml += `<div class="label-page">\${cellsHtml}</div>`;
+      pagesHtml += `<div class="label-page">${cellsHtml}</div>`;
     }
 
     const htmlContent = `
@@ -204,7 +204,7 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
           <div class="print-btn-container">
             <button class="print-btn" onclick="window.print()">인쇄하기 (Print)</button>
           </div>
-          \${pagesHtml}
+          ${pagesHtml}
           <script>
             window.onload = function() {
               setTimeout(function() {

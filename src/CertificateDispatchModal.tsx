@@ -79,17 +79,19 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             const payData = await payRes.json();
             setPaymentList(payData.slice(1)); // Skip header
           }
-          if (historyRes.ok) {
-            const historyData = await historyRes.json();
-            const nos = new Set<string>();
-            if (historyData && historyData.length > 1) {
-              historyData.slice(1).forEach((raw: any) => {
-                const memNo = String(raw[6] || '').trim().toUpperCase(); // *회원번호1 (G열, index 6)
-                if (memNo) nos.add(memNo);
-              });
-            }
-            setDispatchedHistoryNos(nos);
-          }
+              if (historyRes.ok) {
+                const historyData = await historyRes.json();
+                const nos = new Set<string>();
+                if (historyData && historyData.length > 1) {
+                  historyData.slice(1).forEach((raw: any) => {
+                    const memNo = String(raw[6] || '').trim().toUpperCase(); // *회원번호1 (G열, index 6)
+                    if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
+                      nos.add(memNo);
+                    }
+                  });
+                }
+                setDispatchedHistoryNos(nos);
+              }
         } catch (error) {
           console.error('Failed to load additional sheet data:', error);
         } finally {
@@ -365,10 +367,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           cellsHtml += `
             <div class="label-cell">
               <div class="label-header">받는 사람</div>
-              <div class="label-address">\${ext.address || ''}</div>
+              <div class="label-address">${ext.address || ''}</div>
               <div class="label-footer">
-                <div class="label-phone">\${ext.phone || ''}</div>
-                <div class="label-name">\${ext.memName || ''}</div>
+                <div class="label-phone">${ext.phone || ''}</div>
+                <div class="label-name">${ext.memName || ''}</div>
               </div>
             </div>
           `;
@@ -377,7 +379,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         }
       }
 
-      pagesHtml += `<div class="label-page">\${cellsHtml}</div>`;
+      pagesHtml += `<div class="label-page">${cellsHtml}</div>`;
     }
 
     const htmlContent = `
@@ -508,7 +510,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           <div class="print-btn-container">
             <button class="print-btn" onclick="window.print()">인쇄하기 (Print)</button>
           </div>
-          \${pagesHtml}
+          ${pagesHtml}
           <script>
             window.onload = function() {
               setTimeout(function() {
@@ -574,15 +576,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
       if (response.ok) {
         await (window as any).customAlert('증서발송리스트에 성공적으로 저장되었습니다!', '저장 완료');
-        // 로컬 상태에 새로 저장된 회원번호들을 추가해 즉시 음영 반영
-        setDispatchedHistoryNos(prev => {
-          const next = new Set(prev);
-          processedData.forEach(item => {
-            const memNo = String(item.extracted.memNo || '').trim().toUpperCase();
-            if (memNo) next.add(memNo);
-          });
-          return next;
-        });
+            // 로컬 상태에 새로 저장된 회원번호들을 추가해 즉시 음영 반영
+            setDispatchedHistoryNos(prev => {
+              const next = new Set(prev);
+              processedData.forEach(item => {
+                const memNo = String(item.extracted.memNo || '').trim().toUpperCase();
+                if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
+                  next.add(memNo);
+                }
+              });
+              return next;
+            });
       } else {
         const err = await response.json();
         await (window as any).customAlert(`저장 실패: ${err.error || '알 수 없는 오류'}`, '오류 발생');
@@ -825,7 +829,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                         <tbody>
                           {processedData.slice(0, 100).map((item, idx) => {
                             const ext = item.extracted;
-                            const isDispatched = dispatchedHistoryNos.has(String(ext.memNo || '').trim().toUpperCase());
+                            const cleanMemNo = String(ext.memNo || '').trim().toUpperCase();
+                            const isDispatched = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
                             return (
                               <tr key={idx} className={`border-b border-slate-100 transition-colors ${
                                 isDispatched 
