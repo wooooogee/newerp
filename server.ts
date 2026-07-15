@@ -5,7 +5,10 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import fs from 'fs';
 
-const TOKEN_PATH = path.join(process.cwd(), '.google_tokens.json');
+const isServerless = !!process.env.NETLIFY || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.VERCEL;
+const TOKEN_PATH = isServerless 
+  ? path.join('/tmp', '.google_tokens.json') 
+  : path.join(process.cwd(), '.google_tokens.json');
 
 dotenv.config();
 
@@ -172,8 +175,12 @@ app.get(['/auth/callback', '/auth/callback/'], async (req, res) => {
   try {
     const { tokens } = await oauth2Client.getToken(code as string);
     
-    // 글로벌 연동을 위해 서버 파일에 저장
-    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
+    // 글로벌 연동을 위해 서버 파일에 저장 시도
+    try {
+      fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
+    } catch (fsError) {
+      console.warn('Cannot write to file system (might be serverless environment). Relying on cookies.', fsError);
+    }
     
     res.cookie('google_tokens', JSON.stringify(tokens), {
       httpOnly: true,
