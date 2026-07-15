@@ -468,6 +468,10 @@ const ERP_Dashboard = () => {
         });
       });
     };
+
+    window.alert = (message: any) => {
+      (window as any).customAlert(String(message));
+    };
   }, []);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
@@ -742,7 +746,7 @@ const ERP_Dashboard = () => {
 
   // 구글 시트 + 로컬 설정을 완전 초기화하고 MASTER_HQ_DATA로 재설정
   const resetSettingsToDefault = async () => {
-    if (!window.confirm('⚠️ 주의: 모든 본부 설정(계좌정보, 수수료 등)이 초기값으로 리셋됩니다.\n기존에 저장된 모든 데이터가 삭제됩니다. 계속하시겠습니까?')) return;
+    if (!(await (window as any).customConfirm('⚠️ 주의: 모든 본부 설정(계좌정보, 수수료 등)이 초기값으로 리셋됩니다.\n기존에 저장된 모든 데이터가 삭제됩니다. 계속하시겠습니까?'))) return;
 
     // 즉각적인 로컬 UI 초기화
     const defaultSettings = MASTER_HQ_DATA.map((m, idx) => ({
@@ -4918,8 +4922,8 @@ const ERP_Dashboard = () => {
                   <div>
                     {(selectedItem.paymentStatus === '지급완료' || selectedItem.hc.includes('지급완료')) && (
                       <button
-                        onClick={() => {
-                          if (confirm('해당 건의 지급 완료 처리를 취소하시겠습니까?')) {
+                        onClick={async () => {
+                          if (await (window as any).customConfirm('해당 건의 지급 완료 처리를 취소하시겠습니까?')) {
                             updateCell(selectedItem.originalRowIdx, 18, '');
                             setSelectedItem(null);
                           }
@@ -5758,8 +5762,8 @@ const ERP_Dashboard = () => {
                                         </td>
                                         <td className="px-4 py-3 text-center">
                                           <button
-                                            onClick={() => {
-                                              if (confirm('삭제하시겠습니까?')) {
+                                            onClick={async () => {
+                                              if (await (window as any).customConfirm('삭제하시겠습니까?')) {
                                                 const updated = s.productRules.filter((_, i) => i !== pIdx);
                                                 setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                               }
@@ -6167,8 +6171,8 @@ const ERP_Dashboard = () => {
                               )}
                               
                               <div className="absolute right-4 top-4">
-                                <button onClick={() => {
-                                  if(confirm('이 규칙을 삭제하시겠습니까?')) {
+                                <button onClick={async () => {
+                                  if(await (window as any).customConfirm('이 규칙을 삭제하시겠습니까?')) {
                                     const n = [...globalIncentiveRules]; n.splice(idx, 1); setGlobalIncentiveRules(n);
                                   }
                                 }} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="규칙 삭제">
@@ -6247,8 +6251,8 @@ const ERP_Dashboard = () => {
                                   }} className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold text-slate-600" />
                                 </td>
                                 <td className="px-4 py-2 text-center">
-                                  <button onClick={() => {
-                                    if(confirm('이 회원을 삭제하시겠습니까?')) {
+                                  <button onClick={async () => {
+                                    if(await (window as any).customConfirm('이 회원을 삭제하시겠습니까?')) {
                                       const n = [...members]; n.splice(idx, 1); setMembers(n);
                                     }
                                   }} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="삭제">
@@ -7298,7 +7302,7 @@ const ERP_Dashboard = () => {
                   </div>
                   <button 
                     onClick={async () => {
-                      if (!confirm('현재 계산된 유지수수료 지급 내역을 구글 시트에 저장하시겠습니까?\n저장 후에는 이 고객들의 해당 회차는 기지급으로 처리됩니다.')) return;
+                      if (!(await (window as any).customConfirm('현재 계산된 유지수수료 지급 내역을 구글 시트에 저장하시겠습니까?\n저장 후에는 이 고객들의 해당 회차는 기지급으로 처리됩니다.'))) return;
                       setIsUpdating(true);
                       try {
                         const targetMonth = payDateFilter.replace(/[^0-9]/g, '').substring(0, 6) || '미지정';
