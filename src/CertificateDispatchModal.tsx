@@ -87,7 +87,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       
       fetchAdditionalData();
     }
-  }, [isOpen, data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   // 모달이 열릴 때 음영 초기화 (과거 이력 로드 배제)
   useEffect(() => {
