@@ -25,16 +25,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [filterWorkAddressPost, setFilterWorkAddressPost] = useState<boolean>(false);
   const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
 
-  // Fetch '사원리스트' and '월불입금' data when modal opens
+  // Fetch '사원리스트', '월불입금', '증서발송리스트' data when modal opens
   useEffect(() => {
     if (isOpen) {
       const fetchAdditionalData = async () => {
         setLoading(true);
         try {
-          const [sheet1Res, empRes, payRes] = await Promise.all([
+          const [sheet1Res, empRes, payRes, historyRes] = await Promise.all([
             fetch('/api/sheets/sheetData?sheetName=시트1'),
             fetch('/api/sheets/sheetData?sheetName=사원리스트'),
-            fetch('/api/sheets/sheetData?sheetName=월불입금')
+            fetch('/api/sheets/sheetData?sheetName=월불입금'),
+            fetch('/api/sheets/sheetData?sheetName=증서발송리스트')
           ]);
           
           if (sheet1Res.ok) {
@@ -78,6 +79,19 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             const payData = await payRes.json();
             setPaymentList(payData.slice(1)); // Skip header
           }
+          if (historyRes.ok) {
+            const historyData = await historyRes.json();
+            const nos = new Set<string>();
+            if (historyData && historyData.length > 1) {
+              historyData.slice(1).forEach((raw: any) => {
+                const memNo = String(raw[6] || '').trim().toUpperCase(); // *회원번호1 (G열, index 6)
+                if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
+                  nos.add(memNo);
+                }
+              });
+            }
+            setDispatchedHistoryNos(nos);
+          }
         } catch (error) {
           console.error('Failed to load additional sheet data:', error);
         } finally {
@@ -88,13 +102,6 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       fetchAdditionalData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
-
-  // 모달이 열릴 때 음영 초기화 (과거 이력 로드 배제)
-  useEffect(() => {
-    if (isOpen) {
-      setDispatchedHistoryNos(new Set());
-    }
   }, [isOpen]);
 
   // Combine data
