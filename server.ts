@@ -289,8 +289,8 @@ app.post('/api/auth/login', async (req, res) => {
   const adminPassword = process.env.ADMIN_PASSWORD?.trim();
 
   // 세션 쿠키 발행 헬퍼 함수
-  const issueSession = (role: string, orgName: string) => {
-    const userSession = { username, role, orgName };
+  const issueSession = (role: string, orgName: string, orgs: { role: string; orgName: string }[] = []) => {
+    const userSession = { username, role, orgName, orgs };
     const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
     
     res.cookie('user_auth', JSON.stringify(userSession), {
@@ -305,7 +305,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   // 하드코딩된 특정 관리자 계정
   if (username === 'a250027' && password === '880805') {
-    return issueSession('관리자', '시스템관리자');
+    return issueSession('관리자', '시스템관리자', [{ role: '관리자', orgName: '시스템관리자' }]);
   }
 
   // 1. 구글 시트의 '조직계정설정' 탭을 1순위로 조회하여 검증
@@ -334,22 +334,29 @@ app.post('/api/auth/login', async (req, res) => {
           const rows = response.data.values;
           if (rows && rows.length > 1) {
             // 헤더 건너뛰고 매칭되는 계정 탐색 (구분, 조직명, 아이디, 비밀번호)
-            const matchedRow = rows.slice(1).find(row => {
+            const matchedRows = rows.slice(1).filter(row => {
               const rowId = String(row[2] || '').trim();
               const rowPw = String(row[3] || '').trim();
               return rowId === username && rowPw === password;
             });
 
-            if (matchedRow) {
-              const roleVal = String(matchedRow[0] || '').trim(); // 관리자 / 본부 / 지사 / 지점 등
-              const orgNameVal = String(matchedRow[1] || '').trim(); // 조직명
-              
-              // 구분이 '관리자', '어드민', 'admin', 'ADMIN'인 경우 모두 어드민 권한 매핑
-              const isAdminRole = ['관리자', '어드민', 'admin', 'ADMIN'].includes(roleVal);
-              const role = isAdminRole ? 'admin' : roleVal;
-              const orgName = isAdminRole ? '관리자' : orgNameVal;
+            if (matchedRows.length > 0) {
+              const orgs = matchedRows.map(row => {
+                const roleVal = String(row[0] || '').trim(); // 관리자 / 본부 / 지사 / 지점 등
+                const orgNameVal = String(row[1] || '').trim(); // 조직명
+                const isAdminRole = ['관리자', '어드민', 'admin', 'ADMIN'].includes(roleVal);
+                return {
+                  role: isAdminRole ? 'admin' : roleVal,
+                  orgName: isAdminRole ? '관리자' : orgNameVal
+                };
+              });
 
-              return issueSession(role, orgName);
+              // admin 권한이 하나라도 있으면 대표 역할을 admin으로 부여
+              const hasAdmin = orgs.some(o => o.role === 'admin');
+              const repRole = hasAdmin ? 'admin' : orgs[0].role;
+              const repOrgName = hasAdmin ? '관리자' : orgs[0].orgName;
+
+              return issueSession(repRole, repOrgName, orgs);
             }
           }
         }
@@ -362,7 +369,7 @@ app.post('/api/auth/login', async (req, res) => {
   // 2. 구글 시트 검증에 실패했거나 매칭되지 않은 경우, 2순위로 로컬 .env 어드민 설정값 대조
   if (adminId && adminPassword && username === adminId && password === adminPassword) {
     console.log(`[LOGIN] admin fallback success for ${username}`);
-    return issueSession('admin', '관리자');
+    return issueSession('admin', '관리자', [{ role: 'admin', orgName: '관리자' }]);
   }
 
   console.log(`[LOGIN] Both google sheet and admin fallback failed for ${username}`);

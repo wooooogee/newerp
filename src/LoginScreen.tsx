@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Lock, User, AlertCircle, Save } from 'lucide-react';
 
 interface LoginScreenProps {
-  onLoginSuccess: (user: { username: string; role: string; orgName: string }) => void;
+  onLoginSuccess: (user: { username: string; role: string; orgName: string; orgs?: { role: string; orgName: string; }[] }) => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {

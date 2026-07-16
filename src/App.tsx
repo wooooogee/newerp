@@ -367,7 +367,7 @@ export const getDisplayPayDate = (item: any) => {
   return displayPayDate;
 };
 const ERP_Dashboard = () => {
-  const [currentUser, setCurrentUser] = useState<{ username: string; role: string; orgName: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ username: string; role: string; orgName: string; orgs?: { role: string; orgName: string; }[] } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const isSuperAdmin = currentUser?.role === 'admin' || currentUser?.role === '관리자';
   const isAdmin = isSuperAdmin || currentUser?.role === '총무';
@@ -1081,11 +1081,25 @@ const ERP_Dashboard = () => {
         
         let finalData = initialData;
         if (currentUser && !isSuperAdmin) {
-          const orgNameClean = (currentUser.orgName || '').trim();
-          if (currentUser.role === '본부' || currentUser.role === '총무') {
-            finalData = initialData.filter(item => String(item.hq || '').trim() === orgNameClean);
-          } else if (currentUser.role === '지사' || currentUser.role === '지점') {
-            finalData = initialData.filter(item => String(item.branch || '').trim() === orgNameClean);
+          if (currentUser.orgs && currentUser.orgs.length > 0) {
+            finalData = initialData.filter(item => {
+              return currentUser.orgs!.some(org => {
+                const orgNameClean = (org.orgName || '').trim();
+                if (org.role === '본부' || org.role === '총무') {
+                  return String(item.hq || '').trim() === orgNameClean;
+                } else if (org.role === '지사' || org.role === '지점') {
+                  return String(item.branch || '').trim() === orgNameClean;
+                }
+                return false;
+              });
+            });
+          } else {
+            const orgNameClean = (currentUser.orgName || '').trim();
+            if (currentUser.role === '본부' || currentUser.role === '총무') {
+              finalData = initialData.filter(item => String(item.hq || '').trim() === orgNameClean);
+            } else if (currentUser.role === '지사' || currentUser.role === '지점') {
+              finalData = initialData.filter(item => String(item.branch || '').trim() === orgNameClean);
+            }
           }
         }
 
@@ -1163,11 +1177,25 @@ const ERP_Dashboard = () => {
       // 로그인 권한 필터링 추가
       let finalData = formatted;
       if (currentUser && !isSuperAdmin) {
-        const orgNameClean = (currentUser.orgName || '').trim();
-        if (currentUser.role === '본부' || currentUser.role === '총무') {
-          finalData = formatted.filter(item => String(item.hq || '').trim() === orgNameClean);
-        } else if (currentUser.role === '지사' || currentUser.role === '지점') {
-          finalData = formatted.filter(item => String(item.branch || '').trim() === orgNameClean);
+        if (currentUser.orgs && currentUser.orgs.length > 0) {
+          finalData = formatted.filter(item => {
+            return currentUser.orgs!.some(org => {
+              const orgNameClean = (org.orgName || '').trim();
+              if (org.role === '본부' || org.role === '총무') {
+                return String(item.hq || '').trim() === orgNameClean;
+              } else if (org.role === '지사' || org.role === '지점') {
+                return String(item.branch || '').trim() === orgNameClean;
+              }
+              return false;
+            });
+          });
+        } else {
+          const orgNameClean = (currentUser.orgName || '').trim();
+          if (currentUser.role === '본부' || currentUser.role === '총무') {
+            finalData = formatted.filter(item => String(item.hq || '').trim() === orgNameClean);
+          } else if (currentUser.role === '지사' || currentUser.role === '지점') {
+            finalData = formatted.filter(item => String(item.branch || '').trim() === orgNameClean);
+          }
         }
       }
 
@@ -3957,7 +3985,7 @@ const ERP_Dashboard = () => {
 
           <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-2">
             <div className="text-[11px] text-slate-500 leading-relaxed font-semibold">
-              접속자: <span className="text-slate-800">{currentUser?.orgName}</span> ({currentUser?.role})
+              접속자: <span className="text-slate-800">{currentUser?.orgs && currentUser.orgs.length > 0 ? currentUser.orgs.map(o => o.orgName).join(', ') : currentUser?.orgName}</span> ({currentUser?.orgs && currentUser.orgs.length > 0 ? Array.from(new Set(currentUser.orgs.map(o => o.role))).join(', ') : currentUser?.role})
             </div>
             <button
               onClick={async () => {
