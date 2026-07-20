@@ -146,11 +146,14 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
   // 3. 요약 통계 계산 (선택된 계약월 및 중복제거 조건이 반영된 데이터 기준)
   const summary = useMemo(() => {
-    const total = modeProcessedData.length;
-    const waiting = modeProcessedData.filter(item => (item.deliveryStatus || '').trim() === '배송대기').length;
-    const completed = modeProcessedData.filter(item => (item.deliveryStatus || '').trim() === '배송완료').length;
+    // 가입 상태가 '가입'인 데이터들로만 필터링하여 대시보드 통계의 모수로 사용 (해약, 취소 제외)
+    const activeData = modeProcessedData.filter(item => (item.status || '').trim() === '가입');
 
-    // 가입 상태별 통계 추가
+    const total = activeData.length;
+    const waiting = activeData.filter(item => (item.deliveryStatus || '').trim() === '배송대기').length;
+    const completed = activeData.filter(item => (item.deliveryStatus || '').trim() === '배송완료').length;
+
+    // 가입 상태별 통계 (이것은 전체 접수 건수 modeProcessedData 기준)
     const signed = modeProcessedData.filter(item => (item.status || '').trim() === '가입').length;
     const terminated = modeProcessedData.filter(item => (item.status || '').trim().includes('해약')).length;
     const cancelled = modeProcessedData.filter(item => (item.status || '').trim().includes('취소')).length;
@@ -425,7 +428,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 <div className="grid grid-cols-2 gap-2 text-xs pt-3 border-t border-slate-900/80">
                   <div className="bg-slate-900/60 border border-slate-900 p-2.5 rounded-xl flex justify-between items-center">
                     <span className="text-[10px] text-slate-400 font-medium">총 접수건</span>
-                    <strong className="text-sm font-bold text-white">{summary.total}건</strong>
+                    <strong className="text-sm font-bold text-white">{modeProcessedData.length}건</strong>
                   </div>
                   <div className="bg-teal-950/10 border border-teal-900/30 p-2.5 rounded-xl flex justify-between items-center">
                     <span className="text-[10px] text-teal-400 font-medium">가입 건수</span>
