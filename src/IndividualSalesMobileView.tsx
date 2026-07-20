@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -67,6 +67,14 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   const [hqFilter, setHqFilter] = useState('전체');
   const [branchFilter, setBranchFilter] = useState('전체');
   const [empFilter, setEmpFilter] = useState('전체');
+
+  // 상세 계약 페이지네이션 상태
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // 검색어나 필터 조건 변경 시 페이지 번호를 1페이지로 리셋
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, monthFilter, statusFilter, deliveryFilter, hqFilter, branchFilter, empFilter, displayMode]);
 
   // 본부 선택 옵션 (관리자모바일 권한일 때만 유의미)
   const hqOptions = useMemo(() => {
@@ -209,6 +217,17 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       return String(b.contractDate || '').localeCompare(String(a.contractDate || ''));
     });
   }, [modeProcessedData, searchTerm, statusFilter, deliveryFilter, isHqMobile, isBranchMobile, isAdminMobile, hqFilter, branchFilter, empFilter]);
+
+  // 1페이지당 10개 아이템 기준 전체 페이지 계산
+  const totalPages = useMemo(() => {
+    return Math.ceil(filteredData.length / 10) || 1;
+  }, [filteredData]);
+
+  // 현재 페이지에 해당하는 데이터만 추출
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * 10;
+    return filteredData.slice(startIndex, startIndex + 10);
+  }, [filteredData, currentPage]);
 
   // 전체 데이터(data) 내에 존재하는 고유 본부 목록 추출 (0건 실적 본부 표시용)
   const allHqOptions = useMemo(() => {
@@ -647,8 +666,8 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             {/* Card List */}
             <div className="space-y-3">
               <AnimatePresence mode="popLayout">
-                {filteredData.length > 0 ? (
-                  filteredData.map((item) => (
+                {paginatedData.length > 0 ? (
+                  paginatedData.map((item) => (
                     <motion.div
                       key={item.uniqueKey}
                       layout
@@ -759,6 +778,29 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 )}
               </AnimatePresence>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between bg-slate-950 border border-slate-800/80 px-4 py-2.5 rounded-2xl shadow-md text-xs mt-2 shrink-0">
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  className="px-3 py-1.5 bg-slate-900 border border-slate-800 text-slate-300 disabled:text-slate-600 disabled:bg-slate-950 rounded-lg font-bold transition-all active:scale-95"
+                >
+                  이전
+                </button>
+                <span className="text-slate-400 font-semibold">
+                  <strong className="text-white">{currentPage}</strong> / {totalPages} 페이지
+                </span>
+                <button
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  className="px-3 py-1.5 bg-slate-900 border border-slate-800 text-slate-300 disabled:text-slate-600 disabled:bg-slate-950 rounded-lg font-bold transition-all active:scale-95"
+                >
+                  다음
+                </button>
+              </div>
+            )}
           </>
         ) : (
           /* 요약 보고서 (대표님 보고서) 전용 뷰 */
