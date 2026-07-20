@@ -763,27 +763,6 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         ) : (
           /* 요약 보고서 (대표님 보고서) 전용 뷰 */
           <div className="space-y-4">
-            {/* 통계 요약 카드 */}
-            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-900 pb-2">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">실적 요약</p>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800/60">
-                  <div className="text-[9px] text-slate-500 font-bold uppercase">총 판매 건수</div>
-                  <div className="text-lg font-bold text-blue-400 mt-1">{summary.total}</div>
-                </div>
-                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800/60">
-                  <div className="text-[9px] text-slate-500 font-bold uppercase">배송 대기</div>
-                  <div className="text-lg font-bold text-amber-400 mt-1">{summary.waiting}</div>
-                </div>
-                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800/60">
-                  <div className="text-[9px] text-slate-500 font-bold uppercase">배송 완료</div>
-                  <div className="text-lg font-bold text-emerald-400 mt-1">{summary.completed}</div>
-                </div>
-              </div>
-            </div>
-
             {/* 본부별 실적 표 */}
             <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-900 pb-2">본부별 실적</p>
