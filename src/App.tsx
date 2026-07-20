@@ -381,10 +381,7 @@ const ERP_Dashboard = () => {
   // 모바일 전용 뷰 분기 판별
   const isMobileView = React.useMemo(() => {
     if (!currentUser) return false;
-    if (isSuperAdmin || isAdmin) return false;
 
-    const excludedRoles = ['본부', '총무', '지사', '지점', 'admin', '관리자'];
-    
     // 1. currentUser.role에 '모바일'이 명시적으로 포함되어 있으면 허용
     if (currentUser.role && currentUser.role.includes('모바일')) return true;
 
@@ -394,6 +391,10 @@ const ERP_Dashboard = () => {
       if (hasMobileRole) return true;
     }
 
+    if (isSuperAdmin || isAdmin) return false;
+
+    const excludedRoles = ['본부', '총무', '지사', '지점', 'admin', '관리자'];
+    
     // 3. currentUser.role이 명시적 배제 대상에 포함되는지 확인
     if (excludedRoles.includes(currentUser.role)) return false;
 
