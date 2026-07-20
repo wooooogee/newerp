@@ -10,6 +10,7 @@ import { CertificateDispatchModal } from './CertificateDispatchModal';
 import { CertificateDispatchHistoryModal } from './CertificateDispatchHistoryModal';
 import { CustomDialog } from './CustomDialog';
 import { PresidentReportModal } from './PresidentReportModal';
+import { IndividualSalesMobileView } from './IndividualSalesMobileView';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -32,6 +33,7 @@ interface ERPDataItem {
   hq: string;             // H(7)
   branch: string;         // I(8)
   empName: string;        // J(9)
+  empCode?: string;       // AN(39)
   hc: string;             // P,Q,R(15,16,17) combined
   hcRegDate: string;      // S(18)
   paymentStatus: string;  // T(19)
@@ -1073,6 +1075,7 @@ const ERP_Dashboard = () => {
             hq: '경기본부',
             branch: '수원지사',
             empName: '김철수',
+            empCode: 'H001',
             hc: '대상자, 보류, 기타',
             paymentStatus: '',
             hcRegDate: '2026-04-16',
@@ -1092,8 +1095,10 @@ const ERP_Dashboard = () => {
                   return String(item.hq || '').trim() === orgNameClean;
                 } else if (org.role === '지사' || org.role === '지점') {
                   return String(item.branch || '').trim() === orgNameClean;
+                } else {
+                  return (item.empCode && String(item.empCode).trim() === currentUser.username) ||
+                         (!item.empCode && String(item.empName || '').trim() === orgNameClean);
                 }
-                return false;
               });
             });
           } else {
@@ -1102,6 +1107,11 @@ const ERP_Dashboard = () => {
               finalData = initialData.filter(item => String(item.hq || '').trim() === orgNameClean);
             } else if (currentUser.role === '지사' || currentUser.role === '지점') {
               finalData = initialData.filter(item => String(item.branch || '').trim() === orgNameClean);
+            } else {
+              finalData = initialData.filter(item =>
+                (item.empCode && String(item.empCode).trim() === currentUser.username) ||
+                (!item.empCode && String(item.empName || '').trim() === orgNameClean)
+              );
             }
           }
         }
@@ -1168,6 +1178,7 @@ const ERP_Dashboard = () => {
             hq: String(row[7] || ''),               // H(7)
             branch: String(row[8] || ''),           // I(8)
             empName: String(row[9] || ''),          // J(9)
+            empCode: String(row[39] || '').trim(),  // AN(39) 사원코드
             hc: [row[15], row[16], row[17]].filter(Boolean).join(', '), // P,Q,R
             hcRegDate: String(row[18] || ''),       // S(18)
             paymentStatus: String(row[19] || ''),   // T(19)
@@ -1188,8 +1199,10 @@ const ERP_Dashboard = () => {
                 return String(item.hq || '').trim() === orgNameClean;
               } else if (org.role === '지사' || org.role === '지점') {
                 return String(item.branch || '').trim() === orgNameClean;
+              } else {
+                return (item.empCode && String(item.empCode).trim() === currentUser.username) ||
+                       (!item.empCode && String(item.empName || '').trim() === orgNameClean);
               }
-              return false;
             });
           });
         } else {
@@ -1198,6 +1211,11 @@ const ERP_Dashboard = () => {
             finalData = formatted.filter(item => String(item.hq || '').trim() === orgNameClean);
           } else if (currentUser.role === '지사' || currentUser.role === '지점') {
             finalData = formatted.filter(item => String(item.branch || '').trim() === orgNameClean);
+          } else {
+            finalData = formatted.filter(item =>
+              (item.empCode && String(item.empCode).trim() === currentUser.username) ||
+              (!item.empCode && String(item.empName || '').trim() === orgNameClean)
+            );
           }
         }
       }
@@ -3716,9 +3734,61 @@ const ERP_Dashboard = () => {
   if (!currentUser) {
     return (
       <LoginScreen onLoginSuccess={(user) => {
+        resetFilters();
         sessionStorage.setItem('erp_logged_in', 'true');
         setCurrentUser(user);
       }} />
+    );
+  }
+
+  // 개인(영업사원) 로그인 판별
+  const isIndividualSales = currentUser && 
+    !isSuperAdmin && 
+    !isAdmin && 
+    currentUser.role !== '본부' && 
+    currentUser.role !== '총무' && 
+    currentUser.role !== '지사' && 
+    currentUser.role !== '지점';
+
+  if (isIndividualSales) {
+    return (
+      <>
+        <IndividualSalesMobileView
+          currentUser={currentUser}
+          data={data}
+          onUpdateDeliveryMemo={(rowIdx, val) => updateCell(rowIdx, 24, val)}
+          onLogout={async () => {
+            if (await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')) {
+              try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                sessionStorage.removeItem('erp_logged_in');
+                resetFilters();
+                setCurrentUser(null);
+              } catch (err) {
+                console.error('Logout error:', err);
+              }
+            }
+          }}
+          loading={loading}
+          onRefresh={loadData}
+        />
+        <AnimatePresence>
+          <CustomDialog
+            isOpen={dialogState.isOpen}
+            type={dialogState.type}
+            title={dialogState.title}
+            message={dialogState.message}
+            onConfirm={() => {
+              if (dialogState.resolve) dialogState.resolve(true);
+              setDialogState(prev => ({ ...prev, isOpen: false }));
+            }}
+            onCancel={() => {
+              if (dialogState.resolve) dialogState.resolve(false);
+              setDialogState(prev => ({ ...prev, isOpen: false }));
+            }}
+          />
+        </AnimatePresence>
+      </>
     );
   }
 
@@ -4005,6 +4075,7 @@ const ERP_Dashboard = () => {
                   try {
                     await fetch('/api/auth/logout', { method: 'POST' });
                     sessionStorage.removeItem('erp_logged_in');
+                    resetFilters();
                     setCurrentUser(null);
                   } catch (err) {
                     console.error('Logout error:', err);
