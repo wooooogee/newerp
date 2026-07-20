@@ -33,7 +33,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   const [editMemoValue, setEditMemoValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  // 본부모바일 / 지사모바일 권한 판별
+  // 본부모바일 / 지사모바일 / 관리자모바일 권한 판별
   const isHqMobile = useMemo(() => {
     return currentUser.role === '본부모바일' || 
       (currentUser.orgs && currentUser.orgs.some(o => o.role === '본부모바일'));
@@ -44,29 +44,48 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       (currentUser.orgs && currentUser.orgs.some(o => o.role === '지사모바일'));
   }, [currentUser]);
 
-  // 본부/지사용 서브 필터 상태
+  const isAdminMobile = useMemo(() => {
+    return currentUser.role === 'admin모바일' || currentUser.role === '관리자모바일' ||
+      (currentUser.orgs && currentUser.orgs.some(o => o.role === 'admin모바일' || o.role === '관리자모바일'));
+  }, [currentUser]);
+
+  // 본부/지사/관리자용 서브 필터 상태
+  const [hqFilter, setHqFilter] = useState('전체');
   const [branchFilter, setBranchFilter] = useState('전체');
   const [empFilter, setEmpFilter] = useState('전체');
 
-  // 지사 선택 옵션 (본부모바일 권한일 때만 유의미)
+  // 본부 선택 옵션 (관리자모바일 권한일 때만 유의미)
+  const hqOptions = useMemo(() => {
+    const hqs = new Set<string>();
+    data.forEach(item => {
+      if (item.hq) hqs.add(item.hq.trim());
+    });
+    return ['전체', ...Array.from(hqs).sort()];
+  }, [data]);
+
+  // 지사 선택 옵션 (관리자/본부모바일 권한일 때만 유의미)
   const branchOptions = useMemo(() => {
     const branches = new Set<string>();
     data.forEach(item => {
+      // 관리자모바일인데 특정 본부가 선택되었다면 매칭되는 본부의 지사만 추출
+      if (isAdminMobile && hqFilter !== '전체' && item.hq !== hqFilter) return;
       if (item.branch) branches.add(item.branch.trim());
     });
     return ['전체', ...Array.from(branches).sort()];
-  }, [data]);
+  }, [data, isAdminMobile, hqFilter]);
 
-  // 영업사원 선택 옵션 (본부/지사모바일 권한일 때만 유의미)
+  // 영업사원 선택 옵션 (관리자/본부/지사모바일 권한일 때만 유의미)
   const empOptions = useMemo(() => {
     const emps = new Set<string>();
     data.forEach(item => {
-      // 본부모바일인데 특정 지사가 선택되어 있다면 매칭되는 지사의 영업사원만 추출
-      if (isHqMobile && branchFilter !== '전체' && item.branch !== branchFilter) return;
+      // 관리자모바일인데 특정 본부가 선택되어 있다면 매칭되는 본부의 영업사원만 추출
+      if (isAdminMobile && hqFilter !== '전체' && item.hq !== hqFilter) return;
+      // 본부모바일(혹은 관리자모바일)인데 특정 지사가 선택되어 있다면 매칭되는 지사의 영업사원만 추출
+      if ((isHqMobile || isAdminMobile) && branchFilter !== '전체' && item.branch !== branchFilter) return;
       if (item.empName) emps.add(item.empName.trim());
     });
     return ['전체', ...Array.from(emps).sort()];
-  }, [data, isHqMobile, branchFilter]);
+  }, [data, isHqMobile, isAdminMobile, hqFilter, branchFilter]);
 
   // 데이터 내 존재하는 고유 계약월 목록 동적 추출 (YYYY-MM)
   const uniqueMonths = useMemo(() => {
@@ -122,13 +141,18 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   // 4. 검색 및 가입/배송 필터링된 최종 렌더링 데이터
   const filteredData = useMemo(() => {
     return modeProcessedData.filter(item => {
-      // 본부모바일 지사 필터링
-      if (isHqMobile && branchFilter !== '전체') {
+      // 관리자모바일 본부 필터링
+      if (isAdminMobile && hqFilter !== '전체') {
+        if ((item.hq || '').trim() !== hqFilter) return false;
+      }
+
+      // 본부모바일(혹은 관리자모바일) 지사 필터링
+      if ((isHqMobile || isAdminMobile) && branchFilter !== '전체') {
         if ((item.branch || '').trim() !== branchFilter) return false;
       }
 
-      // 영업사원 필터링 (본부모바일 또는 지사모바일인 경우)
-      if ((isHqMobile || isBranchMobile) && empFilter !== '전체') {
+      // 영업사원 필터링 (본부모바일 또는 지사모바일 또는 관리자모바일인 경우)
+      if ((isHqMobile || isBranchMobile || isAdminMobile) && empFilter !== '전체') {
         if ((item.empName || '').trim() !== empFilter) return false;
       }
 
@@ -158,7 +182,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       // 계약일 최신순 정렬
       return String(b.contractDate || '').localeCompare(String(a.contractDate || ''));
     });
-  }, [modeProcessedData, searchTerm, statusFilter, deliveryFilter, isHqMobile, isBranchMobile, branchFilter, empFilter]);
+  }, [modeProcessedData, searchTerm, statusFilter, deliveryFilter, isHqMobile, isBranchMobile, isAdminMobile, hqFilter, branchFilter, empFilter]);
 
   // 메모 편집 시작
   const handleStartEdit = (rowIdx: number, currentMemo: string) => {
@@ -341,37 +365,58 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             </div>
           </div>
 
-          {/* 본부/지사모바일용 하위 조직 필터링 */}
-          {(isHqMobile || isBranchMobile) && (
-            <div className="grid grid-cols-2 gap-2 text-xs pt-3 border-t border-slate-900/60">
-              {isHqMobile && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] text-slate-400 font-bold">지사/지점 선택</label>
+          {/* 본부/지사/관리자모바일용 하위 조직 필터링 */}
+          {(isHqMobile || isBranchMobile || isAdminMobile) && (
+            <div className="flex flex-col gap-2 pt-3 border-t border-slate-900/60">
+              {isAdminMobile && (
+                <div className="flex flex-col gap-1.5 text-xs">
+                  <label className="text-[10px] text-slate-400 font-bold">본부 선택</label>
                   <select
-                    value={branchFilter}
+                    value={hqFilter}
                     onChange={(e) => {
-                      setBranchFilter(e.target.value);
+                      setHqFilter(e.target.value);
+                      setBranchFilter('전체');
                       setEmpFilter('전체');
                     }}
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
                   >
-                    {branchOptions.map(b => (
-                      <option key={b} value={b}>{b}</option>
+                    {hqOptions.map(h => (
+                      <option key={h} value={h}>{h}</option>
                     ))}
                   </select>
                 </div>
               )}
-              <div className={`flex flex-col gap-1.5 ${isHqMobile ? 'col-span-1' : 'col-span-2'}`}>
-                <label className="text-[10px] text-slate-400 font-bold">영업사원 선택</label>
-                <select
-                  value={empFilter}
-                  onChange={(e) => setEmpFilter(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
-                >
-                  {empOptions.map(e => (
-                    <option key={e} value={e}>{e}</option>
-                  ))}
-                </select>
+              
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {(isHqMobile || isAdminMobile) && (
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 font-bold">지사/지점 선택</label>
+                    <select
+                      value={branchFilter}
+                      onChange={(e) => {
+                        setBranchFilter(e.target.value);
+                        setEmpFilter('전체');
+                      }}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    >
+                      {branchOptions.map(b => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className={`flex flex-col gap-1.5 ${(isHqMobile || isAdminMobile) ? 'col-span-1' : 'col-span-2'}`}>
+                  <label className="text-[10px] text-slate-400 font-bold">영업사원 선택</label>
+                  <select
+                    value={empFilter}
+                    onChange={(e) => setEmpFilter(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                  >
+                    {empOptions.map(e => (
+                      <option key={e} value={e}>{e}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           )}

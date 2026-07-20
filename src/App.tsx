@@ -372,7 +372,10 @@ export const getDisplayPayDate = (item: any) => {
 const ERP_Dashboard = () => {
   const [currentUser, setCurrentUser] = useState<{ username: string; role: string; orgName: string; orgs?: { role: string; orgName: string; }[] } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const isSuperAdmin = currentUser?.role === 'admin' || currentUser?.role === '관리자';
+  const isSuperAdmin = currentUser?.role === 'admin' || 
+                       currentUser?.role === '관리자' || 
+                       currentUser?.role === 'admin모바일' || 
+                       currentUser?.role === '관리자모바일';
   const isAdmin = isSuperAdmin || currentUser?.role === '총무';
 
   // 모바일 전용 뷰 분기 판별
