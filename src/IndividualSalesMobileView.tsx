@@ -894,7 +894,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 containerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
               }
             }}
-            className="fixed bottom-20 right-6 w-10 h-10 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center shadow-lg border border-blue-400/20 z-50 transition-all active:scale-95"
+            className="absolute bottom-20 right-6 w-10 h-10 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center shadow-lg border border-blue-400/20 z-50 transition-all active:scale-95"
             title="맨 위로"
           >
             <ArrowUp size={20} />
