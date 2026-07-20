@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -75,6 +75,16 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, monthFilter, statusFilter, deliveryFilter, hqFilter, branchFilter, empFilter, displayMode]);
+
+  // 스크롤 탑 이동을 위한 스크롤 컨테이너 Ref
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // 페이지 번호 변경 시 스크롤 위치 최상단으로 강제 스크롤
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
+  }, [currentPage]);
 
   // 본부 선택 옵션 (관리자모바일 권한일 때만 유의미)
   const hqOptions = useMemo(() => {
@@ -362,7 +372,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       </header>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-20">
+      <div ref={containerRef} className="flex-1 overflow-y-auto p-4 space-y-4 pb-20">
         {/* User Card */}
         <div className="p-4 bg-gradient-to-br from-slate-950 to-slate-900 border border-slate-800/80 rounded-2xl shadow-lg">
           <div className="flex items-center gap-3">
