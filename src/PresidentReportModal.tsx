@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Printer, Calendar, Settings, FileText } from 'lucide-react';
+import { X, Printer, Calendar, Settings, FileText, Plus, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface ERPDataItem {
@@ -44,21 +44,36 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
     return `${yyyy}-${mm}-${dd}`;
   });
 
-  // 2. 추가 지표 입력 (부고온, 상조행사) - 로컬스토리지 복구 지원
-  const [bugoonCount, setBugoonCount] = useState<number>(() => {
-    const saved = localStorage.getItem('report_bugoon_count');
-    return saved !== null ? Math.max(0, parseInt(saved, 10) || 0) : 0;
-  });
-  
-  const [funeralCount, setFuneralCount] = useState<number>(() => {
-    const saved = localStorage.getItem('report_funeral_count');
-    return saved !== null ? Math.max(0, parseInt(saved, 10) || 0) : 0;
+  // 2. 추가 지표 입력 (부고온, 상조행사 등) - 로컬스토리지 동적 리스트 복구 및 마이그레이션
+  const [extraMetrics, setExtraMetrics] = useState<{ id: string; label: string; value: number }[]>(() => {
+    const saved = localStorage.getItem('report_extra_metrics');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    
+    // 이전 개별 저장값 백업 복구 (마이그레이션)
+    const oldBugoonCount = localStorage.getItem('report_bugoon_count');
+    const oldBugoonLabel = localStorage.getItem('report_bugoon_label');
+    const oldFuneralCount = localStorage.getItem('report_funeral_count');
+    const oldFuneralLabel = localStorage.getItem('report_funeral_label');
+
+    const bugoonVal = oldBugoonCount !== null ? Math.max(0, parseInt(oldBugoonCount, 10) || 0) : 0;
+    const bugoonLbl = oldBugoonLabel || '부고온 (모바일 부고장 생성 횟수)';
+    const funeralVal = oldFuneralCount !== null ? Math.max(0, parseInt(oldFuneralCount, 10) || 0) : 0;
+    const funeralLbl = oldFuneralLabel || '상조행사 (진행 및 완료 건수)';
+
+    return [
+      { id: 'metric-bugoon', label: bugoonLbl, value: bugoonVal },
+      { id: 'metric-funeral', label: funeralLbl, value: funeralVal }
+    ];
   });
 
   // 3. 실적 0건인 본부 숨기기 필터 - 로컬스토리지 복구 지원
   const [hideZeroHqs, setHideZeroHqs] = useState<boolean>(() => {
     const saved = localStorage.getItem('report_hide_zero_hqs');
-    return saved !== null ? saved === 'true' : true;
+    return saved !== null ? saved === 'true' : false;
   });
 
   // 4. 추가 입력칸 내용 - 로컬스토리지 복구 지원
@@ -84,12 +99,8 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
   // 상태 변경 시 LocalStorage에 영구 저장하는 Side Effects
   // ----------------------------------------------------
   useEffect(() => {
-    localStorage.setItem('report_bugoon_count', String(bugoonCount));
-  }, [bugoonCount]);
-
-  useEffect(() => {
-    localStorage.setItem('report_funeral_count', String(funeralCount));
-  }, [funeralCount]);
+    localStorage.setItem('report_extra_metrics', JSON.stringify(extraMetrics));
+  }, [extraMetrics]);
 
   useEffect(() => {
     localStorage.setItem('report_hide_zero_hqs', String(hideZeroHqs));
@@ -134,14 +145,54 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
     return { startDate, endDate, year, month: month + 1, day };
   }, [selectedDate]);
 
-  // 데이터 내 모든 본부 수집
+  // 데이터 및 정산 설정 내 모든 등록된 본부 수집
   const allHqs = useMemo(() => {
+    // 1. 특수수당 대상 본부 목록 수집 (제외 대상)
+    const specialHqs = new Set<string>();
+    const savedIncentives = localStorage.getItem('erp_global_incentives');
+    if (savedIncentives) {
+      try {
+        const rules = JSON.parse(savedIncentives);
+        if (Array.isArray(rules)) {
+          rules.forEach((r: any) => {
+            if (r.targetName) {
+              specialHqs.add(r.targetName.trim());
+            }
+          });
+        }
+      } catch (e) {}
+    }
+
     const hqs = new Set<string>();
+
+    // 2. 본부별 정산 설정(erp_hq_settings_v2)에 등록된 본부 수집
+    const savedHqSettings = localStorage.getItem('erp_hq_settings_v2');
+    if (savedHqSettings) {
+      try {
+        const settings = JSON.parse(savedHqSettings);
+        if (Array.isArray(settings)) {
+          settings.forEach((s: any) => {
+            if (s.hqName) {
+              const name = s.hqName.trim();
+              if (!specialHqs.has(name)) {
+                hqs.add(name);
+              }
+            }
+          });
+        }
+      } catch (e) {}
+    }
+
+    // 3. 가입대장 데이터(data) 내 기재된 본부 추가 수집
     data.forEach(item => {
       if (item.hq) {
-        hqs.add(item.hq.trim());
+        const trimmedHq = item.hq.trim();
+        if (!specialHqs.has(trimmedHq)) {
+          hqs.add(trimmedHq);
+        }
       }
     });
+
     return Array.from(hqs).sort();
   }, [data]);
 
@@ -349,39 +400,62 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
 
             <hr className="border-slate-100" />
 
-            {/* 수치 직접 입력란 (부고온, 상조행사) */}
+            {/* 수치 직접 입력란 (동적 목록) */}
             <div className="space-y-3">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                <Settings size={14} className="text-blue-500" />
-                추가 지표 입력
-              </label>
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <Settings size={14} className="text-blue-500" />
+                  추가 지표 입력
+                </label>
+                <button
+                  onClick={() => {
+                    setExtraMetrics(prev => [...prev, { id: String(Date.now()), label: '', value: 0 }]);
+                  }}
+                  className="text-[10px] font-bold text-blue-600 hover:text-blue-500 flex items-center gap-0.5 border border-blue-500/20 px-2 py-0.5 rounded bg-blue-50/50 transition-colors"
+                >
+                  <Plus size={10} />
+                  지표 추가
+                </button>
+              </div>
               
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-500">부고온 생성 횟수</span>
-                  <div className="relative flex items-center">
+              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                {extraMetrics.map((metric, idx) => (
+                  <div key={metric.id} className="p-2 bg-slate-50 border border-slate-100 rounded-lg space-y-1.5 relative group">
+                    <button
+                      onClick={() => {
+                        setExtraMetrics(prev => prev.filter(m => m.id !== metric.id));
+                      }}
+                      className="absolute right-2 top-2 text-slate-400 hover:text-rose-500 transition-colors"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                     <input
-                      type="number"
-                      value={bugoonCount}
-                      onChange={e => setBugoonCount(Math.max(0, parseInt(e.target.value) || 0))}
-                      className="w-full pl-3 pr-8 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                      type="text"
+                      value={metric.label}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setExtraMetrics(prev => prev.map(m => m.id === metric.id ? { ...m, label: val } : m));
+                      }}
+                      className="w-[85%] text-[10px] font-bold text-slate-500 bg-transparent border-b border-slate-200 focus:border-blue-500 focus:outline-none pb-0.5"
+                      placeholder={`지표명 입력 (예: 지표 ${idx + 1})`}
                     />
-                    <span className="absolute right-3 text-[10px] text-slate-400 font-bold">건</span>
+                    <div className="relative flex items-center w-[50%]">
+                      <input
+                        type="number"
+                        value={metric.value}
+                        onChange={e => {
+                          const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                          setExtraMetrics(prev => prev.map(m => m.id === metric.id ? { ...m, value: val } : m));
+                        }}
+                        className="w-full pl-2 pr-6 py-0.5 border border-slate-200 rounded text-[10px] font-bold text-slate-700 bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                      />
+                      <span className="absolute right-2 text-[9px] text-slate-400 font-bold">건</span>
+                    </div>
                   </div>
-                </div>
-
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-500">상조행사 진행 건수</span>
-                  <div className="relative flex items-center">
-                    <input
-                      type="number"
-                      value={funeralCount}
-                      onChange={e => setFuneralCount(Math.max(0, parseInt(e.target.value) || 0))}
-                      className="w-full pl-3 pr-8 py-1.5 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                    />
-                    <span className="absolute right-3 text-[10px] text-slate-400 font-bold">건</span>
-                  </div>
-                </div>
+                ))}
+                {extraMetrics.length === 0 && (
+                  <p className="text-[10px] text-slate-400 italic text-center py-4">등록된 추가 지표가 없습니다.</p>
+                )}
               </div>
             </div>
 
@@ -484,23 +558,23 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
                         )}
                       </td>
                       {/* 결재선 양식 셀 */}
-                      <td className="border-none p-0 align-top text-right w-[180px]">
-                        <table className="border-collapse border border-slate-400 text-center text-[9px] font-bold text-slate-800 table-fixed w-[180px] ml-auto select-none">
+                      <td className="border-none p-0 align-top text-right w-[225px]">
+                        <table className="border-collapse border border-slate-400 text-center text-[10px] font-bold text-slate-800 table-fixed w-[220px] ml-auto select-none">
                           <thead>
                             <tr>
-                              <th rowSpan={2} className="border border-slate-400 w-[24px] bg-slate-50 text-[9px] font-black p-0.5 leading-tight font-normal">
+                              <th rowSpan={2} className="border border-slate-400 w-[28px] bg-slate-50 text-[10px] font-black p-0.5 leading-tight font-normal">
                                 결<br/>재
                               </th>
-                              <th className="border border-slate-400 w-[52px] py-0.5 bg-slate-50 text-[9px] font-extrabold font-normal">담당자</th>
-                              <th className="border border-slate-400 w-[52px] py-0.5 bg-slate-50 text-[9px] font-extrabold font-normal">본부장</th>
-                              <th className="border border-slate-400 w-[52px] py-0.5 bg-slate-50 text-[9px] font-extrabold font-normal">대 표</th>
+                              <th className="border border-slate-400 w-[64px] py-1 bg-slate-50 text-[10px] font-extrabold font-normal">담당자</th>
+                              <th className="border border-slate-400 w-[64px] py-1 bg-slate-50 text-[10px] font-extrabold font-normal">본부장</th>
+                              <th className="border border-slate-400 w-[64px] py-1 bg-slate-50 text-[10px] font-extrabold font-normal">대 표</th>
                             </tr>
                           </thead>
                           <tbody>
                             <tr>
-                              <td className="border border-slate-400 h-9 w-[52px]"></td>
-                              <td className="border border-slate-400 h-9 w-[52px]"></td>
-                              <td className="border border-slate-400 h-9 w-[52px]"></td>
+                              <td className="border border-slate-400 h-14 w-[64px]"></td>
+                              <td className="border border-slate-400 h-14 w-[64px]"></td>
+                              <td className="border border-slate-400 h-14 w-[64px]"></td>
                             </tr>
                           </tbody>
                         </table>
@@ -612,14 +686,21 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
                       </tr>
                     </thead>
                     <tbody>
-                      <tr className="border-b border-slate-200 text-center font-medium">
-                        <td className="border border-slate-300 py-1 px-2 text-left font-bold text-slate-800">부고온 (모바일 부고장 생성 횟수)</td>
-                        <td className="border border-slate-300 py-1 px-2 text-blue-700 font-bold">{bugoonCount.toLocaleString()} 건</td>
-                      </tr>
-                      <tr className="border-b border-slate-200 text-center font-medium">
-                        <td className="border border-slate-300 py-1 px-2 text-left font-bold text-slate-800">상조행사 (진행 및 완료 건수)</td>
-                        <td className="border border-slate-300 py-1 px-2 text-emerald-700 font-bold">{funeralCount.toLocaleString()} 건</td>
-                      </tr>
+                      {extraMetrics.map((metric, idx) => (
+                        <tr key={metric.id} className="border-b border-slate-200 text-center font-medium">
+                          <td className="border border-slate-300 py-1 px-2 text-left font-bold text-slate-800">{metric.label || `지표 ${idx + 1}`}</td>
+                          <td className={`border border-slate-300 py-1 px-2 font-bold ${idx % 2 === 0 ? 'text-blue-700' : 'text-emerald-700'}`}>
+                            {metric.value.toLocaleString()} 건
+                          </td>
+                        </tr>
+                      ))}
+                      {extraMetrics.length === 0 && (
+                        <tr>
+                          <td colSpan={2} className="border border-slate-300 py-2 text-center text-slate-400 font-bold select-none">
+                            등록된 기타 운영 실적 현황이 없습니다.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -686,7 +767,6 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
                     box-shadow: none !important;
                     background: white !important;
                     display: block !important;
-                    page-break-inside: avoid !important;
                   }
 
                   .print\\:hidden,
