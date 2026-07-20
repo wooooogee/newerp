@@ -27,7 +27,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('전체'); // 전체, 가입, 해약, 취소
   const [deliveryFilter, setDeliveryFilter] = useState('전체'); // 전체, 배송대기, 배송완료
-  const [monthFilter, setMonthFilter] = useState('전체'); // 전체, YYYY-MM
+  const [monthFilter, setMonthFilter] = useState(() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${yyyy}-${mm}`;
+  }); // 기본값: 현재 월 (YYYY-MM)
   const [displayMode, setDisplayMode] = useState<'구좌수' | '상품건수'>('구좌수'); // 구좌수, 상품건수
   const [editingRowIdx, setEditingRowIdx] = useState<number | null>(null);
   const [editMemoValue, setEditMemoValue] = useState('');
