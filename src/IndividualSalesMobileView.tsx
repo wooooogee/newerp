@@ -150,8 +150,10 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     const activeData = modeProcessedData.filter(item => (item.status || '').trim() === '가입');
 
     const total = activeData.length;
-    const waiting = activeData.filter(item => (item.deliveryStatus || '').trim() === '배송대기').length;
     const completed = activeData.filter(item => (item.deliveryStatus || '').trim() === '배송완료').length;
+    
+    // 배송상태가 빈 값이거나 '배송완료'가 아닌 모든 건은 '배송대기'로 산출하여 수치 정합성을 100% 일치시킴
+    const waiting = total - completed;
 
     // 가입 상태별 통계 (이것은 전체 접수 건수 modeProcessedData 기준)
     const signed = modeProcessedData.filter(item => (item.status || '').trim() === '가입').length;
