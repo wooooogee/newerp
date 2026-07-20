@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2 } from 'lucide-react';
+import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface IndividualSalesMobileViewProps {
@@ -43,6 +43,9 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
   // 실적 0건 본부 숨기기 상태
   const [hideZeroHq, setHideZeroHq] = useState(false);
+
+  // 실적 요약 상세 아코디언 상태
+  const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
 
   // 본부모바일 / 지사모바일 / 관리자모바일 권한 판별
   const isHqMobile = useMemo(() => {
@@ -146,7 +149,13 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     const total = modeProcessedData.length;
     const waiting = modeProcessedData.filter(item => (item.deliveryStatus || '').trim() === '배송대기').length;
     const completed = modeProcessedData.filter(item => (item.deliveryStatus || '').trim() === '배송완료').length;
-    return { total, waiting, completed };
+
+    // 가입 상태별 통계 추가
+    const signed = modeProcessedData.filter(item => (item.status || '').trim() === '가입').length;
+    const terminated = modeProcessedData.filter(item => (item.status || '').trim().includes('해약')).length;
+    const cancelled = modeProcessedData.filter(item => (item.status || '').trim().includes('취소')).length;
+
+    return { total, waiting, completed, signed, terminated, cancelled };
   }, [modeProcessedData]);
 
   // 4. 검색 및 가입/배송 필터링된 최종 렌더링 데이터
@@ -371,21 +380,69 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
           </button>
         </div>
 
-        {/* Dashboard Count Cards (3 Columns) */}
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            { label: '전체', count: summary.total, color: 'border-slate-800 bg-slate-950/40 text-slate-300' },
-            { label: '배송대기', count: summary.waiting, color: 'border-amber-900/30 bg-amber-950/10 text-amber-400' },
-            { label: '배송완료', count: summary.completed, color: 'border-emerald-900/30 bg-emerald-950/10 text-emerald-400' }
-          ].map((item, i) => (
-            <div
-              key={i}
-              className={`p-2.5 border rounded-xl flex flex-col items-center justify-center shadow-sm ${item.color}`}
+        {/* Dashboard Count Cards (3 Columns) & Accordion Switch */}
+        <div className="bg-slate-950/20 border border-slate-800/60 rounded-2xl p-3 shadow-md space-y-2 relative">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: '전체', count: summary.total, color: 'border-slate-800 bg-slate-950/40 text-slate-300' },
+              { label: '배송대기', count: summary.waiting, color: 'border-amber-900/30 bg-amber-950/10 text-amber-400' },
+              { label: '배송완료', count: summary.completed, color: 'border-emerald-900/30 bg-emerald-950/10 text-emerald-400' }
+            ].map((item, i) => (
+              <div
+                key={i}
+                className={`p-2.5 border rounded-xl flex flex-col items-center justify-center shadow-sm ${item.color}`}
+              >
+                <span className="text-[10px] text-slate-400 font-medium">{item.label}</span>
+                <span className="text-base font-extrabold mt-1">{item.count}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Toggle button positioned neatly at the bottom right */}
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+              className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-white transition-colors py-1 px-2.5 bg-slate-900/80 border border-slate-800 rounded-full shadow-sm"
             >
-              <span className="text-[10px] text-slate-400 font-medium">{item.label}</span>
-              <span className="text-base font-extrabold mt-1">{item.count}</span>
-            </div>
-          ))}
+              <span>상세 실적 현황</span>
+              <ChevronDown 
+                size={12} 
+                className={`transition-transform duration-200 ${isSummaryExpanded ? 'rotate-180' : 'rotate-0'}`} 
+              />
+            </button>
+          </div>
+
+          {/* Collapsible statistics panel */}
+          <AnimatePresence>
+            {isSummaryExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className="grid grid-cols-2 gap-2 text-xs pt-3 border-t border-slate-900/80">
+                  <div className="bg-slate-900/60 border border-slate-900 p-2.5 rounded-xl flex justify-between items-center">
+                    <span className="text-[10px] text-slate-400 font-medium">총 접수건</span>
+                    <strong className="text-sm font-bold text-white">{summary.total}건</strong>
+                  </div>
+                  <div className="bg-teal-950/10 border border-teal-900/30 p-2.5 rounded-xl flex justify-between items-center">
+                    <span className="text-[10px] text-teal-400 font-medium">가입 건수</span>
+                    <strong className="text-sm font-bold text-teal-400">{summary.signed}건</strong>
+                  </div>
+                  <div className="bg-rose-950/10 border border-rose-900/30 p-2.5 rounded-xl flex justify-between items-center">
+                    <span className="text-[10px] text-rose-400 font-medium">해약 건수</span>
+                    <strong className="text-sm font-bold text-rose-400">{summary.terminated}건</strong>
+                  </div>
+                  <div className="bg-red-950/10 border border-red-900/30 p-2.5 rounded-xl flex justify-between items-center">
+                    <span className="text-[10px] text-red-400 font-medium">취소 건수</span>
+                    <strong className="text-sm font-bold text-red-400">{summary.cancelled}건</strong>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* activeTab 분기에 따른 필터 영역 제어 */}
