@@ -375,29 +375,38 @@ const ERP_Dashboard = () => {
   const isSuperAdmin = currentUser?.role === 'admin' || currentUser?.role === '관리자';
   const isAdmin = isSuperAdmin || currentUser?.role === '총무';
 
-  // 개인(영업사원) 로그인 판별
-  const isIndividualSales = React.useMemo(() => {
+  // 모바일 전용 뷰 분기 판별
+  const isMobileView = React.useMemo(() => {
     if (!currentUser) return false;
     if (isSuperAdmin || isAdmin) return false;
 
     const excludedRoles = ['본부', '총무', '지사', '지점', 'admin', '관리자'];
     
-    // 1. currentUser.role이 명시적 배제 대상에 포함되는지 확인
+    // 1. currentUser.role에 '모바일'이 명시적으로 포함되어 있으면 허용
+    if (currentUser.role && currentUser.role.includes('모바일')) return true;
+
+    // 2. currentUser.orgs 목록 중 하나라도 모바일 역할이 포함되는지 확인
+    if (currentUser.orgs && currentUser.orgs.length > 0) {
+      const hasMobileRole = currentUser.orgs.some(o => o.role && o.role.includes('모바일'));
+      if (hasMobileRole) return true;
+    }
+
+    // 3. currentUser.role이 명시적 배제 대상에 포함되는지 확인
     if (excludedRoles.includes(currentUser.role)) return false;
 
-    // 2. currentUser.orgs 목록 중 하나라도 제외 역할이 포함되는지 확인
+    // 4. currentUser.orgs 목록 중 하나라도 제외 역할이 포함되는지 확인
     if (currentUser.orgs && currentUser.orgs.length > 0) {
       const hasExcludedRole = currentUser.orgs.some(o => excludedRoles.includes(o.role));
       if (hasExcludedRole) return false;
     }
 
-    // 3. role이 '영업사원'이거나 '개인'인 경우 또는 orgs 중 '영업사원'/'개인'이 있는 경우
+    // 5. role이 '영업사원'이거나 '개인'인 경우 또는 orgs 중 '영업사원'/'개인'이 있는 경우
     const isSales = currentUser.role === '영업사원' || currentUser.role === '개인' ||
       (currentUser.orgs && currentUser.orgs.some(o => o.role === '영업사원' || o.role === '개인'));
     
     if (isSales) return true;
 
-    // 4. 그 외 기본적으로 배제 대상이 아니면 개인 영업사원으로 우대
+    // 6. 그 외 기본적으로 배제 대상이 아니면 개인 영업사원으로 우대
     return true;
   }, [currentUser, isSuperAdmin, isAdmin]);
 
@@ -1118,9 +1127,9 @@ const ERP_Dashboard = () => {
             finalData = initialData.filter(item => {
               return currentUser.orgs!.some(org => {
                 const orgNameClean = (org.orgName || '').trim();
-                if (org.role === '본부' || org.role === '총무') {
+                if (org.role === '본부' || org.role === '총무' || org.role === '본부모바일') {
                   return String(item.hq || '').trim() === orgNameClean;
-                } else if (org.role === '지사' || org.role === '지점') {
+                } else if (org.role === '지사' || org.role === '지점' || org.role === '지사모바일') {
                   return String(item.branch || '').trim() === orgNameClean;
                 } else {
                   return (item.empCode && String(item.empCode).trim() === currentUser.username) ||
@@ -1130,9 +1139,9 @@ const ERP_Dashboard = () => {
             });
           } else {
             const orgNameClean = (currentUser.orgName || '').trim();
-            if (currentUser.role === '본부' || currentUser.role === '총무') {
+            if (currentUser.role === '본부' || currentUser.role === '총무' || currentUser.role === '본부모바일') {
               finalData = initialData.filter(item => String(item.hq || '').trim() === orgNameClean);
-            } else if (currentUser.role === '지사' || currentUser.role === '지점') {
+            } else if (currentUser.role === '지사' || currentUser.role === '지점' || currentUser.role === '지사모바일') {
               finalData = initialData.filter(item => String(item.branch || '').trim() === orgNameClean);
             } else {
               finalData = initialData.filter(item =>
@@ -1222,9 +1231,9 @@ const ERP_Dashboard = () => {
           finalData = formatted.filter(item => {
             return currentUser.orgs!.some(org => {
               const orgNameClean = (org.orgName || '').trim();
-              if (org.role === '본부' || org.role === '총무') {
+              if (org.role === '본부' || org.role === '총무' || org.role === '본부모바일') {
                 return String(item.hq || '').trim() === orgNameClean;
-              } else if (org.role === '지사' || org.role === '지점') {
+              } else if (org.role === '지사' || org.role === '지점' || org.role === '지사모바일') {
                 return String(item.branch || '').trim() === orgNameClean;
               } else {
                 return (item.empCode && String(item.empCode).trim() === currentUser.username) ||
@@ -1234,9 +1243,9 @@ const ERP_Dashboard = () => {
           });
         } else {
           const orgNameClean = (currentUser.orgName || '').trim();
-          if (currentUser.role === '본부' || currentUser.role === '총무') {
+          if (currentUser.role === '본부' || currentUser.role === '총무' || currentUser.role === '본부모바일') {
             finalData = formatted.filter(item => String(item.hq || '').trim() === orgNameClean);
-          } else if (currentUser.role === '지사' || currentUser.role === '지점') {
+          } else if (currentUser.role === '지사' || currentUser.role === '지점' || currentUser.role === '지사모바일') {
             finalData = formatted.filter(item => String(item.branch || '').trim() === orgNameClean);
           } else {
             finalData = formatted.filter(item =>
@@ -3778,7 +3787,7 @@ const ERP_Dashboard = () => {
     );
   }
 
-  if (isIndividualSales) {
+  if (isMobileView) {
     return (
       <>
         <IndividualSalesMobileView
