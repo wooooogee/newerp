@@ -374,6 +374,33 @@ const ERP_Dashboard = () => {
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const isSuperAdmin = currentUser?.role === 'admin' || currentUser?.role === '관리자';
   const isAdmin = isSuperAdmin || currentUser?.role === '총무';
+
+  // 개인(영업사원) 로그인 판별
+  const isIndividualSales = React.useMemo(() => {
+    if (!currentUser) return false;
+    if (isSuperAdmin || isAdmin) return false;
+
+    const excludedRoles = ['본부', '총무', '지사', '지점', 'admin', '관리자'];
+    
+    // 1. currentUser.role이 명시적 배제 대상에 포함되는지 확인
+    if (excludedRoles.includes(currentUser.role)) return false;
+
+    // 2. currentUser.orgs 목록 중 하나라도 제외 역할이 포함되는지 확인
+    if (currentUser.orgs && currentUser.orgs.length > 0) {
+      const hasExcludedRole = currentUser.orgs.some(o => excludedRoles.includes(o.role));
+      if (hasExcludedRole) return false;
+    }
+
+    // 3. role이 '영업사원'이거나 '개인'인 경우 또는 orgs 중 '영업사원'/'개인'이 있는 경우
+    const isSales = currentUser.role === '영업사원' || currentUser.role === '개인' ||
+      (currentUser.orgs && currentUser.orgs.some(o => o.role === '영업사원' || o.role === '개인'));
+    
+    if (isSales) return true;
+
+    // 4. 그 외 기본적으로 배제 대상이 아니면 개인 영업사원으로 우대
+    return true;
+  }, [currentUser, isSuperAdmin, isAdmin]);
+
   const [data, setData] = useState<ERPDataItem[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -3740,32 +3767,6 @@ const ERP_Dashboard = () => {
       }} />
     );
   }
-
-  // 개인(영업사원) 로그인 판별
-  const isIndividualSales = React.useMemo(() => {
-    if (!currentUser) return false;
-    if (isSuperAdmin || isAdmin) return false;
-
-    const excludedRoles = ['본부', '총무', '지사', '지점', 'admin', '관리자'];
-    
-    // 1. currentUser.role이 명시적 배제 대상에 포함되는지 확인
-    if (excludedRoles.includes(currentUser.role)) return false;
-
-    // 2. currentUser.orgs 목록 중 하나라도 제외 역할이 포함되는지 확인
-    if (currentUser.orgs && currentUser.orgs.length > 0) {
-      const hasExcludedRole = currentUser.orgs.some(o => excludedRoles.includes(o.role));
-      if (hasExcludedRole) return false;
-    }
-
-    // 3. role이 '영업사원'이거나 '개인'인 경우 또는 orgs 중 '영업사원'/'개인'이 있는 경우
-    const isSales = currentUser.role === '영업사원' || currentUser.role === '개인' ||
-      (currentUser.orgs && currentUser.orgs.some(o => o.role === '영업사원' || o.role === '개인'));
-    
-    if (isSales) return true;
-
-    // 4. 그 외 기본적으로 배제 대상이 아니면 개인 영업사원으로 우대
-    return true;
-  }, [currentUser, isSuperAdmin, isAdmin]);
 
   if (isIndividualSales) {
     return (
