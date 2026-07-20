@@ -9,6 +9,7 @@ import { DeliveryDashboardModal } from './DeliveryDashboardModal';
 import { CertificateDispatchModal } from './CertificateDispatchModal';
 import { CertificateDispatchHistoryModal } from './CertificateDispatchHistoryModal';
 import { CustomDialog } from './CustomDialog';
+import { PresidentReportModal } from './PresidentReportModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -379,6 +380,7 @@ const ERP_Dashboard = () => {
   const [hqFilter, setHqFilter] = useState<string[]>([]);
   const [branchFilter, setBranchFilter] = useState<string[]>([]);
   const [deliveryFilter, setDeliveryFilter] = useState('전체');
+  const [statusFilter, setStatusFilter] = useState('전체');
   const [payDateFilter, setPayDateFilter] = React.useState('');
   const [currentPage, setCurrentPage] = React.useState(1);
   const [dateFilterType, setDateFilterType] = useState<'payDate' | 'hcRegDate'>('payDate');
@@ -397,6 +399,7 @@ const ERP_Dashboard = () => {
   const [saveSettingsStatus, setSaveSettingsStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [isDailyDashboardModalOpen, setIsDailyDashboardModalOpen] = useState(false);
   const [isMonthlyDashboardModalOpen, setIsMonthlyDashboardModalOpen] = useState(false);
+  const [isPresidentReportModalOpen, setIsPresidentReportModalOpen] = useState(false);
   const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
@@ -1640,7 +1643,16 @@ const ERP_Dashboard = () => {
           }
         }
 
-        return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesDelivery && matchesPayDate && matchesPaymentStatus;
+        const matchesStatus =
+          statusFilter === '전체' ||
+          (statusFilter === '가입' && item.status === '가입') ||
+          (statusFilter === '취소 및 해약' &&
+            (item.status?.includes('취소') ||
+              item.status?.includes('해약') ||
+              item.status?.includes('반품') ||
+              item.status?.includes('철회')));
+
+        return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesDelivery && matchesPayDate && matchesPaymentStatus && matchesStatus;
       })
       .sort((a, b) => {
         const parseDate = (d: string) => {
@@ -1664,12 +1676,12 @@ const ERP_Dashboard = () => {
     }
 
     return result;
-  }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, payDateFilter, paymentStatusFilter, sortOrder, tableDisplayMode]);
+  }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter, sortOrder, tableDisplayMode]);
 
   // 필터 변경 시 페이지 리셋
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, payDateFilter, paymentStatusFilter]);
+  }, [searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter]);
 
   const calculateMaintenancePayouts = React.useCallback((items: ERPDataItem[]) => {
     const payouts: any[] = [];
@@ -4021,6 +4033,15 @@ const ERP_Dashboard = () => {
               </h2>
               {isAdmin && (
                 <div className="flex items-center gap-2">
+                  {isSuperAdmin && (
+                    <button
+                      onClick={() => setIsPresidentReportModalOpen(true)}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer mr-1"
+                    >
+                      <FileText size={14} />
+                      보고서 출력
+                    </button>
+                  )}
                   <button
                     onClick={handleOpenSettings}
                     className="p-2 bg-slate-200 text-slate-600 rounded-full hover:bg-slate-300 transition-colors shadow-sm"
@@ -4414,6 +4435,25 @@ const ERP_Dashboard = () => {
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-5">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-50">
                 <div className="flex flex-wrap items-center gap-4">
+                  {/* 가입상태 필터 */}
+                  <div className="flex items-center gap-3 min-w-max mr-2">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider select-none">가입상태</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['전체', '가입', '취소 및 해약'].map(status => (
+                        <button
+                          key={status}
+                          onClick={() => setStatusFilter(status)}
+                          className={`px-4 py-1.5 rounded-full text-[12px] font-bold transition-all ${statusFilter === status
+                            ? 'bg-slate-900 text-white shadow-sm'
+                            : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                            }`}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="flex items-center gap-3 min-w-max">
                   <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">배송현황</div>
                   <div className="flex flex-wrap gap-1.5">
@@ -6501,6 +6541,13 @@ const ERP_Dashboard = () => {
                 </div>
               </motion.div>
             </div>
+          )}
+          {isPresidentReportModalOpen && (
+            <PresidentReportModal
+              isOpen={isPresidentReportModalOpen}
+              onClose={() => setIsPresidentReportModalOpen(false)}
+              data={data}
+            />
           )}
         </AnimatePresence>
         <AnimatePresence>
