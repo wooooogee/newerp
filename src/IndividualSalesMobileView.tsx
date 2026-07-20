@@ -195,26 +195,47 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     });
   }, [modeProcessedData, searchTerm, statusFilter, deliveryFilter, isHqMobile, isBranchMobile, isAdminMobile, hqFilter, branchFilter, empFilter]);
 
+  // 전체 데이터(data) 내에 존재하는 고유 본부 목록 추출 (0건 실적 본부 표시용)
+  const allHqOptions = useMemo(() => {
+    const set = new Set<string>();
+    data.forEach(item => {
+      if (item.hq) {
+        set.add(item.hq.trim());
+      }
+    });
+    return Array.from(set).sort();
+  }, [data]);
+
   // 본부별 통계 집계 데이터 생성 (상세 필터 영향 배제하고 modeProcessedData 기준 집계)
   const hqReportData = useMemo(() => {
     const map = new Map<string, { hq: string; sales: number; deliveryCompleted: number }>();
+    
+    // 1. 전체 본부 목록으로 0건 초기화 세팅
+    allHqOptions.forEach(hqName => {
+      map.set(hqName, { hq: hqName, sales: 0, deliveryCompleted: 0 });
+    });
+
+    // 2. 현재 선택된 월의 데이터(modeProcessedData)로 실적 카운트
     modeProcessedData.forEach(item => {
-      const hqName = (item.hq || '미지정').trim();
-      if (!map.has(hqName)) {
-        map.set(hqName, { hq: hqName, sales: 0, deliveryCompleted: 0 });
-      }
-      const val = map.get(hqName)!;
-      val.sales += 1;
-      if ((item.deliveryStatus || '').trim() === '배송완료') {
-        val.deliveryCompleted += 1;
+      const hqName = (item.hq || '').trim();
+      if (hqName) {
+        if (!map.has(hqName)) {
+          map.set(hqName, { hq: hqName, sales: 0, deliveryCompleted: 0 });
+        }
+        const val = map.get(hqName)!;
+        val.sales += 1;
+        if ((item.deliveryStatus || '').trim() === '배송완료') {
+          val.deliveryCompleted += 1;
+        }
       }
     });
+    
     let list = Array.from(map.values());
     if (hideZeroHq) {
       list = list.filter(h => h.sales > 0);
     }
     return list.sort((a, b) => b.sales - a.sales);
-  }, [modeProcessedData, hideZeroHq]);
+  }, [allHqOptions, modeProcessedData, hideZeroHq]);
 
   // 상품별 통계 집계 데이터 생성 (modeProcessedData 기준 집계)
   const prodReportData = useMemo(() => {
