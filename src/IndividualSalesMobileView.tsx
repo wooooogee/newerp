@@ -38,6 +38,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   const [editMemoValue, setEditMemoValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  // 탭 상태 (상세 계약 vs 요약 보고서)
+  const [activeTab, setActiveTab] = useState<'detail' | 'report'>('detail');
+
+  // 실적 0건 본부 숨기기 상태
+  const [hideZeroHq, setHideZeroHq] = useState(false);
+
   // 본부모바일 / 지사모바일 / 관리자모바일 권한 판별
   const isHqMobile = useMemo(() => {
     return currentUser.role === '본부모바일' || 
@@ -188,6 +194,44 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       return String(b.contractDate || '').localeCompare(String(a.contractDate || ''));
     });
   }, [modeProcessedData, searchTerm, statusFilter, deliveryFilter, isHqMobile, isBranchMobile, isAdminMobile, hqFilter, branchFilter, empFilter]);
+
+  // 본부별 통계 집계 데이터 생성
+  const hqReportData = useMemo(() => {
+    const map = new Map<string, { hq: string; sales: number; deliveryCompleted: number }>();
+    filteredData.forEach(item => {
+      const hqName = (item.hq || '미지정').trim();
+      if (!map.has(hqName)) {
+        map.set(hqName, { hq: hqName, sales: 0, deliveryCompleted: 0 });
+      }
+      const val = map.get(hqName)!;
+      val.sales += 1;
+      if ((item.deliveryStatus || '').trim() === '배송완료') {
+        val.deliveryCompleted += 1;
+      }
+    });
+    let list = Array.from(map.values());
+    if (hideZeroHq) {
+      list = list.filter(h => h.sales > 0);
+    }
+    return list.sort((a, b) => b.sales - a.sales);
+  }, [filteredData, hideZeroHq]);
+
+  // 상품별 통계 집계 데이터 생성
+  const prodReportData = useMemo(() => {
+    const map = new Map<string, { prodName: string; sales: number; deliveryCompleted: number }>();
+    filteredData.forEach(item => {
+      const prodName = (item.prodName || '기타/미지정').trim();
+      if (!map.has(prodName)) {
+        map.set(prodName, { prodName, sales: 0, deliveryCompleted: 0 });
+      }
+      const val = map.get(prodName)!;
+      val.sales += 1;
+      if ((item.deliveryStatus || '').trim() === '배송완료') {
+        val.deliveryCompleted += 1;
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => b.sales - a.sales);
+  }, [filteredData]);
 
   // 메모 편집 시작
   const handleStartEdit = (rowIdx: number, currentMemo: string) => {
@@ -427,146 +471,272 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
           )}
         </div>
 
-        {/* Search Input */}
-        <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-          <input
-            type="text"
-            placeholder="회원명, 상품명 검색..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all shadow-inner"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-
-        {/* List Header */}
-        <div className="flex items-center justify-between text-xs text-slate-400 font-medium px-1">
-          <span>검색 결과: <strong className="text-white font-semibold">{filteredData.length}</strong>건</span>
-        </div>
-
-        {/* Card List */}
-        <div className="space-y-3">
-          <AnimatePresence mode="popLayout">
-            {filteredData.length > 0 ? (
-              filteredData.map((item) => (
-                <motion.div
-                  key={item.uniqueKey}
-                  layout
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.2 }}
-                  className="p-4 bg-slate-950 border border-slate-800/80 rounded-2xl shadow-md space-y-3"
+        {activeTab === 'detail' ? (
+          <>
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="text"
+                placeholder="회원명, 상품명 검색..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all shadow-inner"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
                 >
-                  {/* Card Title Line */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-bold text-white">{item.memName || '-'}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${getStatusBadgeClass(item.status)}`}>
-                        {item.status || '가입'}
-                      </span>
-                    </div>
-                    <span className={`text-[10px] px-2.5 py-0.5 rounded font-semibold border ${getDeliveryBadgeClass(item.deliveryStatus)}`}>
-                      {item.deliveryStatus || '배송대기'}
-                    </span>
-                  </div>
+                  <X size={14} />
+                </button>
+              )}
+            </div>
 
-                  {/* Card Body Details */}
-                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 border-t border-slate-900/60 pt-3 text-[11px]">
-                    <div className="flex items-center gap-2 text-slate-400">
-                      <Calendar size={13} className="text-slate-500" />
-                      <span>계약일자: <strong className="text-slate-200">{item.contractDate || '-'}</strong></span>
-                    </div>
-                    <div className="flex items-center gap-2 text-slate-400">
-                      <Package size={13} className="text-slate-500" />
-                      <span className="truncate">상 조: <strong className="text-slate-200" title={item.prodName}>{item.prodName || '-'}</strong></span>
-                    </div>
-                    <div className="col-span-2 flex items-center gap-2 text-slate-400">
-                      <Truck size={13} className="text-slate-500" />
-                      <span className="truncate">렌탈상품: <strong className="text-slate-200" title={item.rentalProd}>{item.rentalProd || '-'}</strong></span>
-                    </div>
-                  </div>
+            {/* List Header */}
+            <div className="flex items-center justify-between text-xs text-slate-400 font-medium px-1">
+              <span>검색 결과: <strong className="text-white font-semibold">{filteredData.length}</strong>건</span>
+            </div>
 
-                  {/* Delivery Memo Area */}
-                  <div className="bg-slate-900/60 border border-slate-900 p-3 rounded-xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                        <FileText size={12} className="text-slate-500" />
-                        <span>배송관련 메모</span>
+            {/* Card List */}
+            <div className="space-y-3">
+              <AnimatePresence mode="popLayout">
+                {filteredData.length > 0 ? (
+                  filteredData.map((item) => (
+                    <motion.div
+                      key={item.uniqueKey}
+                      layout
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ duration: 0.2 }}
+                      className="p-4 bg-slate-950 border border-slate-800/80 rounded-2xl shadow-md space-y-3"
+                    >
+                      {/* Card Title Line */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-bold text-white">{item.memName || '-'}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${getStatusBadgeClass(item.status)}`}>
+                            {item.status || '가입'}
+                          </span>
+                        </div>
+                        <span className={`text-[10px] px-2.5 py-0.5 rounded font-semibold border ${getDeliveryBadgeClass(item.deliveryStatus)}`}>
+                          {item.deliveryStatus || '배송대기'}
+                        </span>
                       </div>
-                      {editingRowIdx !== item.originalRowIdx && (
-                        <button
-                          onClick={() => handleStartEdit(item.originalRowIdx, item.deliveryMemo || '')}
-                          className="p-1 text-slate-400 hover:text-white rounded-md hover:bg-slate-800 transition-colors"
-                        >
-                          <Edit2 size={12} />
-                        </button>
-                      )}
-                    </div>
 
-                    {editingRowIdx === item.originalRowIdx ? (
-                      <div className="space-y-2">
-                        <textarea
-                          rows={2}
-                          value={editMemoValue}
-                          onChange={(e) => setEditMemoValue(e.target.value)}
-                          placeholder="배송 관련 메모를 입력하세요..."
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
-                        />
-                        <div className="flex justify-end gap-1.5">
-                          <button
-                            disabled={isSaving}
-                            onClick={() => setEditingRowIdx(null)}
-                            className="px-2.5 py-1 text-[10px] font-bold text-slate-400 hover:text-white border border-slate-800 rounded-md transition-colors"
-                          >
-                            취소
-                          </button>
-                          <button
-                            disabled={isSaving}
-                            onClick={() => handleSaveMemo(item.originalRowIdx)}
-                            className="px-2.5 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-md flex items-center gap-1 shadow-md transition-all active:scale-95"
-                          >
-                            {isSaving ? (
-                              <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <>
-                                <Check size={12} />
-                                저장
-                              </>
-                            )}
-                          </button>
+                      {/* Card Body Details */}
+                      <div className="grid grid-cols-2 gap-y-2 gap-x-4 border-t border-slate-900/60 pt-3 text-[11px]">
+                        <div className="flex items-center gap-2 text-slate-400">
+                          <Calendar size={13} className="text-slate-500" />
+                          <span>계약일자: <strong className="text-slate-200">{item.contractDate || '-'}</strong></span>
+                        </div>
+                        <div className="flex items-center gap-2 text-slate-400">
+                          <Package size={13} className="text-slate-500" />
+                          <span className="truncate">상 조: <strong className="text-slate-200" title={item.prodName}>{item.prodName || '-'}</strong></span>
+                        </div>
+                        <div className="col-span-2 flex items-center gap-2 text-slate-400">
+                          <Truck size={13} className="text-slate-500" />
+                          <span className="truncate">렌탈상품: <strong className="text-slate-200" title={item.rentalProd}>{item.rentalProd || '-'}</strong></span>
                         </div>
                       </div>
-                    ) : (
-                      <p className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
-                        {item.deliveryMemo ? item.deliveryMemo : (
-                          <span className="text-slate-600 italic">등록된 메모가 없습니다.</span>
+
+                      {/* Delivery Memo Area */}
+                      <div className="bg-slate-900/60 border border-slate-900 p-3 rounded-xl space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                            <FileText size={12} className="text-slate-500" />
+                            <span>배송관련 메모</span>
+                          </div>
+                          {editingRowIdx !== item.originalRowIdx && (
+                            <button
+                              onClick={() => handleStartEdit(item.originalRowIdx, item.deliveryMemo || '')}
+                              className="p-1 text-slate-400 hover:text-white rounded-md hover:bg-slate-800 transition-colors"
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                          )}
+                        </div>
+
+                        {editingRowIdx === item.originalRowIdx ? (
+                          <div className="space-y-2">
+                            <textarea
+                              rows={2}
+                              value={editMemoValue}
+                              onChange={(e) => setEditMemoValue(e.target.value)}
+                              placeholder="배송 관련 메모를 입력하세요..."
+                              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
+                            />
+                            <div className="flex justify-end gap-1.5">
+                              <button
+                                disabled={isSaving}
+                                onClick={() => setEditingRowIdx(null)}
+                                className="px-2.5 py-1 text-[10px] font-bold text-slate-400 hover:text-white border border-slate-800 rounded-md transition-colors"
+                              >
+                                취소
+                              </button>
+                              <button
+                                disabled={isSaving}
+                                onClick={() => handleSaveMemo(item.originalRowIdx)}
+                                className="px-2.5 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-md flex items-center gap-1 shadow-md transition-all active:scale-95"
+                              >
+                                {isSaving ? (
+                                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <>
+                                    <Check size={12} />
+                                    저장
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
+                            {item.deliveryMemo ? item.deliveryMemo : (
+                              <span className="text-slate-600 italic">등록된 메모가 없습니다.</span>
+                            )}
+                          </p>
                         )}
-                      </p>
+                      </div>
+                    </motion.div>
+                  ))
+                ) : (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="py-12 flex flex-col items-center justify-center text-slate-500 gap-2.5"
+                  >
+                    <FileText size={32} className="text-slate-700" />
+                    <p className="text-xs font-semibold">조건에 맞는 배송 정보가 없습니다.</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </>
+        ) : (
+          /* 요약 보고서 (대표님 보고서) 전용 뷰 */
+          <div className="space-y-4">
+            {/* 통계 요약 카드 */}
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">실적 요약</p>
+                <div className="flex items-center gap-2">
+                  <label className="text-[10px] text-slate-400 font-bold cursor-pointer" htmlFor="hide-zero-hq-checkbox">실적 0건 본부 숨기기</label>
+                  <input
+                    type="checkbox"
+                    id="hide-zero-hq-checkbox"
+                    checked={hideZeroHq}
+                    onChange={(e) => setHideZeroHq(e.target.checked)}
+                    className="w-4 h-4 bg-slate-900 border-slate-800 rounded text-blue-600 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800/60">
+                  <div className="text-[9px] text-slate-500 font-bold uppercase">총 판매 건수</div>
+                  <div className="text-lg font-bold text-blue-400 mt-1">{summary.total}</div>
+                </div>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800/60">
+                  <div className="text-[9px] text-slate-500 font-bold uppercase">배송 대기</div>
+                  <div className="text-lg font-bold text-amber-400 mt-1">{summary.waiting}</div>
+                </div>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800/60">
+                  <div className="text-[9px] text-slate-500 font-bold uppercase">배송 완료</div>
+                  <div className="text-lg font-bold text-emerald-400 mt-1">{summary.completed}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* 본부별 실적 표 */}
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-900 pb-2">본부별 실적</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-slate-300">
+                  <thead>
+                    <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-900 font-bold">
+                      <th className="py-2">본부명</th>
+                      <th className="py-2 text-right">판매건수 ({displayMode})</th>
+                      <th className="py-2 text-right">배송완료건수</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-900/60">
+                    {hqReportData.length > 0 ? (
+                      hqReportData.map((s, idx) => (
+                        <tr key={idx} className="hover:bg-slate-900/30 transition-colors">
+                          <td className="py-2.5 font-bold text-white">{s.hq}</td>
+                          <td className="py-2.5 text-right font-semibold text-blue-400">{s.sales}</td>
+                          <td className="py-2.5 text-right font-semibold text-emerald-400">{s.deliveryCompleted}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="py-8 text-center text-slate-600 italic">집계할 본부 데이터가 없습니다.</td>
+                      </tr>
                     )}
-                  </div>
-                </motion.div>
-              ))
-            ) : (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="py-12 flex flex-col items-center justify-center text-slate-500 gap-2.5"
-              >
-                <FileText size={32} className="text-slate-700" />
-                <p className="text-xs font-semibold">조건에 맞는 배송 정보가 없습니다.</p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* 상품별 실적 표 */}
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-900 pb-2">상품별 실적</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-slate-300">
+                  <thead>
+                    <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-900 font-bold">
+                      <th className="py-2">상품명</th>
+                      <th className="py-2 text-right">판매건수 ({displayMode})</th>
+                      <th className="py-2 text-right">배송완료건수</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-900/60">
+                    {prodReportData.length > 0 ? (
+                      prodReportData.map((s, idx) => (
+                        <tr key={idx} className="hover:bg-slate-900/30 transition-colors">
+                          <td className="py-2.5 font-semibold text-white truncate max-w-[120px]">{s.prodName}</td>
+                          <td className="py-2.5 text-right font-semibold text-blue-400">{s.sales}</td>
+                          <td className="py-2.5 text-right font-semibold text-emerald-400">{s.deliveryCompleted}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="py-8 text-center text-slate-600 italic">집계할 상품 데이터가 없습니다.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Tab Navigation Bar */}
+      <div className="absolute bottom-0 left-0 right-0 h-14 bg-slate-950/95 border-t border-slate-900 px-6 py-2 flex items-center justify-around z-50 shrink-0">
+        <button
+          onClick={() => setActiveTab('detail')}
+          className={`flex flex-col items-center justify-center gap-1 transition-all w-24 ${
+            activeTab === 'detail' ? 'text-blue-500 font-bold' : 'text-slate-500 hover:text-slate-400'
+          }`}
+        >
+          <FileText size={16} />
+          <span className="text-[10px]">상세 계약</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('report')}
+          className={`flex flex-col items-center justify-center gap-1 transition-all w-24 ${
+            activeTab === 'report' ? 'text-blue-500 font-bold' : 'text-slate-500 hover:text-slate-400'
+          }`}
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10" />
+            <line x1="12" y1="20" x2="12" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="14" />
+          </svg>
+          <span className="text-[10px]">요약 보고서</span>
+        </button>
       </div>
     </div>
   );
