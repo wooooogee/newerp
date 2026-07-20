@@ -47,6 +47,10 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   // 실적 요약 상세 아코디언 상태
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
 
+  // 렌탈1회차출금 대기중 / 상조 미출금 필터 상태
+  const [isPendingFirstRental, setIsPendingFirstRental] = useState(false);
+  const [isUnpaidMutualAid, setIsUnpaidMutualAid] = useState(false);
+
   // 본부모바일 / 지사모바일 / 관리자모바일 권한 판별
   const isHqMobile = useMemo(() => {
     return currentUser.role === '본부모바일' || 
@@ -74,7 +78,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   // 검색어나 필터 조건 변경 시 페이지 번호를 1페이지로 리셋
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, monthFilter, statusFilter, deliveryFilter, hqFilter, branchFilter, empFilter, displayMode]);
+  }, [searchTerm, monthFilter, statusFilter, deliveryFilter, hqFilter, branchFilter, empFilter, displayMode, isPendingFirstRental, isUnpaidMutualAid]);
 
   // 스크롤 탑 이동을 위한 스크롤 컨테이너 Ref
   const containerRef = useRef<HTMLDivElement>(null);
@@ -223,12 +227,23 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         if (!searchString.includes(term)) return false;
       }
 
+      // 렌탈1회차출금 대기중 필터링
+      if (isPendingFirstRental) {
+        if (!item.deliveryMemo || !item.deliveryMemo.includes('렌탈1회차출금 대기중')) return false;
+      }
+
+      // 상조 미출금 필터링 (최초납입일 row[21] 값 기준 '- -')
+      if (isUnpaidMutualAid) {
+        const firstPayVal = item.raw && item.raw[21] ? String(item.raw[21]).trim() : '';
+        if (firstPayVal !== '- -') return false;
+      }
+
       return true;
     }).sort((a, b) => {
       // 계약일 최신순 정렬
       return String(b.contractDate || '').localeCompare(String(a.contractDate || ''));
     });
-  }, [modeProcessedData, searchTerm, statusFilter, deliveryFilter, isHqMobile, isBranchMobile, isAdminMobile, hqFilter, branchFilter, empFilter]);
+  }, [modeProcessedData, searchTerm, statusFilter, deliveryFilter, isHqMobile, isBranchMobile, isAdminMobile, hqFilter, branchFilter, empFilter, isPendingFirstRental, isUnpaidMutualAid]);
 
   // 1페이지당 10개 아이템 기준 전체 페이지 계산
   const totalPages = useMemo(() => {
@@ -611,6 +626,28 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 </div>
               </div>
             )}
+
+            {/* 렌탈/상조 특별 필터 */}
+            <div className="flex items-center gap-4 pt-3 border-t border-slate-900/60 text-xs text-slate-300">
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isPendingFirstRental}
+                  onChange={(e) => setIsPendingFirstRental(e.target.checked)}
+                  className="w-4 h-4 bg-slate-900 border-slate-800 rounded text-blue-600 focus:ring-blue-500"
+                />
+                <span>렌탈1회차출금 대기중</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isUnpaidMutualAid}
+                  onChange={(e) => setIsUnpaidMutualAid(e.target.checked)}
+                  className="w-4 h-4 bg-slate-900 border-slate-800 rounded text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-red-500 font-semibold">상조 미출금</span>
+              </label>
+            </div>
           </div>
         ) : (
           /* 요약 보고서 탭일 때의 간소화된 월 선택 필터 및 0건 숨기기 토글 */
