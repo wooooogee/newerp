@@ -195,10 +195,10 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     });
   }, [modeProcessedData, searchTerm, statusFilter, deliveryFilter, isHqMobile, isBranchMobile, isAdminMobile, hqFilter, branchFilter, empFilter]);
 
-  // 본부별 통계 집계 데이터 생성
+  // 본부별 통계 집계 데이터 생성 (상세 필터 영향 배제하고 modeProcessedData 기준 집계)
   const hqReportData = useMemo(() => {
     const map = new Map<string, { hq: string; sales: number; deliveryCompleted: number }>();
-    filteredData.forEach(item => {
+    modeProcessedData.forEach(item => {
       const hqName = (item.hq || '미지정').trim();
       if (!map.has(hqName)) {
         map.set(hqName, { hq: hqName, sales: 0, deliveryCompleted: 0 });
@@ -214,12 +214,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       list = list.filter(h => h.sales > 0);
     }
     return list.sort((a, b) => b.sales - a.sales);
-  }, [filteredData, hideZeroHq]);
+  }, [modeProcessedData, hideZeroHq]);
 
-  // 상품별 통계 집계 데이터 생성
+  // 상품별 통계 집계 데이터 생성 (modeProcessedData 기준 집계)
   const prodReportData = useMemo(() => {
     const map = new Map<string, { prodName: string; sales: number; deliveryCompleted: number }>();
-    filteredData.forEach(item => {
+    modeProcessedData.forEach(item => {
       const prodName = (item.prodName || '기타/미지정').trim();
       if (!map.has(prodName)) {
         map.set(prodName, { prodName, sales: 0, deliveryCompleted: 0 });
@@ -231,7 +231,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       }
     });
     return Array.from(map.values()).sort((a, b) => b.sales - a.sales);
-  }, [filteredData]);
+  }, [modeProcessedData]);
 
   // 메모 편집 시작
   const handleStartEdit = (rowIdx: number, currentMemo: string) => {
@@ -367,13 +367,116 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
           ))}
         </div>
 
-        {/* Filters Select Area */}
-        <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-900 pb-2">필터 상세 설정</p>
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            {/* 계약월 */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] text-slate-400 font-bold">계약 월</label>
+        {/* activeTab 분기에 따른 필터 영역 제어 */}
+        {activeTab === 'detail' ? (
+          /* 상세 계약 탭일 때의 기존 필터 상세 설정 */
+          <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-900 pb-2">필터 상세 설정</p>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              {/* 계약월 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] text-slate-400 font-bold">계약 월</label>
+                <select
+                  value={monthFilter}
+                  onChange={(e) => setMonthFilter(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                >
+                  <option value="전체">전체</option>
+                  {uniqueMonths.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              {/* 가입상태 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] text-slate-400 font-bold">가입상태</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                >
+                  <option value="전체">전체</option>
+                  <option value="가입">가입</option>
+                  <option value="해약">해약</option>
+                  <option value="취소">취소</option>
+                </select>
+              </div>
+              {/* 배송상태 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] text-slate-400 font-bold">배송상태</label>
+                <select
+                  value={deliveryFilter}
+                  onChange={(e) => setDeliveryFilter(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                >
+                  <option value="전체">전체</option>
+                  <option value="배송대기">배송대기</option>
+                  <option value="배송완료">배송완료</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 본부/지사/관리자모바일용 하위 조직 필터링 */}
+            {(isHqMobile || isBranchMobile || isAdminMobile) && (
+              <div className="flex flex-col gap-2 pt-3 border-t border-slate-900/60">
+                {isAdminMobile && (
+                  <div className="flex flex-col gap-1.5 text-xs">
+                    <label className="text-[10px] text-slate-400 font-bold">본부 선택</label>
+                    <select
+                      value={hqFilter}
+                      onChange={(e) => {
+                        setHqFilter(e.target.value);
+                        setBranchFilter('전체');
+                        setEmpFilter('전체');
+                      }}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    >
+                      {hqOptions.map(h => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {(isHqMobile || isAdminMobile) && (
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] text-slate-400 font-bold">지사/지점 선택</label>
+                      <select
+                        value={branchFilter}
+                        onChange={(e) => {
+                          setBranchFilter(e.target.value);
+                          setEmpFilter('전체');
+                        }}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                      >
+                        {branchOptions.map(b => (
+                          <option key={b} value={b}>{b}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className={`flex flex-col gap-1.5 ${(isHqMobile || isAdminMobile) ? 'col-span-1' : 'col-span-2'}`}>
+                    <label className="text-[10px] text-slate-400 font-bold">영업사원 선택</label>
+                    <select
+                      value={empFilter}
+                      onChange={(e) => setEmpFilter(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    >
+                      {empOptions.map(e => (
+                        <option key={e} value={e}>{e}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* 요약 보고서 탭일 때의 간소화된 월 선택 필터 및 0건 숨기기 토글 */
+          <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md flex items-center justify-between gap-4">
+            <div className="flex-1 flex flex-col gap-1.5">
+              <label className="text-[10px] text-slate-400 font-bold">계약 월 선택</label>
               <select
                 value={monthFilter}
                 onChange={(e) => setMonthFilter(e.target.value)}
@@ -385,91 +488,25 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 ))}
               </select>
             </div>
-            {/* 가입상태 */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] text-slate-400 font-bold">가입상태</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+            
+            <div className="flex flex-col items-end gap-1.5 pt-4">
+              <span className="text-[10px] text-slate-400 font-bold">0건 본부 숨기기</span>
+              <button
+                type="button"
+                onClick={() => setHideZeroHq(!hideZeroHq)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  hideZeroHq ? 'bg-blue-600' : 'bg-slate-800'
+                }`}
               >
-                <option value="전체">전체</option>
-                <option value="가입">가입</option>
-                <option value="해약">해약</option>
-                <option value="취소">취소</option>
-              </select>
-            </div>
-            {/* 배송상태 */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] text-slate-400 font-bold">배송상태</label>
-              <select
-                value={deliveryFilter}
-                onChange={(e) => setDeliveryFilter(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
-              >
-                <option value="전체">전체</option>
-                <option value="배송대기">배송대기</option>
-                <option value="배송완료">배송완료</option>
-              </select>
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    hideZeroHq ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
           </div>
-
-          {/* 본부/지사/관리자모바일용 하위 조직 필터링 */}
-          {(isHqMobile || isBranchMobile || isAdminMobile) && (
-            <div className="flex flex-col gap-2 pt-3 border-t border-slate-900/60">
-              {isAdminMobile && (
-                <div className="flex flex-col gap-1.5 text-xs">
-                  <label className="text-[10px] text-slate-400 font-bold">본부 선택</label>
-                  <select
-                    value={hqFilter}
-                    onChange={(e) => {
-                      setHqFilter(e.target.value);
-                      setBranchFilter('전체');
-                      setEmpFilter('전체');
-                    }}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
-                  >
-                    {hqOptions.map(h => (
-                      <option key={h} value={h}>{h}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {(isHqMobile || isAdminMobile) && (
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] text-slate-400 font-bold">지사/지점 선택</label>
-                    <select
-                      value={branchFilter}
-                      onChange={(e) => {
-                        setBranchFilter(e.target.value);
-                        setEmpFilter('전체');
-                      }}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
-                    >
-                      {branchOptions.map(b => (
-                        <option key={b} value={b}>{b}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div className={`flex flex-col gap-1.5 ${(isHqMobile || isAdminMobile) ? 'col-span-1' : 'col-span-2'}`}>
-                  <label className="text-[10px] text-slate-400 font-bold">영업사원 선택</label>
-                  <select
-                    value={empFilter}
-                    onChange={(e) => setEmpFilter(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
-                  >
-                    {empOptions.map(e => (
-                      <option key={e} value={e}>{e}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+        )}
 
         {activeTab === 'detail' ? (
           <>
@@ -621,16 +658,6 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
               <div className="flex items-center justify-between border-b border-slate-900 pb-2">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">실적 요약</p>
-                <div className="flex items-center gap-2">
-                  <label className="text-[10px] text-slate-400 font-bold cursor-pointer" htmlFor="hide-zero-hq-checkbox">실적 0건 본부 숨기기</label>
-                  <input
-                    type="checkbox"
-                    id="hide-zero-hq-checkbox"
-                    checked={hideZeroHq}
-                    onChange={(e) => setHideZeroHq(e.target.checked)}
-                    className="w-4 h-4 bg-slate-900 border-slate-800 rounded text-blue-600 focus:ring-blue-500"
-                  />
-                </div>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800/60">
