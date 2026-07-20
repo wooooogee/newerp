@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown } from 'lucide-react';
+import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ArrowUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface IndividualSalesMobileViewProps {
@@ -79,12 +79,14 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   // 스크롤 탑 이동을 위한 스크롤 컨테이너 Ref
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 페이지 번호 변경 시 스크롤 위치 최상단으로 강제 스크롤
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = 0;
-    }
-  }, [currentPage]);
+  // 위로가기 플로팅 버튼 활성화 상태
+  const [showScrollTopBtn, setShowScrollTopBtn] = useState(false);
+
+  // 스크롤 핸들러 (200px 이상 아래로 내려갈 시 플로팅 버튼 노출)
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const scrollTop = e.currentTarget.scrollTop;
+    setShowScrollTopBtn(scrollTop > 200);
+  };
 
   // 본부 선택 옵션 (관리자모바일 권한일 때만 유의미)
   const hqOptions = useMemo(() => {
@@ -372,7 +374,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       </header>
 
       {/* Main Content Area */}
-      <div ref={containerRef} className="flex-1 overflow-y-auto p-4 space-y-4 pb-20">
+      <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-4 pb-20">
         {/* User Card */}
         <div className="p-4 bg-gradient-to-br from-slate-950 to-slate-900 border border-slate-800/80 rounded-2xl shadow-lg">
           <div className="flex items-center gap-3">
@@ -879,6 +881,26 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
           </div>
         )}
       </div>
+
+      {/* Scroll To Top Floating Button */}
+      <AnimatePresence>
+        {showScrollTopBtn && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            onClick={() => {
+              if (containerRef.current) {
+                containerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+              }
+            }}
+            className="fixed bottom-20 right-6 w-10 h-10 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center shadow-lg border border-blue-400/20 z-50 transition-all active:scale-95"
+            title="맨 위로"
+          >
+            <ArrowUp size={20} />
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Tab Navigation Bar */}
       <div className="absolute bottom-0 left-0 right-0 h-14 bg-slate-950/95 border-t border-slate-900 px-6 py-2 flex items-center justify-around z-50 shrink-0">
