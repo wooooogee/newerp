@@ -3768,6 +3768,16 @@ const ERP_Dashboard = () => {
     );
   }
 
+  // 로그인 성공 후 첫 데이터 로딩 중인 경우 로딩 스피너 노출하여 잔상 방지
+  if (loading && data.length === 0) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-950 text-white gap-4">
+        <div className="animate-spin w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full" />
+        <p className="text-sm font-bold tracking-widest text-slate-500 uppercase">데이터를 불러오는 중...</p>
+      </div>
+    );
+  }
+
   if (isIndividualSales) {
     return (
       <>
@@ -3781,6 +3791,7 @@ const ERP_Dashboard = () => {
                 await fetch('/api/auth/logout', { method: 'POST' });
                 sessionStorage.removeItem('erp_logged_in');
                 resetFilters();
+                setData([]);
                 setCurrentUser(null);
               } catch (err) {
                 console.error('Logout error:', err);
@@ -4094,6 +4105,7 @@ const ERP_Dashboard = () => {
                     await fetch('/api/auth/logout', { method: 'POST' });
                     sessionStorage.removeItem('erp_logged_in');
                     resetFilters();
+                    setData([]);
                     setCurrentUser(null);
                   } catch (err) {
                     console.error('Logout error:', err);
