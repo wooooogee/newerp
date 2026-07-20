@@ -150,17 +150,18 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     const activeData = modeProcessedData.filter(item => (item.status || '').trim() === '가입');
 
     const total = activeData.length;
+    const waiting = activeData.filter(item => (item.deliveryStatus || '').trim() === '배송대기').length;
     const completed = activeData.filter(item => (item.deliveryStatus || '').trim() === '배송완료').length;
     
-    // 배송상태가 빈 값이거나 '배송완료'가 아닌 모든 건은 '배송대기'로 산출하여 수치 정합성을 100% 일치시킴
-    const waiting = total - completed;
+    // 배송 미해당 건수 산출 (배송이 없는 상품군)
+    const noDelivery = total - (waiting + completed);
 
     // 가입 상태별 통계 (이것은 전체 접수 건수 modeProcessedData 기준)
     const signed = modeProcessedData.filter(item => (item.status || '').trim() === '가입').length;
     const terminated = modeProcessedData.filter(item => (item.status || '').trim().includes('해약')).length;
     const cancelled = modeProcessedData.filter(item => (item.status || '').trim().includes('취소')).length;
 
-    return { total, waiting, completed, signed, terminated, cancelled };
+    return { total, waiting, completed, signed, terminated, cancelled, noDelivery };
   }, [modeProcessedData]);
 
   // 4. 검색 및 가입/배송 필터링된 최종 렌더링 데이터
@@ -427,22 +428,47 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 transition={{ duration: 0.2 }}
                 className="overflow-hidden"
               >
-                <div className="grid grid-cols-2 gap-2 text-xs pt-3 border-t border-slate-900/80">
-                  <div className="bg-slate-900/60 border border-slate-900 p-2.5 rounded-xl flex justify-between items-center">
-                    <span className="text-[10px] text-slate-400 font-medium">총 접수건</span>
-                    <strong className="text-sm font-bold text-white">{modeProcessedData.length}건</strong>
+                <div className="space-y-3 pt-3 border-t border-slate-900/80">
+                  {/* 계약/가입 현황 */}
+                  <div>
+                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1 px-0.5">계약 현황</div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-slate-900/60 border border-slate-900 p-2 rounded-xl flex justify-between items-center">
+                        <span className="text-[10px] text-slate-400 font-medium">총 접수건</span>
+                        <strong className="text-xs font-bold text-white">{modeProcessedData.length}건</strong>
+                      </div>
+                      <div className="bg-teal-950/10 border border-teal-900/30 p-2 rounded-xl flex justify-between items-center">
+                        <span className="text-[10px] text-teal-400 font-medium">가입 건수</span>
+                        <strong className="text-xs font-bold text-teal-400">{summary.signed}건</strong>
+                      </div>
+                      <div className="bg-rose-950/10 border border-rose-900/30 p-2 rounded-xl flex justify-between items-center">
+                        <span className="text-[10px] text-rose-400 font-medium">해약 건수</span>
+                        <strong className="text-xs font-bold text-rose-400">{summary.terminated}건</strong>
+                      </div>
+                      <div className="bg-red-950/10 border border-red-900/30 p-2 rounded-xl flex justify-between items-center">
+                        <span className="text-[10px] text-red-400 font-medium">취소 건수</span>
+                        <strong className="text-xs font-bold text-red-400">{summary.cancelled}건</strong>
+                      </div>
+                    </div>
                   </div>
-                  <div className="bg-teal-950/10 border border-teal-900/30 p-2.5 rounded-xl flex justify-between items-center">
-                    <span className="text-[10px] text-teal-400 font-medium">가입 건수</span>
-                    <strong className="text-sm font-bold text-teal-400">{summary.signed}건</strong>
-                  </div>
-                  <div className="bg-rose-950/10 border border-rose-900/30 p-2.5 rounded-xl flex justify-between items-center">
-                    <span className="text-[10px] text-rose-400 font-medium">해약 건수</span>
-                    <strong className="text-sm font-bold text-rose-400">{summary.terminated}건</strong>
-                  </div>
-                  <div className="bg-red-950/10 border border-red-900/30 p-2.5 rounded-xl flex justify-between items-center">
-                    <span className="text-[10px] text-red-400 font-medium">취소 건수</span>
-                    <strong className="text-sm font-bold text-red-400">{summary.cancelled}건</strong>
+
+                  {/* 배송 세부 현황 */}
+                  <div>
+                    <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1 px-0.5">배송 세부 현황 (가입 건 기준)</div>
+                    <div className="grid grid-cols-3 gap-1.5 text-xs">
+                      <div className="bg-amber-950/10 border border-amber-900/20 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
+                        <span className="text-[9px] text-amber-400 font-medium">배송 대기</span>
+                        <strong className="text-xs font-bold text-amber-400 mt-0.5">{summary.waiting}건</strong>
+                      </div>
+                      <div className="bg-emerald-950/10 border border-emerald-900/20 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
+                        <span className="text-[9px] text-emerald-400 font-medium">배송 완료</span>
+                        <strong className="text-xs font-bold text-emerald-400 mt-0.5">{summary.completed}건</strong>
+                      </div>
+                      <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
+                        <span className="text-[9px] text-slate-400 font-medium">배송 미해당</span>
+                        <strong className="text-xs font-bold text-slate-200 mt-0.5">{summary.noDelivery}건</strong>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </motion.div>
