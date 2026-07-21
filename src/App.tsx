@@ -2696,7 +2696,7 @@ const ERP_Dashboard = () => {
         const { totalCommission, finalPayable } = calculateCommissionDetails(item, statsMap);
 
         if (idx > 0 && (currentHqDetail !== item.hq || currentProdDetail !== item.prodName)) {
-          detailRows.push(['', `[${currentHqDetail}] ${currentProdDetail} 소계`, '', '', '', '', `${subCount}건`, { v: subComm, t: 'n', z: '#,##0' }, { v: subPayable, t: 'n', z: '#,##0' }]);
+          detailRows.push([item.payDate, `[${currentHqDetail}] ${currentProdDetail} 소계`, '', '', '', '', `${subCount}건`, { v: subComm, t: 'n', z: '#,##0' }, { v: subPayable, t: 'n', z: '#,##0' }]);
           subCount = 0;
           subComm = 0;
           subPayable = 0;
@@ -2713,7 +2713,8 @@ const ERP_Dashboard = () => {
       });
 
       if (subCount > 0) {
-        detailRows.push(['', `[${currentHqDetail}] ${currentProdDetail} 소계`, '', '', '', '', `${subCount}건`, { v: subComm, t: 'n', z: '#,##0' }, { v: subPayable, t: 'n', z: '#,##0' }]);
+        const lastPayDate = sortedDetailData[sortedDetailData.length - 1]?.payDate || '';
+        detailRows.push([lastPayDate, `[${currentHqDetail}] ${currentProdDetail} 소계`, '', '', '', '', `${subCount}건`, { v: subComm, t: 'n', z: '#,##0' }, { v: subPayable, t: 'n', z: '#,##0' }]);
       }
       const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
       const detailWidths = detailRows.reduce((acc, row) => {
