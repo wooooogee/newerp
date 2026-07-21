@@ -642,6 +642,8 @@ const ERP_Dashboard = () => {
 
 
 
+
+
   // 정산 설정 상태 (본부별) - v2 키 사용으로 강제 리셋 (최신 데이터 반영)
   const [hqSettings, setHqSettings] = useState<HQSetting[]>(() => {
     const saved = localStorage.getItem('erp_hq_settings_v2');
@@ -6675,6 +6677,14 @@ const ERP_Dashboard = () => {
             onClose={() => setIsDeliveryStatusModalOpen(false)}
             data={data}
             onUpdateDeliveryMemo={(rowIdx, val) => updateCell(rowIdx, 24, val)}
+            onBatchUpdateDeliveryMemos={(updates) => {
+              const formattedUpdates = updates.map(u => ({
+                rowIdx: u.rowIdx,
+                colIdx: 24,
+                newValue: u.val
+              }));
+              batchUpdateCells(formattedUpdates);
+            }}
           />
            <DeliveryDashboardModal
             isOpen={isDeliveryDashboardOpen}

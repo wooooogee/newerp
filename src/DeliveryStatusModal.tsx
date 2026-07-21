@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X, Calendar, Download, Search, Truck, ArrowDown, ArrowUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Calendar, Download, Search, Truck, ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Save } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 
@@ -10,9 +10,16 @@ interface DeliveryStatusModalProps {
   onClose: () => void;
   data: any[]; // ERPDataItem[]
   onUpdateDeliveryMemo: (rowIdx: number, val: string) => void;
+  onBatchUpdateDeliveryMemos?: (updates: { rowIdx: number, val: string }[]) => void;
 }
 
-export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen, onClose, data, onUpdateDeliveryMemo }) => {
+export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  data, 
+  onUpdateDeliveryMemo,
+  onBatchUpdateDeliveryMemos 
+}) => {
   const [filterMonth, setFilterMonth] = useState<string[]>([]); // YYYY-MM
   const [productFilter, setProductFilter] = useState<string[]>([]);
   const [hqFilter, setHqFilter] = useState<string[]>([]);
@@ -21,6 +28,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
   const [currentPage, setCurrentPage] = useState(1);
   const [isPendingFirstRental, setIsPendingFirstRental] = useState(false);
   const [isUnpaidMutualAid, setIsUnpaidMutualAid] = useState(false);
+  const [memoDrafts, setMemoDrafts] = useState<Record<string, string>>({});
   const itemsPerPage = 12;
 
   // 필터가 변경될 때 페이지 1로 초기화
@@ -40,11 +48,41 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
       if (item.rentalNo && !uniqueMap.has(item.rentalNo)) {
         uniqueMap.set(item.rentalNo, item);
       } else if (!item.rentalNo) {
-        uniqueMap.set(item.uniqueKey, item);
+        uniqueMap.set(item.uniqueKey as string, item);
       }
     });
     return Array.from(uniqueMap.values());
   }, [data]);
+
+  // 수정된 메모 항목 추적
+  const modifiedUpdates = useMemo(() => {
+    const updates: { rowIdx: number, val: string }[] = [];
+    Object.entries(memoDrafts).forEach(([key, draftVal]) => {
+      const originalItem = baseData.find(item => (item.uniqueKey as string) === key);
+        if (originalItem && (originalItem.deliveryMemo || '') !== draftVal) {
+          updates.push({
+            rowIdx: originalItem.originalRowIdx as number,
+            val: draftVal as string
+          });
+        }
+    });
+    return updates;
+  }, [memoDrafts, baseData]);
+
+  // 일괄 저장 핸들러
+  const handleBatchSave = () => {
+    if (modifiedUpdates.length === 0) {
+      alert('수정된 메모 내용이 없습니다.');
+      return;
+    }
+    if (onBatchUpdateDeliveryMemos) {
+      onBatchUpdateDeliveryMemos(modifiedUpdates);
+      setMemoDrafts({});
+    } else {
+      modifiedUpdates.forEach(u => onUpdateDeliveryMemo(u.rowIdx, u.val));
+      setMemoDrafts({});
+    }
+  };
 
   // 필터에 사용할 고유 값 추출
   const uniqueMonths = useMemo(() => {
@@ -246,6 +284,18 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   </div>
                   <button
+                    onClick={handleBatchSave}
+                    disabled={modifiedUpdates.length === 0}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all shadow-sm text-sm font-bold ${
+                      modifiedUpdates.length > 0 
+                        ? 'bg-blue-600 text-white hover:bg-blue-700 ring-2 ring-blue-400/50 animate-pulse cursor-pointer' 
+                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <Save size={16} />
+                    {modifiedUpdates.length > 0 ? `일괄 저장 (${modifiedUpdates.length}건)` : '일괄 저장'}
+                  </button>
+                  <button
                     onClick={handleExport}
                     className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm text-sm font-medium"
                   >
@@ -313,24 +363,34 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ isOpen
                           <td className="p-3 text-slate-600">{item.hq}</td>
                           <td className="p-3 text-slate-600">{item.empName}</td>
                           <td className="p-2">
-                            <input
-                              type="text"
-                              id={`delivery-memo-${item.uniqueKey}`}
-                              defaultValue={item.deliveryMemo}
-                              placeholder="YYYY-MM-DD 등 기입"
-                              className="w-full px-2 py-1.5 border border-slate-200 rounded outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-[12px]"
-                            />
+                            {(() => {
+                              const itemKey = item.uniqueKey;
+                              const currentMemoVal = memoDrafts[itemKey] !== undefined ? memoDrafts[itemKey] : (item.deliveryMemo || '');
+                              const isModified = memoDrafts[itemKey] !== undefined && memoDrafts[itemKey] !== (item.deliveryMemo || '');
+                              return (
+                                <input
+                                  type="text"
+                                  value={currentMemoVal}
+                                  placeholder="YYYY-MM-DD 등 기입"
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setMemoDrafts(prev => ({ ...prev, [itemKey]: val }));
+                                  }}
+                                  className={`w-full px-2 py-1.5 border rounded outline-none text-[12px] transition-colors ${
+                                    isModified
+                                      ? 'border-blue-500 bg-blue-50/50 font-bold text-blue-900'
+                                      : 'border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                                  }`}
+                                />
+                              );
+                            })()}
                           </td>
                           <td className="p-2 text-center">
                             <button
                               onClick={() => {
-                                const inputElement = document.getElementById(`delivery-memo-${item.uniqueKey}`) as HTMLInputElement;
-                                if (inputElement) {
-                                  onUpdateDeliveryMemo(item.originalRowIdx, inputElement.value);
-                                  // 업데이트 후 입력창 시각적 피드백 제공 (Optional)
-                                  inputElement.classList.add('bg-green-50');
-                                  setTimeout(() => inputElement.classList.remove('bg-green-50'), 1000);
-                                }
+                                const itemKey = item.uniqueKey;
+                                const finalVal = memoDrafts[itemKey] !== undefined ? memoDrafts[itemKey] : (item.deliveryMemo || '');
+                                onUpdateDeliveryMemo(item.originalRowIdx, finalVal);
                               }}
                               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded font-bold transition-colors"
                             >
