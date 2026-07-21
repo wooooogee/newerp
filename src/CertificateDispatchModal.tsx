@@ -350,6 +350,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     });
   };
 
+  const [labelStartPos, setLabelStartPos] = useState<number>(1);
+
   const handlePrintLabels = () => {
     const selectedItems = combinedData.filter(item => selectedIds.has(item.id) && String(item.extracted.workAddress || '').trim() === '우편');
     if (selectedItems.length === 0) return;
@@ -360,24 +362,37 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       return;
     }
 
-    const itemsPerPage = 10;
+    const itemsPerPage = 16;
     let pagesHtml = '';
 
-    for (let i = 0; i < selectedItems.length; i += itemsPerPage) {
-      const pageItems = selectedItems.slice(i, i + itemsPerPage);
+    // 시작 위치(1~16)에 따라 첫 페이지의 앞 빈칸 개수 계산 (0-indexed offset)
+    const offset = Math.max(0, Math.min(15, labelStartPos - 1));
+    
+    // 전체 라벨 슬롯 배열 구성 (첫 페이지 offset 빈 공간 + 데이터 + 나머지 빈 공간)
+    const totalSlots: (any | null)[] = [];
+    for (let i = 0; i < offset; i++) {
+      totalSlots.push(null);
+    }
+    selectedItems.forEach(item => totalSlots.push(item));
+
+    for (let i = 0; i < totalSlots.length; i += itemsPerPage) {
+      const pageItems = totalSlots.slice(i, i + itemsPerPage);
       let cellsHtml = '';
 
-      for (let j = 0; j < 10; j++) {
+      for (let j = 0; j < 16; j++) {
         const item = pageItems[j];
         if (item) {
           const ext = item.extracted;
           cellsHtml += `
             <div class="label-cell">
-              <div class="label-header">받는 사람</div>
+              <div class="label-row-top">
+                <span class="label-header">받는 사람</span>
+                <span class="label-zip">${ext.zipCode || ''}</span>
+              </div>
               <div class="label-address">${ext.address || ''}</div>
               <div class="label-footer">
-                <div class="label-phone">${ext.phone || ''}</div>
-                <div class="label-name">${ext.memName || ''}</div>
+                <span class="label-phone">${ext.phone || ''}</span>
+                <span class="label-name">${ext.memName || ''} <small>귀하</small></span>
               </div>
             </div>
           `;
@@ -392,7 +407,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     const htmlContent = `
       <html>
         <head>
-          <title>라벨 인쇄</title>
+          <title>라벨 인쇄 (99.1 x 33.9mm / 16칸)</title>
           <style>
             @page {
               size: A4;
@@ -409,14 +424,14 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
               width: 210mm;
               height: 297mm;
               box-sizing: border-box;
-              padding-top: 11mm;
-              padding-bottom: 11mm;
+              padding-top: 12.9mm;
+              padding-bottom: 12.9mm;
               padding-left: 5.9mm;
               padding-right: 5.9mm;
               display: grid;
               grid-template-columns: repeat(2, 99.1mm);
-              grid-template-rows: repeat(5, 55mm);
-              column-gap: 4mm;
+              grid-template-rows: repeat(8, 33.9mm);
+              column-gap: 4.0mm;
               row-gap: 0mm;
               page-break-after: always;
             }
@@ -424,30 +439,38 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
               page-break-after: avoid;
             }
             .label-cell {
-              border: 1px solid #444;
               box-sizing: border-box;
-              padding: 5mm 6mm;
+              padding: 3mm 4mm;
               display: flex;
               flex-direction: column;
               justify-content: space-between;
               overflow: hidden;
             }
             .label-cell.empty {
-              border: 1px solid #444;
-              visibility: visible;
+              visibility: hidden;
+            }
+            .label-row-top {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 1px solid #999;
+              padding-bottom: 1mm;
+              margin-bottom: 1mm;
             }
             .label-header {
-              font-size: 13pt;
+              font-size: 9.5pt;
+              font-weight: bold;
+              color: #333;
+            }
+            .label-zip {
+              font-size: 10pt;
               font-weight: bold;
               color: #000;
-              border-bottom: 1.5px solid #000;
-              padding-bottom: 1.5mm;
-              margin-bottom: 3.5mm;
-              text-align: left;
+              letter-spacing: 0.5px;
             }
             .label-address {
-              font-size: 11.5pt;
-              line-height: 1.55;
+              font-size: 10pt;
+              line-height: 1.35;
               color: #000;
               word-break: break-all;
               flex-grow: 1;
@@ -455,23 +478,30 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
               -webkit-line-clamp: 2;
               -webkit-box-orient: vertical;
               overflow: hidden;
-              margin-bottom: 2mm;
+              margin-bottom: 1mm;
               text-align: left;
             }
             .label-footer {
-              text-align: right;
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-end;
               margin-top: auto;
             }
             .label-phone {
-              font-size: 10pt;
-              color: #000;
-              margin-bottom: 1mm;
+              font-size: 9pt;
+              color: #444;
               font-family: monospace;
             }
             .label-name {
-              font-size: 12.5pt;
+              font-size: 11pt;
               font-weight: bold;
               color: #000;
+            }
+            .label-name small {
+              font-size: 9pt;
+              font-weight: normal;
+              color: #333;
+              margin-left: 2px;
             }
             
             @media screen {
@@ -487,6 +517,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                 background: white;
                 box-shadow: 0 4px 10px rgba(0,0,0,0.15);
                 border-radius: 4px;
+              }
+              .label-cell {
+                border: 1px dashed #ccc;
               }
               .print-btn-container {
                 position: fixed;
@@ -509,6 +542,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             @media print {
               .print-btn-container {
                 display: none;
+              }
+              .label-cell {
+                border: none;
               }
             }
           </style>
@@ -667,6 +703,21 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                 </div>
               </div>
               <div className="flex items-center gap-2 sm:gap-3">
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700">
+                  <span className="text-slate-400 font-medium">시작 위치:</span>
+                  <select
+                    value={labelStartPos}
+                    onChange={(e) => setLabelStartPos(Number(e.target.value))}
+                    className="bg-transparent font-bold text-blue-600 focus:outline-none cursor-pointer"
+                  >
+                    {Array.from({ length: 16 }, (_, index) => index + 1).map((num) => (
+                      <option key={num} value={num}>
+                        {num}번 ({Math.ceil(num / 2)}줄 {num % 2 === 1 ? '좌' : '우'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <button
                   onClick={handlePrintLabels}
                   disabled={selectedIds.size === 0}
