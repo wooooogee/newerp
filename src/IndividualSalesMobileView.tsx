@@ -42,7 +42,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   const [activeTab, setActiveTab] = useState<'detail' | 'report'>('detail');
 
   // 실적 0건 본부 숨기기 상태
-  const [hideZeroHq, setHideZeroHq] = useState(false);
+  const [hideZeroHq, setHideZeroHq] = useState(true);
 
   // 실적 요약 상세 아코디언 상태
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
@@ -919,26 +919,6 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         )}
       </div>
 
-      {/* Scroll To Top Floating Button */}
-      <AnimatePresence>
-        {showScrollTopBtn && (
-          <motion.button
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            onClick={() => {
-              if (containerRef.current) {
-                containerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
-              }
-            }}
-            className="absolute bottom-28 right-4 w-10 h-10 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center shadow-lg border border-blue-400/20 z-50 transition-all active:scale-95"
-            title="맨 위로"
-          >
-            <ArrowUp size={20} />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
       {/* Tab Navigation Bar */}
       <div className="absolute bottom-0 left-0 right-0 h-14 bg-slate-950/95 border-t border-slate-900 px-6 py-2 flex items-center justify-around z-50 shrink-0">
         <button
@@ -961,7 +941,23 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             <line x1="12" y1="20" x2="12" y2="4" />
             <line x1="6" y1="20" x2="6" y2="14" />
           </svg>
-          <span className="text-[10px]">요약 보고서</span>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px]">요약 보고서</span>
+            {showScrollTopBtn && (
+              <span
+                onClick={(e) => {
+                  e.stopPropagation(); // 탭 이동 이벤트 전파 방지
+                  if (containerRef.current) {
+                    containerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                }}
+                className="p-0.5 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center transition-colors cursor-pointer"
+                title="맨 위로"
+              >
+                <ArrowUp size={8} />
+              </span>
+            )}
+          </div>
         </button>
       </div>
     </div>
