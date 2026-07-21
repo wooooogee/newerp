@@ -250,68 +250,62 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     return Math.ceil(filteredData.length / 10) || 1;
   }, [filteredData]);
 
-  // 현재 페이지에 해당하는 데이터만 추출
+  // 현재 페이지에 렌더링할 10개 아이템 배열 추출
   const paginatedData = useMemo(() => {
     const startIndex = (currentPage - 1) * 10;
     return filteredData.slice(startIndex, startIndex + 10);
   }, [filteredData, currentPage]);
 
-  // 전체 데이터(data) 내에 존재하는 고유 본부 목록 추출 (0건 실적 본부 표시용)
-  const allHqOptions = useMemo(() => {
-    const set = new Set<string>();
-    data.forEach(item => {
-      if (item.hq) {
-        set.add(item.hq.trim());
-      }
-    });
-    return Array.from(set).sort();
-  }, [data]);
-
-  // 본부별 통계 집계 데이터 생성 (상세 필터 영향 배제하고 modeProcessedData 기준 집계)
+  // 5. 요약 보고서 전용 집계 데이터
+  // 5-1. 본부별 집계
   const hqReportData = useMemo(() => {
     const map = new Map<string, { hq: string; sales: number; deliveryCompleted: number }>();
-    
-    // 1. 전체 본부 목록으로 0건 초기화 세팅
-    allHqOptions.forEach(hqName => {
-      map.set(hqName, { hq: hqName, sales: 0, deliveryCompleted: 0 });
-    });
 
-    // 2. 현재 선택된 월의 데이터(modeProcessedData)로 실적 카운트
     modeProcessedData.forEach(item => {
-      const hqName = (item.hq || '').trim();
-      if (hqName) {
-        if (!map.has(hqName)) {
-          map.set(hqName, { hq: hqName, sales: 0, deliveryCompleted: 0 });
-        }
-        const val = map.get(hqName)!;
-        val.sales += 1;
+      const hq = item.hq || '미지정본부';
+      if (!map.has(hq)) {
+        map.set(hq, { hq, sales: 0, deliveryCompleted: 0 });
+      }
+      const entry = map.get(hq)!;
+      
+      // 판매건수: status가 '가입'인 건수
+      if ((item.status || '').trim() === '가입') {
+        entry.sales += 1;
+        // 배송완료건수: status가 '가입'이면서 deliveryStatus가 '배송완료'인 건수
         if ((item.deliveryStatus || '').trim() === '배송완료') {
-          val.deliveryCompleted += 1;
+          entry.deliveryCompleted += 1;
         }
       }
     });
-    
+
     let list = Array.from(map.values());
     if (hideZeroHq) {
-      list = list.filter(h => h.sales > 0);
+      list = list.filter(item => item.sales > 0);
     }
     return list.sort((a, b) => b.sales - a.sales);
-  }, [allHqOptions, modeProcessedData, hideZeroHq]);
+  }, [modeProcessedData, hideZeroHq]);
 
-  // 상품별 통계 집계 데이터 생성 (modeProcessedData 기준 집계)
+  // 5-2. 상품별 집계
   const prodReportData = useMemo(() => {
     const map = new Map<string, { prodName: string; sales: number; deliveryCompleted: number }>();
+
     modeProcessedData.forEach(item => {
-      const prodName = (item.prodName || '기타/미지정').trim();
+      const prodName = item.prodName || '미지정상품';
       if (!map.has(prodName)) {
         map.set(prodName, { prodName, sales: 0, deliveryCompleted: 0 });
       }
-      const val = map.get(prodName)!;
-      val.sales += 1;
-      if ((item.deliveryStatus || '').trim() === '배송완료') {
-        val.deliveryCompleted += 1;
+      const entry = map.get(prodName)!;
+
+      // 판매건수: status가 '가입'인 건수
+      if ((item.status || '').trim() === '가입') {
+        entry.sales += 1;
+        // 배송완료건수: status가 '가입'이면서 deliveryStatus가 '배송완료'인 건수
+        if ((item.deliveryStatus || '').trim() === '배송완료') {
+          entry.deliveryCompleted += 1;
+        }
       }
     });
+
     return Array.from(map.values()).sort((a, b) => b.sales - a.sales);
   }, [modeProcessedData]);
 
@@ -321,7 +315,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     setEditMemoValue(currentMemo);
   };
 
-  // 메모 저장
+  // 메모 저장 수행
   const handleSaveMemo = async (rowIdx: number) => {
     setIsSaving(true);
     try {
@@ -334,54 +328,54 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     }
   };
 
-  // 배송상태에 따른 배지 스타일
+  // 배송상태에 따른 배지 스타일 (화이트 모드 테마)
   const getDeliveryBadgeClass = (status: string) => {
     const cleanStatus = (status || '').trim();
     switch (cleanStatus) {
       case '배송대기':
-        return 'bg-amber-500/15 text-amber-400 border-amber-500/20';
+        return 'bg-amber-100 text-amber-800 border-amber-300';
       case '배송완료':
-        return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20';
+        return 'bg-emerald-100 text-emerald-800 border-emerald-300';
       default:
-        return 'bg-slate-800 text-slate-400 border-slate-700';
+        return 'bg-slate-100 text-slate-600 border-slate-300';
     }
   };
 
-  // 가입상태에 따른 배지 스타일
+  // 가입상태에 따른 배지 스타일 (화이트 모드 테마)
   const getStatusBadgeClass = (status: string) => {
     const cleanStatus = (status || '').trim();
     if (cleanStatus === '가입') {
-      return 'bg-teal-500/15 text-teal-400 border border-teal-500/20';
+      return 'bg-teal-100 text-teal-800 border-teal-300';
     } else if (cleanStatus.includes('취소') || cleanStatus.includes('해약')) {
-      return 'bg-rose-500/15 text-rose-400 border border-rose-500/20';
+      return 'bg-rose-100 text-rose-800 border-rose-300';
     }
-    return 'bg-slate-800 text-slate-400 border border-slate-700';
+    return 'bg-slate-100 text-slate-600 border-slate-300';
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden max-w-md mx-auto shadow-2xl relative border-x border-slate-800">
+    <div className="flex flex-col h-screen bg-slate-100 text-slate-900 font-sans overflow-hidden max-w-md mx-auto shadow-2xl relative border-x border-slate-200">
       {/* Header */}
-      <header className="h-14 bg-slate-950 border-b border-slate-800 px-4 flex justify-between items-center z-50 shrink-0">
+      <header className="h-14 bg-white border-b border-slate-200 px-4 flex justify-between items-center z-50 shrink-0 shadow-sm">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-md shadow-blue-500/20">
             <Truck size={16} className="text-white" />
           </div>
           <div>
-            <h1 className="text-sm font-bold tracking-tight text-white">The Better Life ERP</h1>
-            <p className="text-[10px] text-slate-400">영업사원 배송관리</p>
+            <h1 className="text-sm font-bold tracking-tight text-slate-900">The Better Life ERP</h1>
+            <p className="text-[10px] text-slate-500">영업사원 배송관리</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <button 
             onClick={onRefresh}
             disabled={loading}
-            className={`p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors ${loading ? 'animate-spin' : ''}`}
+            className={`p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors ${loading ? 'animate-spin' : ''}`}
           >
             <RefreshCw size={16} />
           </button>
           <button
             onClick={onLogout}
-            className="flex items-center justify-center p-2 text-rose-400 hover:text-rose-300 rounded-lg hover:bg-rose-950/30 transition-colors"
+            className="flex items-center justify-center p-2 text-rose-600 hover:text-rose-700 rounded-lg hover:bg-rose-50 transition-colors"
           >
             <LogOut size={16} />
           </button>
@@ -391,16 +385,16 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       {/* Main Content Area */}
       <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-4 pb-20">
         {/* User Card */}
-        <div className="p-4 bg-gradient-to-br from-slate-950 to-slate-900 border border-slate-800/80 rounded-2xl shadow-lg">
+        <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-600/10 border border-blue-500/20 rounded-xl flex items-center justify-center">
-              <User className="text-blue-400" size={20} />
+            <div className="w-10 h-10 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-center">
+              <User className="text-blue-600" size={20} />
             </div>
             <div>
-              <div className="text-[11px] text-slate-400 font-semibold tracking-wider uppercase">Welcome Back</div>
-              <div className="text-sm font-bold text-white flex items-center gap-1.5">
+              <div className="text-[11px] text-slate-500 font-semibold tracking-wider uppercase">Welcome Back</div>
+              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                 {currentUser.orgName || '영업사원'} 님
-                <span className="text-[10px] font-normal text-slate-400 px-1.5 py-0.5 rounded-full bg-slate-800 border border-slate-700">
+                <span className="text-[10px] font-normal text-slate-600 px-1.5 py-0.5 rounded-full bg-slate-100 border border-slate-200">
                   {currentUser.username}
                 </span>
               </div>
@@ -409,13 +403,13 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         </div>
 
         {/* View Mode Toggle Switch */}
-        <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-slate-800/80 shadow-md">
+        <div className="flex bg-slate-200/70 p-1.5 rounded-2xl border border-slate-300 shadow-inner">
           <button
             onClick={() => setDisplayMode('구좌수')}
             className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
               displayMode === '구좌수' 
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/15' 
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             구좌수 기준으로 보기
@@ -424,8 +418,8 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             onClick={() => setDisplayMode('상품건수')}
             className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
               displayMode === '상품건수' 
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/15' 
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             상품건수로 보기
@@ -433,18 +427,18 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         </div>
 
         {/* Dashboard Count Cards (3 Columns) & Accordion Switch */}
-        <div className="bg-slate-950/20 border border-slate-800/60 rounded-2xl p-3 shadow-md space-y-2 relative">
+        <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm space-y-2 relative">
           <div className="grid grid-cols-3 gap-2">
             {[
-              { label: '전체', count: summary.total, color: 'border-slate-800 bg-slate-950/40 text-slate-300' },
-              { label: '배송대기', count: summary.waiting, color: 'border-amber-900/30 bg-amber-950/10 text-amber-400' },
-              { label: '배송완료', count: summary.completed, color: 'border-emerald-900/30 bg-emerald-950/10 text-emerald-400' }
+              { label: '전체', count: summary.total, color: 'border-slate-200 bg-slate-50 text-slate-800' },
+              { label: '배송대기', count: summary.waiting, color: 'border-amber-200 bg-amber-50 text-amber-800' },
+              { label: '배송완료', count: summary.completed, color: 'border-emerald-200 bg-emerald-50 text-emerald-800' }
             ].map((item, i) => (
               <div
                 key={i}
                 className={`p-2.5 border rounded-xl flex flex-col items-center justify-center shadow-sm ${item.color}`}
               >
-                <span className="text-[10px] text-slate-400 font-medium">{item.label}</span>
+                <span className="text-[10px] text-slate-500 font-medium">{item.label}</span>
                 <span className="text-base font-extrabold mt-1">{item.count}</span>
               </div>
             ))}
@@ -454,7 +448,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
           <div className="flex justify-end pt-1">
             <button
               onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
-              className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-white transition-colors py-1 px-2.5 bg-slate-900/80 border border-slate-800 rounded-full shadow-sm"
+              className="flex items-center gap-1 text-[10px] text-slate-600 hover:text-slate-900 transition-colors py-1 px-2.5 bg-slate-100 border border-slate-200 rounded-full shadow-sm"
             >
               <span>상세 실적 현황</span>
               <ChevronDown 
@@ -474,26 +468,26 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 transition={{ duration: 0.2 }}
                 className="overflow-hidden"
               >
-                <div className="space-y-3 pt-3 border-t border-slate-900/80">
+                <div className="space-y-3 pt-3 border-t border-slate-200">
                   {/* 계약/가입 현황 */}
                   <div>
                     <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1 px-0.5">계약 현황</div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-slate-900/60 border border-slate-900 p-2 rounded-xl flex justify-between items-center">
-                        <span className="text-[10px] text-slate-400 font-medium">총 접수건</span>
-                        <strong className="text-xs font-bold text-white">{modeProcessedData.length}건</strong>
+                      <div className="bg-slate-50 border border-slate-200 p-2 rounded-xl flex justify-between items-center">
+                        <span className="text-[10px] text-slate-500 font-medium">총 접수건</span>
+                        <strong className="text-xs font-bold text-slate-900">{modeProcessedData.length}건</strong>
                       </div>
-                      <div className="bg-teal-950/10 border border-teal-900/30 p-2 rounded-xl flex justify-between items-center">
-                        <span className="text-[10px] text-teal-400 font-medium">가입 건수</span>
-                        <strong className="text-xs font-bold text-teal-400">{summary.signed}건</strong>
+                      <div className="bg-teal-50 border border-teal-200 p-2 rounded-xl flex justify-between items-center">
+                        <span className="text-[10px] text-teal-700 font-medium">가입 건수</span>
+                        <strong className="text-xs font-bold text-teal-700">{summary.signed}건</strong>
                       </div>
-                      <div className="bg-rose-950/10 border border-rose-900/30 p-2 rounded-xl flex justify-between items-center">
-                        <span className="text-[10px] text-rose-400 font-medium">해약 건수</span>
-                        <strong className="text-xs font-bold text-rose-400">{summary.terminated}건</strong>
+                      <div className="bg-rose-50 border border-rose-200 p-2 rounded-xl flex justify-between items-center">
+                        <span className="text-[10px] text-rose-700 font-medium">해약 건수</span>
+                        <strong className="text-xs font-bold text-rose-700">{summary.terminated}건</strong>
                       </div>
-                      <div className="bg-red-950/10 border border-red-900/30 p-2 rounded-xl flex justify-between items-center">
-                        <span className="text-[10px] text-red-400 font-medium">취소 건수</span>
-                        <strong className="text-xs font-bold text-red-400">{summary.cancelled}건</strong>
+                      <div className="bg-red-50 border border-red-200 p-2 rounded-xl flex justify-between items-center">
+                        <span className="text-[10px] text-red-700 font-medium">취소 건수</span>
+                        <strong className="text-xs font-bold text-red-700">{summary.cancelled}건</strong>
                       </div>
                     </div>
                   </div>
@@ -502,17 +496,17 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                   <div>
                     <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1 px-0.5">배송 세부 현황 (가입 건 기준)</div>
                     <div className="grid grid-cols-3 gap-1.5 text-xs">
-                      <div className="bg-amber-950/10 border border-amber-900/20 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
-                        <span className="text-[9px] text-amber-400 font-medium">배송 대기</span>
-                        <strong className="text-xs font-bold text-amber-400 mt-0.5">{summary.waiting}건</strong>
+                      <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
+                        <span className="text-[9px] text-amber-700 font-medium">배송 대기</span>
+                        <strong className="text-xs font-bold text-amber-700 mt-0.5">{summary.waiting}건</strong>
                       </div>
-                      <div className="bg-emerald-950/10 border border-emerald-900/20 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
-                        <span className="text-[9px] text-emerald-400 font-medium">배송 완료</span>
-                        <strong className="text-xs font-bold text-emerald-400 mt-0.5">{summary.completed}건</strong>
+                      <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
+                        <span className="text-[9px] text-emerald-700 font-medium">배송 완료</span>
+                        <strong className="text-xs font-bold text-emerald-700 mt-0.5">{summary.completed}건</strong>
                       </div>
-                      <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
-                        <span className="text-[9px] text-slate-400 font-medium">배송 미해당</span>
-                        <strong className="text-xs font-bold text-slate-200 mt-0.5">{summary.noDelivery}건</strong>
+                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
+                        <span className="text-[9px] text-slate-500 font-medium">배송 미해당</span>
+                        <strong className="text-xs font-bold text-slate-800 mt-0.5">{summary.noDelivery}건</strong>
                       </div>
                     </div>
                   </div>
@@ -525,16 +519,16 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         {/* activeTab 분기에 따른 필터 영역 제어 */}
         {activeTab === 'detail' ? (
           /* 상세 계약 탭일 때의 기존 필터 상세 설정 */
-          <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-900 pb-2">필터 상세 설정</p>
+          <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-100 pb-2">필터 상세 설정</p>
             <div className="grid grid-cols-3 gap-2 text-xs">
               {/* 계약월 */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-400 font-bold">계약 월</label>
+                <label className="text-[10px] text-slate-500 font-bold">계약 월</label>
                 <select
                   value={monthFilter}
                   onChange={(e) => setMonthFilter(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
                 >
                   <option value="전체">전체</option>
                   {uniqueMonths.map(m => (
@@ -544,11 +538,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
               </div>
               {/* 가입상태 */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-400 font-bold">가입상태</label>
+                <label className="text-[10px] text-slate-500 font-bold">가입상태</label>
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
                 >
                   <option value="전체">전체</option>
                   <option value="가입">가입</option>
@@ -558,11 +552,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
               </div>
               {/* 배송상태 */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-400 font-bold">배송상태</label>
+                <label className="text-[10px] text-slate-500 font-bold">배송상태</label>
                 <select
                   value={deliveryFilter}
                   onChange={(e) => setDeliveryFilter(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
                 >
                   <option value="전체">전체</option>
                   <option value="배송대기">배송대기</option>
@@ -573,10 +567,10 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
             {/* 본부/지사/관리자모바일용 하위 조직 필터링 */}
             {(isHqMobile || isBranchMobile || isAdminMobile) && (
-              <div className="flex flex-col gap-2 pt-3 border-t border-slate-900/60">
+              <div className="flex flex-col gap-2 pt-3 border-t border-slate-100">
                 {isAdminMobile && (
                   <div className="flex flex-col gap-1.5 text-xs">
-                    <label className="text-[10px] text-slate-400 font-bold">본부 선택</label>
+                    <label className="text-[10px] text-slate-500 font-bold">본부 선택</label>
                     <select
                       value={hqFilter}
                       onChange={(e) => {
@@ -584,7 +578,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                         setBranchFilter('전체');
                         setEmpFilter('전체');
                       }}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
                     >
                       {hqOptions.map(h => (
                         <option key={h} value={h}>{h}</option>
@@ -596,14 +590,14 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {(isHqMobile || isAdminMobile) && (
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] text-slate-400 font-bold">지사/지점 선택</label>
+                      <label className="text-[10px] text-slate-500 font-bold">지사/지점 선택</label>
                       <select
                         value={branchFilter}
                         onChange={(e) => {
                           setBranchFilter(e.target.value);
                           setEmpFilter('전체');
                         }}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
                       >
                         {branchOptions.map(b => (
                           <option key={b} value={b}>{b}</option>
@@ -612,11 +606,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                     </div>
                   )}
                   <div className={`flex flex-col gap-1.5 ${(isHqMobile || isAdminMobile) ? 'col-span-1' : 'col-span-2'}`}>
-                    <label className="text-[10px] text-slate-400 font-bold">영업사원 선택</label>
+                    <label className="text-[10px] text-slate-500 font-bold">영업사원 선택</label>
                     <select
                       value={empFilter}
                       onChange={(e) => setEmpFilter(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
                     >
                       {empOptions.map(e => (
                         <option key={e} value={e}>{e}</option>
@@ -628,13 +622,13 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             )}
 
             {/* 렌탈/상조 특별 필터 */}
-            <div className="flex items-center gap-4 pt-3 border-t border-slate-900/60 text-xs text-slate-300">
+            <div className="flex items-center gap-4 pt-3 border-t border-slate-100 text-xs text-slate-700">
               <label className="flex items-center gap-1.5 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={isPendingFirstRental}
                   onChange={(e) => setIsPendingFirstRental(e.target.checked)}
-                  className="w-4 h-4 bg-slate-900 border-slate-800 rounded text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 bg-slate-50 border-slate-300 rounded text-blue-600 focus:ring-blue-500"
                 />
                 <span>렌탈1회차출금 대기중</span>
               </label>
@@ -643,21 +637,21 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                   type="checkbox"
                   checked={isUnpaidMutualAid}
                   onChange={(e) => setIsUnpaidMutualAid(e.target.checked)}
-                  className="w-4 h-4 bg-slate-900 border-slate-800 rounded text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 bg-slate-50 border-slate-300 rounded text-blue-600 focus:ring-blue-500"
                 />
-                <span className="text-red-500 font-semibold">상조 미출금</span>
+                <span className="text-red-600 font-semibold">상조 미출금</span>
               </label>
             </div>
           </div>
         ) : (
           /* 요약 보고서 탭일 때의 간소화된 월 선택 필터 및 0건 숨기기 토글 */
-          <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md flex items-center justify-between gap-4">
+          <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm flex items-center justify-between gap-4">
             <div className="flex-1 flex flex-col gap-1.5">
-              <label className="text-[10px] text-slate-400 font-bold">계약 월 선택</label>
+              <label className="text-[10px] text-slate-500 font-bold">계약 월 선택</label>
               <select
                 value={monthFilter}
                 onChange={(e) => setMonthFilter(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
               >
                 <option value="전체">전체</option>
                 {uniqueMonths.map(m => (
@@ -667,12 +661,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             </div>
             
             <div className="flex flex-col items-end gap-1.5 pt-4">
-              <span className="text-[10px] text-slate-400 font-bold">0건 본부 숨기기</span>
+              <span className="text-[10px] text-slate-500 font-bold">0건 본부 숨기기</span>
               <button
                 type="button"
                 onClick={() => setHideZeroHq(!hideZeroHq)}
                 className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  hideZeroHq ? 'bg-blue-600' : 'bg-slate-800'
+                  hideZeroHq ? 'bg-blue-600' : 'bg-slate-300'
                 }`}
               >
                 <span
@@ -695,12 +689,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 placeholder="회원명, 상품명 검색..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-10 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all shadow-inner"
+                className="w-full bg-white border border-slate-200 rounded-xl py-3 pl-10 pr-4 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all shadow-sm"
               />
               {searchTerm && (
                 <button
                   onClick={() => setSearchTerm('')}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
                 >
                   <X size={14} />
                 </button>
@@ -708,8 +702,8 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             </div>
 
             {/* List Header */}
-            <div className="flex items-center justify-between text-xs text-slate-400 font-medium px-1">
-              <span>검색 결과: <strong className="text-white font-semibold">{filteredData.length}</strong>건</span>
+            <div className="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
+              <span>검색 결과: <strong className="text-slate-900 font-semibold">{filteredData.length}</strong>건</span>
             </div>
 
             {/* Card List */}
@@ -724,12 +718,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95 }}
                       transition={{ duration: 0.2 }}
-                      className="p-4 bg-slate-950 border border-slate-800/80 rounded-2xl shadow-md space-y-3"
+                      className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3"
                     >
                       {/* Card Title Line */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-bold text-white">{item.memName || '-'}</span>
+                          <span className="text-sm font-bold text-slate-900">{item.memName || '-'}</span>
                           <span className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${getStatusBadgeClass(item.status)}`}>
                             {item.status || '가입'}
                           </span>
@@ -740,32 +734,32 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                       </div>
 
                       {/* Card Body Details */}
-                      <div className="grid grid-cols-2 gap-y-2 gap-x-4 border-t border-slate-900/60 pt-3 text-[11px]">
-                        <div className="flex items-center gap-2 text-slate-400">
-                          <Calendar size={13} className="text-slate-500" />
-                          <span>계약일자: <strong className="text-slate-200">{item.contractDate || '-'}</strong></span>
+                      <div className="grid grid-cols-2 gap-y-2 gap-x-4 border-t border-slate-100 pt-3 text-[11px]">
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <Calendar size={13} className="text-slate-400" />
+                          <span>계약일자: <strong className="text-slate-800">{item.contractDate || '-'}</strong></span>
                         </div>
-                        <div className="flex items-center gap-2 text-slate-400">
-                          <Package size={13} className="text-slate-500" />
-                          <span className="truncate">상 조: <strong className="text-slate-200" title={item.prodName}>{item.prodName || '-'}</strong></span>
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <Package size={13} className="text-slate-400" />
+                          <span className="truncate">상 조: <strong className="text-slate-800" title={item.prodName}>{item.prodName || '-'}</strong></span>
                         </div>
-                        <div className="col-span-2 flex items-center gap-2 text-slate-400">
-                          <Truck size={13} className="text-slate-500" />
-                          <span className="truncate">렌탈상품: <strong className="text-slate-200" title={item.rentalProd}>{item.rentalProd || '-'}</strong></span>
+                        <div className="col-span-2 flex items-center gap-2 text-slate-500">
+                          <Truck size={13} className="text-slate-400" />
+                          <span className="truncate">렌탈상품: <strong className="text-slate-800" title={item.rentalProd}>{item.rentalProd || '-'}</strong></span>
                         </div>
                       </div>
 
                       {/* Delivery Memo Area */}
-                      <div className="bg-slate-900/60 border border-slate-900 p-3 rounded-xl space-y-2">
+                      <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-2">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                            <FileText size={12} className="text-slate-500" />
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                            <FileText size={12} className="text-slate-400" />
                             <span>배송관련 메모</span>
                           </div>
                           {editingRowIdx !== item.originalRowIdx && (
                             <button
                               onClick={() => handleStartEdit(item.originalRowIdx, item.deliveryMemo || '')}
-                              className="p-1 text-slate-400 hover:text-white rounded-md hover:bg-slate-800 transition-colors"
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-200 transition-colors"
                             >
                               <Edit2 size={12} />
                             </button>
@@ -779,13 +773,13 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               value={editMemoValue}
                               onChange={(e) => setEditMemoValue(e.target.value)}
                               placeholder="배송 관련 메모를 입력하세요..."
-                              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
+                              className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
                             />
                             <div className="flex justify-end gap-1.5">
                               <button
                                 disabled={isSaving}
                                 onClick={() => setEditingRowIdx(null)}
-                                className="px-2.5 py-1 text-[10px] font-bold text-slate-400 hover:text-white border border-slate-800 rounded-md transition-colors"
+                                className="px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:text-slate-900 border border-slate-300 rounded-md transition-colors"
                               >
                                 취소
                               </button>
@@ -806,9 +800,9 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                             </div>
                           </div>
                         ) : (
-                          <p className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
+                          <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
                             {item.deliveryMemo ? item.deliveryMemo : (
-                              <span className="text-slate-600 italic">등록된 메모가 없습니다.</span>
+                              <span className="text-slate-400 italic">등록된 메모가 없습니다.</span>
                             )}
                           </p>
                         )}
@@ -819,9 +813,9 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="py-12 flex flex-col items-center justify-center text-slate-500 gap-2.5"
+                    className="py-12 flex flex-col items-center justify-center text-slate-400 gap-2.5"
                   >
-                    <FileText size={32} className="text-slate-700" />
+                    <FileText size={32} className="text-slate-300" />
                     <p className="text-xs font-semibold">조건에 맞는 배송 정보가 없습니다.</p>
                   </motion.div>
                 )}
@@ -830,21 +824,21 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between bg-slate-950 border border-slate-800/80 px-4 py-2.5 rounded-2xl shadow-md text-xs mt-2 shrink-0">
+              <div className="flex items-center justify-between bg-white border border-slate-200 px-4 py-2.5 rounded-2xl shadow-sm text-xs mt-2 shrink-0">
                 <button
                   disabled={currentPage === 1}
                   onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  className="px-3 py-1.5 bg-slate-900 border border-slate-800 text-slate-300 disabled:text-slate-600 disabled:bg-slate-950 rounded-lg font-bold transition-all active:scale-95"
+                  className="px-3 py-1.5 bg-slate-100 border border-slate-200 text-slate-700 disabled:text-slate-400 disabled:bg-slate-50 rounded-lg font-bold transition-all active:scale-95"
                 >
                   이전
                 </button>
-                <span className="text-slate-400 font-semibold">
-                  <strong className="text-white">{currentPage}</strong> / {totalPages} 페이지
+                <span className="text-slate-500 font-semibold">
+                  <strong className="text-slate-900">{currentPage}</strong> / {totalPages} 페이지
                 </span>
                 <button
                   disabled={currentPage === totalPages}
                   onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  className="px-3 py-1.5 bg-slate-900 border border-slate-800 text-slate-300 disabled:text-slate-600 disabled:bg-slate-950 rounded-lg font-bold transition-all active:scale-95"
+                  className="px-3 py-1.5 bg-slate-100 border border-slate-200 text-slate-700 disabled:text-slate-400 disabled:bg-slate-50 rounded-lg font-bold transition-all active:scale-95"
                 >
                   다음
                 </button>
@@ -855,29 +849,29 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
           /* 요약 보고서 (대표님 보고서) 전용 뷰 */
           <div className="space-y-4">
             {/* 본부별 실적 표 */}
-            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-900 pb-2">본부별 실적</p>
+            <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-100 pb-2">본부별 실적</p>
               <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left text-slate-300">
+                <table className="w-full text-xs text-left text-slate-700">
                   <thead>
-                    <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-900 font-bold">
-                      <th className="py-2">본부명</th>
-                      <th className="py-2 text-right">판매건수 ({displayMode})</th>
-                      <th className="py-2 text-right">배송완료건수</th>
+                    <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-100 font-bold bg-slate-50">
+                      <th className="py-2.5 px-2">본부명</th>
+                      <th className="py-2.5 px-2 text-right">판매건수 ({displayMode})</th>
+                      <th className="py-2.5 px-2 text-right">배송완료건수</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-900/60">
+                  <tbody className="divide-y divide-slate-100">
                     {hqReportData.length > 0 ? (
                       hqReportData.map((s, idx) => (
-                        <tr key={idx} className="hover:bg-slate-900/30 transition-colors">
-                          <td className="py-2.5 font-bold text-white">{s.hq}</td>
-                          <td className="py-2.5 text-right font-semibold text-blue-400">{s.sales}</td>
-                          <td className="py-2.5 text-right font-semibold text-emerald-400">{s.deliveryCompleted}</td>
+                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-2.5 px-2 font-bold text-slate-900">{s.hq}</td>
+                          <td className="py-2.5 px-2 text-right font-semibold text-blue-600">{s.sales}</td>
+                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-600">{s.deliveryCompleted}</td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={3} className="py-8 text-center text-slate-600 italic">집계할 본부 데이터가 없습니다.</td>
+                        <td colSpan={3} className="py-8 text-center text-slate-400 italic">집계할 본부 데이터가 없습니다.</td>
                       </tr>
                     )}
                   </tbody>
@@ -886,29 +880,29 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             </div>
 
             {/* 상품별 실적 표 */}
-            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-md space-y-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-900 pb-2">상품별 실적</p>
+            <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-100 pb-2">상품별 실적</p>
               <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left text-slate-300">
+                <table className="w-full text-xs text-left text-slate-700">
                   <thead>
-                    <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-900 font-bold">
-                      <th className="py-2">상품명</th>
-                      <th className="py-2 text-right">판매건수 ({displayMode})</th>
-                      <th className="py-2 text-right">배송완료건수</th>
+                    <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-100 font-bold bg-slate-50">
+                      <th className="py-2.5 px-2">상품명</th>
+                      <th className="py-2.5 px-2 text-right">판매건수 ({displayMode})</th>
+                      <th className="py-2.5 px-2 text-right">배송완료건수</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-900/60">
+                  <tbody className="divide-y divide-slate-100">
                     {prodReportData.length > 0 ? (
                       prodReportData.map((s, idx) => (
-                        <tr key={idx} className="hover:bg-slate-900/30 transition-colors">
-                          <td className="py-2.5 font-semibold text-white truncate max-w-[120px]">{s.prodName}</td>
-                          <td className="py-2.5 text-right font-semibold text-blue-400">{s.sales}</td>
-                          <td className="py-2.5 text-right font-semibold text-emerald-400">{s.deliveryCompleted}</td>
+                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-2.5 px-2 font-semibold text-slate-900 truncate max-w-[120px]">{s.prodName}</td>
+                          <td className="py-2.5 px-2 text-right font-semibold text-blue-600">{s.sales}</td>
+                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-600">{s.deliveryCompleted}</td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={3} className="py-8 text-center text-slate-600 italic">집계할 상품 데이터가 없습니다.</td>
+                        <td colSpan={3} className="py-8 text-center text-slate-400 italic">집계할 상품 데이터가 없습니다.</td>
                       </tr>
                     )}
                   </tbody>
@@ -920,11 +914,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       </div>
 
       {/* Tab Navigation Bar */}
-      <div className="absolute bottom-0 left-0 right-0 h-14 bg-slate-950/95 border-t border-slate-900 px-6 py-2 flex items-center justify-around z-50 shrink-0">
+      <div className="absolute bottom-0 left-0 right-0 h-14 bg-white/95 backdrop-blur-sm border-t border-slate-200 px-6 py-2 flex items-center justify-around z-50 shrink-0 shadow-lg">
         <button
           onClick={() => setActiveTab('detail')}
           className={`flex flex-col items-center justify-center gap-1 transition-all w-24 ${
-            activeTab === 'detail' ? 'text-blue-500 font-bold' : 'text-slate-500 hover:text-slate-400'
+            activeTab === 'detail' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'
           }`}
         >
           <FileText size={16} />
@@ -933,7 +927,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         <button
           onClick={() => setActiveTab('report')}
           className={`flex flex-col items-center justify-center gap-1 transition-all w-24 ${
-            activeTab === 'report' ? 'text-blue-500 font-bold' : 'text-slate-500 hover:text-slate-400'
+            activeTab === 'report' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'
           }`}
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
