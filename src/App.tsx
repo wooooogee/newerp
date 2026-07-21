@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -6384,12 +6384,6 @@ const ERP_Dashboard = () => {
                         <div className="flex gap-2">
                           <button onClick={() => {
                             if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
-                            loadMembersFromCloud();
-                          }} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors disabled:opacity-50" disabled={loadingMembers}>
-                            <RefreshCw size={16} className={loadingMembers ? "animate-spin" : ""} /> {loadingMembers ? '불러오는 중...' : '시트에서 불러오기'}
-                          </button>
-                          <button onClick={() => {
-                            if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
                             saveMembersToCloud();
                           }} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors disabled:opacity-50" disabled={loadingMembers}>
                             <Save size={16} /> 시트에 저장하기
@@ -6404,7 +6398,17 @@ const ERP_Dashboard = () => {
                         </h4>
                         <div className="grid grid-cols-4 gap-4">
                           <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] font-bold text-slate-400">구분 (권한)</label>
+                            <div className="flex items-center gap-1">
+                              <label className="text-[10px] font-bold text-slate-400">구분 (권한)</label>
+                              <div className="relative group inline-block">
+                                <HelpCircle size={12} className="text-slate-400 hover:text-slate-300 cursor-help transition-colors" />
+                                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 hidden group-hover:block w-52 p-2 bg-slate-950 text-[10px] text-slate-300 border border-slate-800 rounded shadow-xl z-50 text-left font-normal normal-case leading-relaxed">
+                                  <p className="font-bold text-white mb-1 border-b border-slate-800 pb-0.5">사용 가능한 권한 구분값</p>
+                                  관리자, 본부, 지사, 총무, 영업사원,<br />
+                                  본부모바일, 지사모바일
+                                </div>
+                              </div>
+                            </div>
                             <input
                               type="text"
                               placeholder="예: 총무, 관리자 등"
@@ -6492,7 +6496,19 @@ const ERP_Dashboard = () => {
                           <table className="w-full text-sm text-left">
                             <thead className="text-xs text-slate-500 bg-slate-50 border-b border-slate-200 uppercase font-black">
                               <tr>
-                                <th className="px-4 py-3 text-center">구분 (권한)</th>
+                                <th className="px-4 py-3 text-center">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <span>구분 (권한)</span>
+                                    <div className="relative group inline-block">
+                                      <HelpCircle size={12} className="text-slate-400 hover:text-slate-300 cursor-help transition-colors" />
+                                      <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 hidden group-hover:block w-52 p-2 bg-slate-950 text-[10px] text-slate-300 border border-slate-800 rounded shadow-xl z-50 text-left font-normal normal-case leading-relaxed">
+                                        <p className="font-bold text-white mb-1 border-b border-slate-800 pb-0.5">사용 가능한 권한 구분값</p>
+                                        관리자, 본부, 지사, 총무, 영업사원,<br />
+                                        본부모바일, 지사모바일
+                                      </div>
+                                    </div>
+                                  </div>
+                                </th>
                                 <th className="px-4 py-3 text-center">조직명 (본부/지사 등)</th>
                                 <th className="px-4 py-3 text-center">아이디</th>
                                 <th className="px-4 py-3 text-center">비밀번호</th>
@@ -6506,7 +6522,7 @@ const ERP_Dashboard = () => {
                                   return (
                                     <tr>
                                       <td colSpan={5} className="px-4 py-12 text-center text-slate-400 font-bold bg-slate-50/50">
-                                        🔍 조회할 회원의 아이디 또는 조직명을 검색해 주세요. (로딩 성능 최적화 적용됨)
+                                        🔍 조회할 회원의 아이디 또는 조직명을 검색해 주세요.
                                       </td>
                                     </tr>
                                   );
