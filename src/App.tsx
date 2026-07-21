@@ -1859,7 +1859,7 @@ const ERP_Dashboard = () => {
       if (currentInstallment <= lastPaid) return; // 이미 지급됨
 
       let totalAmount = 0;
-      let paidFrom = lastPaid + 1;
+      let actualPaidFrom = 0;
       
       for (let i = lastPaid + 1; i <= currentInstallment; i++) {
         if (i === 1) continue; // 1회차는 일반수수료(1회차)를 받으므로 유지수수료 지급에서 제외
@@ -1887,6 +1887,9 @@ const ERP_Dashboard = () => {
 
         if (matchedTierAmount > 0) {
           totalAmount += matchedTierAmount;
+          if (actualPaidFrom === 0) {
+            actualPaidFrom = i;
+          }
         }
       }
 
@@ -1897,7 +1900,7 @@ const ERP_Dashboard = () => {
           hq: hqName,
           productName: item.prodName,
           amount: totalAmount,
-          fromInstallment: paidFrom,
+          fromInstallment: actualPaidFrom || currentInstallment,
           toInstallment: currentInstallment,
           empName: item.empName,
           branch: item.branch,
