@@ -232,6 +232,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         const isDate = /^\d{4}[-./]?\d{2}[-./]?\d{2}/.test(val);
         return !isDate;
       });
+    } else {
+      result = result.filter(item => {
+        const val = String(item.extracted.firstPayDate || '').trim();
+        const isDate = /^\d{4}[-./]?\d{2}[-./]?\d{2}/.test(val);
+        return isDate;
+      });
     }
 
     if (filterCertNotSent) {
