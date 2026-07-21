@@ -676,6 +676,8 @@ const ERP_Dashboard = () => {
 
   const [members, setMembers] = useState<{role: string, orgName: string, username: string, password: string}[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
+  const [memberSearchTerm, setMemberSearchTerm] = useState('');
+  const [newMember, setNewMember] = useState({ role: '', orgName: '', username: '', password: '' });
 
   const loadMembersFromCloud = async () => {
     setLoadingMembers(true);
@@ -6392,66 +6394,212 @@ const ERP_Dashboard = () => {
                           }} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors disabled:opacity-50" disabled={loadingMembers}>
                             <Save size={16} /> 시트에 저장하기
                           </button>
-                          <button onClick={() => {
-                            setMembers([{ role: '', orgName: '', username: '', password: '' }, ...members]);
-                          }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
-                            <Plus size={16} /> 새 회원 추가
-                          </button>
                         </div>
                       </div>
 
-                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        <table className="w-full text-sm text-left">
-                          <thead className="text-xs text-slate-500 bg-slate-50 border-b border-slate-200 uppercase font-black">
-                            <tr>
-                              <th className="px-4 py-3 text-center">구분 (권한)</th>
-                              <th className="px-4 py-3 text-center">조직명 (본부/지사 등)</th>
-                              <th className="px-4 py-3 text-center">아이디</th>
-                              <th className="px-4 py-3 text-center">비밀번호</th>
-                              <th className="px-4 py-3 text-center w-16">관리</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {members.length === 0 && (
+                      {/* 1. 신규 회원 등록 폼 */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                          <Plus size={14} className="text-blue-500" /> 신규 회원 등록
+                        </h4>
+                        <div className="grid grid-cols-4 gap-4">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] font-bold text-slate-400">구분 (권한)</label>
+                            <input
+                              type="text"
+                              placeholder="예: 총무, 관리자 등"
+                              value={newMember.role}
+                              onChange={e => setNewMember({ ...newMember, role: e.target.value })}
+                              className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-100"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] font-bold text-slate-400">조직명 (본부/지사 등)</label>
+                            <input
+                              type="text"
+                              placeholder="예: 최강본부"
+                              value={newMember.orgName}
+                              onChange={e => setNewMember({ ...newMember, orgName: e.target.value })}
+                              className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-100"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] font-bold text-slate-400">아이디</label>
+                            <input
+                              type="text"
+                              placeholder="예: test1004"
+                              value={newMember.username}
+                              onChange={e => setNewMember({ ...newMember, username: e.target.value })}
+                              className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-blue-600 outline-none focus:ring-2 focus:ring-blue-100"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] font-bold text-slate-400">비밀번호</label>
+                            <input
+                              type="text"
+                              placeholder="비밀번호"
+                              value={newMember.password}
+                              onChange={e => setNewMember({ ...newMember, password: e.target.value })}
+                              className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:ring-2 focus:ring-blue-100"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (!newMember.role || !newMember.orgName || !newMember.username || !newMember.password) {
+                              return alert('모든 회원 정보를 입력해 주세요.');
+                            }
+                            if (members.some(m => m.username === newMember.username)) {
+                              return alert('이미 존재하는 아이디입니다.');
+                            }
+                            setMembers([newMember, ...members]);
+                            setMemberSearchTerm(newMember.username); // 등록 후 즉시 검색어 창에 그 아이디를 설정해 쉽게 편집할 수 있게 조치
+                            setNewMember({ role: '', orgName: '', username: '', password: '' });
+                            alert('신규 회원이 추가되었습니다. 수정/저장 영역에서 확인하시고 시트에 저장해 주세요.');
+                          }}
+                          className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all"
+                        >
+                          회원 등록하기
+                        </button>
+                      </div>
+
+                      {/* 2. 기존 회원 검색 및 편집/삭제 영역 */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <div className="flex justify-between items-center">
+                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                            <Search size={14} className="text-blue-500" /> 기존 회원 검색 및 수정
+                          </h4>
+                          <span className="text-[11px] font-bold text-slate-400">전체 로드된 회원: {members.length}명</span>
+                        </div>
+
+                        {/* 검색창 */}
+                        <div className="flex gap-2 items-center bg-slate-50 px-4 py-3 rounded-xl border border-slate-200">
+                          <Search size={16} className="text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="검색할 아이디 또는 조직명을 입력하세요 (예: 최강본부, unbound)..."
+                            value={memberSearchTerm}
+                            onChange={(e) => setMemberSearchTerm(e.target.value)}
+                            className="flex-1 bg-transparent border-0 outline-none text-xs font-bold text-slate-800 placeholder-slate-400"
+                          />
+                          {memberSearchTerm && (
+                            <button onClick={() => setMemberSearchTerm('')} className="text-slate-400 hover:text-slate-600 text-xs font-bold">지우기</button>
+                          )}
+                        </div>
+
+                        {/* 검색 결과 테이블 */}
+                        <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                          <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-slate-500 bg-slate-50 border-b border-slate-200 uppercase font-black">
                               <tr>
-                                <td colSpan={5} className="px-4 py-8 text-center text-slate-400 font-bold">등록된 회원이 없습니다.</td>
+                                <th className="px-4 py-3 text-center">구분 (권한)</th>
+                                <th className="px-4 py-3 text-center">조직명 (본부/지사 등)</th>
+                                <th className="px-4 py-3 text-center">아이디</th>
+                                <th className="px-4 py-3 text-center">비밀번호</th>
+                                <th className="px-4 py-3 text-center w-16">관리</th>
                               </tr>
-                            )}
-                            {members.map((m, idx) => (
-                              <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
-                                <td className="px-4 py-2">
-                                  <input type="text" placeholder="총무, 관리자 등" value={m.role} onChange={e => {
-                                    const n = [...members]; n[idx].role = e.target.value; setMembers(n);
-                                  }} className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold" />
-                                </td>
-                                <td className="px-4 py-2">
-                                  <input type="text" placeholder="조직명" value={m.orgName} onChange={e => {
-                                    const n = [...members]; n[idx].orgName = e.target.value; setMembers(n);
-                                  }} className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold" />
-                                </td>
-                                <td className="px-4 py-2">
-                                  <input type="text" placeholder="아이디" value={m.username} onChange={e => {
-                                    const n = [...members]; n[idx].username = e.target.value; setMembers(n);
-                                  }} className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold text-blue-600" />
-                                </td>
-                                <td className="px-4 py-2">
-                                  <input type="text" placeholder="비밀번호" value={m.password} onChange={e => {
-                                    const n = [...members]; n[idx].password = e.target.value; setMembers(n);
-                                  }} className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold text-slate-600" />
-                                </td>
-                                <td className="px-4 py-2 text-center">
-                                  <button onClick={async () => {
-                                    if(await (window as any).customConfirm('이 회원을 삭제하시겠습니까?')) {
-                                      const n = [...members]; n.splice(idx, 1); setMembers(n);
-                                    }
-                                  }} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="삭제">
-                                    <X size={16} />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {(() => {
+                                const trimmedSearch = memberSearchTerm.trim().toLowerCase();
+                                if (!trimmedSearch) {
+                                  return (
+                                    <tr>
+                                      <td colSpan={5} className="px-4 py-12 text-center text-slate-400 font-bold bg-slate-50/50">
+                                        🔍 조회할 회원의 아이디 또는 조직명을 검색해 주세요. (로딩 성능 최적화 적용됨)
+                                      </td>
+                                    </tr>
+                                  );
+                                }
+
+                                const matched = members
+                                  .map((m, originalIdx) => ({ ...m, originalIdx }))
+                                  .filter(m => 
+                                    m.username.toLowerCase().includes(trimmedSearch) || 
+                                    m.orgName.toLowerCase().includes(trimmedSearch) ||
+                                    m.role.toLowerCase().includes(trimmedSearch)
+                                  );
+
+                                if (matched.length === 0) {
+                                  return (
+                                    <tr>
+                                      <td colSpan={5} className="px-4 py-12 text-center text-slate-400 font-bold bg-slate-50/50">
+                                        일치하는 회원이 없습니다.
+                                      </td>
+                                    </tr>
+                                  );
+                                }
+
+                                return matched.map((m) => (
+                                  <tr key={m.originalIdx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                                    <td className="px-4 py-2">
+                                      <input
+                                        type="text"
+                                        value={m.role}
+                                        onChange={e => {
+                                          const n = [...members];
+                                          n[m.originalIdx].role = e.target.value;
+                                          setMembers(n);
+                                        }}
+                                        className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <input
+                                        type="text"
+                                        value={m.orgName}
+                                        onChange={e => {
+                                          const n = [...members];
+                                          n[m.originalIdx].orgName = e.target.value;
+                                          setMembers(n);
+                                        }}
+                                        className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <input
+                                        type="text"
+                                        value={m.username}
+                                        onChange={e => {
+                                          const n = [...members];
+                                          n[m.originalIdx].username = e.target.value;
+                                          setMembers(n);
+                                        }}
+                                        className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold text-blue-600"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <input
+                                        type="text"
+                                        value={m.password}
+                                        onChange={e => {
+                                          const n = [...members];
+                                          n[m.originalIdx].password = e.target.value;
+                                          setMembers(n);
+                                        }}
+                                        className="w-full px-3 py-1.5 border border-slate-200 rounded outline-none focus:ring-2 focus:ring-blue-100 font-bold text-slate-600"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-2 text-center">
+                                      <button
+                                        onClick={async () => {
+                                          if (await (window as any).customConfirm('이 회원을 삭제하시겠습니까?')) {
+                                            const n = members.filter((_, i) => i !== m.originalIdx);
+                                            setMembers(n);
+                                          }
+                                        }}
+                                        className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                                        title="삭제"
+                                      >
+                                        <X size={16} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ));
+                              })()}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     </div>
                   </div>
