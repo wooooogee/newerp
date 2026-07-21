@@ -2318,7 +2318,10 @@ const ERP_Dashboard = () => {
 
   const exportIntegratedSettlement = async (appendSheetData?: { name: string, data: any[][] }) => {
     try {
-      if (filteredData.length === 0) return alert('정산 대상 데이터가 없습니다.');
+      const hasSpecial = Object.values(settlementStats.globalIncentivesSummary || {}).some(v => (v as number) > 0);
+      if (filteredData.length === 0 && maintenancePayouts.length === 0 && !hasSpecial) {
+        return alert('정산 대상 데이터가 없습니다.');
+      }
 
       setNotification({ message: '엑셀 보고서 생성을 위한 데이터를 불러오는 중...', type: 'info' });
       
@@ -2376,7 +2379,16 @@ const ERP_Dashboard = () => {
         statsMap.set(key, (statsMap.get(key) || 0) + 1);
       });
 
-      const payDateSample = filteredData[0].payDate || '';
+      let payDateSample = filteredData[0]?.payDate || '';
+      if (!payDateSample && payDateFilter) {
+        payDateSample = payDateFilter;
+      }
+      if (!payDateSample && maintenancePayouts.length > 0) {
+        payDateSample = maintenancePayouts[0].payDate || '';
+      }
+      if (!payDateSample) {
+        payDateSample = new Date().toISOString().split('T')[0];
+      }
       const today = new Date().toISOString().split('T')[0];
 
       const specialAdditions: Record<string, number> = {};
