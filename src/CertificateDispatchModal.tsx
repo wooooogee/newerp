@@ -424,8 +424,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
               width: 210mm;
               height: 297mm;
               box-sizing: border-box;
-              padding-top: 12.9mm;
-              padding-bottom: 12.9mm;
+              padding-top: 14mm;
+              padding-bottom: 10mm;
               padding-left: 5.9mm;
               padding-right: 5.9mm;
               display: grid;
