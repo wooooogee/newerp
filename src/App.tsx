@@ -6,6 +6,7 @@ import { HealthcareModal } from './HealthcareModal';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { DeliveryStatusModal } from './DeliveryStatusModal';
 import { DeliveryDashboardModal } from './DeliveryDashboardModal';
+import { DashboardDetailModal } from './DashboardDetailModal';
 import { CertificateDispatchModal } from './CertificateDispatchModal';
 import { CertificateDispatchHistoryModal } from './CertificateDispatchHistoryModal';
 import { CustomDialog } from './CustomDialog';
@@ -446,6 +447,8 @@ const ERP_Dashboard = () => {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
   const [isDeliveryStatusModalOpen, setIsDeliveryStatusModalOpen] = useState(false);
+  const [isDashboardDetailModalOpen, setIsDashboardDetailModalOpen] = useState(false);
+  const [dashboardDetailType, setDashboardDetailType] = useState<'delivery' | 'cancel' | null>(null);
   const [isDeliveryDashboardOpen, setIsDeliveryDashboardOpen] = useState(false);
   const [isCertificateDispatchModalOpen, setIsCertificateDispatchModalOpen] = useState(false);
   const [isCertificateDispatchHistoryModalOpen, setIsCertificateDispatchHistoryModalOpen] = useState(false);
@@ -4348,9 +4351,16 @@ const ERP_Dashboard = () => {
                           <span className="flex items-center gap-1.5"><Truck size={14} className="text-sky-500" /> 해당월 배송완료</span>
                           <span className="text-sky-600">총 {deliveryCompleteCount.toLocaleString()}{countUnit}</span>
                         </div>
-                        <div className="flex-1 flex flex-col items-center justify-center bg-sky-50/30 rounded-lg border border-sky-100/50 p-3">
-                          <div className="text-2xl font-black text-sky-500 mb-1">{deliveryCompleteCount.toLocaleString()}{countUnit}</div>
-                          <p className="text-[10px] text-slate-500 text-center">선택된 월 계약 중 배송완료 건수</p>
+                        <div 
+                          onClick={() => {
+                            setDashboardDetailType('delivery');
+                            setIsDashboardDetailModalOpen(true);
+                          }}
+                          className="flex-1 flex flex-col items-center justify-center bg-sky-50/30 hover:bg-sky-50/70 active:bg-sky-100/50 cursor-pointer rounded-lg border border-sky-100/50 hover:border-sky-200 p-3 transition-all group"
+                        >
+                          <div className="text-2xl font-black text-sky-500 mb-1 group-hover:scale-105 transition-transform">{deliveryCompleteCount.toLocaleString()}{countUnit}</div>
+                          <p className="text-[10px] text-slate-500 text-center mb-1">선택된 월 계약 중 배송완료 건수</p>
+                          <span className="text-[10px] text-sky-600 font-bold underline hover:text-sky-700 mt-1 flex items-center gap-0.5">상세 내역보기 →</span>
                         </div>
                       </div>
 
@@ -4360,9 +4370,16 @@ const ERP_Dashboard = () => {
                           <span className="flex items-center gap-1.5"><AlertCircle size={14} className="text-rose-500" /> 취소 및 해약</span>
                           <span className="text-rose-600">총 {cancelCount.toLocaleString()}{countUnit}</span>
                         </div>
-                        <div className="flex-1 flex flex-col items-center justify-center bg-rose-50/30 rounded-lg border border-rose-100/50 p-3">
-                          <div className="text-2xl font-black text-rose-500 mb-1">{cancelCount.toLocaleString()}{countUnit}</div>
-                          <p className="text-[10px] text-slate-500 text-center">선택된 월의 총 취소/해약 수<br/>(배송취소, 반품 포함)</p>
+                        <div 
+                          onClick={() => {
+                            setDashboardDetailType('cancel');
+                            setIsDashboardDetailModalOpen(true);
+                          }}
+                          className="flex-1 flex flex-col items-center justify-center bg-rose-50/30 hover:bg-rose-50/70 active:bg-rose-100/50 cursor-pointer rounded-lg border border-rose-100/50 hover:border-rose-200 p-3 transition-all group"
+                        >
+                          <div className="text-2xl font-black text-rose-500 mb-1 group-hover:scale-105 transition-transform">{cancelCount.toLocaleString()}{countUnit}</div>
+                          <p className="text-[10px] text-slate-500 text-center mb-1">선택된 월의 총 취소/해약 수<br/>(배송취소, 반품 포함)</p>
+                          <span className="text-[10px] text-rose-600 font-bold underline hover:text-rose-700 mt-1 flex items-center gap-0.5">상세 내역보기 →</span>
                         </div>
                       </div>
                     </div>
@@ -6698,6 +6715,16 @@ const ERP_Dashboard = () => {
               }));
               batchUpdateCells(formattedUpdates);
             }}
+          />
+          <DashboardDetailModal
+            isOpen={isDashboardDetailModalOpen}
+            onClose={() => setIsDashboardDetailModalOpen(false)}
+            data={data}
+            type={dashboardDetailType}
+            month={topDashboardMonth}
+            mode={topDashboardMode}
+            onUpdateCell={updateCell}
+            onBatchUpdateCells={batchUpdateCells}
           />
            <DeliveryDashboardModal
             isOpen={isDeliveryDashboardOpen}
