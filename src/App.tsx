@@ -637,6 +637,28 @@ const ERP_Dashboard = () => {
   const [manualBasis, setManualBasis] = useState<'사업자' | '개인'>('사업자');
   const [manualProducts, setManualProducts] = useState<ManualProduct[]>([]);
 
+  // 동일 렌탈계약 묶음의 회원번호 목록 조회 (테이블 다중행 표시용)
+  const getMemberNosForRental = React.useCallback((rentalNo: string, currentMemNo: string) => {
+    if (!rentalNo) return [currentMemNo];
+    const related = data.filter(d => d.rentalNo === rentalNo);
+    const memNos = related
+      .sort((a, b) => a.originalRowIdx - b.originalRowIdx)
+      .map(d => d.memNo)
+      .filter(Boolean);
+    return Array.from(new Set(memNos));
+  }, [data]);
+
+  // 동일 렌탈계약 묶음의 관련 회원 데이터 전체 조회 (상세 모달의 개별 상태 변경용)
+  const getRelatedMembers = React.useCallback((rentalNo: string, currentMemNo: string) => {
+    if (!rentalNo) {
+      const currentItem = data.find(d => d.memNo === currentMemNo);
+      return currentItem ? [currentItem] : [];
+    }
+    return data
+      .filter(d => d.rentalNo === rentalNo)
+      .sort((a, b) => a.originalRowIdx - b.originalRowIdx);
+  }, [data]);
+
   // 셀 값 업데이트 (구글 시트 연동)
   const updateCell = async (rowIdx: number, colIdx: number, newValue: string) => {
     setIsUpdating(true);
@@ -657,7 +679,22 @@ const ERP_Dashboard = () => {
       }
 
       setNotification({ message: '시트가 성공적으로 업데이트되었습니다.', type: 'success' });
-      loadData(); // 데이터 새로고침
+      await loadData(); // 데이터 새로고침
+      
+      // selectedItem 갱신
+      if (selectedItem) {
+        setSelectedItem(prev => {
+          if (!prev) return null;
+          const updated = { ...prev };
+          if (prev.originalRowIdx === rowIdx) {
+            if (colIdx === 1) updated.status = newValue;
+            if (colIdx === 14) updated.payDate = newValue;
+            if (colIdx === 19) updated.paymentStatus = newValue;
+            if (colIdx === 20) updated.memo = newValue;
+          }
+          return updated;
+        });
+      }
     } catch (err) {
       console.error(err);
       alert('업데이트 중 오류가 발생했습니다.');
@@ -4286,7 +4323,7 @@ const ERP_Dashboard = () => {
                       onClick={() => setTopDashboardMode('상품개수')}
                       className={`flex-1 sm:flex-none px-4 py-1.5 text-[12px] font-bold rounded-md transition-all ${topDashboardMode === '상품개수' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
-                      상품개수(실물) 기준
+                      상품개수 기준
                     </button>
                   </div>
                   <input
@@ -4733,7 +4770,7 @@ const ERP_Dashboard = () => {
                       onClick={() => setTableDisplayMode('상품개수')}
                       className={`flex-1 sm:flex-none px-4 py-1.5 text-[12px] font-bold rounded-md transition-all ${tableDisplayMode === '상품개수' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                     >
-                      상품개수(실물) 기준
+                      상품개수 기준
                     </button>
                   </div>
 
@@ -4896,7 +4933,17 @@ const ERP_Dashboard = () => {
                               </span>
                             )}
                           </td>
-                          <td className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold">{item.memNo}</td>
+                          <td className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold whitespace-nowrap">
+                            {tableDisplayMode === '상품개수' && item.rentalNo ? (
+                              <div className="flex flex-col justify-center items-center gap-0.5 leading-tight">
+                                {getMemberNosForRental(item.rentalNo, item.memNo).map((mNo, mIdx) => (
+                                  <span key={mIdx}>{mNo}</span>
+                                ))}
+                              </div>
+                            ) : (
+                              item.memNo
+                            )}
+                          </td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-black text-slate-900">{item.memName}</td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-bold text-slate-600 truncate max-w-[150px]" title={item.prodName}>{item.prodName}</td>
                           {showCommissionInfo && (
@@ -4929,8 +4976,12 @@ const ERP_Dashboard = () => {
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-600 truncate max-w-[100px]">{item.hq}</td>
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-600 truncate max-w-[100px]">{item.branch}</td>
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-400 whitespace-nowrap">{item.empName}</td>
-                        <td className="px-3 py-3.5 text-center">
-                          <button className="p-1 hover:bg-slate-200 rounded text-slate-300 hover:text-slate-600">
+                        <td className="px-3 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => setSelectedItem(item)}
+                            title="회원 관리"
+                            className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
+                          >
                             <MoreVertical size={14} />
                           </button>
                         </td>
@@ -5101,6 +5152,56 @@ const ERP_Dashboard = () => {
                       <DetailItem label="회원명" value={selectedItem.memName} />
                       <DetailItem label="주민등록번호" value={selectedItem.resNo} />
                       <DetailItem label="핸드폰" value={selectedItem.phone} />
+                    </div>
+                  </section>
+
+                  {/* 계약 상태 관리 */}
+                  <section>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <div className="w-1 h-3 bg-rose-500 rounded-full" />
+                      계약 상태 관리
+                    </h4>
+                    <div className="space-y-3">
+                      {getRelatedMembers(selectedItem.rentalNo, selectedItem.memNo).map((m, mIdx) => (
+                        <div key={m.uniqueKey || mIdx} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-[10px] font-bold text-slate-400">회원번호</span>
+                            <span className="text-[13px] font-black text-slate-800">{m.memNo}</span>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <div className="flex flex-col gap-0.5 min-w-[70px]">
+                              <span className="text-[10px] font-bold text-slate-400">현재 상태</span>
+                              <span className={`text-[12px] font-black ${m.status.includes('취소') || m.status.includes('해약') ? 'text-rose-600' : 'text-blue-600'}`}>{m.status}</span>
+                            </div>
+                            {isAdmin ? (
+                              <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200 shadow-sm shrink-0">
+                                <select
+                                  defaultValue={m.status}
+                                  id={`editStatus-${m.originalRowIdx}`}
+                                  className="text-[12px] font-bold text-slate-700 bg-transparent px-2 py-1 focus:outline-none"
+                                >
+                                  <option value="가입">가입</option>
+                                  <option value="해약">해약</option>
+                                  <option value="취소">취소</option>
+                                </select>
+                                <button
+                                  onClick={async () => {
+                                    const selectEl = document.getElementById(`editStatus-${m.originalRowIdx}`) as HTMLSelectElement;
+                                    const val = selectEl.value;
+                                    if (window.confirm(`회원번호 ${m.memNo}의 상태를 '${val}'(으)로 변경하시겠습니까?`)) {
+                                      await updateCell(m.originalRowIdx, 1, val);
+                                    }
+                                  }}
+                                  disabled={isUpdating}
+                                  className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-[11px] font-semibold rounded-md shadow-sm transition-colors cursor-pointer"
+                                >
+                                  변경
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </section>
 
