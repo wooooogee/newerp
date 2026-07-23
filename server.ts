@@ -305,7 +305,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   // 하드코딩된 특정 관리자 계정
   if (username === 'a250027' && password === '880805') {
-    return issueSession('관리자', '시스템관리자', [{ role: '관리자', orgName: '시스템관리자' }]);
+    return issueSession('admin', '시스템관리자', [{ role: 'admin', orgName: '시스템관리자' }]);
   }
 
   // 1. 구글 시트의 '조직계정설정' 탭을 1순위로 조회하여 검증
@@ -344,17 +344,19 @@ app.post('/api/auth/login', async (req, res) => {
               const orgs = matchedRows.map(row => {
                 const roleVal = String(row[0] || '').trim(); // 관리자 / 본부 / 지사 / 지점 등
                 const orgNameVal = String(row[1] || '').trim(); // 조직명
-                const isAdminRole = ['관리자', '어드민', 'admin', 'ADMIN'].includes(roleVal);
+                const isSuperAdminRole = ['관리자총무', '어드민', 'admin', 'ADMIN'].includes(roleVal);
+                const isGeneralAdminRole = roleVal === '관리자';
                 return {
-                  role: isAdminRole ? 'admin' : roleVal,
-                  orgName: isAdminRole ? '관리자' : orgNameVal
+                  role: isSuperAdminRole ? 'admin' : (isGeneralAdminRole ? '관리자' : roleVal),
+                  orgName: (isSuperAdminRole || isGeneralAdminRole) ? '관리자' : orgNameVal
                 };
               });
 
               // admin 권한이 하나라도 있으면 대표 역할을 admin으로 부여
               const hasAdmin = orgs.some(o => o.role === 'admin');
-              const repRole = hasAdmin ? 'admin' : orgs[0].role;
-              const repOrgName = hasAdmin ? '관리자' : orgs[0].orgName;
+              const hasGeneralAdmin = orgs.some(o => o.role === '관리자');
+              const repRole = hasAdmin ? 'admin' : (hasGeneralAdmin ? '관리자' : orgs[0].role);
+              const repOrgName = (hasAdmin || hasGeneralAdmin) ? '관리자' : orgs[0].orgName;
 
               return issueSession(repRole, repOrgName, orgs);
             }

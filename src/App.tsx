@@ -374,10 +374,12 @@ const ERP_Dashboard = () => {
   const [currentUser, setCurrentUser] = useState<{ username: string; role: string; orgName: string; orgs?: { role: string; orgName: string; }[] } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const isSuperAdmin = currentUser?.role === 'admin' || 
-                       currentUser?.role === '관리자' || 
-                       currentUser?.role === 'admin모바일' || 
-                       currentUser?.role === '관리자모바일';
-  const isAdmin = isSuperAdmin || currentUser?.role === '총무';
+                       currentUser?.role === 'admin모바일';
+  const isManager = isSuperAdmin ||
+                    currentUser?.role === '관리자' ||
+                    currentUser?.role === '관리자모바일';
+  const isAdmin = isManager || currentUser?.role === '총무';
+  const showCommissionInfo = isSuperAdmin || currentUser?.role === '총무';
 
   // 모바일 전용 뷰 분기 판별
   const isMobileView = React.useMemo(() => {
@@ -413,7 +415,7 @@ const ERP_Dashboard = () => {
 
     // 6. 그 외 기본적으로 배제 대상이 아니면 개인 영업사원으로 우대
     return true;
-  }, [currentUser, isSuperAdmin, isAdmin]);
+  }, [currentUser, isSuperAdmin, isManager, isAdmin]);
 
   const [data, setData] = useState<ERPDataItem[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -1157,7 +1159,7 @@ const ERP_Dashboard = () => {
         ];
         
         let finalData = initialData;
-        if (currentUser && !isSuperAdmin) {
+        if (currentUser && !isManager) {
           if (currentUser.orgs && currentUser.orgs.length > 0) {
             finalData = initialData.filter(item => {
               return currentUser.orgs!.some(org => {
@@ -1261,7 +1263,7 @@ const ERP_Dashboard = () => {
 
       // 로그인 권한 필터링 추가
       let finalData = formatted;
-      if (currentUser && !isSuperAdmin) {
+      if (currentUser && !isManager) {
         if (currentUser.orgs && currentUser.orgs.length > 0) {
           finalData = formatted.filter(item => {
             return currentUser.orgs!.some(org => {
@@ -4046,6 +4048,22 @@ const ERP_Dashboard = () => {
             </section>
           )}
 
+          {isManager && !isSuperAdmin && (
+            <section>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">조직 및 회원 관리</p>
+              <div className="grid gap-2">
+                <motion.button
+                  onClick={handleOpenSettings}
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                  className="flex items-center justify-center gap-2.5 bg-slate-800 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-slate-900"
+                >
+                  <Settings size={16} /> 조직계정설정
+                </motion.button>
+              </div>
+            </section>
+          )}
+
           <section className={isAdmin ? 'mt-4' : ''}>
             <div className="grid gap-2">
               <motion.button
@@ -4110,7 +4128,7 @@ const ERP_Dashboard = () => {
             </div>
           </section>
 
-          {isSuperAdmin && (
+          {isManager && (
             <>
               <section className="mt-4">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">증서 관리</p>
@@ -4449,7 +4467,7 @@ const ERP_Dashboard = () => {
 
 
             {/* 정산 요약 대시보드 */}
-            {isAdmin && (payDateFilter || filteredData.length > 0) && (
+            {showCommissionInfo && (payDateFilter || filteredData.length > 0) && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -4789,7 +4807,7 @@ const ERP_Dashboard = () => {
                       className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
                     />
                   </div>
-                  {isAdmin && filteredData.length > 0 && (
+                  {showCommissionInfo && filteredData.length > 0 && (
                     <button
                       onClick={async () => {
                         if (await (window as any).customConfirm(`현재 필터링된 ${filteredData.length}건을 모두 '지급완료' 처리하시겠습니까?\n\n(참고: 취소된 건은 제외됩니다)`, '일괄 지급완료')) {
@@ -4828,7 +4846,7 @@ const ERP_Dashboard = () => {
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원명</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">상품명</th>
-                    {isAdmin && (
+                    {showCommissionInfo && (
                       <th className="px-3 py-3 font-bold text-center border-r border-slate-700 leading-tight whitespace-nowrap">
                         전체수수료<br/>
                         <span className="text-[10px] text-slate-400 font-normal">(본부설정기준)</span>
@@ -4837,7 +4855,7 @@ const ERP_Dashboard = () => {
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">렌탈번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송현황</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송일자</th>
-                    {isAdmin && (
+                    {showCommissionInfo && (
                       <>
                         <th className="px-3 py-3 font-bold text-center border-r border-slate-700 text-blue-300">지급일자</th>
                         <th className="px-3 py-3 font-bold text-center border-r border-slate-700">지급상태</th>
@@ -4881,7 +4899,7 @@ const ERP_Dashboard = () => {
                           <td className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold">{item.memNo}</td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-black text-slate-900">{item.memName}</td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-bold text-slate-600 truncate max-w-[150px]" title={item.prodName}>{item.prodName}</td>
-                          {isAdmin && (
+                          {showCommissionInfo && (
                             <td className="px-3 py-3.5 border-r border-slate-50 text-right font-black text-slate-700 bg-amber-50/10 whitespace-nowrap">{Math.floor(totalCommission).toLocaleString()}원</td>
                           )}
                           <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-500">{item.rentalNo}</td>
@@ -4893,7 +4911,7 @@ const ERP_Dashboard = () => {
                           </span>
                         </td>
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-400 whitespace-nowrap">{item.deliveryDate || '-'}</td>
-                        {isAdmin && (
+                        {showCommissionInfo && (
                           <>
                             <td className="px-3 py-3.5 border-r border-slate-50 text-center font-black text-indigo-600 bg-indigo-50/20 whitespace-nowrap">
                               {item.payDate || '-'}
@@ -5011,7 +5029,7 @@ const ERP_Dashboard = () => {
 
                 <div className="flex-1 overflow-auto p-6 space-y-8">
                   {/* 정산 요약 - 실시간 계산 결과 */}
-                  {detailSource !== 'healthcare' && isAdmin && (
+                  {detailSource !== 'healthcare' && showCommissionInfo && (
                   <section className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
                     <h4 className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
                       <TrendingUp size={14} /> 실시간 정산 분석 (본부 설정 기준)
@@ -5102,7 +5120,7 @@ const ERP_Dashboard = () => {
                   </section>
 
                   {/* 수수료정보 및 메모 */}
-                  {isAdmin && (
+                  {showCommissionInfo && (
                     <section>
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                         <div className="w-1 h-3 bg-orange-500 rounded-full" />
@@ -5205,7 +5223,7 @@ const ERP_Dashboard = () => {
 
                 <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
                   <div>
-                    {(selectedItem.paymentStatus === '지급완료' || selectedItem.hc.includes('지급완료')) && (
+                    {showCommissionInfo && (selectedItem.paymentStatus === '지급완료' || selectedItem.hc.includes('지급완료')) && (
                       <button
                         onClick={async () => {
                           if (await (window as any).customConfirm('해당 건의 지급 완료 처리를 취소하시겠습니까?')) {
@@ -5717,59 +5735,65 @@ const ERP_Dashboard = () => {
                     <p className="text-xs text-slate-400 mt-1">각 거래처별 상품 수수료 및 오버라이딩 구조를 관리합니다.</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 mr-4 border-r border-slate-700 pr-5">
-                      <button
-                        onClick={() => {
-                          if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
-                          saveSettingsToCloud();
-                        }}
-                        disabled={saveSettingsStatus === 'saving'}
-                        title="구글 시트에 현재 설정 반영"
-                        className={`px-3 py-1.5 border rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${saveSettingsStatus === 'saving' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-not-allowed' :
-                            saveSettingsStatus === 'success' ? 'bg-emerald-600/20 text-emerald-400 border-emerald-600/30' :
-                              saveSettingsStatus === 'error' ? 'bg-red-600/20 text-red-400 border-red-600/30' :
-                                'bg-blue-600/20 text-blue-400 border-blue-600/30 hover:bg-blue-600 hover:text-white'
-                          }`}
-                      >
-                        {saveSettingsStatus === 'saving' ? (
-                          <><RefreshCw size={14} className="animate-spin" /> 저장 중...</>
-                        ) : saveSettingsStatus === 'success' ? (
-                          <><CheckCircle size={14} /> 저장 완료!</>
-                        ) : saveSettingsStatus === 'error' ? (
-                          <><AlertCircle size={14} /> 저장 실패</>
-                        ) : (
-                          <><Save size={14} /> 설정 클라우드 저장</>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
-                          loadSettingsFromCloud();
-                        }}
-                        title="구글 시트에서 최신 설정 가져오기"
-                        className="px-3 py-1.5 bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold hover:bg-slate-700 transition-all flex items-center gap-2"
-                      >
-                        <RefreshCw size={14} /> 설정 불러오기
-                      </button>
-                      <button
-                        onClick={resetSettingsToDefault}
-                        title="꼬인 데이터 복구 - 모든 설정을 초기값으로 리셋"
-                        className="px-3 py-1.5 bg-red-900/30 text-red-400 border border-red-700/40 rounded-lg text-xs font-bold hover:bg-red-700 hover:text-white transition-all flex items-center gap-2"
-                      >
-                        <AlertCircle size={14} /> 설정 초기화
-                      </button>
-                    </div>
+                    {isSuperAdmin && (
+                      <div className="flex items-center gap-2 mr-4 border-r border-slate-700 pr-5">
+                        <button
+                          onClick={() => {
+                            if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
+                            saveSettingsToCloud();
+                          }}
+                          disabled={saveSettingsStatus === 'saving'}
+                          title="구글 시트에 현재 설정 반영"
+                          className={`px-3 py-1.5 border rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${saveSettingsStatus === 'saving' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-not-allowed' :
+                              saveSettingsStatus === 'success' ? 'bg-emerald-600/20 text-emerald-400 border-emerald-600/30' :
+                                saveSettingsStatus === 'error' ? 'bg-red-600/20 text-red-400 border-red-600/30' :
+                                  'bg-blue-600/20 text-blue-400 border-blue-600/30 hover:bg-blue-600 hover:text-white'
+                            }`}
+                        >
+                          {saveSettingsStatus === 'saving' ? (
+                            <><RefreshCw size={14} className="animate-spin" /> 저장 중...</>
+                          ) : saveSettingsStatus === 'success' ? (
+                            <><CheckCircle size={14} /> 저장 완료!</>
+                          ) : saveSettingsStatus === 'error' ? (
+                            <><AlertCircle size={14} /> 저장 실패</>
+                          ) : (
+                            <><Save size={14} /> 설정 클라우드 저장</>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
+                            loadSettingsFromCloud();
+                          }}
+                          title="구글 시트에서 최신 설정 가져오기"
+                          className="px-3 py-1.5 bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold hover:bg-slate-700 transition-all flex items-center gap-2"
+                        >
+                          <RefreshCw size={14} /> 설정 불러오기
+                        </button>
+                        <button
+                          onClick={resetSettingsToDefault}
+                          title="꼬인 데이터 복구 - 모든 설정을 초기값으로 리셋"
+                          className="px-3 py-1.5 bg-red-900/30 text-red-400 border border-red-700/40 rounded-lg text-xs font-bold hover:bg-red-700 hover:text-white transition-all flex items-center gap-2"
+                        >
+                          <AlertCircle size={14} /> 설정 초기화
+                        </button>
+                      </div>
+                    )}
                     <button onClick={() => setIsSettingsModalOpen(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={24} /></button>
                   </div>
                 </div>
 
                 <div className="flex bg-slate-900 px-8 pt-2">
-                  <button onClick={() => setSettingsTab('hq')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'hq' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-                    본부별 정산 설정
-                  </button>
-                  <button onClick={() => setSettingsTab('global_incentive')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'global_incentive' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-                    특수 수당 설정
-                  </button>
+                  {isSuperAdmin && (
+                    <button onClick={() => setSettingsTab('hq')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'hq' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                      본부별 정산 설정
+                    </button>
+                  )}
+                  {isSuperAdmin && (
+                    <button onClick={() => setSettingsTab('global_incentive')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'global_incentive' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                      특수 수당 설정
+                    </button>
+                  )}
                   <button onClick={() => setSettingsTab('member')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'member' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
                     회원관리
                   </button>
