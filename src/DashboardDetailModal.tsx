@@ -48,6 +48,9 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  // 전체 기간 보기 토글 상태
+  const [viewAllMonths, setViewAllMonths] = useState(false);
+
   // 신규 취소/해약 등록 모드 관련 상태
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -55,13 +58,19 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const [newStatus, setNewStatus] = useState('취소');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 검색어 변경이나 타입/달/모드 변경 시 페이지 초기화 및 모드 리셋
+  // 검색어 변경이나 모드 변경 시 페이지네이션 초기화
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, mode]);
+
+  // 타입/달 변경 및 모달 개폐 시 상태 리셋
   React.useEffect(() => {
     setCurrentPage(1);
     setIsRegisterMode(false);
     setSelectedContracts([]);
     setSearchQuery('');
-  }, [searchTerm, type, month, mode, isOpen]);
+    setViewAllMonths(false);
+  }, [type, month, isOpen]);
 
   // 가입 상태인 계약건들
   const activeContracts = useMemo(() => {
@@ -155,11 +164,17 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       const deliveryDateStr = d.deliveryDate ? d.deliveryDate.replace(/\./g, '-').substring(0, 7) : '';
 
       if (type === 'delivery') {
-        // 배송완료 조건: deliveryStatus가 '배송완료'이고 배송월이 선택된 월과 일치
+        // 배송완료 조건: 전체 기간 보기 활성화 시 날짜 필터 무시
+        if (viewAllMonths) {
+          return d.deliveryStatus === '배송완료';
+        }
         return d.deliveryStatus === '배송완료' && deliveryDateStr === month;
       } else {
-        // 취소/해약 조건: contractDateStr이 선택된 월과 일치하고 계약 상태나 배송 상태에 취소/해약/반품 포함
+        // 취소/해약 조건: 전체 기간 보기 활성화 시 날짜 필터 무시
         const isCancelled = d.status.includes('취소') || d.status.includes('해약') || d.deliveryStatus.includes('취소') || d.deliveryStatus.includes('반품');
+        if (viewAllMonths) {
+          return isCancelled;
+        }
         return contractDateStr === month && isCancelled;
       }
     });
@@ -225,7 +240,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
     // 계약일 기준 정렬
     return temp.sort((a, b) => b.contractDate.localeCompare(a.contractDate));
-  }, [data, type, month, mode, searchTerm]);
+  }, [data, type, month, mode, searchTerm, viewAllMonths]);
 
   // 페이지네이션 처리
   const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
@@ -310,7 +325,8 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, titleText);
-    XLSX.writeFile(wb, `${month}_상세내역_${titleText}_${new Date().getTime()}.xlsx`);
+    const timePrefix = viewAllMonths ? '전체기간' : month;
+    XLSX.writeFile(wb, `${timePrefix}_상세내역_${titleText}_${new Date().getTime()}.xlsx`);
   };
 
   if (!isOpen || !type) return null;
@@ -348,7 +364,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
               <h2 className="text-lg font-bold">
                 {isRegisterMode 
                   ? `[일괄 등록] 취소 및 해약 신청`
-                  : `[${month}] ${isDelivery ? '배송완료' : '취소 및 해약'} 상세 내역 (${mode} 기준)`
+                  : `[${viewAllMonths ? '전체 기간' : month}] ${isDelivery ? '배송완료' : '취소 및 해약'} 상세 내역 (${mode} 기준)`
                 }
               </h2>
             </div>
@@ -485,7 +501,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                         </div>
                       </div>
 
-                      {/* 입력 폼 (배송상태 제외, 계약상태만) */}
+                      {/* 입력 폼 */}
                       <div className="space-y-3">
                         <div>
                           <label className="block text-[11px] font-bold text-slate-500 mb-1">변경할 계약상태</label>
@@ -533,10 +549,25 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             <>
               {/* 필터 및 검색어 영역 */}
               <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row gap-3 items-center justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-4">
                   <span className="text-sm font-semibold text-slate-600">
                     총 <span className={isDelivery ? 'text-sky-600 font-bold' : 'text-rose-600 font-bold'}>{filteredData.length}</span> 건
                   </span>
+
+                  {/* 전체 기간 보기 토글 체크박스 */}
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-bold text-slate-500 select-none hover:text-slate-700 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={viewAllMonths}
+                      onChange={(e) => setViewAllMonths(e.target.checked)}
+                      className={`w-3.5 h-3.5 rounded border-slate-300 transition-colors focus:ring-offset-0 ${
+                        isDelivery 
+                          ? 'text-sky-600 focus:ring-sky-500' 
+                          : 'text-rose-600 focus:ring-rose-500'
+                      }`}
+                    />
+                    전체 기간 보기
+                  </label>
                 </div>
 
                 <div className="flex w-full sm:w-auto items-center gap-2">
