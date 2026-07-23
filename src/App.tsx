@@ -6725,6 +6725,7 @@ const ERP_Dashboard = () => {
             mode={topDashboardMode}
             onUpdateCell={updateCell}
             onBatchUpdateCells={batchUpdateCells}
+            isAdmin={isAdmin}
           />
            <DeliveryDashboardModal
             isOpen={isDeliveryDashboardOpen}

@@ -32,6 +32,7 @@ interface DashboardDetailModalProps {
   mode: '구좌수' | '상품개수';
   onUpdateCell: (rowIdx: number, colIdx: number, newValue: string) => Promise<void> | void;
   onBatchUpdateCells: (updates: { rowIdx: number, colIdx: number, newValue: string }[]) => Promise<void> | void;
+  isAdmin: boolean;
 }
 
 export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
@@ -43,6 +44,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   mode,
   onUpdateCell,
   onBatchUpdateCells,
+  isAdmin,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -71,6 +73,13 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     setSearchQuery('');
     setViewAllMonths(false);
   }, [type, month, isOpen]);
+
+  // 관리자가 아닌데 등록모드가 켜져 있다면 방어 조치로 강제 리셋
+  React.useEffect(() => {
+    if (isRegisterMode && !isAdmin) {
+      setIsRegisterMode(false);
+    }
+  }, [isRegisterMode, isAdmin]);
 
   // 가입 상태인 계약건들
   const activeContracts = useMemo(() => {
@@ -582,8 +591,8 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                     />
                   </div>
                   
-                  {/* 취소/해약인 경우 등록하기 버튼 노출 */}
-                  {!isDelivery && (
+                  {/* 취소/해약인 경우 관리자(isAdmin)에게만 등록하기 버튼 노출 */}
+                  {!isDelivery && isAdmin && (
                     <button
                       onClick={() => setIsRegisterMode(true)}
                       className="flex items-center gap-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors shrink-0"
