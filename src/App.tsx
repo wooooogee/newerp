@@ -4158,36 +4158,59 @@ const ERP_Dashboard = () => {
 
         <main className="flex-1 p-6 overflow-auto bg-[#f8fafc]">
           <div className="flex flex-col gap-5 mb-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
-                관리대장 현황
-                {payDateFilter && (
-                  <span className="text-[12px] font-bold px-3 py-1 bg-blue-600 text-white rounded-full flex items-center gap-1.5 shadow-sm">
-                    <Calendar size={13} />
-                    {payDateFilter} 지급예정
-                  </span>
-                )}
-              </h2>
-              {isAdmin && (
-                <div className="flex items-center gap-2">
-                  {isSuperAdmin && (
-                    <button
-                      onClick={() => setIsPresidentReportModalOpen(true)}
-                      className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer mr-1"
-                    >
-                      <FileText size={14} />
-                      보고서 출력
-                    </button>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+                  관리대장 현황
+                  {payDateFilter && (
+                    <span className="text-[12px] font-bold px-3 py-1 bg-blue-600 text-white rounded-full flex items-center gap-1.5 shadow-sm">
+                      <Calendar size={13} />
+                      {payDateFilter} 지급예정
+                    </span>
                   )}
-                  <button
-                    onClick={handleOpenSettings}
-                    className="p-2 bg-slate-200 text-slate-600 rounded-full hover:bg-slate-300 transition-colors shadow-sm"
-                    title="정산 마스터 설정"
-                  >
-                    <Settings size={20} />
-                  </button>
+                </h2>
+              </div>
+              
+              <div className="flex-1 max-w-md md:ml-auto flex items-center gap-3 w-full">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                  <input
+                    type="text" 
+                    placeholder="상단 검색: 회원명, 상품명, 계약일 검색..." 
+                    value={searchTerm}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!searchTerm && val) {
+                        setTimeout(() => {
+                          document.getElementById('data-filter-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 100);
+                      }
+                      setSearchTerm(val);
+                    }}
+                    className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
+                  />
                 </div>
-              )}
+                {isAdmin && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => setIsPresidentReportModalOpen(true)}
+                        className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+                      >
+                        <FileText size={14} />
+                        <span className="hidden sm:inline">보고서 출력</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={handleOpenSettings}
+                      className="p-2 bg-slate-200 text-slate-600 rounded-full hover:bg-slate-300 transition-colors shadow-sm"
+                      title="정산 마스터 설정"
+                    >
+                      <Settings size={20} />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
                         {/* 구좌 현황 대시보드 (수수료 대시보드 위) */}
@@ -4683,7 +4706,7 @@ const ERP_Dashboard = () => {
                 </div>
               </div>
 
-              <div className="flex flex-col md:flex-row md:items-center gap-4">
+              <div id="data-filter-area" className="flex flex-col md:flex-row md:items-center gap-4">
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm">
                     <span className="text-[11px] font-bold text-slate-400">정렬</span>
