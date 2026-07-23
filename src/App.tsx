@@ -1650,9 +1650,9 @@ const ERP_Dashboard = () => {
     const result = data
       .filter(item => {
         const matchesSearch =
-          item.memName.includes(searchTerm) ||
-          item.contractDate.includes(searchTerm) ||
-          item.prodName.includes(searchTerm);
+          (item.memName || '').includes(searchTerm) ||
+          (item.memNo || '').includes(searchTerm) ||
+          (item.rentalNo || '').includes(searchTerm);
 
         const matchesProduct = productFilter.length === 0 || productFilter.includes(item.prodName);
         const matchesHq = hqFilter.length === 0 || hqFilter.includes(item.hq);
@@ -4182,7 +4182,7 @@ const ERP_Dashboard = () => {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                   <input
                     type="text" 
-                    placeholder="회원명, 상품명, 계약일 검색..." 
+                    placeholder="회원명, 회원번호, 렌탈번호 검색..." 
                     value={topSearchQuery}
                     onChange={(e) => setTopSearchQuery(e.target.value)}
                     onKeyDown={(e) => {
@@ -4766,7 +4766,7 @@ const ERP_Dashboard = () => {
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                     <input
-                      type="text" placeholder="회원명, 상품명, 계약일 검색..." value={searchTerm}
+                      type="text" placeholder="회원명, 회원번호, 렌탈번호 검색..." value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
                     />
