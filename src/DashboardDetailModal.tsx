@@ -390,10 +390,10 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             /* ========================================================
                [신규 취소 및 해약 일괄 등록 양식 폼 UI]
                ======================================================== */
-            <div className="p-6 overflow-y-auto flex-1 flex flex-col md:flex-row gap-6 bg-slate-50/50">
-              {/* 왼쪽: 가입 상태 회원 다중 검색부 */}
-              <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col min-h-[380px]">
-                <div className="flex justify-between items-center mb-3 border-b border-slate-100 pb-2">
+            <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-5 bg-slate-50/50">
+              {/* 제일 상단: 회원 검색창 (전체 너비) */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-3 border-b border-slate-100 pb-2">
                   <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
                     <Search size={16} className="text-rose-500" /> 대상 회원 검색 (다중선택)
                   </h3>
@@ -402,153 +402,163 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                   {searchedActiveContracts.length > 0 && (
                     <button
                       onClick={handleToggleSelectAllSearched}
-                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100/70 px-2.5 py-1 rounded-md transition-colors"
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100/70 px-2.5 py-1 rounded-md transition-colors self-start sm:self-auto"
                     >
                       {isAllSearchedSelected ? '검색결과 전체 해제' : '검색결과 전체 선택'}
                     </button>
                   )}
                 </div>
 
-                <div className="relative mb-3">
+                <div className="relative">
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder="회원명, 회원번호, 렌탈번호 검색 ('가입' 상태 대상)"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
+                    className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
                   />
-                </div>
-
-                <div className="flex-1 overflow-y-auto space-y-1.5 max-h-[320px] custom-scrollbar">
-                  {searchQuery.trim() === '' ? (
-                    <div className="text-xs text-slate-400 text-center py-12">
-                      회원명, 회원번호 또는 렌탈번호를 입력하여 검색해 주세요.
-                    </div>
-                  ) : searchedActiveContracts.length > 0 ? (
-                    searchedActiveContracts.map((item) => {
-                      const isSelected = selectedContracts.some(c => c.uniqueKey === item.uniqueKey);
-                      return (
-                        <div
-                          key={item.uniqueKey}
-                          onClick={() => toggleSelectContract(item)}
-                          className={`p-3 border rounded-lg cursor-pointer transition-all flex items-center gap-3 ${
-                            isSelected
-                              ? 'border-rose-500 bg-rose-50/20'
-                              : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
-                          }`}
-                        >
-                          {/* 체크박스 */}
-                          <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                            isSelected ? 'bg-rose-600 border-rose-600 text-white' : 'border-slate-300 bg-white'
-                          }`}>
-                            {isSelected && <Check size={10} strokeWidth={4} />}
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <div className="flex justify-between items-start mb-1">
-                              <span className="font-bold text-slate-800 text-xs">{item.memName}</span>
-                              <span className="text-[10px] font-semibold text-slate-400 shrink-0">계약일: {item.contractDate}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-500 space-y-0.5">
-                              <div>회원번호: <span className="font-medium text-slate-700">{item.memNo}</span></div>
-                              <div>렌탈번호: <span className="font-medium text-slate-700">{item.rentalNo || '-'}</span></div>
-                              <div className="truncate">상품명: <span className="font-medium text-slate-700">{item.prodName}</span></div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="text-xs text-slate-400 text-center py-12">
-                      일치하는 '가입' 상태의 계약 건이 없습니다.
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* 오른쪽: 취소 및 해약 일괄 처리 양식 */}
-              <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col">
-                <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-1.5 border-b border-slate-100 pb-2">
-                  <AlertCircle size={16} className="text-rose-500" /> 취소 및 해약 신청 양식
-                </h3>
-
-                {selectedContracts.length > 0 ? (
-                  <div className="flex-1 flex flex-col justify-between">
-                    <div className="space-y-4">
-                      {/* 선택된 회원 요약 리스트 */}
-                      <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                        <div className="flex justify-between items-center text-[11px] font-bold text-slate-500 mb-2">
-                          <span>선택 회원 정보 (총 {selectedContracts.length}명)</span>
-                          <button 
-                            onClick={() => setSelectedContracts([])}
-                            className="text-slate-400 hover:text-slate-600 text-[10px] font-normal underline"
+              {/* 하단 좌우 배치 영역 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                {/* 왼쪽: 검색 결과 리스트 */}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col min-h-[350px] max-h-[400px]">
+                  <h3 className="text-xs font-bold text-slate-500 mb-3 border-b border-slate-100 pb-2">
+                    검색 결과 목록
+                  </h3>
+                  
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
+                    {searchQuery.trim() === '' ? (
+                      <div className="text-xs text-slate-400 text-center py-12">
+                        상단 검색창에 회원명, 회원번호 또는 렌탈번호를 입력하여 검색해 주세요.
+                      </div>
+                    ) : searchedActiveContracts.length > 0 ? (
+                      searchedActiveContracts.map((item) => {
+                        const isSelected = selectedContracts.some(c => c.uniqueKey === item.uniqueKey);
+                        return (
+                          <div
+                            key={item.uniqueKey}
+                            onClick={() => toggleSelectContract(item)}
+                            className={`p-3 border rounded-lg cursor-pointer transition-all flex items-center gap-3 ${
+                              isSelected
+                                ? 'border-rose-500 bg-rose-50/20'
+                                : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+                            }`}
                           >
-                            전체 선택 해제
-                          </button>
-                        </div>
-                        
-                        {/* 칩 리스트 */}
-                        <div className="flex flex-wrap gap-1.5 max-h-[140px] overflow-y-auto pr-1 custom-scrollbar">
-                          {selectedContracts.map(c => (
-                            <div 
-                              key={c.uniqueKey}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-100 rounded text-[10px] font-medium"
-                            >
-                              <span>{c.memName}({c.memNo.substring(c.memNo.length - 6)})</span>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleSelectContract(c);
-                                }}
-                                className="text-rose-400 hover:text-rose-600 p-0.5"
-                              >
-                                <X size={10} />
-                              </button>
+                            {/* 체크박스 */}
+                            <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                              isSelected ? 'bg-rose-600 border-rose-600 text-white' : 'border-slate-300 bg-white'
+                            }`}>
+                              {isSelected && <Check size={10} strokeWidth={4} />}
                             </div>
-                          ))}
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-start mb-1">
+                                <span className="font-bold text-slate-800 text-xs">{item.memName}</span>
+                                <span className="text-[10px] font-semibold text-slate-400 shrink-0">계약일: {item.contractDate}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-500 space-y-0.5">
+                                <div>회원번호: <span className="font-medium text-slate-700">{item.memNo}</span></div>
+                                <div>렌탈번호: <span className="font-medium text-slate-700">{item.rentalNo || '-'}</span></div>
+                                <div className="truncate">상품명: <span className="font-medium text-slate-700">{item.prodName}</span></div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="text-xs text-slate-400 text-center py-12">
+                        일치하는 '가입' 상태의 계약 건이 없습니다.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 오른쪽: 취소 및 해약 일괄 처리 양식 */}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col min-h-[350px] max-h-[400px]">
+                  <h3 className="text-xs font-bold text-slate-500 mb-3 border-b border-slate-100 pb-2">
+                    취소 및 해약 신청 양식
+                  </h3>
+
+                  {selectedContracts.length > 0 ? (
+                    <div className="flex-1 flex flex-col justify-between min-h-[280px]">
+                      <div className="space-y-4">
+                        {/* 선택된 회원 요약 리스트 */}
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                          <div className="flex justify-between items-center text-[11px] font-bold text-slate-500 mb-2">
+                            <span>선택 회원 정보 (총 {selectedContracts.length}명)</span>
+                            <button 
+                              onClick={() => setSelectedContracts([])}
+                              className="text-slate-400 hover:text-slate-600 text-[10px] font-normal underline"
+                            >
+                              전체 선택 해제
+                            </button>
+                          </div>
+                          
+                          {/* 칩 리스트 */}
+                          <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto pr-1 custom-scrollbar">
+                            {selectedContracts.map(c => (
+                              <div
+                                key={c.uniqueKey}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-100 rounded text-[10px] font-medium"
+                              >
+                                <span>{c.memName}({c.memNo.substring(c.memNo.length - 6)})</span>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleSelectContract(c);
+                                  }}
+                                  className="text-rose-400 hover:text-rose-600 p-0.5"
+                                >
+                                  <X size={10} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 입력 폼 */}
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-500 mb-1">변경할 계약상태</label>
+                            <select
+                              value={newStatus}
+                              onChange={(e) => setNewStatus(e.target.value)}
+                              className="w-full p-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none bg-white font-medium"
+                            >
+                              <option value="취소">취소</option>
+                              <option value="해약">해약</option>
+                            </select>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              * 상태를 변경하면 구글 스프레드시트의 '관리대장' 시트 B열 값이 일괄 변경됩니다.
+                            </p>
+                          </div>
                         </div>
                       </div>
 
-                      {/* 입력 폼 */}
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-[11px] font-bold text-slate-500 mb-1">변경할 계약상태</label>
-                          <select
-                            value={newStatus}
-                            onChange={(e) => setNewStatus(e.target.value)}
-                            className="w-full p-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none bg-white font-medium"
-                          >
-                            <option value="취소">취소</option>
-                            <option value="해약">해약</option>
-                          </select>
-                          <p className="text-[10px] text-slate-400 mt-1">
-                            * 상태를 변경하면 구글 스프레드시트의 '관리대장' 시트 B열 값이 일괄 변경됩니다.
-                          </p>
-                        </div>
+                      {/* 등록 액션 */}
+                      <div className="mt-4">
+                        <button
+                          onClick={handleSubmit}
+                          disabled={isSubmitting}
+                          className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white font-bold rounded-lg shadow-sm text-xs transition-colors flex items-center justify-center gap-1.5"
+                        >
+                          <Check size={14} />
+                          {isSubmitting ? '저장 중...' : `선택된 ${selectedContracts.length}명 일괄 등록 완료`}
+                        </button>
                       </div>
                     </div>
-
-                    {/* 등록 액션 */}
-                    <div className="mt-6">
-                      <button
-                        onClick={handleSubmit}
-                        disabled={isSubmitting}
-                        className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white font-bold rounded-lg shadow-sm text-xs transition-colors flex items-center justify-center gap-1.5"
-                      >
-                        <Check size={14} />
-                        {isSubmitting ? '저장 중...' : `선택된 ${selectedContracts.length}명 일괄 등록 완료`}
-                      </button>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center border-2 border-dashed border-slate-100 rounded-xl p-8 min-h-[250px]">
+                      <div className="text-center text-xs text-slate-400">
+                        상단 혹은 검색 결과 목록에서 취소 및 해약 처리할<br/>
+                        대상 회원을 선택해 주세요.
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex-1 flex items-center justify-center border-2 border-dashed border-slate-100 rounded-xl p-8">
-                    <div className="text-center text-xs text-slate-400">
-                      왼쪽에서 취소 및 해약 처리할 대상 회원을<br/>
-                      검색하여 한 명 이상 선택해 주세요.
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           ) : (
