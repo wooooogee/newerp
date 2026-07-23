@@ -4700,7 +4700,7 @@ const ERP_Dashboard = () => {
                   </div>
                 </div>
 
-                {isAdmin && (
+                {showCommissionInfo && (
                   <div className="flex items-center gap-3 min-w-max ml-4">
                     <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">지급상태</div>
                     <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
@@ -5800,7 +5800,7 @@ const ERP_Dashboard = () => {
 
                 </div>
 
-                {settingsTab === 'hq' ? (
+                {settingsTab === 'hq' && isSuperAdmin ? (
                   <div className="flex-1 overflow-hidden flex bg-white">
                     {/* Left Sidebar: HQ List */}
                   <div className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col">
@@ -6271,7 +6271,7 @@ const ERP_Dashboard = () => {
                     )}
                   </div>
                 </div>
-                ) : settingsTab === 'global_incentive' ? (
+                ) : settingsTab === 'global_incentive' && isSuperAdmin ? (
                   <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
                     <div className="max-w-5xl mx-auto space-y-6">
                       <div className="flex justify-between items-center mb-6">
@@ -6494,7 +6494,7 @@ const ERP_Dashboard = () => {
                       </div>
                     </div>
                   </div>
-                ) : settingsTab === 'member' ? (
+                ) : (settingsTab === 'member' || !isSuperAdmin) ? (
                   <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
                     <div className="max-w-5xl mx-auto space-y-6">
                       <div className="flex justify-between items-center mb-6">
