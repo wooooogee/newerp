@@ -453,6 +453,12 @@ const ERP_Dashboard = () => {
   const [isCertificateDispatchModalOpen, setIsCertificateDispatchModalOpen] = useState(false);
   const [isCertificateDispatchHistoryModalOpen, setIsCertificateDispatchHistoryModalOpen] = useState(false);
   const [isManualSettlementModalOpen, setIsManualSettlementModalOpen] = useState(false);
+  const [topSearchQuery, setTopSearchQuery] = useState('');
+
+  // searchTerm이 변경될 때 상단 검색어 동기화
+  useEffect(() => {
+    setTopSearchQuery(searchTerm);
+  }, [searchTerm]);
 
   // Custom Dialog State
   const [dialogState, setDialogState] = useState<{
@@ -4171,27 +4177,39 @@ const ERP_Dashboard = () => {
                 </h2>
               </div>
               
-              <div className="flex-1 max-w-md md:ml-auto flex items-center gap-3 w-full">
+              <div className="flex-1 max-w-lg md:ml-auto flex items-center gap-2 w-full">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                   <input
                     type="text" 
-                    placeholder="상단 검색: 회원명, 상품명, 계약일 검색..." 
-                    value={searchTerm}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (!searchTerm && val) {
+                    placeholder="회원명, 상품명, 계약일 검색..." 
+                    value={topSearchQuery}
+                    onChange={(e) => setTopSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        setSearchTerm(topSearchQuery);
                         setTimeout(() => {
                           document.getElementById('data-filter-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         }, 100);
                       }
-                      setSearchTerm(val);
                     }}
                     className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
                   />
                 </div>
+                <button
+                  onClick={() => {
+                    setSearchTerm(topSearchQuery);
+                    setTimeout(() => {
+                      document.getElementById('data-filter-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 100);
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[12px] font-bold shadow-sm hover:shadow-md transition-all shrink-0 flex items-center gap-1"
+                >
+                  <Search size={12} />
+                  검색
+                </button>
                 {isAdmin && (
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 ml-1">
                     {isSuperAdmin && (
                       <button
                         onClick={() => setIsPresidentReportModalOpen(true)}
