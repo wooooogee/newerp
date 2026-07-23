@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -459,6 +459,24 @@ const ERP_Dashboard = () => {
   useEffect(() => {
     setTopSearchQuery(searchTerm);
   }, [searchTerm]);
+
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 300) {
+        setShowScrollTop(true);
+      } else {
+        setShowScrollTop(false);
+      }
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Custom Dialog State
   const [dialogState, setDialogState] = useState<{
@@ -6768,6 +6786,15 @@ const ERP_Dashboard = () => {
             onBatchUpdateCells={batchUpdateCells}
             isAdmin={isAdmin}
           />
+          {showScrollTop && (
+            <button
+              onClick={scrollToTop}
+              className="fixed bottom-6 right-6 p-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-2xl hover:shadow-blue-500/20 transition-all duration-300 transform hover:-translate-y-1 z-[99] flex items-center justify-center border border-blue-500/20 group cursor-pointer animate-fade-in"
+              title="최상단으로 이동"
+            >
+              <ArrowUp size={18} className="group-hover:animate-bounce" />
+            </button>
+          )}
            <DeliveryDashboardModal
             isOpen={isDeliveryDashboardOpen}
             onClose={() => setIsDeliveryDashboardOpen(false)}
