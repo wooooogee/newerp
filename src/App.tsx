@@ -622,6 +622,7 @@ const ERP_Dashboard = () => {
   const [mHistorySearch, setMHistorySearch] = useState('');
   const [mHistoryPage, setMHistoryPage] = useState(1);
   const [mHistorySyncing, setMHistorySyncing] = useState(false);
+  const [mHistoryOnlyEligible, setMHistoryOnlyEligible] = useState(false);
 
   // 수동 수수료 정산 상태
   interface ManualProduct {
@@ -8064,6 +8065,13 @@ const ERP_Dashboard = () => {
                             !(item.memName || '').toLowerCase().includes(lowerSearch) &&
                             !(item.prodName || '').toLowerCase().includes(lowerSearch)) return false;
                       }
+
+                      if (mHistoryOnlyEligible) {
+                        const isTerminated = item.status.includes('해약') || item.status.includes('취소');
+                        const overdueCount = parseInt(item.raw[20]) || 0;
+                        if (isTerminated || overdueCount > 0) return false;
+                      }
+
                       return true;
                     });
 
@@ -8107,6 +8115,13 @@ const ERP_Dashboard = () => {
                             !(item.memName || '').toLowerCase().includes(lowerSearch) &&
                             !(item.prodName || '').toLowerCase().includes(lowerSearch)) return;
                       }
+
+                      if (mHistoryOnlyEligible) {
+                        const isTerminated = item.status.includes('해약') || item.status.includes('취소');
+                        const overdueCount = parseInt(item.raw[20]) || 0;
+                        if (isTerminated || overdueCount > 0) return;
+                      }
+
                       if (!maintenanceContracts.some(c => c.resNo === item.resNo)) {
                         maintenanceContracts.push(item as any);
                       }
@@ -8150,6 +8165,15 @@ const ERP_Dashboard = () => {
                                 className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 text-sm font-medium bg-slate-50"
                               />
                             </div>
+                            <label className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer select-none text-sm font-bold text-slate-700 hover:bg-slate-100 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={mHistoryOnlyEligible}
+                                onChange={e => { setMHistoryOnlyEligible(e.target.checked); setMHistoryPage(1); }}
+                                className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                              />
+                              <span>정상지급 대상만 보기</span>
+                            </label>
                           </div>
                           <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 whitespace-nowrap">
                             총 {maintenanceContracts.length}건
