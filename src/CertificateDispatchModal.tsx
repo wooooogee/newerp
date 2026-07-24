@@ -245,6 +245,11 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         const val = String(item.extracted.cert || '').trim();
         return val === '미발송';
       });
+    } else {
+      result = result.filter(item => {
+        const val = String(item.extracted.cert || '').trim();
+        return val !== '미발송';
+      });
     }
 
     if (filterWorkAddressPost) {
