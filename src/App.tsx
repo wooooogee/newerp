@@ -625,6 +625,7 @@ const ERP_Dashboard = () => {
   const [mHistorySyncing, setMHistorySyncing] = useState(false);
   const [mHistoryOnlyEligible, setMHistoryOnlyEligible] = useState(false);
   const [hideEmptyProductsHqs, setHideEmptyProductsHqs] = useState(false);
+  const [hideInactiveHqs, setHideInactiveHqs] = useState(true);
 
   // 수동 수수료 정산 상태
   interface ManualProduct {
@@ -5912,10 +5913,19 @@ const ERP_Dashboard = () => {
                         <div className="flex items-center gap-2">
                           <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">본부 목록</p>
                           <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full">
-                            총 {hqSettings.filter(s => !hideEmptyProductsHqs || s.productRules.length > 0).length}개
+                            총 {hqSettings.filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false)).length}개
                           </span>
                         </div>
                         <div className="flex items-center gap-4">
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={hideInactiveHqs}
+                              onChange={e => setHideInactiveHqs(e.target.checked)}
+                              className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <span className="text-[11px] font-bold text-slate-600 hover:text-slate-800 transition-colors">미운영 숨기기</span>
+                          </label>
                           <label className="flex items-center gap-1.5 cursor-pointer select-none">
                             <input
                               type="checkbox"
@@ -5953,7 +5963,7 @@ const ERP_Dashboard = () => {
                       {/* Flex Wrap List of Headquarters */}
                       <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
                         {hqSettings
-                          .filter(s => !hideEmptyProductsHqs || s.productRules.length > 0)
+                          .filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false))
                           .map((s) => {
                             const isActive = activeHqId === s.id;
                             const isBusiness = s.settlementType === '사업자';
@@ -5989,91 +5999,83 @@ const ERP_Dashboard = () => {
                         const s = hqSettings.find(h => h.id === activeHqId);
                         if (!s) return <div className="flex-1 flex items-center justify-center text-slate-400">본부를 선택해 주세요.</div>;
                         return (
-                          <div className="flex-1 flex flex-col overflow-hidden">
-                            {/* HQ Header & Bank Info */}
-                            <div className="p-8 border-b border-slate-100 bg-slate-50/50">
-                              <div className="flex justify-between items-start mb-6">
-                                <div>
-                                  <h4 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+                          <div className="flex-1 overflow-y-auto">
+                            {/* HQ Header & Bank Info (Compact Layout) */}
+                            <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+                              <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                  <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
                                     {s.hqName}
-                                    <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-600 rounded uppercase tracking-tighter">정산 마스터</span>
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded uppercase tracking-tighter">정산 마스터</span>
                                   </h4>
-                                  <p className="text-xs text-slate-400 mt-1">ID: {s.id} | 거래처별 맞춤 정산 규칙을 설정합니다.</p>
+                                  <p className="text-[11px] text-slate-400">ID: {s.id}</p>
                                 </div>
-                                <button
-                                  onClick={() => {
-                                    if (confirm(`${s.hqName} 설정을 삭제하시겠습니까?`)) {
-                                      setHqSettings(hqSettings.filter(h => h.id !== s.id));
-                                      setActiveHqId(null);
-                                    }
-                                  }}
-                                  className="px-3 py-1.5 text-rose-500 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all border border-rose-100"
-                                >
-                                  본부 삭제
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <label className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg cursor-pointer text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={s.isActive !== false}
+                                      onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, isActive: e.target.checked } : h))}
+                                      className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    />
+                                    <span>운영 중</span>
+                                  </label>
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`${s.hqName} 설정을 삭제하시겠습니까?`)) {
+                                        setHqSettings(hqSettings.filter(h => h.id !== s.id));
+                                        setActiveHqId(null);
+                                      }
+                                    }}
+                                    className="px-2.5 py-1.5 text-rose-500 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all border border-rose-100"
+                                  >
+                                    본부 삭제
+                                  </button>
+                                </div>
                               </div>
 
-                              <div className="grid grid-cols-3 gap-6">
-                                <div className="flex flex-col gap-1.5">
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">입금은행</label>
+                              {/* 계좌 및 정산 정보 인라인 배치 */}
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-white p-3 border border-slate-200/60 rounded-xl">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0">입금은행</span>
                                   <input
                                     type="text" value={s.bankName}
                                     onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, bankName: e.target.value } : h))}
-                                    className="p-3 bg-white border border-slate-200 rounded-xl text-[13px] font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                                    className="p-1.5 px-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-blue-100 outline-none w-24"
                                   />
                                 </div>
-                                <div className="flex flex-col gap-1.5">
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">계좌번호</label>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0">계좌번호</span>
                                   <input
                                     type="text" value={s.accountNumber}
                                     onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, accountNumber: e.target.value } : h))}
-                                    className="p-3 bg-white border border-slate-200 rounded-xl text-[13px] font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                                    className="p-1.5 px-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-blue-100 outline-none w-44"
                                   />
                                 </div>
-                                <div className="flex flex-col gap-1.5">
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">수취인성명</label>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0">수취인성명</span>
                                   <input
                                     type="text" value={s.accountHolder}
                                     onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, accountHolder: e.target.value } : h))}
-                                    className="p-3 bg-white border border-slate-200 rounded-xl text-[13px] font-bold focus:ring-2 focus:ring-blue-100 outline-none"
+                                    className="p-1.5 px-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-blue-100 outline-none w-24"
                                   />
                                 </div>
-                              </div>
-                              <div className="mt-4 p-4 bg-white border border-slate-100 rounded-xl flex items-center justify-between">
-                                <div className="flex flex-col gap-1">
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
-                                    정산 유형 설정
-                                  </label>
-                                  <p className="text-[11px] text-slate-400">사업자 유무에 따른 세무 신고 기준을 선택하세요.</p>
-                                </div>
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, settlementType: '사업자' } : h))}
-                                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all flex flex-col items-center gap-1 border ${s.settlementType === '사업자'
-                                      ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-100'
-                                      : 'bg-white text-slate-400 border-slate-100 hover:border-slate-200'
-                                      }`}
+                                <div className="flex items-center gap-2 border-l border-slate-200 pl-4 ml-2">
+                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0">정산유형</span>
+                                  <select
+                                    value={s.settlementType || '사업자'}
+                                    onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, settlementType: e.target.value as any } : h))}
+                                    className="p-1.5 px-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer"
                                   >
-                                    사업자대리점
-                                    <span className={`text-[9px] font-medium ${s.settlementType === '사업자' ? 'text-blue-100' : 'text-slate-300'}`}>세금계산서 발행</span>
-                                  </button>
-                                  <button
-                                    onClick={() => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, settlementType: '개인' } : h))}
-                                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all flex flex-col items-center gap-1 border ${s.settlementType === '개인'
-                                      ? 'bg-purple-600 text-white border-purple-600 shadow-lg shadow-purple-100'
-                                      : 'bg-white text-slate-400 border-slate-100 hover:border-slate-200'
-                                      }`}
-                                  >
-                                    개인/프리랜서
-                                    <span className={`text-[9px] font-medium ${s.settlementType === '개인' ? 'text-purple-100' : 'text-slate-300'}`}>원천세 3.3% 공제</span>
-                                  </button>
+                                    <option value="사업자">🏢 사업자대리점 (계산서 발행)</option>
+                                    <option value="개인">👤 개인/프리랜서 (3.3% 공제)</option>
+                                  </select>
                                 </div>
                               </div>
                             </div>
 
-                            {/* Product Rules Unified Table */}
-                            <div className="flex-1 overflow-auto p-8">
+                            {/* Product Rules Unified Table (Scrolling together with parent) */}
+                            <div className="p-5">
                               <div className="flex justify-between items-center mb-4">
                                 <h5 className="text-sm font-black text-slate-800 flex items-center gap-2">
                                   <Package size={16} className="text-blue-500" />
