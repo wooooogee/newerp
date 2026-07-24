@@ -577,15 +577,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [saving, setSaving] = useState(false);
 
   const handleSaveDispatch = async () => {
-    // 체크박스로 선택된 데이터만 필터링
-    const targetData = processedData.filter(item => selectedIds.has(item.id));
+    // 체크박스로 선택된 데이터 중 "우편" 발송 건만 필터링하여 저장
+    const targetData = processedData.filter(item => 
+      selectedIds.has(item.id) && String(item.extracted.workAddress || '').trim() === '우편'
+    );
 
     if (targetData.length === 0) {
-      await (window as any).customAlert('선택된 발송 대상이 없습니다. 목록 좌측의 체크박스를 선택해 주세요.', '알림');
+      await (window as any).customAlert('선택된 우편 발송 대상이 없습니다. 수령지가 우편인 대상을 선택해 주세요.', '알림');
       return;
     }
 
-    if (!await (window as any).customConfirm(`현재 선택된 ${targetData.length}건의 데이터를 구글 시트 '증서발송리스트'에 저장하시겠습니까?`, '증서 발송 저장')) {
+    if (!await (window as any).customConfirm(`현재 선택된 우편 발송 대상 ${targetData.length}건의 데이터를 구글 시트 '증서발송리스트'에 우편발송 저장하시겠습니까?`, '우편 발송 저장')) {
       return;
     }
 
@@ -594,8 +596,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       const todayStr = new Date().toISOString().slice(0, 10);
       const rows = targetData.map(item => {
         const ext = item.extracted;
-        const isPost = String(ext.workAddress || '').trim() === '우편';
-        const type = isPost ? '우편' : '알림톡';
+        const type = '우편'; // 항상 우편 발송 건만 필터링하여 저장하므로 고정
 
         return [
           todayStr,
@@ -741,7 +742,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                   className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-[13px] font-bold transition-colors border border-blue-200"
                 >
                   <Save size={16} />
-                  {saving ? '저장 중...' : '발송저장'}
+                  {saving ? '저장 중...' : '우편발송저장'}
                 </button>
                 <button
                   onClick={handleExportExcel}
