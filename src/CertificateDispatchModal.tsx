@@ -21,7 +21,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [isConsolidated, setIsConsolidated] = useState<boolean>(true);
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
-  const [filterCertNotSent, setFilterCertNotSent] = useState<boolean>(true);
+  const [certFilterType, setCertFilterType] = useState<'notSent' | 'sent' | 'all'>('notSent');
   const [filterWorkAddressPost, setFilterWorkAddressPost] = useState<boolean>(false);
   const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
 
@@ -240,29 +240,31 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
     }
 
-    // 1. 증서 발송/미발송 필터링 (우편 건은 dispatchedHistoryNos 기준, 일반 건은 AX열 cert 값 '미발송' 여부 기준)
+    // 1. 증서 발송/미발송 필터링 (우편 체크박스 활성화 여부에 따라 이력 대조 하이브리드 분기)
     result = result.filter(item => {
       const cleanMemNo = String(item.extracted.memNo || '').trim().toUpperCase();
       const isPost = String(item.extracted.workAddress || '').trim() === '우편';
       const isSavedInHistory = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
       
       const certVal = String(item.extracted.cert || '').trim();
-      
-      if (isPost) {
-        // 우편 상태인 데이터의 미발송 여부는 구글시트 '증서발송리스트'에 저장(포함)되었는지 여부로 판단
-        if (filterCertNotSent) {
-          // "증서 미발송" 체크 시 -> 증서발송리스트에 포함되지 않은 우편 발송건만 통과
+
+      if (filterWorkAddressPost) {
+        // 우편 모드 상태인 경우 -> 구글시트 '증서발송리스트'에 저장(포함)되었는지 여부로 판단
+        if (certFilterType === 'notSent') {
           return !isSavedInHistory;
-        } else {
-          // "증서 미발송" 체크 해제 시 -> 증서발송리스트에 포함된 우편 발송건만 통과
+        } else if (certFilterType === 'sent') {
           return isSavedInHistory;
+        } else {
+          return true;
         }
       } else {
-        // 우편이 아닌 일반 상태인 데이터의 미발송 여부는 시트1 AX열(cert) 값이 '미발송'인지 여부로 판단
-        if (filterCertNotSent) {
+        // 일반 모드 상태인 경우 -> 시트1 AX열(cert) 값이 '미발송'인지 여부로 판단
+        if (certFilterType === 'notSent') {
           return certVal === '미발송';
-        } else {
+        } else if (certFilterType === 'sent') {
           return certVal !== '미발송';
+        } else {
+          return true;
         }
       }
     });
@@ -280,7 +282,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       const searchString = `${ext.memName} ${ext.memNo} ${ext.empName} ${ext.rentalNo}`.toLowerCase();
       return searchString.includes(term);
     });
-  }, [combinedData, selectedMonth, selectedProducts, filterFirstPayNotDate, filterCertNotSent, filterWorkAddressPost, searchTerm]);
+  }, [combinedData, selectedMonth, selectedProducts, filterFirstPayNotDate, certFilterType, filterWorkAddressPost, searchTerm]);
 
   const processedData = useMemo(() => {
     let result = filteredData;
@@ -334,7 +336,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   // 필터나 검색어가 바뀔 때 선택 초기화
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [searchTerm, selectedMonth, selectedProducts, isConsolidated, filterFirstPayNotDate, filterCertNotSent, filterWorkAddressPost]);
+  }, [searchTerm, selectedMonth, selectedProducts, isConsolidated, filterFirstPayNotDate, certFilterType, filterWorkAddressPost]);
 
   const handleToggleSelect = (id: number) => {
     setSelectedIds(prev => {
@@ -836,16 +838,16 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                     </label>
                   </div>
                   <div className="flex items-center gap-2 px-3">
-                    <input
-                      type="checkbox"
-                      id="cert-notsent-check"
-                      checked={filterCertNotSent}
-                      onChange={(e) => setFilterCertNotSent(e.target.checked)}
-                      className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                    />
-                    <label htmlFor="cert-notsent-check" className="text-[13px] font-medium text-slate-700 cursor-pointer select-none whitespace-nowrap">
-                      증서 미발송
-                    </label>
+                    <span className="text-[13px] font-medium text-slate-700 select-none whitespace-nowrap">증서 구분:</span>
+                    <select
+                      value={certFilterType}
+                      onChange={(e) => setCertFilterType(e.target.value as any)}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-[13px] font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-sm"
+                    >
+                      <option value="notSent">미발송</option>
+                      <option value="sent">발송완료</option>
+                      <option value="all">전체</option>
+                    </select>
                   </div>
                   <div className="flex items-center gap-2 px-3">
                     <input
@@ -911,7 +913,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                           {processedData.slice(0, 100).map((item, idx) => {
                             const ext = item.extracted;
                             const cleanMemNo = String(ext.memNo || '').trim().toUpperCase();
-                            const isDispatched = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
+                            const isPost = String(ext.workAddress || '').trim() === '우편';
+                            const isSavedInHistory = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
+                            const certVal = String(ext.cert || '').trim();
+
+                            // 우편인 건은 구글시트 발송이력에 있는 경우, 일반 건은 AX열(cert)에 발송처리가 기록된 경우 발송 완료로 판단 (공백 제외)
+                            const isDispatched = isPost ? isSavedInHistory : (certVal !== '미발송' && certVal !== '');
                             return (
                               <tr key={idx} className={`border-b border-slate-100 transition-colors ${
                                 isDispatched 
