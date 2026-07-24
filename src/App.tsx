@@ -8075,6 +8075,7 @@ const ERP_Dashboard = () => {
                       return true;
                     });
 
+
                     // 강제 추가한 이지안 고객 2구좌 수동 주입
                     const forcedContracts = [
                       {
@@ -8242,7 +8243,7 @@ const ERP_Dashboard = () => {
                                     }
 
                                     return (
-                                      <tr key={item.resNo} className="hover:bg-slate-50/50 transition-colors text-xs">
+                                      <tr key={item.uniqueKey || item.resNo} className="hover:bg-slate-50/50 transition-colors text-xs">
                                         <td className="py-3 px-4 font-medium text-slate-600">{item.contractDate || '-'}</td>
                                         <td className="py-3 px-4 font-bold text-slate-800">{item.hq || '-'}</td>
                                         <td className="py-3 px-4 font-medium text-slate-700">{item.empName || '-'}</td>
