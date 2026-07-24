@@ -467,7 +467,8 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       '본부ID', '본부명', '정산유형', '은행', '계좌번호', '예금주', '지급방식', '오버라이딩활성', 
       '비율(영업)', '비율(팀장)', '비율(지사)', '비율(본부)', 
       '상품명', '전체수수료', '판매수수료', '판매촉진비', '오버라이딩적용', '구간1건', '구간1단가', '구간2건', '구간2단가', '구간3건', '구간3단가',
-      '상품영업', '상품팀장', '상품지사', '상품본부'
+      '상품영업', '상품팀장', '상품지사', '상품본부',
+      '상품유지수수료활성', '상품유지수수료룰'
     ];
 
     const rows: any[][] = [headers];
@@ -508,7 +509,9 @@ app.post('/api/sheets/settings/save', async (req, res) => {
             p.overriding?.salesperson ?? hq.overriding?.salesperson ?? 0,
             p.overriding?.teamLeader ?? hq.overriding?.teamLeader ?? 0,
             p.overriding?.branchManager ?? hq.overriding?.branchManager ?? 0,
-            p.overriding?.hqManager ?? hq.overriding?.hqManager ?? 0
+            p.overriding?.hqManager ?? hq.overriding?.hqManager ?? 0,
+            p.applyMaintenance === true ? 'Y' : 'N',
+            JSON.stringify(p.maintenanceRules || [])
           ]);
         });
       } else {
@@ -516,7 +519,8 @@ app.post('/api/sheets/settings/save', async (req, res) => {
         rows.push([
           ...baseInfo,
           '-', 0, 0, 0, 'Y', 0, 0, 0, 0, 0, 0,
-          hq.overriding?.salesperson ?? 0, hq.overriding?.teamLeader ?? 0, hq.overriding?.branchManager ?? 0, hq.overriding?.hqManager ?? 0
+          hq.overriding?.salesperson ?? 0, hq.overriding?.teamLeader ?? 0, hq.overriding?.branchManager ?? 0, hq.overriding?.hqManager ?? 0,
+          'N', '[]'
         ]);
       }
     });
@@ -891,6 +895,8 @@ app.get('/api/sheets/settings/load', async (req, res) => {
     const prodTlCol = col('상품팀장');
     const prodBmCol = col('상품지사');
     const prodHmCol = col('상품본부');
+    const applyMaintenanceCol = col('상품유지수수료활성');
+    const maintenanceRulesCol = col('상품유지수수료룰');
 
     console.log(`[CloudSync] Header detected: id=${idCol}, settlementType=${settlementTypeCol}, bank=${bankCol}`);
 
@@ -922,6 +928,15 @@ app.get('/api/sheets/settings/load', async (req, res) => {
 
       const productName = productNameCol >= 0 ? row[productNameCol] : undefined;
       if (productName && productName !== '-') {
+        let pMaintRules = [];
+        if (maintenanceRulesCol >= 0 && row[maintenanceRulesCol]) {
+          try {
+            pMaintRules = JSON.parse(row[maintenanceRulesCol]);
+          } catch (e) {
+            console.error("Parse maintenanceRules error:", e);
+          }
+        }
+
         hqMap.get(id).productRules.push({
           productName,
           totalAmount: totalAmountCol >= 0 ? (Number(row[totalAmountCol]) || 0) : 0,
@@ -938,7 +953,9 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             teamLeader: Number(row[prodTlCol]) || 0,
             branchManager: Number(row[prodBmCol]) || 0,
             hqManager: Number(row[prodHmCol]) || 0
-          } : undefined
+          } : undefined,
+          applyMaintenance: applyMaintenanceCol >= 0 ? row[applyMaintenanceCol] === 'Y' : false,
+          maintenanceRules: pMaintRules
         });
       }
     });
