@@ -617,6 +617,7 @@ const ERP_Dashboard = () => {
   };
 
   // 유지수수료 내역 및 관리 모달 상태
+  const [mHistoryHqFilter, setMHistoryHqFilter] = useState('전체');
   const [mHistoryProductFilter, setMHistoryProductFilter] = useState('전체');
   const [mHistoryMonthFilter, setMHistoryMonthFilter] = useState('전체');
   const [mHistorySearch, setMHistorySearch] = useState('');
@@ -8003,6 +8004,7 @@ const ERP_Dashboard = () => {
                 <div className="flex-1 overflow-y-auto p-6 bg-[#f8fafc] flex flex-col gap-4">
                   {(() => {
                     const uniqueContractMonths = Array.from(new Set<string>(data.map(d => (d.contractDate || d.hcRegDate || '').substring(0, 7)).filter(d => d && d.length >= 7))).sort().reverse();
+                    const uniqueHqs = Array.from(new Set<string>(data.map(d => d.hq).filter(Boolean))).sort();
                     
                     const getMaintenanceConfig = (item: any) => {
                       if (item.resNo && item.resNo.startsWith('MAX-LEE-FORCED')) {
@@ -8055,6 +8057,7 @@ const ERP_Dashboard = () => {
                       const config = getMaintenanceConfig(item);
                       if (!config.hasRule) return false;
 
+                      if (mHistoryHqFilter !== '전체' && item.hq !== mHistoryHqFilter) return false;
                       if (mHistoryProductFilter !== '전체' && item.prodName !== mHistoryProductFilter) return false;
                       const itemMonth = (item.contractDate || item.hcRegDate || '').substring(0, 7);
                       if (mHistoryMonthFilter !== '전체' && itemMonth !== mHistoryMonthFilter) return false;
@@ -8105,6 +8108,7 @@ const ERP_Dashboard = () => {
                     ];
 
                     forcedContracts.forEach(item => {
+                      if (mHistoryHqFilter !== '전체' && item.hq !== mHistoryHqFilter) return;
                       if (mHistoryProductFilter !== '전체' && item.prodName !== mHistoryProductFilter) return;
                       const itemMonth = (item.contractDate || '').substring(0, 7);
                       if (mHistoryMonthFilter !== '전체' && itemMonth !== mHistoryMonthFilter) return;
@@ -8136,6 +8140,16 @@ const ERP_Dashboard = () => {
                       <>
                         <div className="flex flex-col md:flex-row gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm shrink-0 items-center">
                           <div className="flex flex-1 gap-2 flex-wrap">
+                            <select
+                              value={mHistoryHqFilter}
+                              onChange={e => { setMHistoryHqFilter(e.target.value); setMHistoryPage(1); }}
+                              className="px-3 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 text-sm font-bold bg-slate-50"
+                            >
+                              <option value="전체">본부 전체</option>
+                              {uniqueHqs.map(hq => (
+                                <option key={hq} value={hq}>{hq}</option>
+                              ))}
+                            </select>
                             <select
                               value={mHistoryProductFilter}
                               onChange={e => { setMHistoryProductFilter(e.target.value); setMHistoryPage(1); }}
