@@ -5905,98 +5905,85 @@ const ERP_Dashboard = () => {
                 </div>
 
                 {settingsTab === 'hq' && isSuperAdmin ? (
-                  <div className="flex-1 overflow-hidden flex bg-white">
-                    {/* Left Sidebar: HQ List */}
-                  <div className="w-64 bg-slate-50 border-r border-slate-200 flex flex-col">
-                    <div className="p-4 border-b border-slate-200 bg-white flex items-center justify-between">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">본부 목록</p>
-                      <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={hideEmptyProductsHqs}
-                          onChange={e => setHideEmptyProductsHqs(e.target.checked)}
-                          className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        />
-                        <span className="text-[10px] font-bold text-slate-500 hover:text-slate-700 transition-colors">상품 0개 제외</span>
-                      </label>
-                    </div>
-                    <div className="flex-1 overflow-auto p-3 space-y-2 bg-slate-50">
-                      {hqSettings
-                        .filter(s => !hideEmptyProductsHqs || s.productRules.length > 0)
-                        .map((s) => {
-                          const isActive = activeHqId === s.id;
-                          const isBusiness = s.settlementType === '사업자';
-                          return (
-                            <button
-                              key={s.id}
-                              onClick={() => setActiveHqId(s.id)}
-                              className={`w-full text-left p-3.5 rounded-xl transition-all border flex items-center justify-between group ${
-                                isActive
-                                  ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100'
-                                  : 'bg-white border-slate-200/70 text-slate-700 hover:border-blue-400 hover:bg-blue-50/10 hover:shadow-sm'
-                              }`}
-                            >
-                              <div className="flex flex-col gap-1 w-full min-w-0">
-                                <div className="flex items-center gap-1.5 justify-between">
-                                  <span className={`text-[13px] font-extrabold truncate ${isActive ? 'text-white' : 'text-slate-800'}`}>
-                                    {s.hqName}
-                                  </span>
-                                  <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-md ${
-                                    isActive 
-                                      ? 'bg-blue-500 text-white' 
-                                      : 'bg-slate-100 text-slate-500'
-                                  }`}>
-                                    {s.productRules.length}개 상품
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between mt-1">
-                                  <span className={`text-[10px] font-bold ${
-                                    isActive ? 'text-blue-200' : 'text-slate-400'
-                                  }`}>
-                                    {isBusiness ? '🏢 사업자대리점' : '👤 개인/프리랜서'}
-                                  </span>
-                                  <ChevronRight 
-                                    size={12} 
-                                    className={`transition-transform duration-200 ${
-                                      isActive 
-                                        ? 'opacity-100 translate-x-0' 
-                                        : 'opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 text-slate-400'
-                                    }`} 
-                                  />
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                    </div>
-                    <div className="p-4 border-t border-slate-200">
-                      <button
-                        onClick={() => {
-                          const name = prompt('새로운 본부/거래처명을 입력하세요');
-                          if (!name) return;
-                          const newId = `hq-${Date.now()}`;
-                          const newHq: HQSetting = {
-                            id: newId,
-                            hqName: name,
-                            bankName: '-', accountNumber: '-', accountHolder: '-',
-                            paymentMethod: '계좌이체',
-                            settlementType: '사업자',
-                            enableOverriding: false,
-                            overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
-                            productRules: []
-                          };
-                          setHqSettings([...hqSettings, newHq]);
-                          setActiveHqId(newId);
-                        }}
-                        className="w-full py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-black transition-all"
-                      >
-                        <Plus size={14} /> 본부 추가
-                      </button>
-                    </div>
-                  </div>
+                  <div className="flex-1 overflow-hidden flex flex-col bg-white">
+                    {/* Top HQ Selection Bar */}
+                    <div className="bg-slate-50 border-b border-slate-200 p-4 shrink-0 flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">본부 목록</p>
+                          <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full">
+                            총 {hqSettings.filter(s => !hideEmptyProductsHqs || s.productRules.length > 0).length}개
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={hideEmptyProductsHqs}
+                              onChange={e => setHideEmptyProductsHqs(e.target.checked)}
+                              className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <span className="text-[11px] font-bold text-slate-600 hover:text-slate-800 transition-colors">상품 0개 제외</span>
+                          </label>
+                          <button
+                            onClick={() => {
+                              const name = prompt('새로운 본부/거래처명을 입력하세요');
+                              if (!name) return;
+                              const newId = `hq-${Date.now()}`;
+                              const newHq: HQSetting = {
+                                id: newId,
+                                hqName: name,
+                                bankName: '-', accountNumber: '-', accountHolder: '-',
+                                paymentMethod: '계좌이체',
+                                settlementType: '사업자',
+                                enableOverriding: false,
+                                overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
+                                productRules: []
+                              };
+                              setHqSettings([...hqSettings, newHq]);
+                              setActiveHqId(newId);
+                            }}
+                            className="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-black transition-all"
+                          >
+                            <Plus size={12} /> 본부 추가
+                          </button>
+                        </div>
+                      </div>
 
-                  {/* Right Content: Details & Rules */}
-                  <div className="flex-1 flex flex-col overflow-hidden bg-white">
+                      {/* Flex Wrap List of Headquarters */}
+                      <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
+                        {hqSettings
+                          .filter(s => !hideEmptyProductsHqs || s.productRules.length > 0)
+                          .map((s) => {
+                            const isActive = activeHqId === s.id;
+                            const isBusiness = s.settlementType === '사업자';
+                            return (
+                              <button
+                                key={s.id}
+                                onClick={() => setActiveHqId(s.id)}
+                                className={`px-4 py-2 rounded-xl transition-all border flex items-center gap-2.5 text-left text-[12px] font-extrabold shadow-sm ${
+                                  isActive
+                                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100'
+                                    : 'bg-white border-slate-200/80 text-slate-700 hover:border-blue-400 hover:bg-blue-50/10'
+                                }`}
+                              >
+                                <span>{s.hqName}</span>
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                  isActive ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {s.productRules.length}개
+                                </span>
+                                <span className="text-[10px] opacity-75 shrink-0" title={isBusiness ? '사업자대리점' : '개인/프리랜서'}>
+                                  {isBusiness ? '🏢' : '👤'}
+                                </span>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+
+                    {/* Bottom Content: Details & Rules (Full Width) */}
+                    <div className="flex-1 flex flex-col overflow-hidden bg-white">
                     {activeHqId ? (
                       (() => {
                         const s = hqSettings.find(h => h.id === activeHqId);
