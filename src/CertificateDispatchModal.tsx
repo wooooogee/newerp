@@ -240,14 +240,32 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
     }
 
-    // 1. 증서 발송/미발송 필터링 (AX열 cert 값이 '미발송'인지 여부 기준)
-    if (filterCertNotSent) {
-      // "증서 미발송" 체크 상태 -> 시트1 AX열(cert)이 '미발송'인 데이터만 통과
-      result = result.filter(item => String(item.extracted.cert || '').trim() === '미발송');
-    } else {
-      // "증서 미발송" 체크 해제 상태(풀었을 때) -> 시트1 AX열(cert)이 '미발송'이 아닌(발송완료) 데이터만 통과
-      result = result.filter(item => String(item.extracted.cert || '').trim() !== '미발송');
-    }
+    // 1. 증서 발송/미발송 필터링 (우편 건은 dispatchedHistoryNos 기준, 일반 건은 AX열 cert 값 '미발송' 여부 기준)
+    result = result.filter(item => {
+      const cleanMemNo = String(item.extracted.memNo || '').trim().toUpperCase();
+      const isPost = String(item.extracted.workAddress || '').trim() === '우편';
+      const isSavedInHistory = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
+      
+      const certVal = String(item.extracted.cert || '').trim();
+      
+      if (isPost) {
+        // 우편 상태인 데이터의 미발송 여부는 구글시트 '증서발송리스트'에 저장(포함)되었는지 여부로 판단
+        if (filterCertNotSent) {
+          // "증서 미발송" 체크 시 -> 증서발송리스트에 포함되지 않은 우편 발송건만 통과
+          return !isSavedInHistory;
+        } else {
+          // "증서 미발송" 체크 해제 시 -> 증서발송리스트에 포함된 우편 발송건만 통과
+          return isSavedInHistory;
+        }
+      } else {
+        // 우편이 아닌 일반 상태인 데이터의 미발송 여부는 시트1 AX열(cert) 값이 '미발송'인지 여부로 판단
+        if (filterCertNotSent) {
+          return certVal === '미발송';
+        } else {
+          return certVal !== '미발송';
+        }
+      }
+    });
 
     // 2. 우편 발송 여부 필터링 (AV열 workAddress 값이 '우편'인지 여부 기준)
     if (filterWorkAddressPost) {
