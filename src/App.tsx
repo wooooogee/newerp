@@ -6049,10 +6049,10 @@ const ERP_Dashboard = () => {
                                   <input
                                     type="text" value={s.accountHolder}
                                     onChange={(e) => setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, accountHolder: e.target.value } : h))}
-                                    className="p-1.5 px-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-blue-100 outline-none w-24"
+                                    className="p-1.5 px-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-xs font-bold focus:ring-2 focus:ring-blue-100 outline-none w-36"
                                   />
                                 </div>
-                                <div className="flex items-center gap-2 border-l border-slate-200 pl-4 ml-2">
+                                <div className="flex items-center gap-2 border-l border-slate-200 pl-4 ml-auto">
                                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0">정산유형</span>
                                   <select
                                     value={s.settlementType || '사업자'}
