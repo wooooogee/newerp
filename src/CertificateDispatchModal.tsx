@@ -23,6 +23,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
   const [certFilterType, setCertFilterType] = useState<'notSent' | 'sent' | 'all'>('notSent');
   const [filterWorkAddressPost, setFilterWorkAddressPost] = useState<boolean>(false);
+  const [filterPostNotSent, setFilterPostNotSent] = useState<boolean>(false);
   const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
 
   // Fetch '사원리스트', '월불입금', '증서발송리스트' data when modal opens
@@ -240,39 +241,46 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
     }
 
-    // 1. 증서 발송/미발송 필터링 (우편 체크박스 활성화 여부에 따라 이력 대조 하이브리드 분기)
-    result = result.filter(item => {
-      const cleanMemNo = String(item.extracted.memNo || '').trim().toUpperCase();
-      const isPost = String(item.extracted.workAddress || '').trim() === '우편';
-      const isSavedInHistory = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
-      
-      const certVal = String(item.extracted.cert || '').trim();
+    // 1. "우편 미발송만" 필터 활성화 시 (최우선 강제 조건)
+    if (filterPostNotSent) {
+      result = result.filter(item => {
+        const cleanMemNo = String(item.extracted.memNo || '').trim().toUpperCase();
+        const isPost = String(item.extracted.workAddress || '').trim() === '우편';
+        const isSavedInHistory = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
+        return isPost && !isSavedInHistory;
+      });
+    } else {
+      // 2. 일반 / 우편 필터링 기본 체계 작동
+      result = result.filter(item => {
+        const cleanMemNo = String(item.extracted.memNo || '').trim().toUpperCase();
+        const isSavedInHistory = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
+        const certVal = String(item.extracted.cert || '').trim();
 
+        if (filterWorkAddressPost) {
+          // 우편 모드 상태인 경우 -> 구글시트 '증서발송리스트'에 저장(포함)되었는지 여부로 판단
+          if (certFilterType === 'notSent') {
+            return !isSavedInHistory;
+          } else if (certFilterType === 'sent') {
+            return isSavedInHistory;
+          } else {
+            return true;
+          }
+        } else {
+          // 일반 모드 상태인 경우 -> 시트1 AX열(cert) 값이 '미발송'인지 여부로 판단
+          if (certFilterType === 'notSent') {
+            return certVal === '미발송';
+          } else if (certFilterType === 'sent') {
+            return certVal !== '미발송';
+          } else {
+            return true;
+          }
+        }
+      });
+
+      // 우편 배송 조건 강제
       if (filterWorkAddressPost) {
-        // 우편 모드 상태인 경우 -> 구글시트 '증서발송리스트'에 저장(포함)되었는지 여부로 판단
-        if (certFilterType === 'notSent') {
-          return !isSavedInHistory;
-        } else if (certFilterType === 'sent') {
-          return isSavedInHistory;
-        } else {
-          return true;
-        }
-      } else {
-        // 일반 모드 상태인 경우 -> 시트1 AX열(cert) 값이 '미발송'인지 여부로 판단
-        if (certFilterType === 'notSent') {
-          return certVal === '미발송';
-        } else if (certFilterType === 'sent') {
-          return certVal !== '미발송';
-        } else {
-          return true;
-        }
+        result = result.filter(item => String(item.extracted.workAddress || '').trim() === '우편');
       }
-    });
-
-    // 2. 우편 발송 여부 필터링 (AV열 workAddress 값이 '우편'인지 여부 기준)
-    if (filterWorkAddressPost) {
-      // "우편" 체크 상태 -> 시트1 AV열(workAddress)이 '우편'인 데이터만 통과
-      result = result.filter(item => String(item.extracted.workAddress || '').trim() === '우편');
     }
 
     if (!searchTerm) return result;
@@ -282,7 +290,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       const searchString = `${ext.memName} ${ext.memNo} ${ext.empName} ${ext.rentalNo}`.toLowerCase();
       return searchString.includes(term);
     });
-  }, [combinedData, selectedMonth, selectedProducts, filterFirstPayNotDate, certFilterType, filterWorkAddressPost, searchTerm]);
+  }, [combinedData, selectedMonth, selectedProducts, filterFirstPayNotDate, certFilterType, filterWorkAddressPost, filterPostNotSent, searchTerm]);
 
   const processedData = useMemo(() => {
     let result = filteredData;
@@ -336,7 +344,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   // 필터나 검색어가 바뀔 때 선택 초기화
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [searchTerm, selectedMonth, selectedProducts, isConsolidated, filterFirstPayNotDate, certFilterType, filterWorkAddressPost]);
+  }, [searchTerm, selectedMonth, selectedProducts, isConsolidated, filterFirstPayNotDate, certFilterType, filterWorkAddressPost, filterPostNotSent]);
 
   const handleToggleSelect = (id: number) => {
     setSelectedIds(prev => {
@@ -849,7 +857,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       <option value="all">전체</option>
                     </select>
                   </div>
-                  <div className="flex items-center gap-2 px-3">
+                  <div className="flex items-center gap-2 px-3 border-l border-slate-200 pl-4">
                     <input
                       type="checkbox"
                       id="workaddress-post-check"
@@ -859,6 +867,18 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                     />
                     <label htmlFor="workaddress-post-check" className="text-[13px] font-medium text-slate-700 cursor-pointer select-none whitespace-nowrap">
                       우편
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 border-l border-slate-200 pl-4">
+                    <input
+                      type="checkbox"
+                      id="post-notsent-check"
+                      checked={filterPostNotSent}
+                      onChange={(e) => setFilterPostNotSent(e.target.checked)}
+                      className="w-4 h-4 text-rose-600 border-slate-300 rounded focus:ring-rose-500 cursor-pointer"
+                    />
+                    <label htmlFor="post-notsent-check" className="text-[13px] font-bold text-rose-600 cursor-pointer select-none whitespace-nowrap">
+                      우편 미발송만
                     </label>
                   </div>
                 </div>
