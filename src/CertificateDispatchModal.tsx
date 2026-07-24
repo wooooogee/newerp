@@ -240,17 +240,23 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
     }
 
-    if (filterCertNotSent) {
-      result = result.filter(item => {
-        const val = String(item.extracted.cert || '').trim();
-        return val === '미발송';
-      });
-    } else {
-      result = result.filter(item => {
-        const val = String(item.extracted.cert || '').trim();
-        return val !== '미발송';
-      });
-    }
+    // 증서 발송/미발송 필터링 (구글시트 '증서발송리스트' 저장 여부 기준 & 우편 발송 대상 조건 강제)
+    result = result.filter(item => {
+      const cleanMemNo = String(item.extracted.memNo || '').trim().toUpperCase();
+      const isPost = String(item.extracted.workAddress || '').trim() === '우편';
+      const isSavedInSheet = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
+
+      // 우편 발송 건만 대상
+      if (!isPost) return false;
+
+      if (filterCertNotSent) {
+        // "증서 미발송" 체크 시 -> 구글시트에 이미 우편발송저장 완료된 건만 출력
+        return isSavedInSheet;
+      } else {
+        // "증서 미발송" 체크 해제 시(풀었을 때) -> 구글시트에 아직 우편발송저장되지 않은 건만 출력
+        return !isSavedInSheet;
+      }
+    });
 
     if (filterWorkAddressPost) {
       result = result.filter(item => {
