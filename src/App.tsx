@@ -483,15 +483,19 @@ const ERP_Dashboard = () => {
   // Custom Dialog State
   const [dialogState, setDialogState] = useState<{
     isOpen: boolean;
-    type: 'alert' | 'confirm';
+    type: 'alert' | 'confirm' | 'prompt';
     title: string;
     message: string;
-    resolve: ((val: boolean) => void) | null;
+    defaultValue?: string;
+    placeholder?: string;
+    resolve: ((val: any) => void) | null;
   }>({
     isOpen: false,
     type: 'alert',
     title: '',
     message: '',
+    defaultValue: '',
+    placeholder: '',
     resolve: null
   });
 
@@ -540,6 +544,8 @@ const ERP_Dashboard = () => {
           type: 'confirm',
           title: title || '확인',
           message,
+          defaultValue: '',
+          placeholder: '',
           resolve
         });
       });
@@ -552,9 +558,23 @@ const ERP_Dashboard = () => {
           type: 'alert',
           title: title || '알림',
           message,
-          resolve: (val) => {
-            resolve(val);
-          }
+          defaultValue: '',
+          placeholder: '',
+          resolve
+        });
+      });
+    };
+
+    (window as any).customPrompt = (message: string, defaultValue?: string, title?: string, placeholder?: string): Promise<string | null> => {
+      return new Promise((resolve) => {
+        setDialogState({
+          isOpen: true,
+          type: 'prompt',
+          title: title || '입력',
+          message,
+          defaultValue: defaultValue || '',
+          placeholder: placeholder || '내용을 입력하세요...',
+          resolve
         });
       });
     };
@@ -3902,12 +3922,14 @@ const ERP_Dashboard = () => {
             type={dialogState.type}
             title={dialogState.title}
             message={dialogState.message}
-            onConfirm={() => {
-              if (dialogState.resolve) dialogState.resolve(true);
+            defaultValue={dialogState.defaultValue}
+            placeholder={dialogState.placeholder}
+            onConfirm={(val) => {
+              if (dialogState.resolve) dialogState.resolve(val !== undefined ? val : true);
               setDialogState(prev => ({ ...prev, isOpen: false }));
             }}
             onCancel={() => {
-              if (dialogState.resolve) dialogState.resolve(false);
+              if (dialogState.resolve) dialogState.resolve(dialogState.type === 'prompt' ? null : false);
               setDialogState(prev => ({ ...prev, isOpen: false }));
             }}
           />
@@ -5184,7 +5206,7 @@ const ERP_Dashboard = () => {
                                   onClick={async () => {
                                     const selectEl = document.getElementById(`editStatus-${m.originalRowIdx}`) as HTMLSelectElement;
                                     const val = selectEl.value;
-                                    if (window.confirm(`회원번호 ${m.memNo}의 상태를 '${val}'(으)로 변경하시겠습니까?`)) {
+                                    if (await (window as any).customConfirm(`회원번호 ${m.memNo}의 상태를 '${val}'(으)로 변경하시겠습니까?`)) {
                                       await updateCell(m.originalRowIdx, 1, val);
                                     }
                                   }}
@@ -5928,8 +5950,8 @@ const ERP_Dashboard = () => {
                             <span className="text-[11px] font-bold text-slate-600 hover:text-slate-800 transition-colors">상품 0개 제외</span>
                           </label>
                           <button
-                            onClick={() => {
-                              const name = prompt('새로운 본부/거래처명을 입력하세요');
+                            onClick={async () => {
+                              const name = await (window as any).customPrompt('새로운 본부/거래처명을 입력하세요');
                               if (!name) return;
                               const newId = `hq-${Date.now()}`;
                               const newHq: HQSetting = {
@@ -6013,8 +6035,8 @@ const ERP_Dashboard = () => {
                                     <span>운영 중</span>
                                   </label>
                                   <button
-                                    onClick={() => {
-                                      if (confirm(`${s.hqName} 설정을 삭제하시겠습니까?`)) {
+                                    onClick={async () => {
+                                      if (await (window as any).customConfirm(`${s.hqName} 설정을 삭제하시겠습니까?`)) {
                                         setHqSettings(hqSettings.filter(h => h.id !== s.id));
                                         setActiveHqId(null);
                                       }
@@ -6074,8 +6096,8 @@ const ERP_Dashboard = () => {
                                   상품별 수수료 및 구간 설정
                                 </h5>
                                 <button
-                                  onClick={() => {
-                                    const name = prompt('추가할 상품명을 입력하세요');
+                                  onClick={async () => {
+                                    const name = await (window as any).customPrompt('추가할 상품명을 입력하세요');
                                     if (!name) return;
                                     const newRule: ProductRule = {
                                       productName: name, totalAmount: 0, salesAmount: 0,
@@ -6961,12 +6983,14 @@ const ERP_Dashboard = () => {
             type={dialogState.type}
             title={dialogState.title}
             message={dialogState.message}
-            onConfirm={() => {
-              if (dialogState.resolve) dialogState.resolve(true);
+            defaultValue={dialogState.defaultValue}
+            placeholder={dialogState.placeholder}
+            onConfirm={(val) => {
+              if (dialogState.resolve) dialogState.resolve(val !== undefined ? val : true);
               setDialogState(prev => ({ ...prev, isOpen: false }));
             }}
             onCancel={() => {
-              if (dialogState.resolve) dialogState.resolve(false);
+              if (dialogState.resolve) dialogState.resolve(dialogState.type === 'prompt' ? null : false);
               setDialogState(prev => ({ ...prev, isOpen: false }));
             }}
           />
