@@ -1441,17 +1441,9 @@ const ERP_Dashboard = () => {
       else if (pRule.tier1Count > 0 && count >= pRule.tier1Count) unitPrice = pRule.tier1Price;
 
       // [FIXED SALES FEE LOGIC - USER REQUESTED]
-      const nProd = normalize(item.prodName);
-      if (nProd.includes('하이브리드698') || nProd.includes('라이즈498')) {
-        salesPart = 300000;
-      } else if (nProd.includes('통신결합540')) {
-        salesPart = 360000;
-      } else if (nProd.includes('통신결합360')) {
-        salesPart = 240000;
-      } else {
-        const ratio = pRule.totalAmount > 0 ? (pRule.salesAmount / pRule.totalAmount) : 1;
-        salesPart = unitPrice * ratio;
-      }
+      // 판매수수료는 항상 상품 설정상의 판매수수료(salesAmount)와 동일하게 유지하며,
+      // 단가 변동에 따른 차액은 하단의 promoFee(판매촉진비) 계산 시 자동 흡수 및 반영됩니다.
+      salesPart = pRule.salesAmount;
     }
 
     let totalCommission = unitPrice;
@@ -6102,21 +6094,21 @@ const ERP_Dashboard = () => {
                                 <table className="w-full text-[12px] border-collapse">
                                   <thead>
                                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black uppercase tracking-tighter">
-                                      <th className="px-4 py-3 text-left w-[20%]">상품명</th>
-                                      <th className="px-4 py-3 text-right">전체</th>
-                                      <th className="px-4 py-3 text-right">판매</th>
-                                      <th className="px-4 py-3 text-right text-orange-600">촉진</th>
-                                      <th className="px-4 py-3 text-center">오버라이딩</th>
-                                      <th className="px-4 py-3 text-center">유지수수료</th>
-                                      <th className="px-4 py-3 text-center border-l border-slate-100 bg-blue-50/30">구간별 수수료 설정 (건 / 단가)</th>
-                                      <th className="px-4 py-3 text-center">삭제</th>
+                                      <th className="px-4 py-3 text-left w-[24%]">상품명</th>
+                                      <th className="px-4 py-3 text-right w-[11%]">전체</th>
+                                      <th className="px-4 py-3 text-right w-[11%]">판매</th>
+                                      <th className="px-4 py-3 text-right text-orange-600 w-[11%]">촉진</th>
+                                      <th className="px-4 py-3 text-center w-[9%]">오버라이딩</th>
+                                      <th className="px-4 py-3 text-center w-[9%]">유지수수료</th>
+                                      <th className="px-4 py-3 text-center border-l border-slate-100 bg-blue-50/30 w-[21%]">구간별 수수료 설정 (건 / 단가)</th>
+                                      <th className="px-4 py-3 text-center w-[4%]">삭제</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100">
                                     {s.productRules.map((pr, pIdx) => (
                                       <React.Fragment key={pIdx}>
                                       <tr className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-4 py-3 font-bold text-slate-700">
+                                        <td className="px-4 py-3 font-bold text-slate-700 w-[24%] align-middle">
                                           <input
                                             type="text" value={pr.productName}
                                             onChange={(e) => {
@@ -6126,7 +6118,7 @@ const ERP_Dashboard = () => {
                                             className="w-full bg-transparent border-0 font-bold outline-none focus:text-blue-600"
                                           />
                                         </td>
-                                        <td className="px-4 py-3">
+                                        <td className="px-4 py-3 w-[11%] align-middle">
                                           <input
                                             type="number" value={pr.totalAmount}
                                             onChange={(e) => {
@@ -6136,7 +6128,7 @@ const ERP_Dashboard = () => {
                                             className="w-full bg-transparent border-0 text-right font-black outline-none"
                                           />
                                         </td>
-                                        <td className="px-4 py-3">
+                                        <td className="px-4 py-3 w-[11%] align-middle">
                                           <input
                                             type="number" value={pr.salesAmount}
                                             onChange={(e) => {
@@ -6146,19 +6138,19 @@ const ERP_Dashboard = () => {
                                             className="w-full bg-transparent border-0 text-right font-bold text-blue-600 outline-none"
                                           />
                                         </td>
-                                        <td className="px-4 py-3 text-right font-bold text-orange-500">
+                                        <td className="px-4 py-3 text-right font-bold text-orange-500 w-[11%] align-middle">
                                           {(pr.totalAmount - pr.salesAmount).toLocaleString()}
                                         </td>
-                                        <td className="px-4 py-3 text-center align-top">
-                                          <div className="flex flex-col items-center gap-2 mt-2">
+                                        <td className="px-4 py-3 text-center align-middle w-[9%]">
+                                          <div className="flex flex-col items-center justify-center">
                                             <input type="checkbox" checked={pr.applyOverriding === true} onChange={(e) => {
                                               const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, applyOverriding: e.target.checked } : r);
                                               setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                            }} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
+                                            }} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" />
                                           </div>
                                         </td>
-                                        <td className="px-4 py-3 text-center align-top">
-                                          <div className="flex flex-col items-center gap-2 mt-2">
+                                        <td className="px-4 py-3 text-center align-middle w-[9%]">
+                                          <div className="flex flex-col items-center justify-center">
                                             <input type="checkbox" checked={pr.applyMaintenance === true} onChange={(e) => {
                                               const updated = s.productRules.map((r, i) => {
                                                 if (i !== pIdx) return r;
@@ -6169,13 +6161,13 @@ const ERP_Dashboard = () => {
                                                 return newR;
                                               });
                                               setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                            }} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500" />
+                                            }} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer" />
                                           </div>
                                         </td>
-                                        <td className="px-2 py-3 border-l border-slate-100 bg-blue-50/10 align-top">
+                                        <td className="px-2 py-3 border-l border-slate-100 bg-blue-50/10 align-middle w-[21%]">
                                           <div className="flex flex-col gap-1.5">
                                             {[1, 2, 3].map(t => (
-                                              <div key={t} className="flex items-center gap-1 bg-white p-1 rounded border border-slate-100 shadow-sm">
+                                              <div key={t} className="flex items-center justify-center gap-1 bg-white p-1 rounded border border-slate-100 shadow-sm max-w-[150px] mx-auto">
                                                 <span className="text-[9px] font-black text-indigo-400 min-w-[12px]">{t}</span>
                                                 <input
                                                   type="number" value={(pr as any)[`tier${t}Count`]}
@@ -6183,7 +6175,7 @@ const ERP_Dashboard = () => {
                                                     const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Count`]: parseInt(e.target.value) || 0 } : r);
                                                     setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                                   }}
-                                                  className="w-8 text-[10px] text-center outline-none"
+                                                  className="w-8 text-[10px] text-center outline-none bg-slate-50/50 rounded"
                                                   placeholder="건"
                                                 />
                                                 <span className="text-[8px] text-slate-300">↑</span>
@@ -6193,14 +6185,14 @@ const ERP_Dashboard = () => {
                                                     const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: parseInt(e.target.value) || 0 } : r);
                                                     setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                                   }}
-                                                  className="w-14 text-[10px] text-right outline-none font-bold text-indigo-600"
+                                                  className="w-14 text-[10px] text-right outline-none font-bold text-indigo-600 bg-slate-50/50 rounded pr-1"
                                                   placeholder="단가"
                                                 />
                                               </div>
                                             ))}
                                           </div>
                                         </td>
-                                        <td className="px-4 py-3 text-center">
+                                        <td className="px-4 py-3 text-center w-[4%] align-middle">
                                           <button
                                             onClick={async () => {
                                               if (await (window as any).customConfirm('삭제하시겠습니까?')) {
