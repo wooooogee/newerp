@@ -5910,25 +5910,52 @@ const ERP_Dashboard = () => {
                     <div className="p-4 border-b border-slate-200 bg-white">
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">본부 목록</p>
                     </div>
-                    <div className="flex-1 overflow-auto p-2 space-y-1">
-                      {hqSettings.map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => setActiveHqId(s.id)}
-                          className={`w-full text-left px-4 py-3 rounded-xl transition-all flex items-center justify-between group ${activeHqId === s.id
-                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
-                            : 'text-slate-600 hover:bg-slate-200'
+                    <div className="flex-1 overflow-auto p-3 space-y-2 bg-slate-50">
+                      {hqSettings.map((s) => {
+                        const isActive = activeHqId === s.id;
+                        const isBusiness = s.settlementType === '사업자';
+                        return (
+                          <button
+                            key={s.id}
+                            onClick={() => setActiveHqId(s.id)}
+                            className={`w-full text-left p-3.5 rounded-xl transition-all border flex items-center justify-between group ${
+                              isActive
+                                ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100'
+                                : 'bg-white border-slate-200/70 text-slate-700 hover:border-blue-400 hover:bg-blue-50/10 hover:shadow-sm'
                             }`}
-                        >
-                          <div className="flex flex-col">
-                            <span className="text-[13px] font-bold truncate">{s.hqName}</span>
-                            <span className={`text-[10px] ${activeHqId === s.id ? 'text-blue-100' : 'text-slate-400'}`}>
-                              상품 {s.productRules.length}개
-                            </span>
-                          </div>
-                          <ChevronRight size={14} className={activeHqId === s.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} />
-                        </button>
-                      ))}
+                          >
+                            <div className="flex flex-col gap-1 w-full min-w-0">
+                              <div className="flex items-center gap-1.5 justify-between">
+                                <span className={`text-[13px] font-extrabold truncate ${isActive ? 'text-white' : 'text-slate-800'}`}>
+                                  {s.hqName}
+                                </span>
+                                <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-md ${
+                                  isActive 
+                                    ? 'bg-blue-500 text-white' 
+                                    : 'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {s.productRules.length}개 상품
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between mt-1">
+                                <span className={`text-[10px] font-bold ${
+                                  isActive ? 'text-blue-200' : 'text-slate-400'
+                                }`}>
+                                  {isBusiness ? '🏢 사업자대리점' : '👤 개인/프리랜서'}
+                                </span>
+                                <ChevronRight 
+                                  size={12} 
+                                  className={`transition-transform duration-200 ${
+                                    isActive 
+                                      ? 'opacity-100 translate-x-0' 
+                                      : 'opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 text-slate-400'
+                                  }`} 
+                                />
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                     <div className="p-4 border-t border-slate-200">
                       <button
