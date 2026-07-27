@@ -510,7 +510,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
             p.overriding?.teamLeader ?? hq.overriding?.teamLeader ?? 0,
             p.overriding?.branchManager ?? hq.overriding?.branchManager ?? 0,
             p.overriding?.hqManager ?? hq.overriding?.hqManager ?? 0,
-            p.applyMaintenance === true ? 'Y' : 'N',
+            (p.applyMaintenance === true || (p.applyMaintenance !== false && ((p.productName || '').includes('유지') || (p.maintenanceRules && p.maintenanceRules.length > 0)))) ? 'Y' : 'N',
             JSON.stringify(p.maintenanceRules || [])
           ]);
         });
@@ -954,7 +954,9 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             branchManager: Number(row[prodBmCol]) || 0,
             hqManager: Number(row[prodHmCol]) || 0
           } : undefined,
-          applyMaintenance: applyMaintenanceCol >= 0 ? row[applyMaintenanceCol] === 'Y' : false,
+          applyMaintenance: applyMaintenanceCol >= 0 
+            ? (row[applyMaintenanceCol] === 'Y' || (row[applyMaintenanceCol] !== 'N' && (productName.includes('유지') || pMaintRules.length > 0)))
+            : (productName.includes('유지') || pMaintRules.length > 0),
           maintenanceRules: pMaintRules
         });
       }

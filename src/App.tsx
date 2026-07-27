@@ -13,6 +13,7 @@ import { CustomDialog } from './CustomDialog';
 import { PresidentReportModal } from './PresidentReportModal';
 import { BranchNoteModal } from './BranchNoteModal';
 import { IndividualSalesMobileView } from './IndividualSalesMobileView';
+import { AdvancedSearchModal } from './AdvancedSearchModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -638,6 +639,9 @@ const ERP_Dashboard = () => {
     }
   };
 
+  // 조건별 통합 검색 모달 상태
+  const [isAdvancedSearchModalOpen, setIsAdvancedSearchModalOpen] = useState(false);
+
   // 유지수수료 내역 및 관리 모달 상태
   const [mHistoryHqFilter, setMHistoryHqFilter] = useState('전체');
   const [mHistoryProductFilter, setMHistoryProductFilter] = useState('전체');
@@ -739,7 +743,20 @@ const ERP_Dashboard = () => {
   // 정산 설정 상태 (본부별) - v2 키 사용으로 강제 리셋 (최신 데이터 반영)
   const [hqSettings, setHqSettings] = useState<HQSetting[]>(() => {
     const saved = localStorage.getItem('erp_hq_settings_v2');
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.map((hq: any) => ({
+          ...hq,
+          productRules: (hq.productRules || []).map((pr: any) => ({
+            ...pr,
+            applyMaintenance: pr.applyMaintenance === true || (pr.applyMaintenance !== false && ((pr.productName || '').includes('유지') || (pr.maintenanceRules && pr.maintenanceRules.length > 0)))
+          }))
+        }));
+      } catch (e) {
+        console.error(e);
+      }
+    }
 
     // 초기 데이터가 없는 경우 마스터 데이터로 시딩
     return MASTER_HQ_DATA.map((m, idx) => ({
@@ -881,7 +898,14 @@ const ERP_Dashboard = () => {
       const res = await fetch('/api/sheets/settings/load');
       const data = await res.json();
       if (data.settings) {
-        setHqSettings(data.settings);
+        const sanitizedSettings = data.settings.map((hq: any) => ({
+          ...hq,
+          productRules: (hq.productRules || []).map((pr: any) => ({
+            ...pr,
+            applyMaintenance: pr.applyMaintenance === true || (pr.applyMaintenance !== false && ((pr.productName || '').includes('유지') || (pr.maintenanceRules && pr.maintenanceRules.length > 0)))
+          }))
+        }));
+        setHqSettings(sanitizedSettings);
         if (data.globalIncentives && Array.isArray(data.globalIncentives)) {
           setGlobalIncentiveRules(data.globalIncentives);
         }
@@ -4577,8 +4601,8 @@ const ERP_Dashboard = () => {
                 </h2>
               </div>
               
-              <div className="flex-1 max-w-lg md:ml-auto flex items-center gap-2 w-full">
-                <div className="relative flex-1">
+              <div className="flex-1 max-w-4xl md:ml-auto flex items-center justify-end gap-1.5 w-full pr-2">
+                <div className="relative min-w-[200px] w-56 sm:w-64 shrink-0">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                   <input
                     type="text" 
@@ -4593,7 +4617,7 @@ const ERP_Dashboard = () => {
                         }, 100);
                       }
                     }}
-                    className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
+                    className="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
                   />
                 </div>
                 <button
@@ -4603,38 +4627,46 @@ const ERP_Dashboard = () => {
                       document.getElementById('data-filter-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }, 100);
                   }}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[12px] font-bold shadow-sm hover:shadow-md transition-all shrink-0 flex items-center gap-1"
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all shrink-0 flex items-center gap-1 cursor-pointer"
                 >
-                  <Search size={12} />
-                  검색
+                  <Search size={13} />
+                  <span>검색</span>
+                </button>
+                <button
+                  onClick={() => setIsAdvancedSearchModalOpen(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
+                  title="기간, 본부(다중선택), 조건별(가입/배송/취소해약) 상세 검색"
+                >
+                  <Filter size={13} className="text-blue-400" />
+                  <span className="hidden sm:inline">조건별 검색</span>
                 </button>
                 {isAdmin && (
-                  <div className="flex items-center gap-2 shrink-0 ml-1">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     {isSuperAdmin && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => setIsPresidentReportModalOpen(true)}
-                          className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+                          className="flex items-center gap-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
                         >
-                          <FileText size={14} />
+                          <FileText size={13} />
                           <span className="hidden sm:inline">보고서 출력</span>
                         </button>
                         <button
                           onClick={() => setIsBranchNoteModalOpen(true)}
-                          className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+                          className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
                           title="영업조직 특이사항 및 보고사항 관리"
                         >
-                          <Users size={14} />
+                          <Users size={13} />
                           <span className="hidden sm:inline">영업조직 관리</span>
                         </button>
                       </div>
                     )}
                     <button
                       onClick={handleOpenSettings}
-                      className="p-2 bg-slate-200 text-slate-600 rounded-full hover:bg-slate-300 transition-colors shadow-sm"
+                      className="p-1.5 bg-slate-200 text-slate-700 rounded-full hover:bg-slate-300 transition-colors shadow-sm shrink-0 cursor-pointer"
                       title="정산 마스터 설정"
                     >
-                      <Settings size={20} />
+                      <Settings size={18} />
                     </button>
                   </div>
                 )}
@@ -9176,6 +9208,12 @@ const ERP_Dashboard = () => {
           )}
         </AnimatePresence>
 
+        <AdvancedSearchModal
+          isOpen={isAdvancedSearchModalOpen}
+          onClose={() => setIsAdvancedSearchModalOpen(false)}
+          data={data}
+          allHqs={uniqueHqs.filter(h => h !== '전체')}
+        />
 </div>
     </div>
   );
