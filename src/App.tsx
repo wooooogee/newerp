@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -11,6 +11,7 @@ import { CertificateDispatchModal } from './CertificateDispatchModal';
 import { CertificateDispatchHistoryModal } from './CertificateDispatchHistoryModal';
 import { CustomDialog } from './CustomDialog';
 import { PresidentReportModal } from './PresidentReportModal';
+import { BranchNoteModal } from './BranchNoteModal';
 import { IndividualSalesMobileView } from './IndividualSalesMobileView';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
@@ -445,6 +446,7 @@ const ERP_Dashboard = () => {
   const [isDailyDashboardModalOpen, setIsDailyDashboardModalOpen] = useState(false);
   const [isMonthlyDashboardModalOpen, setIsMonthlyDashboardModalOpen] = useState(false);
   const [isPresidentReportModalOpen, setIsPresidentReportModalOpen] = useState(false);
+  const [isBranchNoteModalOpen, setIsBranchNoteModalOpen] = useState(false);
   const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
@@ -1555,6 +1557,313 @@ const ERP_Dashboard = () => {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
       }, 100);
+    }
+  };
+
+  // 숫자를 한글 읽기 금액 문장으로 변환 (예: 5476081 -> 오백사십칠만육천팔십일)
+  const numberToKoreanWon = (num: number): string => {
+    if (!num || isNaN(num)) return '영';
+    const units = ['', '만', '억', '조'];
+    const smallUnits = ['', '십', '백', '천'];
+    const digits = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+
+    let result = '';
+    let unitIdx = 0;
+
+    while (num > 0) {
+      const chunk = num % 10000;
+      if (chunk > 0) {
+        let chunkStr = '';
+        let temp = chunk;
+        for (let i = 0; i < 4; i++) {
+          const d = temp % 10;
+          if (d > 0) {
+            const digitStr = (d === 1 && i > 0) ? '' : digits[d];
+            chunkStr = digitStr + smallUnits[i] + chunkStr;
+          }
+          temp = Math.floor(temp / 10);
+        }
+        result = chunkStr + units[unitIdx] + result;
+      }
+      num = Math.floor(num / 10000);
+      unitIdx++;
+    }
+
+    return result;
+  };
+
+  // 지출 결의서 양식 인쇄 (전사통합정산보고서 미리보기 연동)
+  const handlePrintDisbursementVoucher = (summaries: any[], payDate: string) => {
+    if (!summaries || summaries.length === 0) {
+      setNotification({ message: '출력할 정산 내역이 없습니다.', type: 'warning' });
+      return;
+    }
+
+    const totalAmount = summaries.reduce((sum, s) => sum + (s.finalPayable || s.totalSum || 0), 0);
+    const koreanWonText = numberToKoreanWon(totalAmount);
+    const formattedNumber = totalAmount.toLocaleString();
+
+    let dateText = '';
+    if (payDate) {
+      const parts = payDate.replace(/\./g, '-').split('-');
+      if (parts.length >= 3) {
+        dateText = `${parts[0]}년 ${parseInt(parts[1], 10)}월 ${parseInt(parts[2], 10)}일`;
+      } else if (parts.length === 2) {
+        dateText = `${parts[0]}년 ${parseInt(parts[1], 10)}월 25일`;
+      }
+    }
+    if (!dateText) {
+      const today = new Date();
+      dateText = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+    }
+
+    const rowsData: { no: number; desc: string; amount: string }[] = [];
+    
+    summaries.forEach((s, idx) => {
+      let desc = s.hqName;
+      if (s.specialSum > 0 && s.items.length === 0) {
+        desc = `${s.hqName}`;
+      } else if (s.items.length > 0) {
+        const firstItem = s.items[0];
+        const prodText = firstItem.prodName || '';
+        const countText = s.items.length > 1 ? ` 외 ${s.items.length - 1}건` : '';
+        desc = `${s.hqName}(${prodText}${countText})`;
+      } else if (s.maintenanceSum > 0) {
+        desc = `${s.hqName}(유지수수료)`;
+      }
+
+      rowsData.push({
+        no: idx + 1,
+        desc,
+        amount: (s.finalPayable || s.totalSum || 0).toLocaleString()
+      });
+    });
+
+    const maxRows = 12;
+    const tableRowsHtml = Array.from({ length: maxRows }).map((_, i) => {
+      const row = rowsData[i];
+      return `
+        <tr style="height: 32px;">
+          <td style="text-align: center; border: 1px solid #000; padding: 4px; font-size: 12px; font-weight: 500;">${i + 1}</td>
+          <td style="border: 1px solid #000; padding: 4px 12px; font-size: 12px; font-weight: 500;">${row ? row.desc : ''}</td>
+          <td style="text-align: right; border: 1px solid #000; padding: 4px 12px; font-size: 12px; font-weight: 500; font-family: 'JetBrains Mono', monospace;">${row ? row.amount : ''}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>지출 결의서 인쇄</title>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 15mm 15mm 15mm 15mm;
+            }
+            * {
+              box-sizing: border-box;
+              margin: 0;
+              padding: 0;
+              font-family: "Malgun Gothic", "맑은 고딕", apple-system, sans-serif;
+            }
+            body {
+              background: #fff;
+              color: #000;
+              padding: 10px;
+              width: 100%;
+            }
+            .voucher-box {
+              width: 100%;
+              border: 2px solid #000;
+              padding: 18px;
+              background: #fff;
+            }
+            .header-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+            }
+            .title-cell {
+              vertical-align: middle;
+              text-align: center;
+            }
+            .title-text {
+              font-size: 34px;
+              font-weight: 900;
+              letter-spacing: 14px;
+              text-decoration: underline;
+              text-underline-offset: 8px;
+            }
+            .date-text {
+              font-size: 20px;
+              font-weight: bold;
+              margin-top: 20px;
+              letter-spacing: 3px;
+            }
+            .sign-table {
+              border-collapse: collapse;
+              margin-left: auto;
+            }
+            .sign-table td {
+              border: 1px solid #000;
+              text-align: center;
+              font-size: 12px;
+              font-weight: bold;
+            }
+            .sign-title {
+              width: 32px;
+              background: #fff;
+              padding: 4px 0;
+              line-height: 1.4;
+            }
+            .sign-header {
+              width: 75px;
+              height: 24px;
+              background: #fff;
+            }
+            .sign-body {
+              height: 48px;
+              background: #fff;
+            }
+            .amount-row {
+              border: 1px solid #000;
+              padding: 10px 14px;
+              font-size: 15px;
+              font-weight: bold;
+              margin-bottom: 12px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .detail-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 25px;
+            }
+            .detail-table th {
+              border: 1px solid #000;
+              padding: 8px 12px;
+              font-size: 13px;
+              font-weight: bold;
+              background: #fff;
+            }
+            .footer-section {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-end;
+              margin-top: 15px;
+              padding-top: 10px;
+            }
+            .company-logo {
+              font-size: 16px;
+              font-weight: 900;
+              color: #b45309;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+            }
+            .applicant-box {
+              font-size: 13px;
+              font-weight: bold;
+              text-align: right;
+              line-height: 1.8;
+            }
+            .doc-code {
+              font-size: 11px;
+              color: #333;
+              margin-top: 20px;
+              display: flex;
+              justify-content: space-between;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="voucher-box">
+            <table class="header-table">
+              <tr>
+                <td class="title-cell" style="width: 52%;">
+                  <div class="title-text">지출 결의서</div>
+                  <div class="date-text">${dateText}</div>
+                </td>
+                <td style="width: 48%; vertical-align: top;">
+                  <table class="sign-table">
+                    <tr>
+                      <td rowspan="2" class="sign-title">결<br>재</td>
+                      <td class="sign-header">담당</td>
+                      <td class="sign-header">부장</td>
+                      <td class="sign-header">대 표</td>
+                    </tr>
+                    <tr>
+                      <td class="sign-body"></td>
+                      <td class="sign-body"></td>
+                      <td class="sign-body"></td>
+                    </tr>
+                    <tr>
+                      <td rowspan="2" class="sign-title">합<br>의</td>
+                      <td class="sign-header">담당</td>
+                      <td class="sign-header"></td>
+                      <td class="sign-header"></td>
+                    </tr>
+                    <tr>
+                      <td class="sign-body"></td>
+                      <td class="sign-body"></td>
+                      <td class="sign-body"></td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+
+            <div class="amount-row">
+              <span>일금 ${koreanWonText}원정 (₩${formattedNumber})</span>
+            </div>
+
+            <table class="detail-table">
+              <thead>
+                <tr>
+                  <th style="width: 50px;">번호</th>
+                  <th>내 역</th>
+                  <th style="width: 150px; text-align: right;">금 액</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHtml}
+              </tbody>
+            </table>
+
+            <div class="footer-section">
+              <div class="company-logo">
+                <img src="/logo.png" style="height: 36px; width: auto; object-fit: contain;" alt="더좋은라이프" />
+              </div>
+              <div class="applicant-box">
+                <div>신청자 부서 : 더좋은라이프</div>
+                <div style="margin-top: 10px;">성명 : 김진욱</div>
+              </div>
+            </div>
+
+            <div class="doc-code">
+              <span>JOEUNLIFE.</span>
+              <span>지출결의서 / FM02</span>
+            </div>
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.focus();
+              window.print();
+              window.close();
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    const printWin = window.open('', '_blank', 'width=850,height=1000');
+    if (printWin) {
+      printWin.document.open();
+      printWin.document.write(html);
+      printWin.document.close();
     }
   };
 
@@ -4302,13 +4611,23 @@ const ERP_Dashboard = () => {
                 {isAdmin && (
                   <div className="flex items-center gap-2 shrink-0 ml-1">
                     {isSuperAdmin && (
-                      <button
-                        onClick={() => setIsPresidentReportModalOpen(true)}
-                        className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
-                      >
-                        <FileText size={14} />
-                        <span className="hidden sm:inline">보고서 출력</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setIsPresidentReportModalOpen(true)}
+                          className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+                        >
+                          <FileText size={14} />
+                          <span className="hidden sm:inline">보고서 출력</span>
+                        </button>
+                        <button
+                          onClick={() => setIsBranchNoteModalOpen(true)}
+                          className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+                          title="영업조직 특이사항 및 보고사항 관리"
+                        >
+                          <Users size={14} />
+                          <span className="hidden sm:inline">영업조직 관리</span>
+                        </button>
+                      </div>
                     )}
                     <button
                       onClick={handleOpenSettings}
@@ -7120,6 +7439,13 @@ const ERP_Dashboard = () => {
               data={data}
             />
           )}
+          {isBranchNoteModalOpen && (
+            <BranchNoteModal
+              isOpen={isBranchNoteModalOpen}
+              onClose={() => setIsBranchNoteModalOpen(false)}
+              hqs={uniqueHqs.filter(h => h !== '전체')}
+            />
+          )}
         </AnimatePresence>
         <AnimatePresence>
           {isMemoHistoryModalOpen && (
@@ -7428,6 +7754,56 @@ const ERP_Dashboard = () => {
                       className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
                     >
                       <Download size={14} /> 일괄 다운로드 (Excel)
+                    </button>
+                    <button 
+                      onClick={() => {
+                        const specialAdditions: Record<string, number> = {};
+                        Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
+                          if ((amt as number) > 0) specialAdditions[name] = amt as number;
+                        });
+                        const combinedHqs = Array.from(new Set([
+                          ...Object.keys(settlementStats.hqGroups), 
+                          ...Object.keys(specialAdditions),
+                          ...maintenancePayouts.map(m => m.hq)
+                        ]));
+                        const targets = previewTarget === 'ALL' ? combinedHqs : [previewTarget];
+                        const summaries = targets.map(hqName => {
+                          const items = settlementStats.hqGroups[hqName] || [];
+                          const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
+                          const maintenanceSum = hqMaintenancePayouts.reduce((sum, p) => sum + p.amount, 0);
+                          const specialSum = specialAdditions[hqName] || 0;
+                          if (items.length === 0 && maintenanceSum === 0 && specialSum === 0) return null;
+                          const setting = hqSettings.find(h => h.hqName === hqName);
+                          const stats = new Map<string, number>();
+                          filteredData.forEach(item => {
+                            if (item.status.includes('취소') || item.status.includes('해약')) return;
+                            const key = `${item.hq}|${item.prodName}`;
+                            stats.set(key, (stats.get(key) || 0) + 1);
+                          });
+                          let generalSum = 0;
+                          items.forEach(item => {
+                            const { totalCommission } = calculateCommissionDetails(item, stats);
+                            generalSum += totalCommission;
+                          });
+                          const totalSum = generalSum + maintenanceSum + specialSum;
+                          const finalPayable = setting?.settlementType?.includes('개인')
+                            ? (totalSum - Math.floor(totalSum * 0.033))
+                            : totalSum;
+                          return {
+                            hqName,
+                            finalPayable,
+                            totalSum,
+                            items,
+                            maintenanceSum,
+                            specialSum
+                          };
+                        }).filter(Boolean);
+                        handlePrintDisbursementVoucher(summaries, payDateFilter);
+                      }}
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                      title="지출결의서 양식 인쇄"
+                    >
+                      <Printer size={14} /> 출력
                     </button>
                     <button onClick={() => setPreviewTarget(null)} className="p-2 hover:bg-slate-700 rounded-full transition-colors"><X size={20} /></button>
                   </div>

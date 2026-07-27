@@ -11,3 +11,126 @@
   --color-status-red: #ef4444;
   --color-sidebar-bg: #ffffff;
 }
+
+@page {
+  size: A4 portrait;
+  margin: 12mm 15mm 12mm 15mm !important;
+}
+
+@media print {
+  /* 1. 최상위 뷰포트 및 메인 컨테이너 인쇄 해제 */
+  html, body, #root, #root > div, #print-modal-wrapper, #print-branch-report {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #print-branch-report, #print-branch-report * {
+    visibility: visible !important;
+  }
+
+  /* 2. 좌측 폼 숨김 */
+  #print-sidebar-form, #print-sidebar-form * {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+  }
+
+  /* 3. 모달 바디 & 우측 결과 영역 (5열 그리드 및 Flex 전면 해제 -> 일반 Block 100% 너비화) */
+  #print-branch-report .grid,
+  #print-branch-report .grid-cols-5,
+  #print-content-area {
+    display: block !important;
+    grid-template-columns: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    float: none !important;
+  }
+
+  #print-branch-report .flex-1,
+  #print-branch-report .overflow-hidden,
+  #print-branch-report .overflow-y-auto,
+  #print-branch-report .space-y-4 {
+    flex: none !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* 4. 본부별 보고서 카드 (100% 넓이 + Block + A4 경계 단위 이동) */
+  #print-branch-report .print-card-avoid {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin-bottom: 20px !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  /* 특이사항 & 보고사항 그리드 (2단 혹은 1단) */
+  #print-branch-report .grid-cols-2-print {
+    display: block !important;
+    width: 100% !important;
+  }
+  #print-branch-report .grid-cols-2-print > div {
+    display: block !important;
+    width: 100% !important;
+    margin-bottom: 10px !important;
+  }
+
+  /* 5. 결재라인 박스 (가로 3열 flex 복원) */
+  #approval-box {
+    display: flex !important;
+    flex-direction: row !important;
+    width: auto !important;
+    border: 2px solid #000000 !important;
+  }
+
+  #approval-box > div,
+  #approval-box .flex {
+    display: flex !important;
+    flex-direction: row !important;
+  }
+
+  #approval-box .flex-col {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  #approval-box * {
+    border-color: #000000 !important;
+  }
+
+  .print\:hidden {
+    display: none !important;
+  }
+}

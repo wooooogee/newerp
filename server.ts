@@ -1820,6 +1820,162 @@ app.post('/api/sheets/reconciliation/save', async (req, res) => {
   }
 });
 
+// === 영업조직 특이사항 및 보고사항 API ===
+app.get('/api/sheets/branch-notes', async (req, res) => {
+  const { date } = req.query;
+  if (!date || typeof date !== 'string') {
+    return res.status(400).json({ error: 'date 파라미터가 유효하지 않습니다.' });
+  }
+
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let noteSheet = sheetsList.find(s => s.properties?.title === '영업조직특이사항');
+
+    if (!noteSheet) {
+      return res.json({ notes: [] });
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '영업조직특이사항!A:D',
+    });
+
+    const rows = response.data.values || [];
+    const notes = [];
+    for (let i = 1; i < rows.length; i++) {
+      const [rDate, orgName, note, report] = rows[i];
+      if (rDate === date) {
+        notes.push({
+          orgName: orgName || '',
+          note: note || '',
+          report: report || ''
+        });
+      }
+    }
+
+    res.json({ notes });
+  } catch (error: any) {
+    console.error("[BranchNotes Get Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
+app.post('/api/sheets/branch-notes/save', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { date, notes } = req.body as { date: string; notes: { orgName: string; note: string; report: string }[] };
+  if (!date || !notes) {
+    return res.status(400).json({ error: '필수 파라미터가 누락되었습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let noteSheet = sheetsList.find(s => s.properties?.title === '영업조직특이사항');
+    let sheetInternalId: number | null | undefined = noteSheet?.properties?.sheetId;
+
+    if (!noteSheet) {
+      console.log("[CloudSync] Creating '영업조직특이사항' sheet...");
+      const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '영업조직특이사항' } } }]
+        }
+      });
+      sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+
+      const headers = [['날짜', '영업조직명', '특이사항', '보고사항']];
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '영업조직특이사항!A1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: headers }
+      });
+
+      if (sheetInternalId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+    }
+
+    const getRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '영업조직특이사항!A:D',
+    });
+
+    const existingRows = getRes.data.values || [];
+    const headers = existingRows[0] || ['날짜', '영업조직명', '특이사항', '보고사항'];
+
+    const newRows = [headers];
+    for (let i = 1; i < existingRows.length; i++) {
+      if (existingRows[i][0] !== date) {
+        newRows.push(existingRows[i]);
+      }
+    }
+
+    for (const n of notes) {
+      if (n.orgName && n.orgName.trim()) {
+        newRows.push([date, n.orgName, n.note || '', n.report || '']);
+      }
+    }
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: sheetId,
+      range: '영업조직특이사항!A:D',
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: '영업조직특이사항!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: newRows }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[BranchNotes Save Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
 // Vite Middleware
 async function start() {
   try {
