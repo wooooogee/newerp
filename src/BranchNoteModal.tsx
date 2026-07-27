@@ -41,10 +41,7 @@ export function BranchNoteModal({ isOpen, onClose, hqs }: BranchNoteModalProps) 
   const [currentNote, setCurrentNote] = useState('');
   const [currentReport, setCurrentReport] = useState('');
 
-  // 결재라인 직급 정보 (기본 3단계)
-  const [signLines, setSignLines] = useState<string[]>(['담당', '검토', '승인']);
-  const [editingSignIdx, setEditingSignIdx] = useState<number | null>(null);
-  const [tempSignText, setTempSignText] = useState('');
+
 
   // 1. 전체 본부 리스트 (기본 본부 + 수동 추가 본부)
   const allHqs = React.useMemo(() => {
@@ -229,16 +226,6 @@ export function BranchNoteModal({ isOpen, onClose, hqs }: BranchNoteModalProps) 
       return;
     }
 
-    // 결재란 HTML 구성
-    const signCellsHtml = signLines.map((line, idx) => `
-      <div style="width: 75px; display: flex; flex-direction: column; border-right: ${idx === signLines.length - 1 ? 'none' : '1px solid #000'};">
-        <div style="background: #f8fafc; border-bottom: 1px solid #000; font-size: 11px; font-weight: bold; text-align: center; padding: 3px 0; height: 24px; display: flex; align-items: center; justify-content: center;">
-          ${line}
-        </div>
-        <div style="height: 52px; background: #fff;"></div>
-      </div>
-    `).join('');
-
     // 본부 보고 카드 HTML 구성
     const groupsHtml = groups.map((g) => {
       const orgsText = g.orgNames.join(', ');
@@ -344,12 +331,6 @@ export function BranchNoteModal({ isOpen, onClose, hqs }: BranchNoteModalProps) 
             <div class="title-box">🏢 영업조직 운영 보고서</div>
             <div class="right-section">
               <div class="date-text">기록 날짜: ${selectedDate}</div>
-              <div class="approval-table">
-                <div class="approval-title-cell">결<br>재</div>
-                <div style="display: flex;">
-                  ${signCellsHtml}
-                </div>
-              </div>
             </div>
           </div>
           <div>
@@ -370,28 +351,7 @@ export function BranchNoteModal({ isOpen, onClose, hqs }: BranchNoteModalProps) 
     }, 250);
   };
 
-  // 결재라인 수정 관련 핸들러
-  const startEditSign = (idx: number) => {
-    setEditingSignIdx(idx);
-    setTempSignText(signLines[idx]);
-  };
 
-  const saveEditSign = (idx: number) => {
-    const next = [...signLines];
-    next[idx] = tempSignText.trim() || `단계 ${idx + 1}`;
-    setSignLines(next);
-    setEditingSignIdx(null);
-  };
-
-  const addSignLine = () => {
-    if (signLines.length >= 6) return;
-    setSignLines([...signLines, '결재']);
-  };
-
-  const removeSignLine = () => {
-    if (signLines.length <= 1) return;
-    setSignLines(signLines.slice(0, -1));
-  };
 
   // 체크박스 제어 핸들러
   const toggleOrgSelection = (org: string) => {
@@ -455,60 +415,6 @@ export function BranchNoteModal({ isOpen, onClose, hqs }: BranchNoteModalProps) 
                 >
                   <X size={20} />
                 </button>
-              </div>
-
-              {/* 결재란 단계 추가/삭제 버튼 (화면용) */}
-              <div className="flex items-center gap-2 print:hidden">
-                <span className="text-[10px] font-bold text-slate-400">결재란 수정: </span>
-                <button
-                  onClick={addSignLine}
-                  className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-md transition-colors"
-                >
-                  <Plus size={10} />
-                </button>
-                <button
-                  onClick={removeSignLine}
-                  className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-md transition-colors"
-                >
-                  <Minus size={10} />
-                </button>
-              </div>
-
-              {/* 결재 박스 (순수 검은색 보더 및 굵기 추가) */}
-              <div id="approval-box" className="flex border-2 border-black rounded overflow-hidden text-center bg-white shadow-sm print:shadow-none print:border-2 print:border-black print:rounded-none">
-                <div className="w-10 bg-slate-100 flex items-center justify-center border-r border-black font-bold text-[10px] text-slate-500 py-1 print:bg-white print:border-black print:text-[11px] print:text-slate-800 print:border-r">
-                  결<br />재
-                </div>
-                <div className="flex">
-                  {signLines.map((line, idx) => (
-                    <div 
-                      key={idx} 
-                      className="w-20 flex flex-col border-r border-black last:border-r-0 print:border-black print:border-r last:print:border-r-0"
-                    >
-                      <div className="bg-slate-50 py-1 px-1 border-b border-black text-[10px] font-bold text-slate-600 flex justify-center items-center h-7 cursor-pointer hover:bg-indigo-50 transition-colors print:bg-white print:border-black print:text-[11px] print:text-slate-800 print:h-6 print:border-b">
-                        {editingSignIdx === idx ? (
-                          <input
-                            type="text"
-                            value={tempSignText}
-                            onChange={(e) => setTempSignText(e.target.value)}
-                            onBlur={() => saveEditSign(idx)}
-                            onKeyDown={(e) => e.key === 'Enter' && saveEditSign(idx)}
-                            autoFocus
-                            className="w-full text-center px-1 py-0.5 border border-indigo-400 text-[10px] rounded outline-none"
-                          />
-                        ) : (
-                          <span 
-                            onClick={() => startEditSign(idx)}
-                            className="w-full h-full flex items-center justify-center"
-                          >
-                            {line}
-                          </span>
-                        )}
-                      </div>
-                      <div className="h-12 bg-white print:h-14 border-b border-black print:border-b print:border-black last:border-b-0 last:print:border-b-0" />
-                    </div>
-                  ))}
-                </div>
               </div>
             </div>
           </div>
