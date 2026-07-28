@@ -12,11 +12,15 @@ interface ERPDataItem {
   phone: string;        // F(5)
   prodName: string;     // G(6)
   rentalProd: string;   // M(12)
-  hq: string;           // N(13)
-  branch: string;       // O(14)
-  salesperson: string;  // P(15)
-  status: string;       // Q(16)
-  deliveryStatus?: string;
+  hq: string;           // H(7)
+  branch: string;       // I(8)
+  salesperson?: string; // J(9)
+  empName?: string;     // J(9)
+  status: string;       // B(1)
+  deliveryStatus?: string; // L(11)
+  paymentStatus?: string;  // T(19) - 상조가입신청서 (O,X)
+  deliveryMemo?: string;   // Y(24) - 렌탈출금/메모
+  raw?: any[];
 }
 
 interface AdvancedSearchModalProps {
@@ -196,14 +200,33 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
       '회원번호': item.memNo || '',
       '회원명': item.memName || '',
       '본부': item.hq || '',
-      '지사': item.branch || '',
-      '사원명': item.salesperson || '',
+      '사원명': item.salesperson || item.empName || '',
       '상품명': item.prodName || '',
+      '제품명': item.rentalProd || '',
       '계약상태': item.status || '',
-      '배송상태': item.deliveryStatus || ''
+      '배송상태': item.deliveryStatus || '',
+      '상조가입신청서': item.paymentStatus || (item.raw && item.raw[19]) || '',
+      '상조출금': (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '',
+      '렌탈출금': item.deliveryMemo || (item.raw && item.raw[24]) ? String(item.raw[24]).trim() : ''
     }));
 
     const ws = XLSX.utils.json_to_sheet(rows);
+
+    // 열 크기(너비) 자동 조절 (텍스트 잘림 방지)
+    if (rows.length > 0) {
+      const keys = Object.keys(rows[0]);
+      const colWidths = keys.map(key => {
+        let maxLen = key.split('').reduce((acc, c) => acc + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+        rows.forEach(row => {
+          const val = (row as any)[key] !== undefined && (row as any)[key] !== null ? String((row as any)[key]) : '';
+          const len = val.split('').reduce((acc, c) => acc + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+          if (len > maxLen) maxLen = len;
+        });
+        return { wch: Math.max(Math.ceil(maxLen + 4), 10) };
+      });
+      ws['!cols'] = colWidths;
+    }
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '조건별검색결과');
     XLSX.writeFile(wb, `조건별검색결과_${new Date().toISOString().substring(0, 10)}.xlsx`);
@@ -461,39 +484,46 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                 <table className="w-full text-xs text-left border-collapse">
                   <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 border-b border-slate-200 z-10">
                     <tr>
-                      <th className="p-3 text-center w-12">순번</th>
-                      <th className="p-3">계약일자</th>
-                      <th className="p-3">회원번호</th>
-                      <th className="p-3">회원명</th>
-                      <th className="p-3">본부</th>
-                      <th className="p-3">지사</th>
-                      <th className="p-3">사원명</th>
-                      <th className="p-3">상품명</th>
-                      <th className="p-3 text-center">계약상태</th>
-                      <th className="p-3 text-center">배송상태</th>
+                      <th className="p-3 text-center w-12 whitespace-nowrap">순번</th>
+                      <th className="p-3 whitespace-nowrap">계약일자</th>
+                      <th className="p-3 whitespace-nowrap">회원번호</th>
+                      <th className="p-3 whitespace-nowrap">회원명</th>
+                      <th className="p-3 whitespace-nowrap">본부</th>
+                      <th className="p-3 whitespace-nowrap">사원명</th>
+                      <th className="p-3 whitespace-nowrap">상품명</th>
+                      <th className="p-3 whitespace-nowrap">제품명</th>
+                      <th className="p-3 text-center whitespace-nowrap">계약상태</th>
+                      <th className="p-3 text-center whitespace-nowrap">배송상태</th>
+                      <th className="p-3 text-center whitespace-nowrap">상조가입신청서</th>
+                      <th className="p-3 text-center whitespace-nowrap">상조출금</th>
+                      <th className="p-3 text-center whitespace-nowrap">렌탈출금</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {filteredResults.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="p-16 text-center text-slate-400 font-bold">
+                        <td colSpan={13} className="p-16 text-center text-slate-400 font-bold">
                           선택하신 조건에 부합하는 상세 데이터가 없습니다.
                         </td>
                       </tr>
                     ) : (
                       filteredResults.slice(0, 500).map((item, idx) => {
                         const isCancel = item.status.includes('취소') || item.status.includes('해약') || item.status.includes('철회') || item.status.includes('반품');
+                        const mutualAidApp = item.paymentStatus || (item.raw && item.raw[19]) || '-';
+                        const mutualAidWithdrawal = (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '-';
+                        const rentalWithdrawal = item.deliveryMemo || (item.raw && item.raw[24]) ? String(item.raw[24]).trim() : '-';
+
                         return (
                           <tr key={idx} className="hover:bg-slate-50 transition-colors">
                             <td className="p-3 text-center text-slate-400 font-medium">{idx + 1}</td>
-                            <td className="p-3 font-semibold">{item.contractDate || '-'}</td>
-                            <td className="p-3 font-mono font-medium">{item.memNo || '-'}</td>
-                            <td className="p-3 font-bold text-slate-900">{item.memName || '-'}</td>
-                            <td className="p-3 font-semibold">{item.hq || '-'}</td>
-                            <td className="p-3 text-slate-500">{item.branch || '-'}</td>
-                            <td className="p-3 text-slate-600">{item.salesperson || '-'}</td>
-                            <td className="p-3 font-medium truncate max-w-xs">{item.prodName || '-'}</td>
-                            <td className="p-3 text-center">
+                            <td className="p-3 font-semibold whitespace-nowrap">{item.contractDate || '-'}</td>
+                            <td className="p-3 font-mono font-medium whitespace-nowrap">{item.memNo || '-'}</td>
+                            <td className="p-3 font-bold text-slate-900 whitespace-nowrap">{item.memName || '-'}</td>
+                            <td className="p-3 font-semibold whitespace-nowrap">{item.hq || '-'}</td>
+                            <td className="p-3 text-slate-600 whitespace-nowrap">{item.salesperson || item.empName || '-'}</td>
+                            <td className="p-3 font-medium truncate max-w-[160px]" title={item.prodName}>{item.prodName || '-'}</td>
+                            <td className="p-3 font-medium truncate max-w-[160px]" title={item.rentalProd}>{item.rentalProd || '-'}</td>
+                            <td className="p-3 text-center whitespace-nowrap">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
                                 isCancel
                                   ? 'bg-rose-100 text-rose-700'
@@ -502,7 +532,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                                 {item.status || '정상'}
                               </span>
                             </td>
-                            <td className="p-3 text-center">
+                            <td className="p-3 text-center whitespace-nowrap">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 (item.deliveryStatus && item.deliveryStatus.includes('배송완료'))
                                   ? 'bg-blue-100 text-blue-700'
@@ -510,6 +540,23 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                               }`}>
                                 {item.deliveryStatus || '-'}
                               </span>
+                            </td>
+                            <td className="p-3 text-center whitespace-nowrap">
+                              <span className={`px-2 py-0.5 rounded-md text-[11px] font-black ${
+                                mutualAidApp === 'O' || mutualAidApp === 'o'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : mutualAidApp === 'X' || mutualAidApp === 'x'
+                                  ? 'bg-rose-50 text-rose-600 border border-rose-200'
+                                  : 'text-slate-500'
+                              }`}>
+                                {mutualAidApp}
+                              </span>
+                            </td>
+                            <td className="p-3 text-center whitespace-nowrap font-medium text-slate-700">
+                              {mutualAidWithdrawal}
+                            </td>
+                            <td className="p-3 text-center whitespace-nowrap font-medium text-slate-700 max-w-[140px] truncate" title={rentalWithdrawal}>
+                              {rentalWithdrawal}
                             </td>
                           </tr>
                         );
