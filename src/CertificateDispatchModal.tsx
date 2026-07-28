@@ -86,18 +86,27 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             const nos = new Set<string>();
             if (historyData && historyData.length > 0) {
               const headerRow = historyData[0] || [];
-              // 헤더에서 '*회원번호1' 또는 '회원번호' 열 위치를 동적으로 찾음 (없으면 기본 6번 index G열)
-              let memNoIndex = headerRow.findIndex((h: any) => {
+              // 헤더에서 '회원번호' 단어가 포함된 모든 열의 인덱스를 수집 (*회원번호1, 회원번호2, 회원번호3 등)
+              const memNoIndices: number[] = [];
+              headerRow.forEach((h: any, idx: number) => {
                 const title = String(h || '').trim();
-                return title.includes('회원번호1') || title.includes('회원번호');
+                if (title.includes('회원번호')) {
+                  memNoIndices.push(idx);
+                }
               });
-              if (memNoIndex === -1) memNoIndex = 6;
+
+              // 헤더를 못 찾은 경우 기본값 6(G열), 16(Q열), 17(R열) fallback
+              if (memNoIndices.length === 0) {
+                memNoIndices.push(6, 16, 17);
+              }
 
               historyData.slice(1).forEach((raw: any) => {
-                const memNo = String(raw[memNoIndex] || raw[6] || '').trim().toUpperCase();
-                if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
-                  nos.add(memNo);
-                }
+                memNoIndices.forEach(colIdx => {
+                  const memNo = String(raw[colIdx] || '').trim().toUpperCase();
+                  if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
+                    nos.add(memNo);
+                  }
+                });
               });
             }
             setDispatchedHistoryNos(nos);
@@ -665,10 +674,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         setDispatchedHistoryNos(prev => {
           const next = new Set(prev);
           targetData.forEach(item => {
-            const memNo = String(item.extracted.memNo || '').trim().toUpperCase();
-            if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
-              next.add(memNo);
-            }
+            const ext = item.extracted;
+            [ext.memNo, ext.rentalNo2, ext.rentalNo3].forEach(no => {
+              const cleanNo = String(no || '').trim().toUpperCase();
+              if (cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL') {
+                next.add(cleanNo);
+              }
+            });
           });
           setSelectedIds(new Set());
           return next;
