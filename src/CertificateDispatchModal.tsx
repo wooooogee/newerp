@@ -84,29 +84,25 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           if (historyRes.ok) {
             const historyData = await historyRes.json();
             const nos = new Set<string>();
-            if (historyData && historyData.length > 0) {
-              const headerRow = historyData[0] || [];
-              // 헤더에서 '회원번호' 단어가 포함된 모든 열의 인덱스를 수집 (*회원번호1, 회원번호2, 회원번호3 등)
-              const memNoIndices: number[] = [];
-              headerRow.forEach((h: any, idx: number) => {
-                const title = String(h || '').trim();
-                if (title.includes('회원번호')) {
-                  memNoIndices.push(idx);
-                }
-              });
-
-              // 헤더를 못 찾은 경우 기본값 6(G열), 16(Q열), 17(R열) fallback
-              if (memNoIndices.length === 0) {
-                memNoIndices.push(6, 16, 17);
-              }
-
+            if (historyData && historyData.length > 1) {
+              // 1행(데이터 행)부터 모든 셀을 전수 조사하여 회원번호 패턴 추출
               historyData.slice(1).forEach((raw: any) => {
-                memNoIndices.forEach(colIdx => {
-                  const memNo = String(raw[colIdx] || '').trim().toUpperCase();
-                  if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
-                    nos.add(memNo);
-                  }
-                });
+                if (Array.isArray(raw)) {
+                  raw.forEach((cellVal: any) => {
+                    if (cellVal) {
+                      const str = String(cellVal).trim();
+                      // 콤마, 공백, 줄바꿈, 탭 등으로 분할
+                      const tokens = str.split(/[\s,\t\r\n]+/);
+                      tokens.forEach(tok => {
+                        const cleanTok = tok.trim().toUpperCase();
+                        // 회원번호 형태 (알파벳+숫자 6자리 이상 또는 J로 시작하는 회원번호)
+                        if (cleanTok && cleanTok !== 'UNDEFINED' && cleanTok !== 'NULL' && cleanTok.length >= 5) {
+                          nos.add(cleanTok);
+                        }
+                      });
+                    }
+                  });
+                }
               });
             }
             setDispatchedHistoryNos(nos);
@@ -262,16 +258,22 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     // 1. "우편 미발송만" 필터 활성화 시 (최우선 강제 조건)
     if (filterPostNotSent) {
       result = result.filter(item => {
-        const cleanMemNo = String(item.extracted.memNo || '').trim().toUpperCase();
         const isPost = String(item.extracted.workAddress || '').trim() === '우편';
-        const isSavedInHistory = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
+        const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3];
+        const isSavedInHistory = nosToCheck.some(no => {
+          const cleanNo = String(no || '').trim().toUpperCase();
+          return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
+        });
         return isPost && !isSavedInHistory;
       });
     } else {
       // 2. 일반 / 우편 필터링 기본 체계 작동
       result = result.filter(item => {
-        const cleanMemNo = String(item.extracted.memNo || '').trim().toUpperCase();
-        const isSavedInHistory = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
+        const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3];
+        const isSavedInHistory = nosToCheck.some(no => {
+          const cleanNo = String(no || '').trim().toUpperCase();
+          return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
+        });
         const certVal = String(item.extracted.cert || '').trim();
 
         if (filterWorkAddressPost) {
@@ -954,9 +956,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                         <tbody>
                           {processedData.slice(0, 100).map((item, idx) => {
                             const ext = item.extracted;
-                            const cleanMemNo = String(ext.memNo || '').trim().toUpperCase();
                             const isPost = String(ext.workAddress || '').trim() === '우편';
-                            const isSavedInHistory = cleanMemNo && cleanMemNo !== 'UNDEFINED' && cleanMemNo !== 'NULL' && dispatchedHistoryNos.has(cleanMemNo);
+                            const nosToCheck = [ext.memNo, ext.rentalNo2, ext.rentalNo3];
+                            const isSavedInHistory = nosToCheck.some(no => {
+                              const cleanNo = String(no || '').trim().toUpperCase();
+                              return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
+                            });
                             const certVal = String(ext.cert || '').trim();
 
                             // 우편인 건은 구글시트 발송이력에 있는 경우, 일반 건은 AX열(cert)에 발송처리가 기록된 경우 발송 완료로 판단 (공백 제외)
