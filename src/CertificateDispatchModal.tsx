@@ -179,11 +179,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         // 생년월일 추출 로직 (주민등록번호 앞 6자리 활용)
         let birthDate = '';
         if (resNo && resNo.length >= 6) {
-          const prefix = resNo.substring(0, 6);
-          const yearStr = prefix.substring(0, 2);
-          const yearNum = parseInt(yearStr, 10);
-          const fullYear = yearNum <= 24 ? `20${yearStr}` : `19${yearStr}`;
-          birthDate = `${fullYear}${prefix.substring(2, 6)}`;
+          const cleanResNo = resNo.replace(/[^0-9]/g, '');
+          birthDate = cleanResNo.length >= 6 ? cleanResNo.substring(0, 6) : resNo.substring(0, 6);
         }
 
         // 휴대폰번호: AB열(27)
