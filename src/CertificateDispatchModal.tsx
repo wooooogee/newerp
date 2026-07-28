@@ -32,11 +32,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       const fetchAdditionalData = async () => {
         setLoading(true);
         try {
+          const timestamp = Date.now();
           const [sheet1Res, empRes, payRes, historyRes] = await Promise.all([
-            fetch('/api/sheets/sheetData?sheetName=시트1'),
-            fetch('/api/sheets/sheetData?sheetName=사원리스트'),
-            fetch('/api/sheets/sheetData?sheetName=월불입금'),
-            fetch('/api/sheets/sheetData?sheetName=증서발송리스트')
+            fetch(`/api/sheets/sheetData?sheetName=시트1&t=${timestamp}`),
+            fetch(`/api/sheets/sheetData?sheetName=사원리스트&t=${timestamp}`),
+            fetch(`/api/sheets/sheetData?sheetName=월불입금&t=${timestamp}`),
+            fetch(`/api/sheets/sheetData?sheetName=증서발송리스트&t=${timestamp}`)
           ]);
           
           if (sheet1Res.ok) {
@@ -83,9 +84,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           if (historyRes.ok) {
             const historyData = await historyRes.json();
             const nos = new Set<string>();
-            if (historyData && historyData.length > 1) {
+            if (historyData && historyData.length > 0) {
+              const headerRow = historyData[0] || [];
+              // 헤더에서 '*회원번호1' 또는 '회원번호' 열 위치를 동적으로 찾음 (없으면 기본 6번 index G열)
+              let memNoIndex = headerRow.findIndex((h: any) => {
+                const title = String(h || '').trim();
+                return title.includes('회원번호1') || title.includes('회원번호');
+              });
+              if (memNoIndex === -1) memNoIndex = 6;
+
               historyData.slice(1).forEach((raw: any) => {
-                const memNo = String(raw[6] || '').trim().toUpperCase(); // *회원번호1 (G열, index 6)
+                const memNo = String(raw[memNoIndex] || raw[6] || '').trim().toUpperCase();
                 if (memNo && memNo !== 'UNDEFINED' && memNo !== 'NULL') {
                   nos.add(memNo);
                 }
@@ -661,6 +670,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
               next.add(memNo);
             }
           });
+          setSelectedIds(new Set());
           return next;
         });
       } else {
