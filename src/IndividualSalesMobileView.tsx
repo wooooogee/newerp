@@ -53,18 +53,18 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
   // 본부모바일 / 지사모바일 / 관리자모바일 권한 판별
   const isHqMobile = useMemo(() => {
-    return currentUser.role === '본부모바일' || 
-      (currentUser.orgs && currentUser.orgs.some(o => o.role === '본부모바일'));
+    return currentUser.role === '본부모바일' || currentUser.role === '본부' || 
+      (currentUser.orgs && currentUser.orgs.some(o => o.role === '본부모바일' || o.role === '본부'));
   }, [currentUser]);
 
   const isBranchMobile = useMemo(() => {
-    return currentUser.role === '지사모바일' || 
-      (currentUser.orgs && currentUser.orgs.some(o => o.role === '지사모바일'));
+    return currentUser.role === '지사모바일' || currentUser.role === '지사' || 
+      (currentUser.orgs && currentUser.orgs.some(o => o.role === '지사모바일' || o.role === '지사'));
   }, [currentUser]);
 
   const isAdminMobile = useMemo(() => {
-    return currentUser.role === 'admin모바일' || currentUser.role === '관리자모바일' ||
-      (currentUser.orgs && currentUser.orgs.some(o => o.role === 'admin모바일' || o.role === '관리자모바일'));
+    return currentUser.role === 'admin모바일' || currentUser.role === '관리자모바일' || currentUser.role === 'admin' || currentUser.role === '관리자' ||
+      (currentUser.orgs && currentUser.orgs.some(o => ['admin모바일', '관리자모바일', 'admin', '관리자'].includes(o.role)));
   }, [currentUser]);
 
   // 본부/지사/관리자용 서브 필터 상태
@@ -92,38 +92,75 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     setShowScrollTopBtn(scrollTop > 200);
   };
 
-  // 본부 선택 옵션 (관리자모바일 권한일 때만 유의미)
-  const hqOptions = useMemo(() => {
-    const hqs = new Set<string>();
-    data.forEach(item => {
-      if (item.hq) hqs.add(item.hq.trim());
-    });
-    return ['전체', ...Array.from(hqs).sort()];
-  }, [data]);
+  // 계정 권한 및 소속 조직(orgs) 기반 사용 가능 본부 옵션 생성
+  const availableHqOptions = useMemo(() => {
+    if (isAdminMobile) {
+      const hqs = new Set<string>();
+      data.forEach(item => {
+        if (item.hq && item.hq.trim()) hqs.add(item.hq.trim());
+      });
+      return ['전체', ...Array.from(hqs).sort()];
+    }
 
-  // 지사 선택 옵션 (관리자/본부모바일 권한일 때만 유의미)
+    const hqs = new Set<string>();
+    // currentUser.orgs에 등록된 본부 정보 수집
+    if (currentUser.orgs && currentUser.orgs.length > 0) {
+      currentUser.orgs.forEach(o => {
+        if (o.orgName && !['관리자', '시스템관리자'].includes(o.orgName.trim())) {
+          hqs.add(o.orgName.trim());
+        }
+      });
+    }
+    if (currentUser.orgName && !['관리자', '시스템관리자'].includes(currentUser.orgName.trim())) {
+      hqs.add(currentUser.orgName.trim());
+    }
+
+    // data 항목 중 유저 권한에 해당하는 본부만 확인
+    data.forEach(item => {
+      if (item.hq && item.hq.trim()) {
+        const cleanHq = item.hq.trim();
+        if (hqs.has(cleanHq)) {
+          hqs.add(cleanHq);
+        }
+      }
+    });
+
+    const list = Array.from(hqs).sort();
+    if (list.length > 1) {
+      return ['전체', ...list];
+    } else if (list.length === 1) {
+      return list;
+    }
+
+    // fallback: 데이터 내 전체 본부 목록
+    const fallbackHqs = new Set<string>();
+    data.forEach(item => {
+      if (item.hq && item.hq.trim()) fallbackHqs.add(item.hq.trim());
+    });
+    const fallbackList = Array.from(fallbackHqs).sort();
+    return fallbackList.length > 0 ? (fallbackList.length > 1 ? ['전체', ...fallbackList] : fallbackList) : ['전체'];
+  }, [data, currentUser, isAdminMobile]);
+
+  // 지사 선택 옵션 (본부 선택 hqFilter 반영)
   const branchOptions = useMemo(() => {
     const branches = new Set<string>();
     data.forEach(item => {
-      // 관리자모바일인데 특정 본부가 선택되었다면 매칭되는 본부의 지사만 추출
-      if (isAdminMobile && hqFilter !== '전체' && item.hq !== hqFilter) return;
+      if (hqFilter !== '전체' && (item.hq || '').trim() !== hqFilter) return;
       if (item.branch) branches.add(item.branch.trim());
     });
     return ['전체', ...Array.from(branches).sort()];
-  }, [data, isAdminMobile, hqFilter]);
+  }, [data, hqFilter]);
 
-  // 영업사원 선택 옵션 (관리자/본부/지사모바일 권한일 때만 유의미)
+  // 영업사원 선택 옵션 (본부 선택 hqFilter 및 지사 선택 branchFilter 반영)
   const empOptions = useMemo(() => {
     const emps = new Set<string>();
     data.forEach(item => {
-      // 관리자모바일인데 특정 본부가 선택되어 있다면 매칭되는 본부의 영업사원만 추출
-      if (isAdminMobile && hqFilter !== '전체' && item.hq !== hqFilter) return;
-      // 본부모바일(혹은 관리자모바일)인데 특정 지사가 선택되어 있다면 매칭되는 지사의 영업사원만 추출
-      if ((isHqMobile || isAdminMobile) && branchFilter !== '전체' && item.branch !== branchFilter) return;
+      if (hqFilter !== '전체' && (item.hq || '').trim() !== hqFilter) return;
+      if (branchFilter !== '전체' && (item.branch || '').trim() !== branchFilter) return;
       if (item.empName) emps.add(item.empName.trim());
     });
     return ['전체', ...Array.from(emps).sort()];
-  }, [data, isHqMobile, isAdminMobile, hqFilter, branchFilter]);
+  }, [data, hqFilter, branchFilter]);
 
   // 데이터 내 존재하는 고유 계약월 목록 동적 추출 (YYYY-MM)
   const uniqueMonths = useMemo(() => {
@@ -168,10 +205,16 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     return Array.from(uniqueMap.values());
   }, [monthFilteredData, displayMode]);
 
-  // 3. 요약 통계 계산 (선택된 계약월 및 중복제거 조건이 반영된 데이터 기준)
+  // 3. 선택된 본부(hqFilter) 필터가 반영된 데이터 (대시보드 상단 통계, 목록, 보고서의 공통 모수)
+  const hqFilteredData = useMemo(() => {
+    if (hqFilter === '전체') return modeProcessedData;
+    return modeProcessedData.filter(item => (item.hq || '').trim() === hqFilter);
+  }, [modeProcessedData, hqFilter]);
+
+  // 4. 요약 통계 계산 (선택된 계약월, 구좌/상품건수, 본부선택 조건 반영)
   const summary = useMemo(() => {
     // 가입 상태가 '가입'인 데이터들로만 필터링하여 대시보드 통계의 모수로 사용 (해약, 취소 제외)
-    const activeData = modeProcessedData.filter(item => (item.status || '').trim() === '가입');
+    const activeData = hqFilteredData.filter(item => (item.status || '').trim() === '가입');
 
     const total = activeData.length;
     const waiting = activeData.filter(item => (item.deliveryStatus || '').trim() === '배송대기').length;
@@ -180,29 +223,24 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     // 배송 미해당 건수 산출 (배송이 없는 상품군)
     const noDelivery = total - (waiting + completed);
 
-    // 가입 상태별 통계 (이것은 전체 접수 건수 modeProcessedData 기준)
-    const signed = modeProcessedData.filter(item => (item.status || '').trim() === '가입').length;
-    const terminated = modeProcessedData.filter(item => (item.status || '').trim().includes('해약')).length;
-    const cancelled = modeProcessedData.filter(item => (item.status || '').trim().includes('취소')).length;
+    // 가입 상태별 통계 (hqFilteredData 기준)
+    const signed = hqFilteredData.filter(item => (item.status || '').trim() === '가입').length;
+    const terminated = hqFilteredData.filter(item => (item.status || '').trim().includes('해약')).length;
+    const cancelled = hqFilteredData.filter(item => (item.status || '').trim().includes('취소')).length;
 
     return { total, waiting, completed, signed, terminated, cancelled, noDelivery };
-  }, [modeProcessedData]);
+  }, [hqFilteredData]);
 
-  // 4. 검색 및 가입/배송 필터링된 최종 렌더링 데이터
+  // 5. 검색 및 지사/사원/가입/배송 필터링된 최종 렌더링 데이터
   const filteredData = useMemo(() => {
-    return modeProcessedData.filter(item => {
-      // 관리자모바일 본부 필터링
-      if (isAdminMobile && hqFilter !== '전체') {
-        if ((item.hq || '').trim() !== hqFilter) return false;
-      }
-
-      // 본부모바일(혹은 관리자모바일) 지사 필터링
-      if ((isHqMobile || isAdminMobile) && branchFilter !== '전체') {
+    return hqFilteredData.filter(item => {
+      // 지사 필터링
+      if (branchFilter !== '전체') {
         if ((item.branch || '').trim() !== branchFilter) return false;
       }
 
-      // 영업사원 필터링 (본부모바일 또는 지사모바일 또는 관리자모바일인 경우)
-      if ((isHqMobile || isBranchMobile || isAdminMobile) && empFilter !== '전체') {
+      // 영업사원 필터링
+      if (empFilter !== '전체') {
         if ((item.empName || '').trim() !== empFilter) return false;
       }
 
@@ -243,7 +281,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       // 계약일 최신순 정렬
       return String(b.contractDate || '').localeCompare(String(a.contractDate || ''));
     });
-  }, [modeProcessedData, searchTerm, statusFilter, deliveryFilter, isHqMobile, isBranchMobile, isAdminMobile, hqFilter, branchFilter, empFilter, isPendingFirstRental, isUnpaidMutualAid]);
+  }, [hqFilteredData, searchTerm, statusFilter, deliveryFilter, branchFilter, empFilter, isPendingFirstRental, isUnpaidMutualAid]);
 
   // 1페이지당 10개 아이템 기준 전체 페이지 계산
   const totalPages = useMemo(() => {
@@ -256,12 +294,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     return filteredData.slice(startIndex, startIndex + 10);
   }, [filteredData, currentPage]);
 
-  // 5. 요약 보고서 전용 집계 데이터
-  // 5-1. 본부별 집계
+  // 6. 요약 보고서 전용 집계 데이터
+  // 6-1. 본부별 집계 (hqFilteredData 기준)
   const hqReportData = useMemo(() => {
     const map = new Map<string, { hq: string; sales: number; deliveryCompleted: number }>();
 
-    modeProcessedData.forEach(item => {
+    hqFilteredData.forEach(item => {
       const hq = item.hq || '미지정본부';
       if (!map.has(hq)) {
         map.set(hq, { hq, sales: 0, deliveryCompleted: 0 });
@@ -283,13 +321,13 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       list = list.filter(item => item.sales > 0);
     }
     return list.sort((a, b) => b.sales - a.sales);
-  }, [modeProcessedData, hideZeroHq]);
+  }, [hqFilteredData, hideZeroHq]);
 
-  // 5-2. 상품별 집계
+  // 6-2. 상품별 집계 (hqFilteredData 기준)
   const prodReportData = useMemo(() => {
     const map = new Map<string, { prodName: string; sales: number; deliveryCompleted: number }>();
 
-    modeProcessedData.forEach(item => {
+    hqFilteredData.forEach(item => {
       const prodName = item.prodName || '미지정상품';
       if (!map.has(prodName)) {
         map.set(prodName, { prodName, sales: 0, deliveryCompleted: 0 });
@@ -307,7 +345,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     });
 
     return Array.from(map.values()).sort((a, b) => b.sales - a.sales);
-  }, [modeProcessedData]);
+  }, [hqFilteredData]);
 
   // 메모 편집 시작
   const handleStartEdit = (rowIdx: number, currentMemo: string) => {
@@ -385,7 +423,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       {/* Main Content Area */}
       <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-4 pb-20">
         {/* User Card */}
-        <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm">
+        <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-center">
               <User className="text-blue-600" size={20} />
@@ -400,6 +438,32 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
               </div>
             </div>
           </div>
+
+          {/* 본부 선택 셀렉터 (다중 본부 보유 계정이거나 본부 선택이 가능한 경우) */}
+          {availableHqOptions.length > 1 && (
+            <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
+              <span className="text-[11px] text-slate-600 font-bold shrink-0 flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                </span>
+                접속 본부 선택:
+              </span>
+              <select
+                value={hqFilter}
+                onChange={(e) => {
+                  setHqFilter(e.target.value);
+                  setBranchFilter('전체');
+                  setEmpFilter('전체');
+                }}
+                className="flex-1 max-w-[200px] bg-blue-50/80 border border-blue-200 text-blue-900 rounded-xl py-1.5 px-2.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all cursor-pointer shadow-sm"
+              >
+                {availableHqOptions.map(h => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* View Mode Toggle Switch */}
@@ -566,9 +630,9 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             </div>
 
             {/* 본부/지사/관리자모바일용 하위 조직 필터링 */}
-            {(isHqMobile || isBranchMobile || isAdminMobile) && (
+            {(isHqMobile || isBranchMobile || isAdminMobile || availableHqOptions.length > 1) && (
               <div className="flex flex-col gap-2 pt-3 border-t border-slate-100">
-                {isAdminMobile && (
+                {availableHqOptions.length > 1 && (
                   <div className="flex flex-col gap-1.5 text-xs">
                     <label className="text-[10px] text-slate-500 font-bold">본부 선택</label>
                     <select
@@ -580,7 +644,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                       }}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500 transition-colors"
                     >
-                      {hqOptions.map(h => (
+                      {availableHqOptions.map(h => (
                         <option key={h} value={h}>{h}</option>
                       ))}
                     </select>
