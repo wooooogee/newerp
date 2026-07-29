@@ -24,6 +24,7 @@ interface ERPDataItem {
   empCode?: string;
   status?: string;
   address?: string;
+  paymentStatus?: string; // T열(19) 계약서등록유무 / 결제상태
   raw?: any[];
   [key: string]: any;
 }
@@ -50,6 +51,7 @@ export interface MembershipRecord {
   empName: string;       // 9. 영업자성명
   empPhone: string;      // 10. 영업자연락처
   memNo: string;
+  contractRegStatus: string; // T열 (19번) 계약서등록유무 ('X', 'O' 등)
   raw?: any[];
 }
 
@@ -75,6 +77,8 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
   const [endDate, setEndDate] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [selectedProduct, setSelectedProduct] = useState<string>('all');
+  const [activeQuickTab, setActiveQuickTab] = useState<'all' | 'currentMonth' | 'today' | 'custom'>('currentMonth');
+  const [showUnsubmittedOnly, setShowUnsubmittedOnly] = useState<boolean>(false);
 
   // 데이터 로딩: 시트1 & 사원리스트
   const fetchData = async () => {
@@ -358,6 +362,10 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
         }
       }
 
+      // T열(index 19) 계약서등록유무 (기본값 '-' / 'X' / 'O' 등)
+      const rawT = String(item.raw?.[19] ?? item.paymentStatus ?? '').trim();
+      const contractRegStatus = rawT ? rawT.toUpperCase() : '-';
+
       list.push({
         id: item.uniqueKey || `rec-${idx}`,
         contractDate,
@@ -373,7 +381,8 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
         hq,
         empName,
         empPhone: empPhone || '-',
-        memNo
+        memNo,
+        contractRegStatus
       });
     });
 
@@ -400,6 +409,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
     setStartDate(`${year}-${month}-01`);
     setEndDate(`${year}-${month}-${String(lastDay).padStart(2, '0')}`);
     setSelectedMonth(`${year}-${month}`);
+    setActiveQuickTab('currentMonth');
   };
 
   const handleSelectToday = () => {
@@ -411,12 +421,14 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
     setStartDate(todayStr);
     setEndDate(todayStr);
     setSelectedMonth(`${year}-${month}`);
+    setActiveQuickTab('today');
   };
 
   const handleSelectAllPeriod = () => {
     setStartDate('');
     setEndDate('');
     setSelectedMonth('all');
+    setActiveQuickTab('all');
   };
 
   const handleMonthSelect = (mVal: string) => {
@@ -424,6 +436,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
     if (mVal === 'all') {
       setStartDate('');
       setEndDate('');
+      setActiveQuickTab('all');
     } else {
       const parts = mVal.split('-');
       if (parts.length === 2) {
@@ -432,6 +445,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
         const lastDay = new Date(y, m, 0).getDate();
         setStartDate(`${mVal}-01`);
         setEndDate(`${mVal}-${String(lastDay).padStart(2, '0')}`);
+        setActiveQuickTab('currentMonth');
       }
     }
   };
@@ -479,12 +493,18 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
       result = result.filter(r => r.prodName === selectedProduct);
     }
 
+    // 미제출건만 보기 (T열 계약서등록유무가 'X'인 항목)
+    if (showUnsubmittedOnly) {
+      result = result.filter(r => r.contractRegStatus === 'X' || r.contractRegStatus.includes('X'));
+    }
+
     if (searchTerm.trim()) {
       const term = searchTerm.trim().toLowerCase();
       result = result.filter(r => 
         r.memName.toLowerCase().includes(term) ||
         r.empName.toLowerCase().includes(term) ||
-        (r.dateStr && r.dateStr.includes(term))
+        (r.dateStr && r.dateStr.includes(term)) ||
+        r.contractRegStatus.toLowerCase().includes(term)
       );
     }
 
@@ -496,9 +516,9 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
     });
 
     return result;
-  }, [records, startDate, endDate, selectedProduct, searchTerm]);
+  }, [records, startDate, endDate, selectedProduct, showUnsubmittedOnly, searchTerm]);
 
-  // 엑셀 내보내기 (연번 A열 삭제, 구좌수 숫자만, 가입일자 포함)
+  // 엑셀 내보내기 (연번 A열 삭제, 구좌수 숫자만, 가입일자 및 T열 계약서등록유무 포함)
   const handleExportExcel = () => {
     if (!filteredAndSortedRecords || filteredAndSortedRecords.length === 0) {
       alert('출력할 데이터가 없습니다.');
@@ -511,6 +531,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
       return {
         '가입일자': item.dateStr || item.contractDate || '-',
         '이름': item.memName,
+        '계약서등록(T열)': item.contractRegStatus,
         '생년월일': item.birthDate,
         '연락처': item.phone,
         '주소': item.address,
@@ -528,6 +549,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
     const colWidths = [
       { wch: 14 }, // 가입일자
       { wch: 12 }, // 이름
+      { wch: 14 }, // 계약서등록(T열)
       { wch: 10 }, // 생년월일 (6자리)
       { wch: 15 }, // 연락처
       { wch: 45 }, // 주소
@@ -546,7 +568,8 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
     const periodStr = (startDate || endDate)
       ? `${startDate || '시작'}_${endDate || '종료'}`
       : (selectedMonth === 'all' ? '전체' : selectedMonth);
-    const fileName = `회원가입신청서_대장_${periodStr}_${new Date().toISOString().substring(0, 10)}.xlsx`;
+    const unsubmittedTag = showUnsubmittedOnly ? '_미제출건' : '';
+    const fileName = `회원가입신청서_대장_${periodStr}${unsubmittedTag}_${new Date().toISOString().substring(0, 10)}.xlsx`;
     XLSX.writeFile(workbook, fileName);
   };
 
@@ -608,7 +631,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
           <div className="px-6 py-3 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-3 flex-1">
               {/* 이름 검색창 */}
-              <div className="relative min-w-[180px] max-w-xs flex-1">
+              <div className="relative min-w-[160px] max-w-xs flex-1">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
@@ -636,6 +659,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
                   onChange={(e) => {
                     setStartDate(e.target.value);
                     setSelectedMonth('custom');
+                    setActiveQuickTab('custom');
                   }}
                   className="bg-transparent font-mono focus:outline-none text-slate-800 cursor-pointer"
                   title="시작일자"
@@ -647,6 +671,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
                   onChange={(e) => {
                     setEndDate(e.target.value);
                     setSelectedMonth('custom');
+                    setActiveQuickTab('custom');
                   }}
                   className="bg-transparent font-mono focus:outline-none text-slate-800 cursor-pointer"
                   title="종료일자"
@@ -658,8 +683,8 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
                 <button
                   type="button"
                   onClick={handleSelectAllPeriod}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    !startDate && !endDate && selectedMonth === 'all'
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    activeQuickTab === 'all'
                       ? 'bg-purple-600 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
@@ -669,8 +694,8 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
                 <button
                   type="button"
                   onClick={handleSelectCurrentMonth}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    selectedMonth !== 'all' && selectedMonth !== 'custom'
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    activeQuickTab === 'currentMonth'
                       ? 'bg-purple-600 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
@@ -680,11 +705,34 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
                 <button
                   type="button"
                   onClick={handleSelectToday}
-                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all"
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    activeQuickTab === 'today'
+                      ? 'bg-purple-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
                 >
                   오늘
                 </button>
               </div>
+
+              {/* 미제출건 (T열 계약서: X) 필터 토글 버튼 */}
+              <button
+                type="button"
+                onClick={() => setShowUnsubmittedOnly(prev => !prev)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
+                  showUnsubmittedOnly
+                    ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                    : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                }`}
+                title="관리대장 T열(계약서등록유무)이 'X'인 회원가입신청서 미제출 항목만 필터링합니다."
+              >
+                <span>📋 미제출건만 (계약서: X)</span>
+                {showUnsubmittedOnly && (
+                  <span className="px-1.5 py-0.2 bg-white/20 rounded-full text-[10px]">
+                    {filteredAndSortedRecords.length}건
+                  </span>
+                )}
+              </button>
 
               {/* 월별 필터 드롭다운 */}
               <div className="flex items-center gap-2">
@@ -699,7 +747,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
                       {m}월 ({records.filter(r => r.monthStr === m).length}건)
                     </option>
                   ))}
-                  {selectedMonth === 'custom' && <option value="custom">사용자 직접 지정</option>}
+                  {selectedMonth === 'custom' && <option value="custom">사용자 지정</option>}
                 </select>
               </div>
 
@@ -709,7 +757,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
                 <select
                   value={selectedProduct}
                   onChange={(e) => setSelectedProduct(e.target.value)}
-                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white cursor-pointer max-w-[170px] truncate"
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white cursor-pointer max-w-[150px] truncate"
                 >
                   <option value="all">상품 전체보기</option>
                   {availableProducts.map(prod => (
@@ -745,14 +793,15 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
                 <thead className="bg-slate-100/90 sticky top-0 z-10 border-b border-slate-200 backdrop-blur-xs">
                   <tr>
                     <th className="p-3 font-bold text-purple-900 bg-purple-100/60 w-28 text-center">가입일자</th>
-                    <th className="p-3 font-bold text-purple-900 bg-purple-100/60 w-28">이름</th>
+                    <th className="p-3 font-bold text-purple-900 bg-purple-100/60 w-24">이름</th>
+                    <th className="p-3 font-bold text-slate-700 w-24 text-center">계약서 (T열)</th>
                     <th className="p-3 font-bold text-slate-700 w-24 text-center">생년월일</th>
                     <th className="p-3 font-bold text-slate-700 w-32">연락처</th>
-                    <th className="p-3 font-bold text-slate-700 min-w-[240px]">주소</th>
-                    <th className="p-3 font-bold text-slate-700 w-40">상품</th>
+                    <th className="p-3 font-bold text-slate-700 min-w-[220px]">주소</th>
+                    <th className="p-3 font-bold text-slate-700 w-36">상품</th>
                     <th className="p-3 font-bold text-slate-700 w-16 text-center">구좌수</th>
-                    <th className="p-3 font-bold text-slate-700 w-48">제품명</th>
-                    <th className="p-3 font-bold text-slate-700 w-32">영업자소속</th>
+                    <th className="p-3 font-bold text-slate-700 w-44">제품명</th>
+                    <th className="p-3 font-bold text-slate-700 w-28">영업자소속</th>
                     <th className="p-3 font-bold text-slate-700 w-24">영업자성명</th>
                     <th className="p-3 font-bold text-slate-700 w-32">영업자연락처</th>
                   </tr>
@@ -768,6 +817,19 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
                       </td>
                       <td className="p-3 font-bold text-purple-900 bg-purple-50/30 whitespace-nowrap group-hover:bg-purple-100/50">
                         {item.memName}
+                      </td>
+                      <td className="p-3 text-center whitespace-nowrap">
+                        {item.contractRegStatus === 'X' || item.contractRegStatus.includes('X') ? (
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 font-bold text-[11px] border border-rose-200">
+                            미제출 (X)
+                          </span>
+                        ) : item.contractRegStatus === 'O' || item.contractRegStatus.includes('O') ? (
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-medium text-[11px]">
+                            등록 (O)
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 font-medium text-[11px]">{item.contractRegStatus}</span>
+                        )}
                       </td>
                       <td className="p-3 text-center text-slate-700 whitespace-nowrap font-mono">{item.birthDate}</td>
                       <td className="p-3 text-slate-700 whitespace-nowrap font-mono">{item.phone}</td>
@@ -798,11 +860,12 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
             <div>
               선택 기간: <span className="font-bold text-slate-700">{startDate || endDate ? `${startDate || '시작'} ~ ${endDate || '종료'}` : (selectedMonth === 'all' ? '전체' : `${selectedMonth}월`)}</span> | 
               선택 상품: <span className="font-bold text-slate-700">{selectedProduct === 'all' ? '전체' : selectedProduct}</span> | 
+              {showUnsubmittedOnly && <span className="font-bold text-rose-600"> [미제출건(X) 필터 적용중] </span>}
               가입 회원 총 <span className="font-bold text-purple-700">{filteredAndSortedRecords.length}</span> 건 표시 중
             </div>
             <button
               onClick={onClose}
-              className="px-4 py-1.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-200 transition-colors"
+              className="px-4 py-1.5 rounded-lg border border-slate-300 text-slate-700 font-medium hover:bg-slate-200 transition-colors cursor-pointer"
             >
               닫기
             </button>
