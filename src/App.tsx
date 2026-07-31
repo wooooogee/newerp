@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -621,6 +621,23 @@ const ERP_Dashboard = () => {
   const [pendingExportDate, setPendingExportDate] = useState<string | null>(null);
   const [pendingAppendSheet, setPendingAppendSheet] = useState<{name: string, data: any[][]}|null>(null);
   const [originalPayDateFilter, setOriginalPayDateFilter] = useState<string | null>(null);
+
+  const [isDisbursementModalOpen, setIsDisbursementModalOpen] = useState(false);
+  const [disbursementData, setDisbursementData] = useState<{
+    dateText: string;
+    totalAmount: number;
+    koreanWonText: string;
+    rows: { no: number; desc: string; amount: string }[];
+    department: string;
+    authorName: string;
+  }>({
+    dateText: '',
+    totalAmount: 0,
+    koreanWonText: '',
+    rows: Array.from({ length: 12 }).map((_, i) => ({ no: i + 1, desc: '', amount: '' })),
+    department: '더좋은라이프',
+    authorName: '김진욱'
+  });
 
   // 정산 설정 비밀번호 처리 함수
   const handleOpenSettings = () => {
@@ -1618,61 +1635,15 @@ const ERP_Dashboard = () => {
     return result;
   };
 
-  // 지출 결의서 양식 인쇄 (전사통합정산보고서 미리보기 연동)
-  const handlePrintDisbursementVoucher = (summaries: any[], payDate: string) => {
-    if (!summaries || summaries.length === 0) {
-      setNotification({ message: '출력할 정산 내역이 없습니다.', type: 'warning' });
-      return;
-    }
-
-    const totalAmount = summaries.reduce((sum, s) => sum + (s.finalPayable || s.totalSum || 0), 0);
-    const koreanWonText = numberToKoreanWon(totalAmount);
-    const formattedNumber = totalAmount.toLocaleString();
-
-    let dateText = '';
-    if (payDate) {
-      const parts = payDate.replace(/\./g, '-').split('-');
-      if (parts.length >= 3) {
-        dateText = `${parts[0]}년 ${parseInt(parts[1], 10)}월 ${parseInt(parts[2], 10)}일`;
-      } else if (parts.length === 2) {
-        dateText = `${parts[0]}년 ${parseInt(parts[1], 10)}월 25일`;
-      }
-    }
-    if (!dateText) {
-      const today = new Date();
-      dateText = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
-    }
-
-    const rowsData: { no: number; desc: string; amount: string }[] = [];
-    
-    summaries.forEach((s, idx) => {
-      let desc = s.hqName;
-      if (s.specialSum > 0 && s.items.length === 0) {
-        desc = `${s.hqName}`;
-      } else if (s.items.length > 0) {
-        const firstItem = s.items[0];
-        const prodText = firstItem.prodName || '';
-        const countText = s.items.length > 1 ? ` 외 ${s.items.length - 1}건` : '';
-        desc = `${s.hqName}(${prodText}${countText})`;
-      } else if (s.maintenanceSum > 0) {
-        desc = `${s.hqName}(유지수수료)`;
-      }
-
-      rowsData.push({
-        no: idx + 1,
-        desc,
-        amount: (s.finalPayable || s.totalSum || 0).toLocaleString()
-      });
-    });
-
+  const executeDisbursementPrint = (dataToPrint = disbursementData) => {
     const maxRows = 12;
     const tableRowsHtml = Array.from({ length: maxRows }).map((_, i) => {
-      const row = rowsData[i];
+      const row = dataToPrint.rows[i];
       return `
         <tr style="height: 32px;">
           <td style="text-align: center; border: 1px solid #000; padding: 4px; font-size: 12px; font-weight: 500;">${i + 1}</td>
-          <td style="border: 1px solid #000; padding: 4px 12px; font-size: 12px; font-weight: 500;">${row ? row.desc : ''}</td>
-          <td style="text-align: right; border: 1px solid #000; padding: 4px 12px; font-size: 12px; font-weight: 500; font-family: 'JetBrains Mono', monospace;">${row ? row.amount : ''}</td>
+          <td style="border: 1px solid #000; padding: 4px 12px; font-size: 12px; font-weight: 500;">${row ? (row.desc || '') : ''}</td>
+          <td style="text-align: right; border: 1px solid #000; padding: 4px 12px; font-size: 12px; font-weight: 500; font-family: 'JetBrains Mono', monospace;">${row ? (row.amount || '') : ''}</td>
         </tr>
       `;
     }).join('');
@@ -1681,11 +1652,12 @@ const ERP_Dashboard = () => {
       <!DOCTYPE html>
       <html>
         <head>
+          <meta charset="utf-8">
           <title>지출 결의서 인쇄</title>
           <style>
             @page {
               size: A4 portrait;
-              margin: 15mm 15mm 15mm 15mm;
+              margin: 10mm 12mm;
             }
             * {
               box-sizing: border-box;
@@ -1702,7 +1674,7 @@ const ERP_Dashboard = () => {
             .voucher-box {
               width: 100%;
               border: 2px solid #000;
-              padding: 18px;
+              padding: 20px;
               background: #fff;
             }
             .header-table {
@@ -1810,7 +1782,7 @@ const ERP_Dashboard = () => {
               <tr>
                 <td class="title-cell" style="width: 52%;">
                   <div class="title-text">지출 결의서</div>
-                  <div class="date-text">${dateText}</div>
+                  <div class="date-text">${dataToPrint.dateText}</div>
                 </td>
                 <td style="width: 48%; vertical-align: top;">
                   <table class="sign-table">
@@ -1842,7 +1814,8 @@ const ERP_Dashboard = () => {
             </table>
 
             <div class="amount-row">
-              <span>일금 ${koreanWonText}원정 (₩${formattedNumber})</span>
+              <span>일금 ${dataToPrint.koreanWonText}원정</span>
+              <span>(₩${(dataToPrint.totalAmount || 0).toLocaleString()})</span>
             </div>
 
             <table class="detail-table">
@@ -1860,11 +1833,19 @@ const ERP_Dashboard = () => {
 
             <div class="footer-section">
               <div class="company-logo">
-                <img src="/logo.png" style="height: 36px; width: auto; object-fit: contain;" alt="더좋은라이프" />
+                <svg width="34" height="34" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="40" height="40" rx="6" fill="#FFF8F0" stroke="#F59E0B" stroke-width="1.5"/>
+                  <path d="M8 8H32V32H8V8Z" stroke="#B45309" stroke-width="3" fill="none"/>
+                  <path d="M16 8V32M24 8V32M8 20H32" stroke="#B45309" stroke-width="2.5"/>
+                </svg>
+                <div style="display: flex; flex-direction: column; justify-content: center;">
+                  <div style="font-size: 18px; font-weight: 900; color: #0f172a; letter-spacing: -0.5px; line-height: 1.1;">더좋은라이프</div>
+                  <div style="font-size: 9.5px; color: #64748b; font-weight: bold; letter-spacing: 1.5px; margin-top: 2px;">JOEUNLIFE.</div>
+                </div>
               </div>
               <div class="applicant-box">
-                <div>신청자 부서 : 더좋은라이프</div>
-                <div style="margin-top: 10px;">성명 : 김진욱</div>
+                <div>신청자 부서 : ${dataToPrint.department}</div>
+                <div style="margin-top: 10px;">성명 : ${dataToPrint.authorName}</div>
               </div>
             </div>
 
@@ -1873,24 +1854,81 @@ const ERP_Dashboard = () => {
               <span>지출결의서 / FM02</span>
             </div>
           </div>
-
-          <script>
-            window.onload = function() {
-              window.focus();
-              window.print();
-              window.close();
-            };
-          </script>
         </body>
       </html>
     `;
 
-    const printWin = window.open('', '_blank', 'width=850,height=1000');
+    const printWin = window.open('', '_blank', 'width=850,height=950');
     if (printWin) {
       printWin.document.open();
       printWin.document.write(html);
       printWin.document.close();
+      setTimeout(() => {
+        printWin.focus();
+        printWin.print();
+      }, 300);
     }
+  };
+
+  // 지출 결의서 양식 모달 오픈 (전사통합정산보고서 미리보기 연동)
+  const handlePrintDisbursementVoucher = (summaries: any[], payDate: string) => {
+    if (!summaries || summaries.length === 0) {
+      setNotification({ message: '출력할 정산 내역이 없습니다.', type: 'warning' });
+      return;
+    }
+
+    const totalAmount = summaries.reduce((sum, s) => sum + (s.finalPayable || s.totalSum || 0), 0);
+    const koreanWonText = numberToKoreanWon(totalAmount);
+
+    let dateText = '';
+    if (payDate) {
+      const parts = payDate.replace(/\./g, '-').split('-');
+      if (parts.length >= 3) {
+        dateText = `${parts[0]}년 ${parseInt(parts[1], 10)}월 ${parseInt(parts[2], 10)}일`;
+      } else if (parts.length === 2) {
+        dateText = `${parts[0]}년 ${parseInt(parts[1], 10)}월 25일`;
+      }
+    }
+    if (!dateText) {
+      const today = new Date();
+      dateText = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+    }
+
+    const rowsData: { no: number; desc: string; amount: string }[] = [];
+    
+    summaries.forEach((s, idx) => {
+      let desc = s.hqName;
+      if (s.specialSum > 0 && (!s.items || s.items.length === 0)) {
+        desc = `${s.hqName}`;
+      } else if (s.items && s.items.length > 0) {
+        const firstItem = s.items[0];
+        const prodText = firstItem.prodName || '';
+        const countText = s.items.length > 1 ? ` 외 ${s.items.length - 1}건` : '';
+        desc = `${s.hqName}(${prodText}${countText})`;
+      } else if (s.maintenanceSum > 0) {
+        desc = `${s.hqName}(유지수수료)`;
+      }
+
+      rowsData.push({
+        no: idx + 1,
+        desc,
+        amount: (s.finalPayable || s.totalSum || 0).toLocaleString()
+      });
+    });
+
+    const fullRows = Array.from({ length: 12 }).map((_, i) => {
+      return rowsData[i] || { no: i + 1, desc: '', amount: '' };
+    });
+
+    setDisbursementData({
+      dateText,
+      totalAmount,
+      koreanWonText,
+      rows: fullRows,
+      department: '더좋은라이프',
+      authorName: '김진욱'
+    });
+    setIsDisbursementModalOpen(true);
   };
 
   // 엑셀 수수료 정산서 출력 기능
@@ -2656,162 +2694,26 @@ const ERP_Dashboard = () => {
       stat.hqs[hqKey].amount += amount;
     });
 
-    Object.keys(monthlyMap).forEach(month => {
-      const stat = monthlyMap[month];
-      const [y, m] = month.split('-').map(Number);
-      if (!isNaN(y) && !isNaN(m)) {
-        const prevDate = new Date(y, m - 2, 1);
-        const prevYearStr = String(prevDate.getFullYear());
-        const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
+    return monthlyMap;
+  }, [data, hqSettings, maintenanceRules]);
 
-        globalIncentiveRules.forEach(rule => {
-          if (rule.targetName !== '조재윤' && rule.targetName !== '조민경') return;
-
-          let matchedCount = 0;
-          let commission = 0;
-          data.forEach(item => {
-            if (item.status.includes('취소') || item.status.includes('해약')) return;
-
-            let isMatch = false;
-            const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
-            const hasAll = rule.targetHqs?.includes('ALL') || rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '';
-            if (hasAll) {
-              isMatch = true;
-            } else {
-              isMatch = rule.targetHqs?.some(hq => normalizeHq(item.hq) === normalizeHq(hq));
-              if (!isMatch && rule.targetHq) isMatch = normalizeHq(item.hq) === normalizeHq(rule.targetHq);
-            }
-            if (!isMatch) return;
-
-            if (!rule.targetProducts.includes('ALL')) {
-              if (!rule.targetProducts.some((p: string) => item.prodName.includes(p))) return;
-            }
-
-            let dateStr = '';
-            if (rule.baseDateType === 'DELIVERY') {
-              dateStr = item.deliveryDate || '';
-              if (!item.deliveryStatus?.includes('완료')) return;
-            } else {
-              dateStr = item.contractDate || '';
-            }
-
-            let isMatchedDate = false;
-            const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-            if (match) {
-              let yVal = match[1];
-              if (yVal.length === 2) yVal = '20' + yVal;
-              const mVal = match[2].padStart(2, '0');
-              if (yVal === prevYearStr && mVal === prevMonthStr) {
-                isMatchedDate = true;
-              }
-            }
-
-            if (isMatchedDate) {
-              matchedCount++;
-              if (rule.useInstallments && rule.installments) {
-                const paidCount = item.hcPaidCount || 0;
-                const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
-                if (applicableInstallment) {
-                   commission += applicableInstallment.amount;
-                }
-              } else {
-                commission += rule.commissionPerUnit;
-              }
-            }
-          });
-
-          const finalAmount = Math.max(commission, rule.minimumGuarantee);
-
-          if (finalAmount > 0) {
-            stat.hqs[rule.targetName] = { count: matchedCount, amount: finalAmount };
-            stat.totalAmount += finalAmount;
-          }
-        });
-      }
-    });
-
-    return Object.entries(monthlyMap).sort((a, b) => String(b[0]).localeCompare(String(a[0])));
-  }, [data, hqSettings]);
-
-  const exportIntegratedSettlement = async (appendSheetData?: { name: string, data: any[][] }) => {
+  const exportIntegratedSettlement = async (appendSheetData?: { name: string, data: any[][] } | null) => {
     try {
-      const hasSpecial = Object.values(settlementStats.globalIncentivesSummary || {}).some(v => (v as number) > 0);
-      if (filteredData.length === 0 && maintenancePayouts.length === 0 && !hasSpecial) {
-        return alert('정산 대상 데이터가 없습니다.');
-      }
-
-      setNotification({ message: '엑셀 보고서 생성을 위한 데이터를 불러오는 중...', type: 'info' });
-      
-      let employeeData: any[] = [];
-      let orgData: any[] = [];
-      try {
-        const [resEmp, resOrg] = await Promise.all([
-          fetch('/api/sheets/sheetData?sheetName=사원정보'),
-          fetch('/api/sheets/sheetData?sheetName=다이렉트조직도')
-        ]);
-        if (resEmp.ok) employeeData = await resEmp.json();
-        if (resOrg.ok) orgData = await resOrg.json();
-      } catch (e) {
-        console.error('Failed to load sheets', e);
-      }
-
-      const directOrgMap = new Map<string, { teamLeader: string, branchManager: string, hqManager: string }>();
-      if (orgData.length > 0) {
-        const headers: string[] = orgData[0];
-        const hqIdx = headers.findIndex(h => h.includes('본부장'));
-        const brIdx = headers.findIndex(h => h.includes('지점장'));
-        const tmIdx = headers.findIndex(h => h.includes('팀장'));
-        const empIdx = headers.findIndex(h => h.includes('사원') || h.includes('영업'));
-        orgData.slice(1).forEach(row => {
-          const empName = row[empIdx];
-          if (empName) {
-            directOrgMap.set(empName, {
-              hqManager: hqIdx >= 0 ? row[hqIdx] : '',
-              branchManager: brIdx >= 0 ? row[brIdx] : '',
-              teamLeader: tmIdx >= 0 ? row[tmIdx] : ''
-            });
-          }
-        });
-      }
-
-      const employeeBankMap = new Map<string, { bank: string, account: string, holder: string }>();
-      if (employeeData.length > 1) {
-        employeeData.slice(1).forEach((row: any[]) => {
-          const hq = row[2] || ''; const branch = row[3] || ''; const name = row[5] || ''; 
-          const holder = row[12] || name; const bank = row[14] || ''; const account = row[15] || '';
-          if (name) {
-            const bInfo = { bank: bank || '', account: account || '', holder: holder || '' };
-            if (branch) {
-              employeeBankMap.set(`${branch}_${name}`, bInfo);
-            }
-            employeeBankMap.set(name, bInfo);
-          }
-        });
-      }
-
-      const wb = XLSX.utils.book_new();
       const statsMap = new Map<string, number>();
-      filteredData.forEach(item => {
-        const key = `${item.hq}|${item.prodName}`;
+      data.forEach(item => {
+        if (item.status.includes('취소') || item.status.includes('해약')) return;
+        const key = `${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`;
         statsMap.set(key, (statsMap.get(key) || 0) + 1);
       });
 
-      let payDateSample = filteredData[0]?.payDate || '';
-      if (!payDateSample && payDateFilter) {
-        payDateSample = payDateFilter;
-      }
-      if (!payDateSample && maintenancePayouts.length > 0) {
-        payDateSample = maintenancePayouts[0].payDate || '';
-      }
-      if (!payDateSample) {
-        payDateSample = new Date().toISOString().split('T')[0];
-      }
-      const today = new Date().toISOString().split('T')[0];
+      const directOrgMap = new Map<string, { teamLeader: string, branchManager: string, hqManager: string }>();
+      const employeeBankMap = new Map<string, { bank: string, account: string, holder: string }>();
+      const specialAdditions = settlementStats.globalIncentivesSummary || {};
+      const payDateSample = payDateFilter !== 'ALL' ? payDateFilter : (filteredData[0]?.payDate || '지급일 미지정');
 
-      const specialAdditions: Record<string, number> = {};
-      Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
-        if ((amt as number) > 0) specialAdditions[name] = (specialAdditions[name] || 0) + (amt as number);
-      });
+      const wb = XLSX.utils.book_new();
+      const today = new Date().toLocaleDateString('ko-KR');
+
       const combinedHqs = Array.from(new Set([
         ...Object.keys(settlementStats.hqGroups), 
         ...Object.keys(specialAdditions),
@@ -2820,9 +2722,7 @@ const ERP_Dashboard = () => {
 
       let totalNetPay = 0;
       combinedHqs.forEach(hq => {
-        let hqGross = specialAdditions[hq] || 0;
-        
-        // 유지수수료 금액 가산
+        let hqGross = (specialAdditions[hq] || 0) as number;
         const maintenanceSum = maintenancePayouts.filter(m => m.hq === hq).reduce((sum, m) => sum + m.amount, 0);
         hqGross += maintenanceSum;
 
@@ -2839,68 +2739,102 @@ const ERP_Dashboard = () => {
       // --- 리포트용 통합 시트 데이터 ---
       const reportRows: any[][] = [
         ['[ 전사 통합 정산 종합 보고서 ]'],
-        [`보고일자: ${today} | 지급기준: ${payDateSample.substring(0, 7)}`],
-        [],
-        ['1. 전체 정산 개요'],
-        ['지급 기준일', '총 집계 본부수', '총 계약 구좌수', '총 실지급 합계액'],
-        [payDateSample.substring(0, 7), combinedHqs.length, settlementStats.totalCount, { v: totalNetPay, t: 'n', z: '#,##0' }],
-        [],
-        ['2. 본부별 정산 현황'],
-        ['본부명', '정산유형', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액', '지급계좌'],
+        [`보고일자: ${today} | 수수료 지급일: ${payDateSample}`],
+        []
       ];
 
-      // 1. 본부별 정산 목록 출력 (순수 본부 정산)
       const generalHqs = combinedHqs.filter(hq => {
         const items = settlementStats.hqGroups[hq] || [];
         const maintenanceSum = maintenancePayouts.filter(m => m.hq === hq).reduce((sum, m) => sum + m.amount, 0);
         return items.length > 0 || maintenanceSum > 0;
       });
 
-      generalHqs.forEach(hqName => {
-        const items = settlementStats.hqGroups[hqName] || [];
-        const maintenanceSum = maintenancePayouts.filter(m => m.hq === hqName).reduce((sum, m) => sum + m.amount, 0);
-        
-        let generalSum = 0;
-        items.forEach((item: any) => {
-          const { totalCommission } = calculateCommissionDetails(item, statsMap);
-          generalSum += totalCommission;
-        });
+      const specialEntries = Object.entries(specialAdditions).filter(([_, amt]) => (amt as number) > 0);
+      const allHqNames = Array.from(new Set([
+        ...generalHqs,
+        ...maintenancePayouts.map(m => m.hq),
+        ...specialEntries.map(([name]) => name)
+      ]));
 
-        const hqGross = generalSum + maintenanceSum;
+      // 1. 본부별 지급 계좌
+      reportRows.push(['1. 본부별 지급 계좌']);
+      reportRows.push(['본부명', '정산유형', '지급계좌', '예금주명']);
+      
+      allHqNames.forEach(hqName => {
         const setting = hqSettings.find(h => h.hqName === hqName);
         const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
-        const supply = isIndiv ? hqGross : Math.round(hqGross / 1.1);
-        const tax = isIndiv ? Math.floor(hqGross * 0.033) : (hqGross - supply);
-        const net = hqGross - (isIndiv ? tax : 0);
-        
-        const maintCount = maintenancePayouts.filter(m => m.hq === hqName).length;
-        const totalCountVal = items.length + maintCount;
+        const acctNumber = setting?.accountNumber || '-';
+        const bankName = setting?.bankName || '-';
+        const fullAcctStr = (bankName !== '-' || acctNumber !== '-') ? `${bankName} ${acctNumber}` : '-';
+        const holderStr = setting?.accountHolder || '-';
 
         reportRows.push([
           hqName,
           isIndiv ? '개인' : '법인',
-          totalCountVal,
-          { v: hqGross, t: 'n', z: '#,##0' },
-          { v: supply, t: 'n', z: '#,##0' },
-          { v: isIndiv ? -tax : tax, t: 'n', z: '#,##0' },
-          { v: net, t: 'n', z: '#,##0' },
-          `${setting?.bankName || '-'} ${setting?.accountNumber || '-'} (${setting?.accountHolder || '-'})`
+          fullAcctStr,
+          holderStr
         ]);
       });
 
-      // 2. 사원별 정산 현황
       reportRows.push([]);
-      reportRows.push(['3. 사원별 지급 요약 (Overriding 포함)']);
-      reportRows.push(['본부명', '사원명', '역할', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액', '지급계좌']);
 
+      // 2. 전체 정산 개요
+      reportRows.push(['2. 전체 정산 개요']);
+      reportRows.push(['지급 기준일', '총 집계 본부수', '총 계약 건수', '총 실지급 합계액']);
+      reportRows.push([
+        payDateSample,
+        combinedHqs.length,
+        settlementStats.totalCount,
+        { v: totalNetPay, t: 'n', z: '#,##0' }
+      ]);
+
+      reportRows.push([]);
+
+      // 3. 본부별 정산 현황
+      if (generalHqs.length > 0) {
+        reportRows.push(['3. 본부별 정산 현황']);
+        reportRows.push(['본부명', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액']);
+
+        generalHqs.forEach(hqName => {
+          const items = settlementStats.hqGroups[hqName] || [];
+          const maintenanceSum = maintenancePayouts.filter(m => m.hq === hqName).reduce((sum, m) => sum + m.amount, 0);
+          
+          let generalSum = 0;
+          items.forEach((item: any) => {
+            const { totalCommission } = calculateCommissionDetails(item, statsMap);
+            generalSum += totalCommission;
+          });
+
+          const hqGross = generalSum + maintenanceSum;
+          const setting = hqSettings.find(h => h.hqName === hqName);
+          const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+          const supply = isIndiv ? hqGross : Math.round(hqGross / 1.1);
+          const tax = isIndiv ? Math.floor(hqGross * 0.033) : (hqGross - supply);
+          const net = hqGross - (isIndiv ? tax : 0);
+          
+          const maintCount = maintenancePayouts.filter(m => m.hq === hqName).length;
+          const totalCountVal = items.length + maintCount;
+
+          reportRows.push([
+            hqName,
+            totalCountVal,
+            { v: hqGross, t: 'n', z: '#,##0' },
+            { v: supply, t: 'n', z: '#,##0' },
+            { v: isIndiv ? -tax : tax, t: 'n', z: '#,##0' },
+            { v: net, t: 'n', z: '#,##0' }
+          ]);
+        });
+      }
+
+      let currentSectionNum = 3;
+
+      // 4. 사원별 정산 현황 (개인 정산 대상이 있을 때만 노출)
       const hqEmpSummaryMap = new Map<string, any>();
       
-      // 유지수수료 대상자도 사원별 요약에 세전 금액으로 합산
       maintenancePayouts.forEach(payout => {
         const originContract = filteredData.find(d => d.resNo === payout.resNo);
         if (!originContract && !payout.empName) return;
 
-        // 본부 정산유형 체크 - 법인(사업자) 본부인 경우 사원별 지급 요약에서 제외
         const setting = hqSettings.find(s => s.hqName === payout.hq);
         const isIndiv = setting?.settlementType?.includes('개인') || payout.hq === '글로씨';
         if (!isIndiv) return;
@@ -3036,7 +2970,7 @@ const ERP_Dashboard = () => {
         const setting = hqSettings.find(s => s.hqName === hqName);
         const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
         
-        const gross = amt;
+        const gross = Number(amt) || 0;
         const supply = isIndiv ? gross : Math.round(gross / 1.1);
         const tax = isIndiv ? Math.floor(gross * 0.033) : (gross - supply);
         const net = gross - (isIndiv ? tax : 0);
@@ -3082,6 +3016,13 @@ const ERP_Dashboard = () => {
       const cellStyle = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
       const titleStyle = { font: { bold: true, sz: 16 }, alignment: { vertical: "center", horizontal: "center" } };
 
+      const graySubtotalStyle = {
+        fill: { fgColor: { rgb: "F2F2F2" } },
+        font: { bold: true, sz: 9, color: { rgb: "1E293B" } },
+        alignment: { vertical: "center", horizontal: "center" },
+        border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+      };
+
       const applySheetStyles = (ws: any) => {
         const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
         for (let R = range.s.r; R <= range.e.r; ++R) {
@@ -3099,6 +3040,55 @@ const ERP_Dashboard = () => {
             );
             if (isHeader) ws[addr].s = headerStyle;
             if (ws[addr].t === 'n') ws[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+          }
+        }
+      };
+
+      // 시트 2 (전체상세명세) 및 시트 3 (유지수수료상세) 공통 상세 스타일 적용 함수
+      const applyDetailSheetStyles = (ws: any) => {
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+          // 해당 행에 소계/합계 키워드가 있는지 확인
+          let isSubtotalRow = false;
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const checkAddr = XLSX.utils.encode_cell({ r: R, c: C });
+            const cellVal = ws[checkAddr] ? String(ws[checkAddr].v || '') : '';
+            if (cellVal.includes('소계') || cellVal.includes('합계') || cellVal.includes('총계')) {
+              isSubtotalRow = true;
+              break;
+            }
+          }
+
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const addr = XLSX.utils.encode_cell({ r: R, c: C });
+            if (!ws[addr]) continue;
+
+            // 1) R == 0 (헤더 행) => headerStyle
+            if (R === 0) {
+              ws[addr].s = { ...headerStyle };
+              continue;
+            }
+
+            // 2) 1열 (A열, C===0) => 전체상세명세, 유지수수료상세 1열 서식 파란 배경/흰글씨 bold 통일!
+            if (C === 0) {
+              ws[addr].s = { ...headerStyle };
+              continue;
+            }
+
+            // 3) 소계 행 => 회색 음영 (#F2F2F2) + bold 구분 스타일 적용
+            if (isSubtotalRow) {
+              ws[addr].s = { ...graySubtotalStyle };
+              if (ws[addr].t === 'n') {
+                ws[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+              }
+              continue;
+            }
+
+            // 4) 일반 데이터 셀
+            ws[addr].s = { ...cellStyle };
+            if (ws[addr].t === 'n') {
+              ws[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+            }
           }
         }
       };
@@ -3157,7 +3147,7 @@ const ERP_Dashboard = () => {
         return acc;
       }, [] as number[]);
       wsDetail['!cols'] = detailWidths.map(w => ({ wch: Math.min(w + 2, 40) }));
-      applySheetStyles(wsDetail);
+      applyDetailSheetStyles(wsDetail);
 
       XLSX.utils.book_append_sheet(wb, wsDetail, "전체상세명세");
 
@@ -3205,7 +3195,7 @@ const ERP_Dashboard = () => {
         return acc;
       }, [] as number[]);
       wsMaint['!cols'] = maintWidths.map(w => ({ wch: Math.min(w + 2, 40) }));
-      applySheetStyles(wsMaint);
+      applyDetailSheetStyles(wsMaint);
       
       XLSX.utils.book_append_sheet(wb, wsMaint, "유지수수료상세");
 
@@ -3380,13 +3370,13 @@ const ERP_Dashboard = () => {
       const targetMonth = payDateDisplay.substring(0, 7);
       const [y, m] = targetMonth.split('.').length > 1 ? targetMonth.split('.') : targetMonth.split('-');
 
+      // Row 1: 타이틀 (16pt bold 중앙정렬)
       rows[0] = [`${y}년 ${parseInt(m)}월 [${hqName}] 수수료 정산 내역서`];
       rows[1] = [];
 
-      // --- 오버라이딩 대상 여부 확인 및 요약 행 구성 ---
-      rows[2] = ['지급일자', '성명', '역할', '은행', '계좌번호', '예금주', '지급액(실지급)'];
+      // Row 3~4: 1. 본부 기본 정보 요약
+      rows[2] = ['본부명', '정산유형', '지급일자', '은행', '계좌번호', '예금주', '지급액(실지급)'];
       
-      // 사원별 집계 (해당 본부만)
       const empMap = new Map<string, any>();
       items.forEach(item => {
         if (item.status.includes('취소')) return;
@@ -3403,90 +3393,78 @@ const ERP_Dashboard = () => {
           '본부장': ov.hqManager
         };
           
-          const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
-          const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
-          const org = directOrgMap.get(item.empName) || { teamLeader: '', branchManager: '', hqManager: '' };
-          
-          const add = (name: string, role: string, amount: number) => {
-            if (amount <= 0 || !name) return;
-            const netAmount = calcNet(amount);
-            const key = `${name}|${role}`;
-            if (!empMap.has(key)) empMap.set(key, { name, role, total: 0 });
-            empMap.get(key).total += netAmount;
-          };
-
-          add(item.empName, '영업사원', shares['영업사원']);
-          add(org.teamLeader, '팀장', shares['팀장']);
-          add(org.branchManager, '지점장', shares['지점장']);
-          add(org.hqManager, '본부장', shares['본부장']);
-        });
-
-        // 유지수수료 대상자도 해당 사원(영업사원)에게 가산
-        hqMaintenancePayouts.forEach(payout => {
-          const originContract = filteredData.find(d => d.resNo === payout.resNo);
-          if (!originContract) return;
-
-          const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
-          const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
-          const netAmount = calcNet(payout.amount);
-          
-          const role = '영업사원';
-          const key = `${originContract.empName}|${role}`;
-
-          if (!empMap.has(key)) {
-            empMap.set(key, { name: originContract.empName, role, total: 0 });
-          }
-          empMap.get(key).total += netAmount;
-        });
-
-        // 특수수당 대상자도 해당 수급자에게 가산
-        if (specialSum > 0) {
-          const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
-          const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
-          const netAmount = calcNet(specialSum);
-          
-          const role = '영업사원';
-          const key = `${hqName}|${role}`;
-
-          if (!empMap.has(key)) {
-            empMap.set(key, { name: hqName, role, total: 0 });
-          }
-          empMap.get(key).total += netAmount;
-        }
-
-        const roleWeight = (r: string) => ({ '영업사원': 1, '팀장': 2, '지점장': 3, '본부장': 4 }[r] || 5);
-        const sorted = Array.from(empMap.values()).sort((a, b) => roleWeight(a.role) - roleWeight(b.role) || a.name.localeCompare(b.name));
-        
         const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+        const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+        const org = directOrgMap.get(item.empName) || { teamLeader: '', branchManager: '', hqManager: '' };
+        
+        const add = (name: string, role: string, amount: number) => {
+          if (amount <= 0 || !name) return;
+          const netAmount = calcNet(amount);
+          const key = `${name}|${role}`;
+          if (!empMap.has(key)) empMap.set(key, { name, role, total: 0 });
+          empMap.get(key).total += netAmount;
+        };
 
-        if (hqName !== '다이렉트' && !isIndiv) {
-          // 사업자일 경우 단 하나의 합산 행으로 표시
-          const totalAmount = sorted.reduce((sum, p) => sum + p.total, 0);
-          const b = setting?.bankName || '-';
-          const a = setting?.accountNumber || '-';
-          const h = setting?.accountHolder || '-';
-          rows.push([payDateDisplay, h, '본부', b, a, h, { v: totalAmount, t: 'n', z: '#,##0' }]);
-        } else {
-          // 다이렉트이거나 개인/프리랜서일 경우 영업자별로 나눠서 표시
-          sorted.forEach(p => {
-            let b = '-', a = '-', h = '-';
-            if (hqName === '다이렉트') {
-              const bInfo = employeeBankMap.get(p.name);
-              if (bInfo) { b = bInfo.bank; a = bInfo.account; h = bInfo.holder; }
-            } else {
-              b = setting?.bankName || '-'; a = setting?.accountNumber || '-'; h = setting?.accountHolder || '-';
-            }
-            rows.push([payDateDisplay, p.name, p.role, b, a, h, { v: p.total, t: 'n', z: '#,##0' }]);
-          });
+        add(item.empName, '영업사원', shares['영업사원']);
+        add(org.teamLeader, '팀장', shares['팀장']);
+        add(org.branchManager, '지점장', shares['지점장']);
+        add(org.hqManager, '본부장', shares['본부장']);
+      });
+
+      hqMaintenancePayouts.forEach(payout => {
+        const originContract = filteredData.find(d => d.resNo === payout.resNo);
+        if (!originContract) return;
+
+        const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+        const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+        const netAmount = calcNet(payout.amount);
+        
+        const role = '영업사원';
+        const key = `${originContract.empName}|${role}`;
+
+        if (!empMap.has(key)) {
+          empMap.set(key, { name: originContract.empName, role, total: 0 });
         }
+        empMap.get(key).total += netAmount;
+      });
+
+      if (specialSum > 0) {
+        const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+        const calcNet = (amt: number) => isIndiv ? amt - Math.floor(amt * 0.033) : amt;
+        const netAmount = calcNet(specialSum);
+        
+        const role = '영업사원';
+        const key = `${hqName}|${role}`;
+
+        if (!empMap.has(key)) {
+          empMap.set(key, { name: hqName, role, total: 0 });
+        }
+        empMap.get(key).total += netAmount;
+      }
+
+      const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+      const bankName = setting?.bankName || '-';
+      const accountNumber = setting?.accountNumber || '-';
+      const accountHolder = setting?.accountHolder || '-';
+      const settlementTypeLabel = setting?.settlementType || (isIndiv ? '개인' : '본부');
+
+      rows.push([
+        hqName,
+        settlementTypeLabel,
+        payDateDisplay,
+        bankName,
+        accountNumber,
+        accountHolder,
+        { v: totalSum, t: 'n', z: '#,##0' }
+      ]);
       rows.push([]);
 
-      // 세금 요약 섹션
-      if (setting?.settlementType === '개인') {
+      // Row 6~10: 2. 세금계산서 발행 / 원천징수 영수 요약
+      if (isIndiv) {
         rows.push(['원천징수 영수 요약 (3.3% 공제)']);
         rows.push(['구분', '정산금액', '원천세(3.3%)', '실지급액']);
         if (salesSum > 0) {
-          rows.push(['일반 수수료(판매)', { v: salesSum, t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }, { v: salesSum - Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }]);
+          rows.push(['판매 수수료', { v: salesSum, t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }, { v: salesSum - Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }]);
         }
         if (promoSum > 0) {
           rows.push(['판매 촉진비', { v: promoSum, t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }, { v: promoSum - Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }]);
@@ -3499,24 +3477,36 @@ const ERP_Dashboard = () => {
         }
         rows.push(['합계', { v: totalSum, t: 'n', z: '#,##0' }, { v: Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }, { v: totalSum - Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }]);
       } else {
-        rows.push(['세금계산서 발행 요약 (부가세 10% 포함)']);
+        rows.push(['세금계산서 발행']);
         rows.push(['구분', '공급가액', '부가세(10%)', '합계금액(실지급액)']);
+        
+        const salesSupply = Math.round(salesSum / 1.1);
+        const salesVat = salesSum - salesSupply;
+        const promoSupply = Math.round(promoSum / 1.1);
+        const promoVat = promoSum - promoSupply;
+        const totalSupply = Math.round(totalSum / 1.1);
+        const totalVat = totalSum - totalSupply;
+
         if (salesSum > 0) {
-          rows.push(['일반 수수료(판매)', { v: Math.round(salesSum / 1.1), t: 'n', z: '#,##0' }, { v: salesSum - Math.round(salesSum / 1.1), t: 'n', z: '#,##0' }, { v: salesSum, t: 'n', z: '#,##0' }]);
+          rows.push(['판매 수수료', { v: salesSupply, t: 'n', z: '#,##0' }, { v: salesVat, t: 'n', z: '#,##0' }, { v: salesSum, t: 'n', z: '#,##0' }]);
         }
         if (promoSum > 0) {
-          rows.push(['판매 촉진비', { v: Math.round(promoSum / 1.1), t: 'n', z: '#,##0' }, { v: promoSum - Math.round(promoSum / 1.1), t: 'n', z: '#,##0' }, { v: promoSum, t: 'n', z: '#,##0' }]);
+          rows.push(['판매 촉진비', { v: promoSupply, t: 'n', z: '#,##0' }, { v: promoVat, t: 'n', z: '#,##0' }, { v: promoSum, t: 'n', z: '#,##0' }]);
         }
         if (maintenanceSum > 0) {
-          rows.push(['유지 수수료', { v: Math.round(maintenanceSum / 1.1), t: 'n', z: '#,##0' }, { v: maintenanceSum - Math.round(maintenanceSum / 1.1), t: 'n', z: '#,##0' }, { v: maintenanceSum, t: 'n', z: '#,##0' }]);
+          const maintSupply = Math.round(maintenanceSum / 1.1);
+          rows.push(['유지 수수료', { v: maintSupply, t: 'n', z: '#,##0' }, { v: maintenanceSum - maintSupply, t: 'n', z: '#,##0' }, { v: maintenanceSum, t: 'n', z: '#,##0' }]);
         }
         if (specialSum > 0) {
-          rows.push(['특수 수당', { v: Math.round(specialSum / 1.1), t: 'n', z: '#,##0' }, { v: specialSum - Math.round(specialSum / 1.1), t: 'n', z: '#,##0' }, { v: specialSum, t: 'n', z: '#,##0' }]);
+          const specSupply = Math.round(specialSum / 1.1);
+          rows.push(['특수 수당', { v: specSupply, t: 'n', z: '#,##0' }, { v: specialSum - specSupply, t: 'n', z: '#,##0' }, { v: specialSum, t: 'n', z: '#,##0' }]);
         }
-        rows.push(['합계', { v: Math.round(totalSum / 1.1), t: 'n', z: '#,##0' }, { v: totalSum - Math.round(totalSum / 1.1), t: 'n', z: '#,##0' }, { v: totalSum, t: 'n', z: '#,##0' }]);
+        rows.push(['합계', { v: totalSupply, t: 'n', z: '#,##0' }, { v: totalVat, t: 'n', z: '#,##0' }, { v: totalSum, t: 'n', z: '#,##0' }]);
       }
       rows.push([]);
-      rows.push(['렌탈사', '상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계']);
+
+      // Row 12~15: 3. 상품별 수수료 집계
+      rows.push(['상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계']);
       const productSummary: Record<string, { count: number, sales: number, promo: number, total: number }> = {};
       items.forEach(item => {
         const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, stats);
@@ -3529,7 +3519,6 @@ const ERP_Dashboard = () => {
 
       Object.entries(productSummary).forEach(([pName, prStat]) => {
         rows.push([
-          '-',
           pName,
           prStat.count,
           { v: Math.floor(prStat.sales), t: 'n', z: '#,##0' },
@@ -3540,7 +3529,6 @@ const ERP_Dashboard = () => {
 
       if (maintenanceSum > 0) {
         rows.push([
-          '-',
           '유지수수료 합계',
           hqMaintenancePayouts.length,
           { v: 0, t: 'n', z: '#,##0' },
@@ -3551,7 +3539,6 @@ const ERP_Dashboard = () => {
 
       if (specialSum > 0) {
         rows.push([
-          '-',
           '특수수당 합계',
           settlementStats.hqSummary[hqName]?.count || 0,
           { v: 0, t: 'n', z: '#,##0' },
@@ -3566,7 +3553,6 @@ const ERP_Dashboard = () => {
 
       rows.push([
         '계',
-        '',
         totalItemsCount,
         { v: Math.floor(salesSum), t: 'n', z: '#,##0' },
         { v: Math.floor(promoSum + maintenanceSum + specialSum), t: 'n', z: '#,##0' },
@@ -3574,21 +3560,23 @@ const ERP_Dashboard = () => {
       ]);
       rows.push([]);
 
+      // Row 17~: 4. [일반수수료 상세 내역]
       rows.push(['[일반수수료 상세 내역]']);
-      rows.push(['본부명', '지사명', '계약일자', '사원명(AP)', '고객명', '렌탈계약번호', '배송일자', '정산상품명', '정산기준일', '공급수수료(지급총계)']);
+      rows.push(['No', '지사명', '계약일자', '지급일자', '본부명', '사원명', '고객명', '렌탈계약번호', '배송일자', '정산상품명', '수수료']);
 
-      items.forEach(item => {
+      items.forEach((item, idx) => {
         const { totalCommission, displayPayDate } = calculateCommissionDetails(item, stats);
         rows.push([
-          item.hq,
+          idx + 1,
           item.branch,
           item.contractDate,
+          displayPayDate,
+          item.hq,
           item.empName,
           item.memName,
           item.rentalNo,
           item.deliveryDate,
           item.prodName,
-          displayPayDate,
           { v: Math.floor(totalCommission), t: 'n', z: '#,##0' }
         ]);
       });
@@ -3604,35 +3592,8 @@ const ERP_Dashboard = () => {
           '',
           '',
           '',
+          '',
           { v: Math.floor(generalSum), t: 'n', z: '#,##0' }
-        ]);
-      }
-      if (maintenanceSum > 0) {
-        rows.push([
-          '유지수수료 합계',
-          '',
-          '',
-          '',
-          '',
-          `${hqMaintenancePayouts.length}건`,
-          '',
-          '',
-          '',
-          { v: maintenanceSum, t: 'n', z: '#,##0' }
-        ]);
-      }
-      if (specialSum > 0) {
-        rows.push([
-          '특수수당 합계',
-          '',
-          '',
-          '',
-          '',
-          `${settlementStats.hqSummary[hqName]?.count || 0}건`,
-          '',
-          '',
-          '',
-          { v: specialSum, t: 'n', z: '#,##0' }
         ]);
       }
 
@@ -3646,23 +3607,34 @@ const ERP_Dashboard = () => {
         '',
         '',
         '',
+        '',
         { v: Math.floor(totalSum), t: 'n', z: '#,##0' }
       ]);
 
       if (maintenanceSum > 0) {
         rows.push([]);
         rows.push(['[유지수수료 상세 내역]']);
-        rows.push(['본부명', '지사명', '사원명(AP)', '고객명', '렌탈계약번호', '상품명', '지급회차범위', '금액']);
+        rows.push(['No', '지사명', '사원명', '지급일자', '본부명', '고객명', '렌탈계약번호', '상품명', '지급회차범위', '유지수수료']);
         
-        hqMaintenancePayouts.forEach(m => {
+        hqMaintenancePayouts.forEach((m, idx) => {
           const originContract = filteredData.find(d => d.resNo === m.resNo);
           const branch = m.branch || (originContract ? originContract.branch : '-');
           const empName = m.empName || (originContract ? originContract.empName : '-');
           
+          const filterClean = payDateFilter.replace(/[^0-9]/g, '');
+          let currentYearMonth = filterClean.length >= 6 ? filterClean.substring(0, 6) : '';
+          if (!currentYearMonth) {
+            const d = new Date();
+            currentYearMonth = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
+          }
+          const mPayDate = m.payDate || `${currentYearMonth.substring(0,4)}.${currentYearMonth.substring(4,6)}.25`;
+
           rows.push([
-            m.hq,
+            idx + 1,
             branch,
             empName,
+            mPayDate,
+            m.hq,
             m.customerName,
             m.resNo,
             m.productName,
@@ -3679,6 +3651,8 @@ const ERP_Dashboard = () => {
           '',
           `${hqMaintenancePayouts.length}건`,
           '',
+          '',
+          '',
           { v: maintenanceSum, t: 'n', z: '#,##0' }
         ]);
       }
@@ -3686,12 +3660,13 @@ const ERP_Dashboard = () => {
       if (specialSum > 0) {
         rows.push([]);
         rows.push(['[특수수당 상세 내역]']);
-        rows.push(['대상자명', '수당 종류', '지급 기준 구좌수', '수당 단가', '최종 수당 금액']);
+        rows.push(['No', '대상자명', '수당 종류', '지급 기준 구좌수', '수당 단가', '최종 수당 금액']);
         const rule = globalIncentiveRules.find(r => r.targetName === hqName);
         const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : '특수수당');
         const matchedCount = settlementStats.hqSummary[hqName]?.count || 0;
         const unitPrice = rule ? rule.commissionPerUnit : 0;
         rows.push([
+          1,
           hqName,
           detail,
           matchedCount,
@@ -3723,7 +3698,12 @@ const ERP_Dashboard = () => {
       };
       const cellStyle = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
       const numberStyle = { ...cellStyle, alignment: { vertical: "center", horizontal: "right" }, numFmt: "#,##0" };
-      const totalStyle = { fill: { fgColor: { rgb: "FFF2CC" } }, font: { bold: true, sz: 10 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+      const graySubtotalStyle = {
+        fill: { fgColor: { rgb: "F2F2F2" } },
+        font: { bold: true, sz: 9, color: { rgb: "1E293B" } },
+        alignment: { vertical: "center", horizontal: "center" },
+        border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+      };
       const titleStyle = { font: { bold: true, sz: 16 }, alignment: { vertical: "center", horizontal: "center" } };
 
       const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
@@ -3734,10 +3714,17 @@ const ERP_Dashboard = () => {
           ws[addr].s = { ...cellStyle };
           if (R === 0) ws[addr].s = titleStyle;
           const val = String(ws[addr].v || '');
-          const isHeader = ['지급일자', '성명', '역할', '지사명', '은행', '원천징수', '세금계산서', '렌탈사', '상품명', '본부명', '[상세 내역]'].some(h => val.includes(h));
+          const isHeader = [
+            '본부명', '정산유형', '지급일자', '은행', '계좌번호', '예금주', '지급액(실지급)',
+            '세금계산서 발행', '원천징수 영수 요약 (3.3% 공제)', '구분', '공급가액', '부가세(10%)', '합계금액(실지급액)', '정산금액', '원천세(3.3%)', '실지급액',
+            '상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계',
+            '[일반수수료 상세 내역]', 'No', '지사명', '계약일자', '사원명', '고객명', '렌탈계약번호', '배송일자', '정산상품명', '수수료',
+            '[유지수수료 상세 내역]', '지급회차범위', '유지수수료', '[특수수당 상세 내역]', '수당 종류', '지급 기준 구좌수', '수당 단가', '최종 수당 금액'
+          ].some(h => val === h || (val.startsWith('[') && val.endsWith(']')));
+          
           if (isHeader) ws[addr].s = headerStyle;
           if (ws[addr].t === 'n') ws[addr].s = numberStyle;
-          if (val === '계' || val === '합계' || val.includes('건')) ws[addr].s = totalStyle;
+          if (val === '계' || val === '합계' || val.includes('소계') || val === '최종 실지급액 합계') ws[addr].s = graySubtotalStyle;
         }
       }
 
@@ -4954,11 +4941,12 @@ const ERP_Dashboard = () => {
                       <div className="flex gap-2">
                         <div className="relative">
                           <button
-                            onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
-                            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold transition-all shadow-md flex items-center gap-1.5"
+                            onClick={() => setPreviewTarget('ALL')}
+                            className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
+                            title="전사통합정산보고서 미리보기"
                           >
-                            <FileText size={12} />
-                            정산서 미리보기(웹)
+                            <FileText size={14} />
+                            정산서 확인
                           </button>
                           {isExportDropdownOpen && (
                             <motion.div
@@ -7781,6 +7769,13 @@ const ERP_Dashboard = () => {
                   </h3>
                   <div className="flex items-center gap-3">
                     <button 
+                      onClick={() => exportIntegratedSettlement()}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                      title="전사 통합정산 종합 보고서 엑셀 다운로드 (3개 시트)"
+                    >
+                      <FileSpreadsheet size={14} /> 통합정산 보고서 (Excel)
+                    </button>
+                    <button 
                       onClick={async () => {
                         const specialAdditions: Record<string, number> = {};
                         Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
@@ -9225,6 +9220,241 @@ const ERP_Dashboard = () => {
                       </>
                     );
                   })()}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* 지출 결의서 내용 수정 & 인쇄 모달 */}
+        <AnimatePresence>
+          {isDisbursementModalOpen && (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsDisbursementModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative bg-white w-full max-w-3xl h-[92vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+                <div className="px-6 py-4 border-b border-slate-100 bg-slate-900 text-white flex justify-between items-center shrink-0">
+                  <h3 className="text-lg font-bold flex items-center gap-2">
+                    <Printer size={20} /> 지출 결의서 내용 수정 & 인쇄 미리보기
+                  </h3>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => executeDisbursementPrint(disbursementData)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-md"
+                    >
+                      <Printer size={16} /> 바로 인쇄하기
+                    </button>
+                    <button onClick={() => setIsDisbursementModalOpen(false)} className="p-2 hover:bg-slate-700 rounded-full transition-colors"><X size={20} /></button>
+                  </div>
+                </div>
+
+                {/* 지출결의서 수정 양식 실물 뷰 */}
+                <div className="flex-1 overflow-y-auto p-8 bg-slate-100">
+                  <div className="max-w-2xl mx-auto bg-white border-2 border-black p-8 shadow-xl space-y-6">
+                    {/* 상단 제목 & 결재란 */}
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1 text-center pt-2">
+                        <h2 className="text-3xl font-black underline underline-offset-8 tracking-[12px]">지출 결의서</h2>
+                        <div className="mt-4">
+                          <input
+                            type="text"
+                            value={disbursementData.dateText}
+                            onChange={(e) => setDisbursementData(prev => ({ ...prev, dateText: e.target.value }))}
+                            className="text-center font-bold text-lg border-b border-slate-300 focus:border-black outline-none px-2 py-0.5"
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* 결재란 고정표 */}
+                      <table className="border-collapse border border-black text-xs text-center ml-4">
+                        <tbody>
+                          <tr>
+                            <td rowSpan={2} className="border border-black p-1 font-bold w-6 bg-slate-50">결<br/>재</td>
+                            <td className="border border-black px-3 py-1 font-bold w-16 bg-slate-50">담당</td>
+                            <td className="border border-black px-3 py-1 font-bold w-16 bg-slate-50">부장</td>
+                            <td className="border border-black px-3 py-1 font-bold w-16 bg-slate-50">대 표</td>
+                          </tr>
+                          <tr className="h-10">
+                            <td className="border border-black"></td>
+                            <td className="border border-black"></td>
+                            <td className="border border-black"></td>
+                          </tr>
+                          <tr>
+                            <td rowSpan={2} className="border border-black p-1 font-bold w-6 bg-slate-50">합<br/>의</td>
+                            <td className="border border-black px-3 py-1 font-bold bg-slate-50">담당</td>
+                            <td className="border border-black px-3 py-1 font-bold bg-slate-50"></td>
+                            <td className="border border-black px-3 py-1 font-bold bg-slate-50"></td>
+                          </tr>
+                          <tr className="h-10">
+                            <td className="border border-black"></td>
+                            <td className="border border-black"></td>
+                            <td className="border border-black"></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* 금액 표시란 */}
+                    <div className="border border-black p-3 font-bold flex justify-between items-center text-sm bg-slate-50">
+                      <div className="flex items-center gap-1">
+                        <span>일금</span>
+                        <input
+                          type="text"
+                          value={disbursementData.koreanWonText}
+                          onChange={(e) => setDisbursementData(prev => ({ ...prev, koreanWonText: e.target.value }))}
+                          className="font-bold border-b border-slate-400 focus:border-black outline-none px-1 text-slate-900"
+                        />
+                        <span>원정</span>
+                      </div>
+                      <div className="flex items-center gap-1 font-mono text-slate-700">
+                        <span>(₩</span>
+                        <input
+                          type="text"
+                          value={(disbursementData.totalAmount || 0).toLocaleString()}
+                          onChange={(e) => {
+                            const rawVal = e.target.value.replace(/[^0-9]/g, '');
+                            const newTotal = Number(rawVal) || 0;
+                            const newKorean = numberToKoreanWon(newTotal);
+                            setDisbursementData(prev => ({
+                              ...prev,
+                              totalAmount: newTotal,
+                              koreanWonText: newKorean
+                            }));
+                          }}
+                          className="font-mono font-bold border-b border-slate-400 focus:border-black outline-none px-1 w-32 text-right text-slate-900"
+                        />
+                        <span>)</span>
+                      </div>
+                    </div>
+
+                    {/* 12개 내역 수정 테이블 */}
+                    <table className="w-full border-collapse border border-black text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 text-center font-bold">
+                          <th className="border border-black p-2 w-12">번호</th>
+                          <th className="border border-black p-2">내 역 (클릭하여 직접 수정)</th>
+                          <th className="border border-black p-2 w-36 text-right">금 액 (입력 시 자동합산)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {disbursementData.rows.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="border border-black p-1 text-center font-bold">{row.no}</td>
+                            <td className="border border-black p-1">
+                              <input
+                                type="text"
+                                value={row.desc}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setDisbursementData(prev => {
+                                    const nextRows = [...prev.rows];
+                                    nextRows[idx] = { ...nextRows[idx], desc: val };
+                                    return { ...prev, rows: nextRows };
+                                  });
+                                }}
+                                placeholder="내역 입력"
+                                className="w-full px-1.5 py-0.5 outline-none font-medium text-xs bg-transparent focus:bg-amber-50 rounded"
+                              />
+                            </td>
+                            <td className="border border-black p-1">
+                              <input
+                                type="text"
+                                value={row.amount}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setDisbursementData(prev => {
+                                    const nextRows = [...prev.rows];
+                                    nextRows[idx] = { ...nextRows[idx], amount: val };
+
+                                    // 12개 행 전체 금액 자동 합산
+                                    const newTotal = nextRows.reduce((sum, r) => {
+                                      const num = Number(String(r.amount || '').replace(/[^0-9]/g, '')) || 0;
+                                      return sum + num;
+                                    }, 0);
+                                    const newKorean = numberToKoreanWon(newTotal);
+
+                                    return {
+                                      ...prev,
+                                      rows: nextRows,
+                                      totalAmount: newTotal,
+                                      koreanWonText: newKorean
+                                    };
+                                  });
+                                }}
+                                onBlur={() => {
+                                  setDisbursementData(prev => {
+                                    const nextRows = [...prev.rows];
+                                    const rawVal = String(nextRows[idx].amount || '').replace(/[^0-9]/g, '');
+                                    if (rawVal) {
+                                      nextRows[idx] = { ...nextRows[idx], amount: Number(rawVal).toLocaleString() };
+                                    }
+                                    return { ...prev, rows: nextRows };
+                                  });
+                                }}
+                                placeholder="0"
+                                className="w-full px-1.5 py-0.5 outline-none text-right font-mono font-bold text-xs bg-transparent focus:bg-amber-50 rounded"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    {/* 하단 푸터 & 신청자 정보 */}
+                    <div className="flex justify-between items-end pt-4 border-t border-slate-200">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-300/80 flex items-center justify-center p-1 shadow-sm shrink-0">
+                          <svg width="24" height="24" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 8H32V32H8V8Z" stroke="#B45309" strokeWidth="3" fill="none"/>
+                            <path d="M16 8V32M24 8V32M8 20H32" stroke="#B45309" strokeWidth="2.5"/>
+                          </svg>
+                        </div>
+                        <div>
+                          <div className="font-black text-slate-900 text-base leading-tight">더좋은라이프</div>
+                          <div className="text-[9.5px] font-bold text-slate-400 tracking-wider">JOEUNLIFE.</div>
+                        </div>
+                      </div>
+                      <div className="text-right text-xs font-bold space-y-1">
+                        <div className="flex items-center justify-end gap-2">
+                          <span>신청자 부서 :</span>
+                          <input
+                            type="text"
+                            value={disbursementData.department}
+                            onChange={(e) => setDisbursementData(prev => ({ ...prev, department: e.target.value }))}
+                            className="font-bold border-b border-slate-300 outline-none w-28 text-right px-1"
+                          />
+                        </div>
+                        <div className="flex items-center justify-end gap-2">
+                          <span>성명 :</span>
+                          <input
+                            type="text"
+                            value={disbursementData.authorName}
+                            onChange={(e) => setDisbursementData(prev => ({ ...prev, authorName: e.target.value }))}
+                            className="font-bold border-b border-slate-300 outline-none w-28 text-right px-1"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center text-[10px] text-slate-400 font-medium">
+                      <span>JOEUNLIFE.</span>
+                      <span>지출결의서 / FM02</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-between items-center shrink-0">
+                  <span className="text-xs text-slate-500 font-medium">인쇄 전 수정한 내용이 지출결의서 A4 1장에 그대로 반영되어 출력됩니다.</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => setIsDisbursementModalOpen(false)} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-all">
+                      닫기
+                    </button>
+                    <button
+                      onClick={() => executeDisbursementPrint(disbursementData)}
+                      className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-md"
+                    >
+                      <Printer size={16} /> 바로 인쇄하기
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             </div>

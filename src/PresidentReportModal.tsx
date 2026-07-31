@@ -727,7 +727,7 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
 
                 @media print {
                   @page {
-                    size: A4;
+                    size: A4 portrait;
                     margin: 12mm 15mm;
                   }
 
