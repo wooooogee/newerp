@@ -15,6 +15,7 @@ import { PresidentReportModal } from './PresidentReportModal';
 import { BranchNoteModal } from './BranchNoteModal';
 import { IndividualSalesMobileView } from './IndividualSalesMobileView';
 import { AdvancedSearchModal } from './AdvancedSearchModal';
+import { CommissionNotesModal } from './CommissionNotesModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -447,6 +448,7 @@ const ERP_Dashboard = () => {
   const [saveSettingsStatus, setSaveSettingsStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [isDailyDashboardModalOpen, setIsDailyDashboardModalOpen] = useState(false);
   const [isMonthlyDashboardModalOpen, setIsMonthlyDashboardModalOpen] = useState(false);
+  const [isCommissionNotesModalOpen, setIsCommissionNotesModalOpen] = useState(false);
   const [isPresidentReportModalOpen, setIsPresidentReportModalOpen] = useState(false);
   const [isBranchNoteModalOpen, setIsBranchNoteModalOpen] = useState(false);
   const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
@@ -4461,7 +4463,7 @@ const ERP_Dashboard = () => {
               <div className="grid gap-2">
                 <nav className="flex flex-col gap-1">
                   {[
-                    { dot: 'bg-blue-600', label: '월별 실적 대시보드', action: () => setIsMonthlyDashboardModalOpen(true) },
+                    { dot: 'bg-amber-500', label: '수수료 특이사항', action: () => setIsCommissionNotesModalOpen(true) },
                     { dot: 'bg-emerald-500', label: '유지수수료 현황 조회', action: () => { setMaintenanceTab('eligible'); setIsMaintenanceStatusModalOpen(true); } },
                     { dot: 'bg-indigo-500', label: '유지수수료 지급 관리', action: () => setIsMaintenanceHistoryModalOpen(true) },
                     { dot: 'bg-orange-500', label: '유통사 대사 작업', action: () => { setIsReconciliationModalOpen(true); if (reconHistoryDates.length === 0) loadReconHistory(); } },
@@ -5642,29 +5644,6 @@ const ERP_Dashboard = () => {
                               className="p-1 px-2 bg-emerald-600 text-white text-[10px] font-bold rounded"
                             >
                               저장
-                            </button>
-                          </div>
-                        </div>
-                        <div className="col-span-2 p-3 bg-yellow-50 border border-yellow-100 rounded-lg flex flex-col gap-1">
-                          <div className="text-[10px] font-bold text-yellow-600 uppercase tracking-tight flex items-center gap-1.5">
-                            <FileText size={10} /> 정산 및 지급 관련 메모
-                          </div>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              defaultValue={selectedItem.memo}
-                              id="editMemo"
-                              placeholder="메모를 입력하세요..."
-                              className="flex-1 text-[13px] font-medium bg-white border border-yellow-200 px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-yellow-200"
-                            />
-                            <button
-                              onClick={() => {
-                                const val = (document.getElementById('editMemo') as HTMLInputElement).value;
-                                updateCell(selectedItem.originalRowIdx, 20, val);
-                              }}
-                              className="px-4 bg-yellow-500 text-white text-[12px] font-bold rounded-lg shadow-sm hover:bg-yellow-600 transition-colors"
-                            >
-                              메모 저장
                             </button>
                           </div>
                         </div>
@@ -7474,6 +7453,13 @@ const ERP_Dashboard = () => {
                 </div>
               </motion.div>
             </div>
+          )}
+          {isCommissionNotesModalOpen && (
+            <CommissionNotesModal
+              isOpen={isCommissionNotesModalOpen}
+              onClose={() => setIsCommissionNotesModalOpen(false)}
+              data={data}
+            />
           )}
           {isPresidentReportModalOpen && (
             <PresidentReportModal

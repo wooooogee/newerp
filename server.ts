@@ -1978,6 +1978,190 @@ app.post('/api/sheets/branch-notes/save', async (req, res) => {
   }
 });
 
+// === 수수료 관련 특이사항 API ===
+app.get('/api/sheets/commission-notes', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let targetSheet = sheetsList.find(s => s.properties?.title === '수수료특이사항');
+
+    if (!targetSheet) {
+      return res.json({ notes: [] });
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '수수료특이사항!A:I',
+    });
+
+    const rows = response.data.values || [];
+    const notes = [];
+    for (let i = 1; i < rows.length; i++) {
+      const [id, createdAt, type, target, amount, origDate, newDate, content, author] = rows[i];
+      if (id || type || content) {
+        notes.push({
+          id: id || `cn_${i}`,
+          createdAt: createdAt || '',
+          type: type || '선지급',
+          target: target || '',
+          amount: amount || '',
+          origDate: origDate || '',
+          newDate: newDate || '',
+          content: content || '',
+          author: author || '',
+          rowIndex: i + 1
+        });
+      }
+    }
+
+    res.json({ notes });
+  } catch (error: any) {
+    console.error("[CommissionNotes Get Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
+app.post('/api/sheets/commission-notes/save', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { type, target, amount, origDate, newDate, content, author } = req.body;
+  if (!content) {
+    return res.status(400).json({ error: '내용을 입력해주세요.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let targetSheet = sheetsList.find(s => s.properties?.title === '수수료특이사항');
+    let sheetInternalId: number | null | undefined = targetSheet?.properties?.sheetId;
+
+    if (!targetSheet) {
+      console.log("[CloudSync] Creating '수수료특이사항' sheet...");
+      const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '수수료특이사항' } } }]
+        }
+      });
+      sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+
+      const headers = [['ID', '등록일시', '구분', '관련대상', '수수료금액', '기존날짜', '수정날짜', '특이사항내용', '작성자']];
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '수수료특이사항!A1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: headers }
+      });
+
+      if (sheetInternalId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.15, green: 0.23, blue: 0.37 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+    }
+
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const newId = `cn_${Date.now()}`;
+    const newRow = [newId, nowStr, type || '선지급', target || '', amount || '', origDate || '', newDate || '', content || '', author || '관리자'];
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: '수수료특이사항!A1',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [newRow] }
+    });
+
+    res.json({ success: true, note: { id: newId, createdAt: nowStr, type, target, amount, origDate, newDate, content, author } });
+  } catch (error: any) {
+    console.error("[CommissionNotes Save Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
+app.post('/api/sheets/commission-notes/delete', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'ID가 전달되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '수수료특이사항!A:I',
+    });
+
+    const rows = response.data.values || [];
+    const newRows = [rows[0] || ['ID', '등록일시', '구분', '관련대상', '수수료금액', '기존날짜', '수정날짜', '특이사항내용', '작성자']];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] !== id) {
+        newRows.push(rows[i]);
+      }
+    }
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: sheetId,
+      range: '수수료특이사항!A:I',
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: '수수료특이사항!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: newRows }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[CommissionNotes Delete Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
 // Vite Middleware
 async function start() {
   try {
