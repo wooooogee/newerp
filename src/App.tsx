@@ -7459,6 +7459,7 @@ const ERP_Dashboard = () => {
               isOpen={isCommissionNotesModalOpen}
               onClose={() => setIsCommissionNotesModalOpen(false)}
               data={data}
+              hqSettings={hqSettings}
             />
           )}
           {isPresidentReportModalOpen && (
