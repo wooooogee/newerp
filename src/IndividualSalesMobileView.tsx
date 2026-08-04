@@ -444,10 +444,10 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             </div>
             <button
               onClick={() => setIsChangePasswordOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors border border-slate-200/80"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl transition-all border border-blue-200 shrink-0 shadow-sm"
               title="비밀번호 변경"
             >
-              <KeyRound size={13} className="text-slate-600" />
+              <KeyRound size={14} className="text-blue-600" />
               <span>비번 변경</span>
             </button>
           </div>
