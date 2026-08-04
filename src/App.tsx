@@ -2418,7 +2418,7 @@ const ERP_Dashboard = () => {
   const settlementStats = React.useMemo(() => {
     const statsMap = new Map<string, number>();
     data.forEach(item => {
-      if (item.status.includes('취소') || item.status.includes('해약')) return;
+      if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
       const key = `${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`;
       statsMap.set(key, (statsMap.get(key) || 0) + 1);
     });
@@ -2434,7 +2434,7 @@ const ERP_Dashboard = () => {
     let totalPendingCount = 0;
 
     filteredData.forEach(item => {
-      if (item.status.includes('취소') || item.status.includes('해약')) return; // B열(status)에 '취소'나 '해약'이 포함된 경우 제외
+      if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return; // B열(status)에 '취소'나 '해약'이 있어도 지급일자가 있으면 포함
       const date = item.payDate || '미지정';
       const hqSetting = hqSettings.find(h => h.hqName === item.hq);
       const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
@@ -2512,7 +2512,7 @@ const ERP_Dashboard = () => {
         const targetPrefix2 = `${prevYearStr}.${prevMonthStr}`;
 
         data.forEach(item => {
-          if (item.status.includes('취소') || item.status.includes('해약')) return;
+          if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
           if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
           let isMatch = false;
           const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
@@ -2636,7 +2636,7 @@ const ERP_Dashboard = () => {
     }> = {};
 
     data.forEach(item => {
-      if (item.status.includes('취소') || item.status.includes('해약')) return; // B열(status)에 '취소'나 '해약'이 포함된 경우 제외
+      if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return; // B열(status)에 '취소'나 '해약'이 있어도 지급일자가 있으면 포함
       const displayPayDate = getDisplayPayDate(item);
       const month = displayPayDate?.substring(0, 7) || '미지정';
       const hqSetting = hqSettings.find(h => h.hqName === item.hq);
@@ -2705,7 +2705,7 @@ const ERP_Dashboard = () => {
     try {
       const statsMap = new Map<string, number>();
       data.forEach(item => {
-        if (item.status.includes('취소') || item.status.includes('해약')) return;
+        if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
         const key = `${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`;
         statsMap.set(key, (statsMap.get(key) || 0) + 1);
       });
@@ -7831,7 +7831,7 @@ const ERP_Dashboard = () => {
                           const setting = hqSettings.find(h => h.hqName === hqName);
                           const stats = new Map<string, number>();
                           filteredData.forEach(item => {
-                            if (item.status.includes('취소') || item.status.includes('해약')) return;
+                            if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
                             const key = `${item.hq}|${item.prodName}`;
                             stats.set(key, (stats.get(key) || 0) + 1);
                           });
@@ -7889,7 +7889,7 @@ const ERP_Dashboard = () => {
                       
                       const stats = new Map<string, number>();
                       filteredData.forEach(item => {
-                        if (item.status.includes('취소') || item.status.includes('해약')) return;
+                        if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
                         const key = `${item.hq}|${item.prodName}`;
                         stats.set(key, (stats.get(key) || 0) + 1);
                       });
