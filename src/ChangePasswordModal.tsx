@@ -43,23 +43,27 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     setErrorMessage('');
     setSuccessMessage('');
 
-    if (!currentPassword) {
+    const trimmedCurrent = currentPassword.trim();
+    const trimmedNew = newPassword.trim();
+    const trimmedConfirm = confirmPassword.trim();
+
+    if (!trimmedCurrent) {
       setErrorMessage('현재 비밀번호를 입력해주세요.');
       return;
     }
-    if (!newPassword) {
+    if (!trimmedNew) {
       setErrorMessage('새 비밀번호를 입력해주세요.');
       return;
     }
-    if (newPassword.length < 4) {
+    if (trimmedNew.length < 4) {
       setErrorMessage('새 비밀번호는 최소 4자리 이상이어야 합니다.');
       return;
     }
-    if (newPassword !== confirmPassword) {
+    if (trimmedNew !== trimmedConfirm) {
       setErrorMessage('새 비밀번호와 비밀번호 확인이 일치하지 않습니다.');
       return;
     }
-    if (currentPassword === newPassword) {
+    if (trimmedCurrent === trimmedNew) {
       setErrorMessage('새 비밀번호는 현재 비밀번호와 다르게 설정해야 합니다.');
       return;
     }
@@ -72,8 +76,8 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username,
-          currentPassword,
-          newPassword
+          currentPassword: trimmedCurrent,
+          newPassword: trimmedNew
         })
       });
 

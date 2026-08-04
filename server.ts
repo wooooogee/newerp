@@ -421,7 +421,7 @@ app.post('/api/auth/change-password', async (req, res) => {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ error: '현재 비밀번호와 새 비밀번호를 모두 입력해 주세요.' });
     }
-    if (newPassword.length < 4) {
+    if (String(newPassword).trim().length < 4) {
       return res.status(400).json({ error: '새 비밀번호는 최소 4자리 이상이어야 합니다.' });
     }
 
@@ -449,26 +449,38 @@ app.post('/api/auth/change-password', async (req, res) => {
       return res.status(404).json({ error: '조직계정설정 데이터가 없습니다.' });
     }
 
+    const targetUser = String(username || '').trim().toLowerCase();
+    const targetPw = String(currentPassword || '').trim();
+    const newPwStr = String(newPassword || '').trim();
+
     let matchedCount = 0;
+    let pwMismatchCount = 0;
     let updatedRows = [...rows];
 
     // 헤더(index 0) 제외 후 검색
     for (let i = 1; i < updatedRows.length; i++) {
-      const rowId = String(updatedRows[i][2] || '').trim();
+      const rowOrgName = String(updatedRows[i][1] || '').trim().toLowerCase();
+      const rowId = String(updatedRows[i][2] || '').trim().toLowerCase();
       const rowPw = String(updatedRows[i][3] || '').trim();
 
-      if (rowId === username) {
-        if (rowPw !== currentPassword) {
-          return res.status(400).json({ error: '현재 비밀번호가 일치하지 않습니다.' });
+      // C열(아이디) 또는 B열(조직명/사원명)로 계정 대조
+      if (rowId === targetUser || rowOrgName === targetUser) {
+        if (rowPw !== targetPw) {
+          console.log(`[PASSWORD MISMATCH] User: ${targetUser}, Input PW: "${targetPw}", Sheet PW: "${rowPw}"`);
+          pwMismatchCount++;
+          continue;
         }
         // 비밀번호 (D열) 업데이트
-        updatedRows[i][3] = newPassword;
+        updatedRows[i][3] = newPwStr;
         matchedCount++;
       }
     }
 
     if (matchedCount === 0) {
-      return res.status(404).json({ error: '해당 계정 정보를 찾을 수 없습니다.' });
+      if (pwMismatchCount > 0) {
+        return res.status(400).json({ error: '현재 비밀번호가 일치하지 않습니다. 입력하신 비밀번호를 다시 확인해 주세요.' });
+      }
+      return res.status(404).json({ error: `등록된 계정 정보(${username})를 찾을 수 없습니다.` });
     }
 
     // 구글 시트에 업데이트 반영
@@ -479,7 +491,7 @@ app.post('/api/auth/change-password', async (req, res) => {
       requestBody: { values: updatedRows }
     });
 
-    console.log(`[PASSWORD] Password successfully updated for user: ${username}`);
+    console.log(`[PASSWORD CHANGED SUCCESS] User: ${username}`);
     return res.json({ success: true, message: '비밀번호가 성공적으로 변경되었습니다.' });
   } catch (error: any) {
     console.error('Password change error:', error);
