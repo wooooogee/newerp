@@ -400,6 +400,94 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/auth/change-password', async (req, res) => {
+  try {
+    const userAuth = req.signedCookies.user_auth;
+    let username = '';
+    if (userAuth) {
+      try {
+        const userObj = JSON.parse(userAuth);
+        username = userObj.username;
+      } catch (e) {}
+    }
+    if (!username && req.body.username) {
+      username = req.body.username;
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    if (!username) {
+      return res.status(401).json({ error: '로그인 정보가 유효하지 않습니다. 다시 로그인해 주세요.' });
+    }
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: '현재 비밀번호와 새 비밀번호를 모두 입력해 주세요.' });
+    }
+    if (newPassword.length < 4) {
+      return res.status(400).json({ error: '새 비밀번호는 최소 4자리 이상이어야 합니다.' });
+    }
+
+    const client = await getAuthenticatedClient(req, res);
+    if (!client) {
+      return res.status(500).json({ error: '구글 시트 인증 정보가 없습니다.' });
+    }
+
+    let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+    if (sheetId && sheetId.includes('spreadsheets/d/')) {
+      sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+    }
+    if (!sheetId) {
+      return res.status(500).json({ error: '구글 시트 ID가 설정되어 있지 않습니다.' });
+    }
+
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '조직계정설정!A:D',
+    });
+
+    const rows = response.data.values || [];
+    if (rows.length <= 1) {
+      return res.status(404).json({ error: '조직계정설정 데이터가 없습니다.' });
+    }
+
+    let matchedCount = 0;
+    let updatedRows = [...rows];
+
+    // 헤더(index 0) 제외 후 검색
+    for (let i = 1; i < updatedRows.length; i++) {
+      const rowId = String(updatedRows[i][2] || '').trim();
+      const rowPw = String(updatedRows[i][3] || '').trim();
+
+      if (rowId === username) {
+        if (rowPw !== currentPassword) {
+          return res.status(400).json({ error: '현재 비밀번호가 일치하지 않습니다.' });
+        }
+        // 비밀번호 (D열) 업데이트
+        updatedRows[i][3] = newPassword;
+        matchedCount++;
+      }
+    }
+
+    if (matchedCount === 0) {
+      return res.status(404).json({ error: '해당 계정 정보를 찾을 수 없습니다.' });
+    }
+
+    // 구글 시트에 업데이트 반영
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `조직계정설정!A1:D${updatedRows.length}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: updatedRows }
+    });
+
+    console.log(`[PASSWORD] Password successfully updated for user: ${username}`);
+    return res.json({ success: true, message: '비밀번호가 성공적으로 변경되었습니다.' });
+  } catch (error: any) {
+    console.error('Password change error:', error);
+    return res.status(500).json({ error: '비밀번호 변경 처리 중 오류가 발생했습니다: ' + (error.message || error) });
+  }
+});
+
+
 // Settings Operations
 
 // 구글 시트의 시스템설정 탭 완전 초기화 (꼬인 데이터 복구용)

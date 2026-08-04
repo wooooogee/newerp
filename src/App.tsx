@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -16,6 +16,7 @@ import { BranchNoteModal } from './BranchNoteModal';
 import { IndividualSalesMobileView } from './IndividualSalesMobileView';
 import { AdvancedSearchModal } from './AdvancedSearchModal';
 import { CommissionNotesModal } from './CommissionNotesModal';
+import { ChangePasswordModal } from './ChangePasswordModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -377,6 +378,7 @@ export const getDisplayPayDate = (item: any) => {
 const ERP_Dashboard = () => {
   const [currentUser, setCurrentUser] = useState<{ username: string; role: string; orgName: string; orgs?: { role: string; orgName: string; }[] } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const isSuperAdmin = currentUser?.role === 'admin' || 
                        currentUser?.role === 'admin모바일';
   const isManager = isSuperAdmin ||
@@ -4571,25 +4573,34 @@ const ERP_Dashboard = () => {
             <div className="text-[11px] text-slate-500 leading-relaxed font-semibold">
               접속자: <span className="text-slate-800">{currentUser?.orgs && currentUser.orgs.length > 0 ? currentUser.orgs.map(o => o.orgName).join(', ') : currentUser?.orgName}</span> ({currentUser?.orgs && currentUser.orgs.length > 0 ? Array.from(new Set(currentUser.orgs.map(o => o.role))).join(', ') : currentUser?.role})
             </div>
-            <button
-              onClick={async () => {
-                if (await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')) {
-                  try {
-                    await fetch('/api/auth/logout', { method: 'POST' });
-                    sessionStorage.removeItem('erp_logged_in');
-                    resetFilters();
-                    setData([]);
-                    setCurrentUser(null);
-                  } catch (err) {
-                    console.error('Logout error:', err);
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsChangePasswordModalOpen(true)}
+                className="flex-1 py-2 bg-slate-50 hover:bg-blue-50 hover:text-blue-600 rounded-lg text-slate-600 text-[11px] font-bold transition-all border border-slate-200 hover:border-blue-200 flex items-center justify-center gap-1.5"
+              >
+                <KeyRound size={12} />
+                비번 변경
+              </button>
+              <button
+                onClick={async () => {
+                  if (await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')) {
+                    try {
+                      await fetch('/api/auth/logout', { method: 'POST' });
+                      sessionStorage.removeItem('erp_logged_in');
+                      resetFilters();
+                      setData([]);
+                      setCurrentUser(null);
+                    } catch (err) {
+                      console.error('Logout error:', err);
+                    }
                   }
-                }
-              }}
-              className="w-full py-2 bg-slate-50 hover:bg-rose-50 hover:text-rose-600 rounded-lg text-slate-600 text-[11px] font-bold transition-all border border-slate-200 hover:border-rose-100 flex items-center justify-center gap-1.5"
-            >
-              <Lock size={12} />
-              로그아웃
-            </button>
+                }}
+                className="flex-1 py-2 bg-slate-50 hover:bg-rose-50 hover:text-rose-600 rounded-lg text-slate-600 text-[11px] font-bold transition-all border border-slate-200 hover:border-rose-100 flex items-center justify-center gap-1.5"
+              >
+                <Lock size={12} />
+                로그아웃
+              </button>
+            </div>
           </div>
         </motion.aside>
 
@@ -6109,6 +6120,13 @@ const ERP_Dashboard = () => {
             </div>
           )}
         </AnimatePresence>
+
+        {/* 사용자 직접 비밀번호 변경 모달 */}
+        <ChangePasswordModal
+          isOpen={isChangePasswordModalOpen}
+          onClose={() => setIsChangePasswordModalOpen(false)}
+          username={currentUser?.username}
+        />
 
         {/* 비밀번호 확인 모달 */}
         <AnimatePresence>

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ArrowUp } from 'lucide-react';
+import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ArrowUp, KeyRound } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 interface IndividualSalesMobileViewProps {
   currentUser: {
@@ -24,7 +25,9 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   loading,
   onRefresh
 }) => {
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+
   const [statusFilter, setStatusFilter] = useState('전체'); // 전체, 가입, 해약, 취소
   const [deliveryFilter, setDeliveryFilter] = useState('전체'); // 전체, 배송대기, 배송완료
   const [monthFilter, setMonthFilter] = useState(() => {
@@ -424,19 +427,29 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-4 pb-20">
         {/* User Card */}
         <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-center">
-              <User className="text-blue-600" size={20} />
-            </div>
-            <div>
-              <div className="text-[11px] text-slate-500 font-semibold tracking-wider uppercase">Welcome Back</div>
-              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                {currentUser.orgName || '영업사원'} 님
-                <span className="text-[10px] font-normal text-slate-600 px-1.5 py-0.5 rounded-full bg-slate-100 border border-slate-200">
-                  {currentUser.username}
-                </span>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-center">
+                <User className="text-blue-600" size={20} />
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-500 font-semibold tracking-wider uppercase">Welcome Back</div>
+                <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                  {currentUser.orgName || '영업사원'} 님
+                  <span className="text-[10px] font-normal text-slate-600 px-1.5 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                    {currentUser.username}
+                  </span>
+                </div>
               </div>
             </div>
+            <button
+              onClick={() => setIsChangePasswordOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors border border-slate-200/80"
+              title="비밀번호 변경"
+            >
+              <KeyRound size={13} className="text-slate-600" />
+              <span>비번 변경</span>
+            </button>
           </div>
 
           {/* 본부 선택 셀렉터 (다중 본부 보유 계정이거나 본부 선택이 가능한 경우) */}
@@ -1018,6 +1031,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
           </div>
         </button>
       </div>
+
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+        username={currentUser.username}
+      />
     </div>
   );
 };
