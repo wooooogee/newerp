@@ -273,10 +273,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         if (!item.deliveryMemo || !item.deliveryMemo.includes('렌탈1회차출금 대기중')) return false;
       }
 
-      // 상조 미출금 필터링 (최초납입일 row[21] 값 기준 '- -')
+      // 상조 미출금 필터링 (관리대장 시트 V열 row[21] 상조출금 값 기준 하이픈/공백/미출금)
       if (isUnpaidMutualAid) {
         const firstPayVal = item.raw && item.raw[21] ? String(item.raw[21]).trim() : '';
-        if (firstPayVal !== '- -') return false;
+        const isUnpaid = !firstPayVal || firstPayVal.includes('-') || !/\d{4}/.test(firstPayVal);
+        if (!isUnpaid) return false;
       }
 
       return true;

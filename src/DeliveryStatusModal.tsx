@@ -129,9 +129,12 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
       // 배송관련 메모 필터: 렌탈1회차출금 대기중
       if (isPendingFirstRental && !item.deliveryMemo?.includes('렌탈1회차출금 대기중')) return false;
 
-      // 상조 미출금(최초납입일 값이 '- -') 필터 - 관리대장 시트의 최초납입일(row[21]) 기준
-      const firstPayVal = item.raw && item.raw[21] ? String(item.raw[21]).trim() : '';
-      if (isUnpaidMutualAid && firstPayVal !== '- -') return false;
+      // 상조 미출금 필터 (관리대장 시트 V열 row[21] 상조출금 값이 출금날짜가 아니고 하이픈/공백/빈값인 경우)
+      if (isUnpaidMutualAid) {
+        const firstPayVal = item.raw && item.raw[21] ? String(item.raw[21]).trim() : '';
+        const isUnpaid = !firstPayVal || firstPayVal.includes('-') || !/\d{4}/.test(firstPayVal);
+        if (!isUnpaid) return false;
+      }
 
       return true;
     }).sort((a, b) => {

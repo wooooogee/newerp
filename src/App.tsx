@@ -387,6 +387,19 @@ const ERP_Dashboard = () => {
                     currentUser?.role === '관리자모바일';
   const isAdmin = isManager || currentUser?.role === '총무';
   const showCommissionInfo = isSuperAdmin || currentUser?.role === '총무';
+  const isHQStaff = !isManager && (
+    currentUser?.role === '총무' || 
+    currentUser?.role === '본부' ||
+    (currentUser?.orgs && currentUser.orgs.some(o => o.role === '총무' || o.role === '본부'))
+  );
+
+  const userHqNames = React.useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.orgs && currentUser.orgs.length > 0) {
+      return currentUser.orgs.map(o => (o.orgName || '').replace(/[\s()본부]/g, ''));
+    }
+    return [(currentUser.orgName || '').replace(/[\s()본부]/g, '')];
+  }, [currentUser]);
 
   // 모바일 전용 뷰 분기 판별
   const isMobileView = React.useMemo(() => {
@@ -2175,6 +2188,13 @@ const ERP_Dashboard = () => {
               item.status?.includes('반품') ||
               item.status?.includes('철회')));
 
+        // 본부총무 계정인 경우 25일 지급 내역 필터링
+        if (isHQStaff) {
+          const displayPayDate = getDisplayPayDate(item);
+          const is25thPay = displayPayDate?.endsWith('.25') || displayPayDate?.endsWith('-25') || (item.payDate && (item.payDate.endsWith('.25') || item.payDate.endsWith('-25')));
+          if (is25thPay) return false;
+        }
+
         return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesDelivery && matchesPayDate && matchesPaymentStatus && matchesStatus;
       })
       .sort((a, b) => {
@@ -2199,7 +2219,7 @@ const ERP_Dashboard = () => {
     }
 
     return result;
-  }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter, sortOrder, tableDisplayMode]);
+  }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter, sortOrder, tableDisplayMode, isHQStaff]);
 
   // 필터 변경 시 페이지 리셋
   React.useEffect(() => {
@@ -2414,8 +2434,9 @@ const ERP_Dashboard = () => {
   }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter]);
 
   const maintenancePayouts = React.useMemo(() => {
+    if (isHQStaff) return [];
     return calculateMaintenancePayouts(maintenanceFilteredData);
-  }, [maintenanceFilteredData, calculateMaintenancePayouts]);
+  }, [maintenanceFilteredData, calculateMaintenancePayouts, isHQStaff]);
 
   const settlementStats = React.useMemo(() => {
     const statsMap = new Map<string, number>();
@@ -2500,100 +2521,102 @@ const ERP_Dashboard = () => {
 
     const globalIncentivesSummary: Record<string, number> = {};
 
-    globalIncentiveRules.forEach(rule => {
-      let matchedCount = 0;
-      let commission = 0;
-      const filterClean = payDateFilter.replace(/[-./]/g, '');
-      if (filterClean.length >= 6) {
-        const year = parseInt(filterClean.substring(0, 4));
-        const month = parseInt(filterClean.substring(4, 6));
-        const prevDate = new Date(year, month - 2, 1);
-        const prevYearStr = String(prevDate.getFullYear());
-        const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
-        const targetPrefix1 = `${prevYearStr}-${prevMonthStr}`;
-        const targetPrefix2 = `${prevYearStr}.${prevMonthStr}`;
+    if (!isHQStaff) {
+      globalIncentiveRules.forEach(rule => {
+        let matchedCount = 0;
+        let commission = 0;
+        const filterClean = payDateFilter.replace(/[-./]/g, '');
+        if (filterClean.length >= 6) {
+          const year = parseInt(filterClean.substring(0, 4));
+          const month = parseInt(filterClean.substring(4, 6));
+          const prevDate = new Date(year, month - 2, 1);
+          const prevYearStr = String(prevDate.getFullYear());
+          const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
+          const targetPrefix1 = `${prevYearStr}-${prevMonthStr}`;
+          const targetPrefix2 = `${prevYearStr}.${prevMonthStr}`;
 
-        data.forEach(item => {
-          if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
-          if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
-          let isMatch = false;
-          const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
-          const hasAll = rule.targetHqs?.includes('ALL') || rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '';
-          if (hasAll) {
-            if (rule.targetName === '조재윤' || rule.targetName === '조민경') {
-              isMatch = true;
-            } else {
-              isMatch = item.empName?.includes(rule.targetName) || false;
-            }
-          } else {
-            isMatch = rule.targetHqs?.some(hq => normalizeHq(item.hq) === normalizeHq(hq));
-            if (!isMatch && rule.targetHq) isMatch = normalizeHq(item.hq) === normalizeHq(rule.targetHq);
-          }
-          if (!isMatch) return;
-
-          if (!rule.targetProducts.includes('ALL')) {
-            if (!rule.targetProducts.some((p: string) => item.prodName.includes(p))) return;
-          }
-
-          let dateStr = '';
-          if (rule.baseDateType === 'DELIVERY') {
-            dateStr = item.deliveryDate || '';
-            if (!item.deliveryStatus?.includes('완료')) return;
-          } else {
-            dateStr = item.contractDate || '';
-          }
-
-          let isMatchedDate = false;
-          const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-          if (match) {
-            let y = match[1];
-            if (y.length === 2) y = '20' + y;
-            const m = match[2].padStart(2, '0');
-            if (y === prevYearStr && m === prevMonthStr) {
-              isMatchedDate = true;
-            }
-          }
-
-          if (isMatchedDate) {
-            matchedCount++;
-            if (rule.useInstallments && rule.installments) {
-              const paidCount = item.hcPaidCount || 0;
-              const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
-              if (applicableInstallment) {
-                 commission += applicableInstallment.amount;
+          data.forEach(item => {
+            if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
+            if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
+            let isMatch = false;
+            const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
+            const hasAll = rule.targetHqs?.includes('ALL') || rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '';
+            if (hasAll) {
+              if (rule.targetName === '조재윤' || rule.targetName === '조민경') {
+                isMatch = true;
+              } else {
+                isMatch = item.empName?.includes(rule.targetName) || false;
               }
             } else {
-              commission += rule.commissionPerUnit;
+              isMatch = rule.targetHqs?.some(hq => normalizeHq(item.hq) === normalizeHq(hq));
+              if (!isMatch && rule.targetHq) isMatch = normalizeHq(item.hq) === normalizeHq(rule.targetHq);
             }
-          }
-        });
-      }
+            if (!isMatch) return;
 
-      const finalAmount = Math.max(commission, rule.minimumGuarantee);
+            if (!rule.targetProducts.includes('ALL')) {
+              if (!rule.targetProducts.some((p: string) => item.prodName.includes(p))) return;
+            }
 
-      const payDayStr1 = `.${rule.payDay}`;
-      const payDayStr2 = `-${rule.payDay.toString().padStart(2, '0')}`;
-      const isSettlementDate = payDateFilter.includes(payDayStr1) || payDateFilter.includes(payDayStr2);
+            let dateStr = '';
+            if (rule.baseDateType === 'DELIVERY') {
+              dateStr = item.deliveryDate || '';
+              if (!item.deliveryStatus?.includes('완료')) return;
+            } else {
+              dateStr = item.contractDate || '';
+            }
 
-      if (isSettlementDate && finalAmount > 0) {
-        globalIncentivesSummary[rule.targetName] = (globalIncentivesSummary[rule.targetName] || 0) + finalAmount;
-        
-        if (!hqSummary[rule.targetName]) hqSummary[rule.targetName] = { count: 0, amount: 0 };
-        hqSummary[rule.targetName].amount += finalAmount;
-        hqSummary[rule.targetName].count += matchedCount;
-        
-        const detail = rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
-        const specialName = `[${detail}] ${rule.targetName}`;
-        if (!summary[specialName]) summary[specialName] = { count: 0, amount: 0 };
-        summary[specialName].amount += finalAmount;
-        summary[specialName].count += matchedCount;
-        
-        totalAmount += finalAmount;
-        totalPendingAmount += finalAmount;
-        totalCount += matchedCount;
-        totalPendingCount += matchedCount;
-      }
-    });
+            let isMatchedDate = false;
+            const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+            if (match) {
+              let y = match[1];
+              if (y.length === 2) y = '20' + y;
+              const m = match[2].padStart(2, '0');
+              if (y === prevYearStr && m === prevMonthStr) {
+                isMatchedDate = true;
+              }
+            }
+
+            if (isMatchedDate) {
+              matchedCount++;
+              if (rule.useInstallments && rule.installments) {
+                const paidCount = item.hcPaidCount || 0;
+                const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
+                if (applicableInstallment) {
+                   commission += applicableInstallment.amount;
+                }
+              } else {
+                commission += rule.commissionPerUnit;
+              }
+            }
+          });
+        }
+
+        const finalAmount = Math.max(commission, rule.minimumGuarantee);
+
+        const payDayStr1 = `.${rule.payDay}`;
+        const payDayStr2 = `-${rule.payDay.toString().padStart(2, '0')}`;
+        const isSettlementDate = payDateFilter.includes(payDayStr1) || payDateFilter.includes(payDayStr2);
+
+        if (isSettlementDate && finalAmount > 0) {
+          globalIncentivesSummary[rule.targetName] = (globalIncentivesSummary[rule.targetName] || 0) + finalAmount;
+          
+          if (!hqSummary[rule.targetName]) hqSummary[rule.targetName] = { count: 0, amount: 0 };
+          hqSummary[rule.targetName].amount += finalAmount;
+          hqSummary[rule.targetName].count += matchedCount;
+          
+          const detail = rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
+          const specialName = `[${detail}] ${rule.targetName}`;
+          if (!summary[specialName]) summary[specialName] = { count: 0, amount: 0 };
+          summary[specialName].amount += finalAmount;
+          summary[specialName].count += matchedCount;
+          
+          totalAmount += finalAmount;
+          totalPendingAmount += finalAmount;
+          totalCount += matchedCount;
+          totalPendingCount += matchedCount;
+        }
+      });
+    }
 
     maintenancePayouts.forEach(m => {
       if (!hqSummary[m.hq]) hqSummary[m.hq] = { count: 0, amount: 0 };
@@ -2604,9 +2627,6 @@ const ERP_Dashboard = () => {
       
       totalAmount += m.amount;
       
-      // 이미 지급된 내역은 유지수수료 히스토리에 있으므로, payout 배열에 남은 것은 이번 달 미지급분(또는 지급예정)으로 간주
-      // 또는 m.item.paymentStatus를 확인할 수 있으나 maintenancePayouts 자체가 지급 대상 목록임.
-      // (기존 엑셀 로직에서도 maintenanceSum을 그대로 합계에 더하고 있음)
       totalPendingAmount += m.amount;
     });
 
@@ -2614,20 +2634,57 @@ const ERP_Dashboard = () => {
       .filter(d => d['정산기준일'] === payDateFilter)
       .reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
 
+    let detailsList = Object.entries(summary).sort((a, b) => b[1].amount - a[1].amount);
+    let hqDetailsList = Object.entries(hqSummary).sort((a, b) => b[1].amount - a[1].amount);
+
+    if (isHQStaff) {
+      detailsList = detailsList.filter(([name, stat]) => !name.startsWith('[') && stat.count > 0);
+      hqDetailsList = hqDetailsList.filter(([name, stat]) => {
+        const normName = name.replace(/[\s()본부]/g, '');
+        return userHqNames.includes(normName) && stat.count > 0;
+      });
+    }
+
     return {
       totalCount,
       totalAmount,
       totalPendingAmount,
       totalPendingEnexAmount,
       totalPendingCount,
-      details: Object.entries(summary).sort((a, b) => b[1].amount - a[1].amount),
-      hqDetails: Object.entries(hqSummary).sort((a, b) => b[1].amount - a[1].amount),
+      details: detailsList,
+      hqDetails: hqDetailsList,
       daily: Object.entries(dailyMap).sort((a, b) => String(b[0]).localeCompare(String(a[0]))) as [string, { totalAmount: number, totalCount: number, products: Record<string, { count: number, amount: number }> }][],
       hqGroups,
       globalIncentivesSummary,
       hqSummary
     };
-  }, [filteredData, hqSettings, historyReconData, payDateFilter]);
+  }, [filteredData, hqSettings, historyReconData, payDateFilter, isHQStaff, userHqNames]);
+
+  const pendingDeliveryStats = React.useMemo(() => {
+    const statsMap = new Map<string, number>();
+    data.forEach(item => {
+      if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
+      const key = `${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`;
+      statsMap.set(key, (statsMap.get(key) || 0) + 1);
+    });
+
+    let totalAmount = 0;
+    let totalCount = 0;
+
+    filteredData.forEach(item => {
+      const isCancel = item.status.includes('취소') || item.status.includes('해약') || item.status.includes('철회') || item.status.includes('반품');
+      const isDeliveryComplete = item.deliveryStatus && item.deliveryStatus.includes('배송완료');
+
+      if (!isCancel && !isDeliveryComplete) {
+        const comm = calculateCommissionDetails(item, statsMap);
+        const salesPayable = comm.finalPayable || comm.totalCommission;
+        totalAmount += salesPayable;
+        totalCount += 1;
+      }
+    });
+
+    return { totalAmount, totalCount };
+  }, [filteredData, data, calculateCommissionDetails]);
 
   const monthlyStats = React.useMemo(() => {
     const monthlyMap: Record<string, {
@@ -3967,10 +4024,15 @@ const ERP_Dashboard = () => {
     return ['전체', ...filteredProds];
   }, [data]);
 
-  const uniqueHqs = React.useMemo(() =>
-    ['전체', ...Array.from(new Set(data.map(item => item.hq).filter(Boolean)))],
-    [data]
-  );
+  const uniqueHqs = React.useMemo(() => {
+    const rawHqs = Array.from(new Set(data.map(item => item.hq).filter(Boolean)));
+    if (isHQStaff && userHqNames.length > 0) {
+      const normalize = (s: string) => (s || '').replace(/[\s()본부]/g, '');
+      const filtered = rawHqs.filter(h => userHqNames.includes(normalize(h)));
+      return ['전체', ...filtered];
+    }
+    return ['전체', ...rawHqs];
+  }, [data, isHQStaff, userHqNames]);
 
   const uniqueBranches = React.useMemo(() => {
     const filteredByHq = hqFilter.length === 0 || hqFilter.includes('전체')
@@ -3999,25 +4061,31 @@ const ERP_Dashboard = () => {
     const todayStr = today.toISOString().split('T')[0].replace(/-/g, '.');
 
     // 시트 데이터의 지급일 중 오늘 이후인 것들 (getDisplayPayDate 반영)
-    const existingDates = data
+    let existingDates = data
       .map(item => getDisplayPayDate(item) || item.payDate)
       .filter(d => d && d.trim() !== '' && d >= todayStr);
 
+    if (isHQStaff) {
+      existingDates = existingDates.filter(d => !d.endsWith('.25') && !d.endsWith('-25'));
+    }
+
     const datesSet = new Set(existingDates);
 
-    // 25일 지급일 강제 추가 (이번달, 다음달) - 유지수수료/글로벌인센티브 용도
-    const y = today.getFullYear();
-    const m = today.getMonth() + 1;
-    const thisMonth25 = `${y}.${String(m).padStart(2, '0')}.25`;
-    const nextM = m === 12 ? 1 : m + 1;
-    const nextY = m === 12 ? y + 1 : y;
-    const nextMonth25 = `${nextY}.${String(nextM).padStart(2, '0')}.25`;
-    
-    if (thisMonth25 >= todayStr) datesSet.add(thisMonth25);
-    if (nextMonth25 >= todayStr) datesSet.add(nextMonth25);
+    if (!isHQStaff) {
+      // 25일 지급일 강제 추가 (이번달, 다음달) - 유지수수료/글로벌인센티브 용도
+      const y = today.getFullYear();
+      const m = today.getMonth() + 1;
+      const thisMonth25 = `${y}.${String(m).padStart(2, '0')}.25`;
+      const nextM = m === 12 ? 1 : m + 1;
+      const nextY = m === 12 ? y + 1 : y;
+      const nextMonth25 = `${nextY}.${String(nextM).padStart(2, '0')}.25`;
+      
+      if (thisMonth25 >= todayStr) datesSet.add(thisMonth25);
+      if (nextMonth25 >= todayStr) datesSet.add(nextMonth25);
+    }
 
     return ['전체', ...Array.from(datesSet).sort((a: any, b: any) => String(a).localeCompare(String(b)))];
-  }, [data]);
+  }, [data, isHQStaff]);
 
   const resetFilters = () => {
     setSearchTerm('');
@@ -4905,10 +4973,18 @@ const ERP_Dashboard = () => {
                       <FileText size={80} />
                     </div>
                     <div className="relative z-10">
-                      <div className="text-indigo-300 text-[11px] font-bold uppercase tracking-wider mb-2">에넥스 입금예정액</div>
-                      <div className="text-3xl font-black mb-1">{settlementStats.totalPendingEnexAmount.toLocaleString()}원</div>
+                      <div className="text-indigo-300 text-[11px] font-bold uppercase tracking-wider mb-2">
+                        {isHQStaff ? '가입/배송대기 수수료' : '에넥스 입금예정액'}
+                      </div>
+                      <div className="text-3xl font-black mb-1">
+                        {isHQStaff
+                          ? `${pendingDeliveryStats.totalAmount.toLocaleString()}원`
+                          : `${settlementStats.totalPendingEnexAmount.toLocaleString()}원`}
+                      </div>
                       <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded text-[12px] font-bold">
-                        미입금 {settlementStats.totalPendingCount}구좌
+                        {isHQStaff
+                          ? `지급예정 ${pendingDeliveryStats.totalCount}구좌`
+                          : `미입금 ${settlementStats.totalPendingCount}구좌`}
                       </div>
                     </div>
                   </div>
