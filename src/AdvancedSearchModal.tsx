@@ -208,7 +208,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
       '렌탈계약번호': item.rentalNo || (item.raw && item.raw[10]) || '',
       '제품명': item.rentalProd || '',
       '계약상태': item.status || '',
-      '해지일': item.cancelDate || (item.raw && (item.raw[22] || item.raw[23])) || '',
+      '해지일': item.cancelDate || (item.raw && item.raw[25]) || '',
       '배송상태': item.deliveryStatus || '',
       '상조가입신청서': item.paymentStatus || (item.raw && item.raw[19]) || '',
       '상조출금': (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '',
@@ -519,7 +519,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                         const isCancel = item.status.includes('취소') || item.status.includes('해약') || item.status.includes('철회') || item.status.includes('반품');
                         const phoneNum = item.phone || (item.raw && item.raw[5]) || '-';
                         const rentalNoVal = item.rentalNo || (item.raw && item.raw[10]) || '-';
-                        const cancelDateVal = item.cancelDate || (item.raw && (item.raw[22] || item.raw[23])) || '-';
+                        const cancelDateVal = item.cancelDate || (item.raw && item.raw[25]) || '-';
                         const mutualAidApp = item.paymentStatus || (item.raw && item.raw[19]) || '-';
                         const mutualAidWithdrawal = (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '-';
                         const rentalWithdrawal = item.deliveryMemo || (item.raw && item.raw[24]) ? String(item.raw[24]).trim() : '-';

@@ -548,33 +548,33 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
                     <tr className="border-none">
                       {/* 제목 정보 셀 */}
                       <td className="border-none p-0 align-bottom text-left pb-1">
-                        <h2 className="text-xl font-black text-slate-900 tracking-wide inline-block border-b-2 border-slate-900 pb-0.5 m-0 whitespace-nowrap">
+                        <h2 className="text-2xl sm:text-3xl font-black text-black tracking-wider inline-block border-b-2 border-black pb-1 m-0 whitespace-nowrap">
                           판 매 실 적 보 고
                         </h2>
                         {dateRange && (
-                          <p className="text-[10px] font-bold text-slate-500 mt-1 m-0">
+                          <p className="text-xs sm:text-sm font-bold text-slate-700 mt-1 m-0">
                             기간: {dateRange.year}. {String(dateRange.month).padStart(2, '0')}. 01 ~ {dateRange.year}. {String(dateRange.month).padStart(2, '0')}. {String(dateRange.day).padStart(2, '0')}
                           </p>
                         )}
                       </td>
                       {/* 결재선 양식 셀 */}
-                      <td className="border-none p-0 align-top text-right w-[225px]">
-                        <table className="border-collapse border border-slate-400 text-center text-[10px] font-bold text-slate-800 table-fixed w-[220px] ml-auto select-none">
+                      <td className="border-none p-0 align-top text-right w-[245px]">
+                        <table className="border-collapse border border-slate-400 text-center text-xs font-bold text-slate-900 table-fixed w-[240px] ml-auto select-none">
                           <thead>
                             <tr>
-                              <th rowSpan={2} className="border border-slate-400 w-[28px] bg-slate-50 text-[10px] font-black p-0.5 leading-tight font-normal">
+                              <th rowSpan={2} className="border border-slate-400 w-[30px] bg-slate-50 text-xs font-black p-0.5 leading-tight">
                                 결<br/>재
                               </th>
-                              <th className="border border-slate-400 w-[64px] py-1 bg-slate-50 text-[10px] font-extrabold font-normal">담당자</th>
-                              <th className="border border-slate-400 w-[64px] py-1 bg-slate-50 text-[10px] font-extrabold font-normal">본부장</th>
-                              <th className="border border-slate-400 w-[64px] py-1 bg-slate-50 text-[10px] font-extrabold font-normal">대 표</th>
+                              <th className="border border-slate-400 w-[70px] py-1 bg-slate-50 text-xs font-extrabold">담당자</th>
+                              <th className="border border-slate-400 w-[70px] py-1 bg-slate-50 text-xs font-extrabold">본부장</th>
+                              <th className="border border-slate-400 w-[70px] py-1 bg-slate-50 text-xs font-extrabold">대 표</th>
                             </tr>
                           </thead>
                           <tbody>
                             <tr>
-                              <td className="border border-slate-400 h-14 w-[64px]"></td>
-                              <td className="border border-slate-400 h-14 w-[64px]"></td>
-                              <td className="border border-slate-400 h-14 w-[64px]"></td>
+                              <td className="border border-slate-400 h-14 w-[70px]"></td>
+                              <td className="border border-slate-400 h-14 w-[70px]"></td>
+                              <td className="border border-slate-400 h-14 w-[70px]"></td>
                             </tr>
                           </tbody>
                         </table>
@@ -584,34 +584,34 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
                 </table>
 
                 {/* 1. 상품별 통계 */}
-                <div className="space-y-1">
-                  <h4 className="text-[11px] font-black text-slate-900 flex items-center gap-1 pl-1.5 border-l-[3px] border-rose-600 select-none">
+                <div className="space-y-1.5">
+                  <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
                     1. 상품별 실적 (판매 및 배송 완료)
                   </h4>
-                  <table className="w-full text-left border-collapse border border-slate-300 text-[10px] table-fixed">
+                  <table className="w-full text-left border-collapse border border-slate-400 text-xs sm:text-sm table-fixed">
                     <thead>
-                      <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-300 text-center select-none">
-                        <th className="border border-slate-300 py-1 px-2 text-left w-[40%]">상품명</th>
-                        <th className="border border-slate-300 py-1 px-1 w-[30%]" colSpan={2}>판매 건수</th>
-                        <th className="border border-slate-300 py-1 px-1 w-[30%]" colSpan={2}>배송완료 건수</th>
+                      <tr className="bg-slate-100 text-slate-900 font-black border-b border-slate-400 text-center select-none">
+                        <th className="border border-slate-400 py-1.5 px-2 text-left w-[40%]">상품명</th>
+                        <th className="border border-slate-400 py-1.5 px-1 w-[30%]" colSpan={2}>판매 건수</th>
+                        <th className="border border-slate-400 py-1.5 px-1 w-[30%]" colSpan={2}>배송완료 건수</th>
                       </tr>
-                      <tr className="bg-slate-100/50 text-slate-600 font-semibold border-b border-slate-300 text-[9px] text-center select-none">
-                        <th className="border border-slate-300 py-0.5 px-2"></th>
-                        <th className="border border-slate-300 py-0.5 px-1 w-[15%]">구좌수</th>
-                        <th className="border border-slate-300 py-0.5 px-1 w-[15%]">상품개수</th>
-                        <th className="border border-slate-300 py-0.5 px-1 w-[15%]">구좌수</th>
-                        <th className="border border-slate-300 py-0.5 px-1 w-[15%]">상품개수</th>
+                      <tr className="bg-slate-50 text-slate-800 font-bold border-b border-slate-400 text-[11px] sm:text-xs text-center select-none">
+                        <th className="border border-slate-400 py-1 px-2"></th>
+                        <th className="border border-slate-400 py-1 px-1 w-[15%]">구좌수</th>
+                        <th className="border border-slate-400 py-1 px-1 w-[15%]">상품개수</th>
+                        <th className="border border-slate-400 py-1 px-1 w-[15%]">구좌수</th>
+                        <th className="border border-slate-400 py-1 px-1 w-[15%]">상품개수</th>
                       </tr>
                     </thead>
                     <tbody>
                       {stats?.productStats && stats.productStats.length > 0 ? (
                         stats.productStats.map(item => (
-                          <tr key={item.name} className="border-b border-slate-200 hover:bg-slate-50/50 transition-colors text-center font-medium">
-                            <td className="border border-slate-300 py-1 px-2 text-left font-bold text-slate-800 truncate" title={item.name}>{item.name}</td>
-                            <td className="border border-slate-300 py-1 px-1 text-slate-700">{item.salesGuzwa.toLocaleString()}</td>
-                            <td className="border border-slate-300 py-1 px-1 text-slate-700">{item.salesProd.toLocaleString()}</td>
-                            <td className="border border-slate-300 py-1 px-1 text-emerald-700 font-semibold">{item.deliveryGuzwa.toLocaleString()}</td>
-                            <td className="border border-slate-300 py-1 px-1 text-emerald-700 font-semibold">{item.deliveryProd.toLocaleString()}</td>
+                          <tr key={item.name} className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors text-center font-medium">
+                            <td className="border border-slate-300 py-1.5 px-2 text-left font-bold text-slate-900 truncate" title={item.name}>{item.name}</td>
+                            <td className="border border-slate-300 py-1.5 px-1 text-black font-semibold">{item.salesGuzwa.toLocaleString()}</td>
+                            <td className="border border-slate-300 py-1.5 px-1 text-black font-semibold">{item.salesProd.toLocaleString()}</td>
+                            <td className="border border-slate-300 py-1.5 px-1 text-black font-bold">{item.deliveryGuzwa.toLocaleString()}</td>
+                            <td className="border border-slate-300 py-1.5 px-1 text-black font-bold">{item.deliveryProd.toLocaleString()}</td>
                           </tr>
                         ))
                       ) : (
@@ -624,44 +624,44 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
                 </div>
 
                 {/* 2. 본부별 통계 */}
-                <div className="space-y-1">
-                  <h4 className="text-[11px] font-black text-slate-900 flex items-center gap-1 pl-1.5 border-l-[3px] border-emerald-600 select-none">
+                <div className="space-y-1.5">
+                  <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
                     2. 본부별 실적 (판매 및 배송 완료)
                   </h4>
-                  <table className="w-full text-left border-collapse border border-slate-300 text-[10px] table-fixed">
+                  <table className="w-full text-left border-collapse border border-slate-400 text-xs sm:text-sm table-fixed">
                     <thead>
-                      <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-300 text-center select-none">
-                        <th className="border border-slate-300 py-1 px-2 text-left w-[40%]">본부명</th>
-                        <th className="border border-slate-300 py-1 px-1 w-[30%]" colSpan={2}>판매 건수</th>
-                        <th className="border border-slate-300 py-1 px-1 w-[30%]" colSpan={2}>배송완료 건수</th>
+                      <tr className="bg-slate-100 text-slate-900 font-black border-b border-slate-400 text-center select-none">
+                        <th className="border border-slate-400 py-1.5 px-2 text-left w-[40%]">본부명</th>
+                        <th className="border border-slate-400 py-1.5 px-1 w-[30%]" colSpan={2}>판매 건수</th>
+                        <th className="border border-slate-400 py-1.5 px-1 w-[30%]" colSpan={2}>배송완료 건수</th>
                       </tr>
-                      <tr className="bg-slate-100/50 text-slate-600 font-semibold border-b border-slate-300 text-[9px] text-center select-none">
-                        <th className="border border-slate-300 py-0.5 px-2"></th>
-                        <th className="border border-slate-300 py-0.5 px-1 w-[15%]">구좌수</th>
-                        <th className="border border-slate-300 py-0.5 px-1 w-[15%]">상품개수</th>
-                        <th className="border border-slate-300 py-0.5 px-1 w-[15%]">구좌수</th>
-                        <th className="border border-slate-300 py-0.5 px-1 w-[15%]">상품개수</th>
+                      <tr className="bg-slate-50 text-slate-800 font-bold border-b border-slate-400 text-[11px] sm:text-xs text-center select-none">
+                        <th className="border border-slate-400 py-1 px-2"></th>
+                        <th className="border border-slate-400 py-1 px-1 w-[15%]">구좌수</th>
+                        <th className="border border-slate-400 py-1 px-1 w-[15%]">상품개수</th>
+                        <th className="border border-slate-400 py-1 px-1 w-[15%]">구좌수</th>
+                        <th className="border border-slate-400 py-1 px-1 w-[15%]">상품개수</th>
                       </tr>
                     </thead>
                     <tbody>
                       {stats?.hqStats && stats.hqStats.length > 0 ? (
                         <>
                           {stats.hqStats.map(item => (
-                            <tr key={item.name} className="border-b border-slate-200 hover:bg-slate-50/50 transition-colors text-center font-medium">
-                              <td className="border border-slate-300 py-1 px-2 text-left font-bold text-slate-800 truncate" title={item.name}>{item.name}</td>
-                              <td className="border border-slate-300 py-1 px-1 text-slate-700">{item.salesGuzwa.toLocaleString()}</td>
-                              <td className="border border-slate-300 py-1 px-1 text-slate-700">{item.salesProd.toLocaleString()}</td>
-                              <td className="border border-slate-300 py-1 px-1 text-emerald-700 font-semibold">{item.deliveryGuzwa.toLocaleString()}</td>
-                              <td className="border border-slate-300 py-1 px-1 text-emerald-700 font-semibold">{item.deliveryProd.toLocaleString()}</td>
+                            <tr key={item.name} className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors text-center font-medium">
+                              <td className="border border-slate-300 py-1.5 px-2 text-left font-bold text-slate-900 truncate" title={item.name}>{item.name}</td>
+                              <td className="border border-slate-300 py-1.5 px-1 text-black font-semibold">{item.salesGuzwa.toLocaleString()}</td>
+                              <td className="border border-slate-300 py-1.5 px-1 text-black font-semibold">{item.salesProd.toLocaleString()}</td>
+                              <td className="border border-slate-300 py-1.5 px-1 text-black font-bold">{item.deliveryGuzwa.toLocaleString()}</td>
+                              <td className="border border-slate-300 py-1.5 px-1 text-black font-bold">{item.deliveryProd.toLocaleString()}</td>
                             </tr>
                           ))}
                           {/* 합계 행 */}
-                          <tr className="bg-slate-100/70 font-black border-t border-slate-300 text-center text-slate-900">
-                            <td className="border border-slate-300 py-1 px-2 text-left select-none">합 계</td>
-                            <td className="border border-slate-300 py-1 px-1 text-blue-700">{stats.totals.salesGuzwa.toLocaleString()}</td>
-                            <td className="border border-slate-300 py-1 px-1 text-blue-700">{stats.totals.salesProd.toLocaleString()}</td>
-                            <td className="border border-slate-300 py-1 px-1 text-emerald-700">{stats.totals.deliveryGuzwa.toLocaleString()}</td>
-                            <td className="border border-slate-300 py-1 px-1 text-emerald-700">{stats.totals.deliveryProd.toLocaleString()}</td>
+                          <tr className="bg-slate-200/80 font-black border-t-2 border-slate-400 text-center text-black">
+                            <td className="border border-slate-400 py-1.5 px-2 text-left select-none">합 계</td>
+                            <td className="border border-slate-400 py-1.5 px-1 text-black">{stats.totals.salesGuzwa.toLocaleString()}</td>
+                            <td className="border border-slate-400 py-1.5 px-1 text-black">{stats.totals.salesProd.toLocaleString()}</td>
+                            <td className="border border-slate-400 py-1.5 px-1 text-black">{stats.totals.deliveryGuzwa.toLocaleString()}</td>
+                            <td className="border border-slate-400 py-1.5 px-1 text-black">{stats.totals.deliveryProd.toLocaleString()}</td>
                           </tr>
                         </>
                       ) : (
@@ -674,29 +674,29 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
                 </div>
 
                 {/* 3. 기타 실적 지표 (부고온, 상조행사) */}
-                <div className="space-y-1">
-                  <h4 className="text-[11px] font-black text-slate-900 flex items-center gap-1 pl-1.5 border-l-[3px] border-blue-600 select-none">
+                <div className="space-y-1.5">
+                  <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
                     3. 기타 운영 실적 현황
                   </h4>
-                  <table className="w-full text-left border-collapse border border-slate-300 text-[10px] table-fixed">
+                  <table className="w-full text-left border-collapse border border-slate-400 text-xs sm:text-sm table-fixed">
                     <thead>
-                      <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-300 text-center select-none">
-                        <th className="border border-slate-300 py-1 px-2 text-left w-[50%]">실적 지표명</th>
-                        <th className="border border-slate-300 py-1 px-2 w-[50%]">실적 건수</th>
+                      <tr className="bg-slate-100 text-slate-900 font-black border-b border-slate-400 text-center select-none">
+                        <th className="border border-slate-400 py-1.5 px-2 text-left w-[50%]">실적 지표명</th>
+                        <th className="border border-slate-400 py-1.5 px-2 w-[50%]">실적 건수</th>
                       </tr>
                     </thead>
                     <tbody>
                       {extraMetrics.map((metric, idx) => (
-                        <tr key={metric.id} className="border-b border-slate-200 text-center font-medium">
-                          <td className="border border-slate-300 py-1 px-2 text-left font-bold text-slate-800">{metric.label || `지표 ${idx + 1}`}</td>
-                          <td className={`border border-slate-300 py-1 px-2 font-bold ${idx % 2 === 0 ? 'text-blue-700' : 'text-emerald-700'}`}>
+                        <tr key={metric.id} className="border-b border-slate-300 text-center font-medium">
+                          <td className="border border-slate-300 py-1.5 px-2 text-left font-bold text-slate-900">{metric.label || `지표 ${idx + 1}`}</td>
+                          <td className="border border-slate-300 py-1.5 px-2 font-bold text-black">
                             {metric.value.toLocaleString()} 건
                           </td>
                         </tr>
                       ))}
                       {extraMetrics.length === 0 && (
                         <tr>
-                          <td colSpan={2} className="border border-slate-300 py-2 text-center text-slate-400 font-bold select-none">
+                          <td colSpan={2} className="border border-slate-300 py-3 text-center text-slate-400 font-bold select-none">
                             등록된 기타 운영 실적 현황이 없습니다.
                           </td>
                         </tr>
@@ -708,7 +708,7 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
 
               {/* 하단 추가 메모 영역 */}
               {additionalMemo.trim() && (
-                <div className="mt-4 pt-3 border-t border-dashed border-slate-300 text-[9px] text-slate-600 leading-relaxed font-semibold">
+                <div className="mt-4 pt-3 border-t border-dashed border-slate-400 text-xs text-slate-800 leading-relaxed font-semibold">
                   <div className="whitespace-pre-wrap">{additionalMemo}</div>
                 </div>
               )}
