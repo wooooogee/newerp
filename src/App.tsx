@@ -46,6 +46,7 @@ interface ERPDataItem {
   status: string;         // B(1)
   memo: string;           // U(20)?
   deliveryMemo: string;   // Y(24)
+  cancelDate?: string;    // W(22)
   raw: any[];
   hcPaidCount?: number;
 }
@@ -1367,6 +1368,7 @@ const ERP_Dashboard = () => {
             paymentStatus: String(row[19] || ''),   // T(19)
             memo: String(row[20] || ''),            // U(20)
             deliveryMemo: String(row[24] || ''),    // Y(24)
+            cancelDate: String(row[22] || row[23] || ''), // W(22) / X(23) 해지일/해약일
             raw: row.length < 30 ? [...row, ...new Array(30 - row.length).fill('')] : row,
           };
         }).filter((item: ERPDataItem) => item.contractDate);

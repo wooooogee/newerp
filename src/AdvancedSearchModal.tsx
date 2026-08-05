@@ -12,6 +12,8 @@ interface ERPDataItem {
   phone: string;        // F(5)
   prodName: string;     // G(6)
   rentalProd: string;   // M(12)
+  rentalNo?: string;    // K(10)
+  cancelDate?: string;  // W(22)
   hq: string;           // H(7)
   branch: string;       // I(8)
   salesperson?: string; // J(9)
@@ -199,11 +201,14 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
       '계약일자': item.contractDate || '',
       '회원번호': item.memNo || '',
       '회원명': item.memName || '',
+      '전화번호': item.phone || (item.raw && item.raw[5]) || '',
       '본부': item.hq || '',
       '사원명': item.salesperson || item.empName || '',
       '상품명': item.prodName || '',
+      '렌탈계약번호': item.rentalNo || (item.raw && item.raw[10]) || '',
       '제품명': item.rentalProd || '',
       '계약상태': item.status || '',
+      '해지일': item.cancelDate || (item.raw && (item.raw[22] || item.raw[23])) || '',
       '배송상태': item.deliveryStatus || '',
       '상조가입신청서': item.paymentStatus || (item.raw && item.raw[19]) || '',
       '상조출금': (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '',
@@ -488,11 +493,14 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                       <th className="p-3 whitespace-nowrap">계약일자</th>
                       <th className="p-3 whitespace-nowrap">회원번호</th>
                       <th className="p-3 whitespace-nowrap">회원명</th>
+                      <th className="p-3 whitespace-nowrap">전화번호</th>
                       <th className="p-3 whitespace-nowrap">본부</th>
                       <th className="p-3 whitespace-nowrap">사원명</th>
                       <th className="p-3 whitespace-nowrap">상품명</th>
+                      <th className="p-3 whitespace-nowrap">렌탈계약번호</th>
                       <th className="p-3 whitespace-nowrap">제품명</th>
                       <th className="p-3 text-center whitespace-nowrap">계약상태</th>
+                      <th className="p-3 text-center whitespace-nowrap">해지일</th>
                       <th className="p-3 text-center whitespace-nowrap">배송상태</th>
                       <th className="p-3 text-center whitespace-nowrap">상조가입신청서</th>
                       <th className="p-3 text-center whitespace-nowrap">상조출금</th>
@@ -502,13 +510,16 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {filteredResults.length === 0 ? (
                       <tr>
-                        <td colSpan={13} className="p-16 text-center text-slate-400 font-bold">
+                        <td colSpan={16} className="p-16 text-center text-slate-400 font-bold">
                           선택하신 조건에 부합하는 상세 데이터가 없습니다.
                         </td>
                       </tr>
                     ) : (
                       filteredResults.slice(0, 500).map((item, idx) => {
                         const isCancel = item.status.includes('취소') || item.status.includes('해약') || item.status.includes('철회') || item.status.includes('반품');
+                        const phoneNum = item.phone || (item.raw && item.raw[5]) || '-';
+                        const rentalNoVal = item.rentalNo || (item.raw && item.raw[10]) || '-';
+                        const cancelDateVal = item.cancelDate || (item.raw && (item.raw[22] || item.raw[23])) || '-';
                         const mutualAidApp = item.paymentStatus || (item.raw && item.raw[19]) || '-';
                         const mutualAidWithdrawal = (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '-';
                         const rentalWithdrawal = item.deliveryMemo || (item.raw && item.raw[24]) ? String(item.raw[24]).trim() : '-';
@@ -519,9 +530,11 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                             <td className="p-3 font-semibold whitespace-nowrap">{item.contractDate || '-'}</td>
                             <td className="p-3 font-mono font-medium whitespace-nowrap">{item.memNo || '-'}</td>
                             <td className="p-3 font-bold text-slate-900 whitespace-nowrap">{item.memName || '-'}</td>
+                            <td className="p-3 font-mono text-slate-700 whitespace-nowrap">{phoneNum}</td>
                             <td className="p-3 font-semibold whitespace-nowrap">{item.hq || '-'}</td>
                             <td className="p-3 text-slate-600 whitespace-nowrap">{item.salesperson || item.empName || '-'}</td>
                             <td className="p-3 font-medium truncate max-w-[160px]" title={item.prodName}>{item.prodName || '-'}</td>
+                            <td className="p-3 font-mono font-medium whitespace-nowrap text-slate-800">{rentalNoVal}</td>
                             <td className="p-3 font-medium truncate max-w-[160px]" title={item.rentalProd}>{item.rentalProd || '-'}</td>
                             <td className="p-3 text-center whitespace-nowrap">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
@@ -532,6 +545,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                                 {item.status || '정상'}
                               </span>
                             </td>
+                            <td className="p-3 text-center font-mono whitespace-nowrap text-rose-600 font-semibold">{cancelDateVal}</td>
                             <td className="p-3 text-center whitespace-nowrap">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 (item.deliveryStatus && item.deliveryStatus.includes('배송완료'))
