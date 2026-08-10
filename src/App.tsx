@@ -4028,7 +4028,7 @@ const ERP_Dashboard = () => {
     const rawHqs = Array.from(new Set(data.map(item => item.hq).filter(Boolean)));
     if (isHQStaff && userHqNames.length > 0) {
       const normalize = (s: string) => (s || '').replace(/[\s()본부]/g, '');
-      const filtered = rawHqs.filter(h => userHqNames.includes(normalize(h)));
+      const filtered = rawHqs.filter(h => userHqNames.includes(normalize(String(h))));
       return ['전체', ...filtered];
     }
     return ['전체', ...rawHqs];

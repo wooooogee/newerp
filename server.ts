@@ -1709,7 +1709,7 @@ app.post('/api/sheets/saveCertificateDispatch', async (req, res) => {
       });
       sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
 
-      const headers = [['발송날짜', '구분', '회원명', '공란', '휴대폰번호', '*회원명', '*회원번호1', '*생년월일', '*가입일자', '*가입상품', '*월불입금1', '*월불입금2', '우편번호', '*주소', '*담당자', '*담당자전화번호', '회원번호2', '회원번호3']];
+      const headers = [['발송날짜', '구분', '회원명', '공란', '휴대폰번호', '*회원명', '*회원번호1', '*생년월일', '*가입일자', '*가입상품', '*월불입금1', '*월불입금2', '우편번호', '*주소', '*담당자', '*담당자전화번호', '회원번호2', '회원번호3', '회원번호4']];
       await sheets.spreadsheets.values.append({
         spreadsheetId: sheetId,
         range: '증서발송리스트!A1',

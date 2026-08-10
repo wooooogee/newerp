@@ -256,7 +256,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     if (filterPostNotSent) {
       result = result.filter(item => {
         const isPost = String(item.extracted.workAddress || '').trim() === '우편';
-        const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3];
+        const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3, item.extracted.rentalNo4];
         const isSavedInHistory = nosToCheck.some(no => {
           const cleanNo = String(no || '').trim().toUpperCase();
           return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
@@ -266,7 +266,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     } else {
       // 2. 일반 / 우편 필터링 기본 체계 작동
       result = result.filter(item => {
-        const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3];
+        const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3, item.extracted.rentalNo4];
         const isSavedInHistory = nosToCheck.some(no => {
           const cleanNo = String(no || '').trim().toUpperCase();
           return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
@@ -330,17 +330,18 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         base.extracted.memNo = uniqueNos[0] || '';
         base.extracted.rentalNo2 = uniqueNos[1] || '';
         base.extracted.rentalNo3 = uniqueNos[2] || '';
+        base.extracted.rentalNo4 = uniqueNos[3] || '';
         return base;
       });
     } else {
       result = result.map(item => {
         const base = { ...item };
-        base.extracted = { ...base.extracted, rentalNo2: '', rentalNo3: '' };
+        base.extracted = { ...base.extracted, rentalNo2: '', rentalNo3: '', rentalNo4: '' };
         return base;
       });
     }
 
-    // 가입상품 정렬 및 회원번호 개수 정렬 (3개 -> 2개 -> 1개 순)
+    // 가입상품 정렬 및 회원번호 개수 정렬 (4개 -> 3개 -> 2개 -> 1개 순)
     return [...result].sort((a, b) => {
       const prodA = a.extracted.prodName || '';
       const prodB = b.extracted.prodName || '';
@@ -348,6 +349,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         return prodA.localeCompare(prodB);
       }
       const getScore = (item: any) => {
+        if (item.extracted.rentalNo4) return 4;
         if (item.extracted.rentalNo3) return 3;
         if (item.extracted.rentalNo2) return 2;
         return 1;
@@ -657,7 +659,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           ext.empName || '',
           ext.empPhone || '',
           ext.rentalNo2 || '',
-          ext.rentalNo3 || ''
+          ext.rentalNo3 || '',
+          ext.rentalNo4 || ''
         ];
       });
 
@@ -674,7 +677,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           const next = new Set(prev);
           targetData.forEach(item => {
             const ext = item.extracted;
-            [ext.memNo, ext.rentalNo2, ext.rentalNo3].forEach(no => {
+            [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].forEach(no => {
               const cleanNo = String(no || '').trim().toUpperCase();
               if (cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL') {
                 next.add(cleanNo);
@@ -715,7 +718,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         '*담당자': ext.empName,
         '*담당자전화번호': ext.empPhone,
         '회원번호2': ext.rentalNo2 || '',
-        '회원번호3': ext.rentalNo3 || ''
+        '회원번호3': ext.rentalNo3 || '',
+        '회원번호4': ext.rentalNo4 || ''
       };
     });
 
@@ -948,13 +952,14 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">*담당자전화번호</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">회원번호2</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">회원번호3</th>
+                            <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">회원번호4</th>
                           </tr>
                         </thead>
                         <tbody>
                           {processedData.slice(0, 100).map((item, idx) => {
                             const ext = item.extracted;
                             const isPost = String(ext.workAddress || '').trim() === '우편';
-                            const nosToCheck = [ext.memNo, ext.rentalNo2, ext.rentalNo3];
+                            const nosToCheck = [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4];
                             const isSavedInHistory = nosToCheck.some(no => {
                               const cleanNo = String(no || '').trim().toUpperCase();
                               return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
@@ -997,6 +1002,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.empPhone}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.rentalNo2 || ''}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.rentalNo3 || ''}</td>
+                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.rentalNo4 || ''}</td>
                               </tr>
                             );
                           })}
