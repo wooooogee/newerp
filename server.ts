@@ -681,7 +681,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       }
 
       const incentiveHeaders = [
-        'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰', '대상제품배열'
+        'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰', '대상제품배열', '정산유형', '발행사업자명', '사업자번호'
       ];
       
       const incentiveRows: any[][] = [incentiveHeaders];
@@ -699,7 +699,10 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           JSON.stringify(rule.targetHqs || ['ALL']),
           rule.useInstallments ? 'Y' : 'N',
           JSON.stringify(rule.installments || []),
-          JSON.stringify(rule.targetItems || ['ALL'])
+          JSON.stringify(rule.targetItems || ['ALL']),
+          rule.taxType || 'DEFAULT',
+          rule.taxBusinessName || '',
+          rule.taxBusinessNo || ''
         ]);
       });
 
@@ -1091,6 +1094,9 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         const iUseInstallments = iCol('할부사용여부');
         const iInstallments = iCol('할부룰');
         const iTargetItems = iCol('대상제품배열');
+        const iTaxType = iCol('정산유형');
+        const iTaxBusinessName = iCol('발행사업자명');
+        const iTaxBusinessNo = iCol('사업자번호');
 
         globalIncentives = incRows.slice(1).map((row: string[]) => {
           const productsStr = iTargetProducts >= 0 ? (row[iTargetProducts] || '') : '';
@@ -1126,7 +1132,10 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             commissionPerUnit: iCommissionPerUnit >= 0 ? (parseInt(row[iCommissionPerUnit]) || 0) : 0,
             minimumGuarantee: iMinimumGuarantee >= 0 ? (parseInt(row[iMinimumGuarantee]) || 0) : 0,
             useInstallments: iUseInstallments >= 0 ? (row[iUseInstallments] === 'Y') : false,
-            installments
+            installments,
+            taxType: iTaxType >= 0 ? (row[iTaxType] as any) || 'DEFAULT' : 'DEFAULT',
+            taxBusinessName: iTaxBusinessName >= 0 ? row[iTaxBusinessName] || '' : '',
+            taxBusinessNo: iTaxBusinessNo >= 0 ? row[iTaxBusinessNo] || '' : ''
           };
         }).filter((r: any) => r.targetName);
         console.log(`[CloudSync] Loaded ${globalIncentives.length} global incentives from cloud.`);

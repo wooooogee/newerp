@@ -2521,11 +2521,26 @@ const ERP_Dashboard = () => {
     });
 
     const globalIncentivesSummary: Record<string, number> = {};
+    const globalIncentivesCountSummary: Record<string, number> = {};
+    const specialPayouts: any[] = [];
 
     if (!isHQStaff) {
       globalIncentiveRules.forEach(rule => {
         let matchedCount = 0;
         let commission = 0;
+        const isSelfHq = !rule.targetName || rule.targetName.trim() === '' || rule.targetName === 'SELF_HQ' || rule.targetName === '판매본부' || rule.targetName === '해당본부' || rule.targetName === '본부';
+
+        let isSettlementDate = false;
+        if (!rule.payDay || rule.payDay === 0) {
+          isSettlementDate = true;
+        } else {
+          const payDayStr1 = `.${rule.payDay}`;
+          const payDayStr2 = `-${rule.payDay.toString().padStart(2, '0')}`;
+          isSettlementDate = payDateFilter.includes(payDayStr1) || payDateFilter.includes(payDayStr2);
+        }
+
+        if (!isSettlementDate) return;
+
         const filterClean = payDateFilter.replace(/[-./]/g, '');
         if (filterClean.length >= 6) {
           const year = parseInt(filterClean.substring(0, 4));
@@ -2533,8 +2548,6 @@ const ERP_Dashboard = () => {
           const prevDate = new Date(year, month - 2, 1);
           const prevYearStr = String(prevDate.getFullYear());
           const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
-          const targetPrefix1 = `${prevYearStr}-${prevMonthStr}`;
-          const targetPrefix2 = `${prevYearStr}.${prevMonthStr}`;
 
           data.forEach(item => {
             if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
@@ -2542,8 +2555,10 @@ const ERP_Dashboard = () => {
             let isMatch = false;
             const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
             const hasAll = rule.targetHqs?.includes('ALL') || rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '';
-            if (hasAll) {
+            if (hasAll || isSelfHq) {
               if (rule.targetName === '조재윤' || rule.targetName === '조민경') {
+                isMatch = true;
+              } else if (isSelfHq) {
                 isMatch = true;
               } else {
                 isMatch = item.empName?.includes(rule.targetName) || false;
@@ -2582,43 +2597,83 @@ const ERP_Dashboard = () => {
             }
 
             if (isMatchedDate) {
-              matchedCount++;
+              let itemComm = 0;
               if (rule.useInstallments && rule.installments) {
                 const paidCount = item.hcPaidCount || 0;
                 const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
                 if (applicableInstallment) {
-                   commission += applicableInstallment.amount;
+                  itemComm = applicableInstallment.amount;
                 }
               } else {
-                commission += rule.commissionPerUnit;
+                itemComm = rule.commissionPerUnit;
+              }
+
+              if (isSelfHq) {
+                const hqName = item.hq;
+                if (hqName && itemComm > 0) {
+                  globalIncentivesSummary[hqName] = (globalIncentivesSummary[hqName] || 0) + itemComm;
+                  globalIncentivesCountSummary[hqName] = (globalIncentivesCountSummary[hqName] || 0) + 1;
+                  
+                  if (!hqSummary[hqName]) hqSummary[hqName] = { count: 0, amount: 0 };
+                  hqSummary[hqName].amount += itemComm;
+                  
+                  const detail = rule.incentiveName || '공급수수료';
+                  const specialName = `[${detail}] ${hqName}`;
+                  if (!summary[specialName]) summary[specialName] = { count: 0, amount: 0 };
+                  summary[specialName].amount += itemComm;
+                  summary[specialName].count += 1;
+                  
+                  specialPayouts.push({
+                    id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
+                    hq: hqName,
+                    targetName: 'SELF_HQ',
+                    incentiveName: detail,
+                    rentalNo: item.rentalNo || '-',
+                    memName: item.memName || '-',
+                    empName: item.empName || '-',
+                    prodName: item.prodName || '-',
+                    rentalProd: item.rentalProd || '-',
+                    amount: itemComm,
+                    contractDate: item.contractDate || '-',
+                    deliveryDate: item.deliveryDate || '-',
+                    payDate: item.payDate || getDisplayPayDate(item) || '-',
+                    taxType: rule.taxType || 'DEFAULT',
+                    taxBusinessName: rule.taxBusinessName,
+                    taxBusinessNo: rule.taxBusinessNo
+                  });
+
+                  totalAmount += itemComm;
+                  totalPendingAmount += itemComm;
+                }
+              } else {
+                matchedCount++;
+                commission += itemComm;
               }
             }
           });
         }
 
-        const finalAmount = Math.max(commission, rule.minimumGuarantee);
-
-        const payDayStr1 = `.${rule.payDay}`;
-        const payDayStr2 = `-${rule.payDay.toString().padStart(2, '0')}`;
-        const isSettlementDate = payDateFilter.includes(payDayStr1) || payDateFilter.includes(payDayStr2);
-
-        if (isSettlementDate && finalAmount > 0) {
-          globalIncentivesSummary[rule.targetName] = (globalIncentivesSummary[rule.targetName] || 0) + finalAmount;
-          
-          if (!hqSummary[rule.targetName]) hqSummary[rule.targetName] = { count: 0, amount: 0 };
-          hqSummary[rule.targetName].amount += finalAmount;
-          hqSummary[rule.targetName].count += matchedCount;
-          
-          const detail = rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
-          const specialName = `[${detail}] ${rule.targetName}`;
-          if (!summary[specialName]) summary[specialName] = { count: 0, amount: 0 };
-          summary[specialName].amount += finalAmount;
-          summary[specialName].count += matchedCount;
-          
-          totalAmount += finalAmount;
-          totalPendingAmount += finalAmount;
-          totalCount += matchedCount;
-          totalPendingCount += matchedCount;
+        if (!isSelfHq) {
+          const finalAmount = Math.max(commission, rule.minimumGuarantee);
+          if (finalAmount > 0) {
+            globalIncentivesSummary[rule.targetName] = (globalIncentivesSummary[rule.targetName] || 0) + finalAmount;
+            globalIncentivesCountSummary[rule.targetName] = (globalIncentivesCountSummary[rule.targetName] || 0) + matchedCount;
+            
+            if (!hqSummary[rule.targetName]) hqSummary[rule.targetName] = { count: 0, amount: 0 };
+            hqSummary[rule.targetName].amount += finalAmount;
+            hqSummary[rule.targetName].count += matchedCount;
+            
+            const detail = rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
+            const specialName = `[${detail}] ${rule.targetName}`;
+            if (!summary[specialName]) summary[specialName] = { count: 0, amount: 0 };
+            summary[specialName].amount += finalAmount;
+            summary[specialName].count += matchedCount;
+            
+            totalAmount += finalAmount;
+            totalPendingAmount += finalAmount;
+            totalCount += matchedCount;
+            totalPendingCount += matchedCount;
+          }
         }
       });
     }
@@ -2661,6 +2716,8 @@ const ERP_Dashboard = () => {
       daily: Object.entries(dailyMap).sort((a, b) => String(b[0]).localeCompare(String(a[0]))) as [string, { totalAmount: number, totalCount: number, products: Record<string, { count: number, amount: number }> }][],
       hqGroups,
       globalIncentivesSummary,
+      globalIncentivesCountSummary,
+      specialPayouts,
       hqSummary
     };
   }, [filteredData, hqSettings, historyReconData, payDateFilter, isHQStaff, userHqNames]);
@@ -3350,8 +3407,43 @@ const ERP_Dashboard = () => {
     try {
       const items = settlementStats.hqGroups[hqName] || [];
       const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
+      let hqSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === hqName);
       const maintenanceSum = hqMaintenancePayouts.reduce((sum, m) => sum + m.amount, 0);
       const specialSum = (settlementStats.globalIncentivesSummary || {})[hqName] || 0;
+
+      const matchedRule = globalIncentiveRules.find(r => 
+        (r.targetName === 'SELF_HQ' || r.targetName === '판매본부' || r.targetName === '해당본부') &&
+        (r.targetHqs?.includes('ALL') || r.targetHqs?.includes(hqName) || !r.targetHq || r.targetHq === 'ALL' || r.targetHq === hqName)
+      );
+
+      if (matchedRule) {
+        hqSpecialPayouts = hqSpecialPayouts.map((sp: any) => ({
+          ...sp,
+          taxType: sp.taxType && sp.taxType !== 'DEFAULT' ? sp.taxType : (matchedRule.taxType || 'DEFAULT'),
+          taxBusinessName: sp.taxBusinessName || matchedRule.taxBusinessName || '',
+          taxBusinessNo: sp.taxBusinessNo || matchedRule.taxBusinessNo || ''
+        }));
+        if (hqSpecialPayouts.length === 0 && specialSum > 0) {
+          hqSpecialPayouts = [{
+            id: 'temp',
+            hq: hqName,
+            targetName: 'SELF_HQ',
+            incentiveName: matchedRule.incentiveName || '공급수수료',
+            rentalNo: '-',
+            memName: '-',
+            empName: '-',
+            prodName: '-',
+            rentalProd: '-',
+            amount: specialSum,
+            contractDate: '-',
+            deliveryDate: '-',
+            payDate: '-',
+            taxType: matchedRule.taxType || 'DEFAULT',
+            taxBusinessName: matchedRule.taxBusinessName || '',
+            taxBusinessNo: matchedRule.taxBusinessNo || ''
+          }];
+        }
+      }
 
       if (items.length === 0 && maintenanceSum === 0 && specialSum === 0) {
         alert(`${hqName}의 정산 내역이 없습니다.`);
@@ -3528,7 +3620,65 @@ const ERP_Dashboard = () => {
       rows.push([]);
 
       // Row 6~10: 2. 세금계산서 발행 / 원천징수 영수 요약
-      if (isIndiv) {
+      const samplePayout = hqSpecialPayouts[0];
+      const hasSeparateTaxEntity = specialSum > 0 && samplePayout && (
+        samplePayout.taxType === 'CORPORATE' || 
+        Boolean(samplePayout.taxBusinessName && samplePayout.taxBusinessName.trim() !== '')
+      );
+      const specIncentiveName = samplePayout?.incentiveName || '공급수수료';
+      const specBizName = samplePayout?.taxBusinessName || '';
+      const specBizNo = samplePayout?.taxBusinessNo ? ` (${samplePayout.taxBusinessNo})` : '';
+
+      const hqBizLabel = (setting as any)?.businessName 
+        ? `${(setting as any).businessName}${(setting as any).businessNo ? ` (${(setting as any).businessNo})` : ''}`
+        : '더좋은라이프(주) (113-86-21120)';
+
+      if (hasSeparateTaxEntity) {
+        // 1. 본부 수수료 세금계산서 / 원천징수 요약 (특수수당 제외)
+        const hqTotal = salesSum + promoSum + maintenanceSum;
+        if (isIndiv) {
+          rows.push([`[본부 수수료 원천징수 영수 요약 (3.3% 공제)] - ${hqName}`]);
+          rows.push(['구분', '정산금액', '원천세(3.3%)', '실지급액']);
+          if (salesSum > 0) rows.push(['판매 수수료', { v: salesSum, t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }, { v: salesSum - Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }]);
+          if (promoSum > 0) rows.push(['판매 촉진비', { v: promoSum, t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }, { v: promoSum - Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }]);
+          if (maintenanceSum > 0) rows.push(['유지 수수료', { v: maintenanceSum, t: 'n', z: '#,##0' }, { v: Math.floor(maintenanceSum * 0.033), t: 'n', z: '#,##0' }, { v: maintenanceSum - Math.floor(maintenanceSum * 0.033), t: 'n', z: '#,##0' }]);
+          rows.push(['소계 (본부 세금계산서)', { v: hqTotal, t: 'n', z: '#,##0' }, { v: Math.floor(hqTotal * 0.033), t: 'n', z: '#,##0' }, { v: hqTotal - Math.floor(hqTotal * 0.033), t: 'n', z: '#,##0' }]);
+        } else {
+          rows.push([`[본부 세금계산서 발행] - ${hqBizLabel}`]);
+          rows.push(['구분', '공급가액', '부가세(10%)', '합계금액(실지급액)']);
+          const salesSupply = Math.round(salesSum / 1.1);
+          const salesVat = salesSum - salesSupply;
+          const promoSupply = Math.round(promoSum / 1.1);
+          const promoVat = promoSum - promoSupply;
+          const hqSupply = Math.round(hqTotal / 1.1);
+          const hqVat = hqTotal - hqSupply;
+
+          if (salesSum > 0) rows.push(['판매 수수료', { v: salesSupply, t: 'n', z: '#,##0' }, { v: salesVat, t: 'n', z: '#,##0' }, { v: salesSum, t: 'n', z: '#,##0' }]);
+          if (promoSum > 0) rows.push(['판매 촉진비', { v: promoSupply, t: 'n', z: '#,##0' }, { v: promoVat, t: 'n', z: '#,##0' }, { v: promoSum, t: 'n', z: '#,##0' }]);
+          if (maintenanceSum > 0) {
+            const maintSupply = Math.round(maintenanceSum / 1.1);
+            rows.push(['유지 수수료', { v: maintSupply, t: 'n', z: '#,##0' }, { v: maintenanceSum - maintSupply, t: 'n', z: '#,##0' }, { v: maintenanceSum, t: 'n', z: '#,##0' }]);
+          }
+          rows.push(['소계 (본부 세금계산서)', { v: hqSupply, t: 'n', z: '#,##0' }, { v: hqVat, t: 'n', z: '#,##0' }, { v: hqTotal, t: 'n', z: '#,##0' }]);
+        }
+
+        rows.push([]);
+
+        // 2. 별도 사업자 세금계산서 발행
+        const specSupply = Math.round(specialSum / 1.1);
+        const specVat = specialSum - specSupply;
+        rows.push([`[별도 세금계산서 발행] - ${specBizName || hqName}${specBizNo}`]);
+        rows.push(['구분', '공급가액', '부가세(10%)', '합계금액(실지급액)']);
+        rows.push([specIncentiveName, { v: specSupply, t: 'n', z: '#,##0' }, { v: specVat, t: 'n', z: '#,##0' }, { v: specialSum, t: 'n', z: '#,##0' }]);
+        rows.push(['소계 (별도 세금계산서)', { v: specSupply, t: 'n', z: '#,##0' }, { v: specVat, t: 'n', z: '#,##0' }, { v: specialSum, t: 'n', z: '#,##0' }]);
+
+        rows.push([]);
+
+        // 3. 전체 최종 합계
+        const totalSupply = Math.round(totalSum / 1.1);
+        const totalVat = totalSum - totalSupply;
+        rows.push(['최종 합계액 (전체)', { v: totalSupply, t: 'n', z: '#,##0' }, { v: totalVat, t: 'n', z: '#,##0' }, { v: totalSum, t: 'n', z: '#,##0' }]);
+      } else if (isIndiv) {
         rows.push(['원천징수 영수 요약 (3.3% 공제)']);
         rows.push(['구분', '정산금액', '원천세(3.3%)', '실지급액']);
         if (salesSum > 0) {
@@ -3541,11 +3691,11 @@ const ERP_Dashboard = () => {
           rows.push(['유지 수수료', { v: maintenanceSum, t: 'n', z: '#,##0' }, { v: Math.floor(maintenanceSum * 0.033), t: 'n', z: '#,##0' }, { v: maintenanceSum - Math.floor(maintenanceSum * 0.033), t: 'n', z: '#,##0' }]);
         }
         if (specialSum > 0) {
-          rows.push(['특수 수당', { v: specialSum, t: 'n', z: '#,##0' }, { v: Math.floor(specialSum * 0.033), t: 'n', z: '#,##0' }, { v: specialSum - Math.floor(specialSum * 0.033), t: 'n', z: '#,##0' }]);
+          rows.push([specIncentiveName, { v: specialSum, t: 'n', z: '#,##0' }, { v: Math.floor(specialSum * 0.033), t: 'n', z: '#,##0' }, { v: specialSum - Math.floor(specialSum * 0.033), t: 'n', z: '#,##0' }]);
         }
         rows.push(['합계', { v: totalSum, t: 'n', z: '#,##0' }, { v: Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }, { v: totalSum - Math.floor(totalSum * 0.033), t: 'n', z: '#,##0' }]);
       } else {
-        rows.push(['세금계산서 발행']);
+        rows.push([`[본부 세금계산서 발행] - ${hqBizLabel}`]);
         rows.push(['구분', '공급가액', '부가세(10%)', '합계금액(실지급액)']);
         
         const salesSupply = Math.round(salesSum / 1.1);
@@ -3567,7 +3717,7 @@ const ERP_Dashboard = () => {
         }
         if (specialSum > 0) {
           const specSupply = Math.round(specialSum / 1.1);
-          rows.push(['특수 수당', { v: specSupply, t: 'n', z: '#,##0' }, { v: specialSum - specSupply, t: 'n', z: '#,##0' }, { v: specialSum, t: 'n', z: '#,##0' }]);
+          rows.push([specIncentiveName, { v: specSupply, t: 'n', z: '#,##0' }, { v: specialSum - specSupply, t: 'n', z: '#,##0' }, { v: specialSum, t: 'n', z: '#,##0' }]);
         }
         rows.push(['합계', { v: totalSupply, t: 'n', z: '#,##0' }, { v: totalVat, t: 'n', z: '#,##0' }, { v: totalSum, t: 'n', z: '#,##0' }]);
       }
@@ -3728,19 +3878,61 @@ const ERP_Dashboard = () => {
       if (specialSum > 0) {
         rows.push([]);
         rows.push(['[특수수당 상세 내역]']);
-        rows.push(['No', '대상자명', '수당 종류', '지급 기준 구좌수', '수당 단가', '최종 수당 금액']);
-        const rule = globalIncentiveRules.find(r => r.targetName === hqName);
-        const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : '특수수당');
-        const matchedCount = settlementStats.hqSummary[hqName]?.count || 0;
-        const unitPrice = rule ? rule.commissionPerUnit : 0;
-        rows.push([
-          1,
-          hqName,
-          detail,
-          matchedCount,
-          { v: unitPrice, t: 'n', z: '#,##0' },
-          { v: specialSum, t: 'n', z: '#,##0' }
-        ]);
+        rows.push(['No', '지사명', '계약일자', '지급일자', '본부명', '사원명', '고객명', '렌탈계약번호', '배송일자', '수당 종류', '제품명(렌탈상품명)', '수수료']);
+
+        if (hqSpecialPayouts.length > 0) {
+          hqSpecialPayouts.forEach((sp: any, idx: number) => {
+            const originContract = filteredData.find(d => d.rentalNo === sp.rentalNo || d.resNo === sp.rentalNo);
+            const branch = sp.branch || (originContract ? originContract.branch : hqName);
+            rows.push([
+              idx + 1,
+              branch,
+              sp.contractDate && sp.contractDate !== '-' ? sp.contractDate : (originContract ? originContract.contractDate : '-'),
+              sp.payDate && sp.payDate !== '-' ? sp.payDate : (originContract ? (originContract.payDate || payDateDisplay) : payDateDisplay),
+              sp.hq || hqName,
+              sp.empName && sp.empName !== '-' ? sp.empName : (originContract ? originContract.empName : '-'),
+              sp.memName && sp.memName !== '-' ? sp.memName : (originContract ? originContract.memName : '-'),
+              sp.rentalNo || '-',
+              sp.deliveryDate && sp.deliveryDate !== '-' ? sp.deliveryDate : (originContract ? originContract.deliveryDate : '-'),
+              sp.incentiveName || '공급수수료',
+              sp.rentalProd || sp.prodName || (originContract ? (originContract.rentalProd || originContract.prodName) : '-'),
+              { v: Math.floor(sp.amount), t: 'n', z: '#,##0' }
+            ]);
+          });
+
+          rows.push([
+            '특수수당 소계',
+            '',
+            '',
+            '',
+            '',
+            `${hqSpecialPayouts.length}건`,
+            '',
+            '',
+            '',
+            '',
+            '',
+            { v: Math.floor(specialSum), t: 'n', z: '#,##0' }
+          ]);
+        } else {
+          const rule = globalIncentiveRules.find(r => (r.targetName === 'SELF_HQ' || r.targetName === '판매본부' || r.targetName === '해당본부' || r.targetName === hqName));
+          const detail = rule?.incentiveName || '공급수수료';
+          const matchedCount = settlementStats.globalIncentivesCountSummary?.[hqName] || 0;
+          rows.push([
+            1,
+            hqName,
+            '-',
+            payDateDisplay,
+            hqName,
+            '-',
+            '-',
+            '-',
+            '-',
+            detail,
+            `특수수당 (${matchedCount}건)`,
+            { v: Math.floor(specialSum), t: 'n', z: '#,##0' }
+          ]);
+        }
       }
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -6893,21 +7085,34 @@ const ERP_Dashboard = () => {
                                 }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
                               </div>
                               <div className="flex-1">
-                                <label className="text-xs font-bold text-slate-500">수급자명 (개인 본부명으로 정산됨)</label>
-                                <input type="text" value={rule.targetName} onChange={e => {
+                                <label className="text-xs font-bold text-slate-500">수급자명 (본부 직접 지급 시 빈칸 또는 '해당본부')</label>
+                                <input type="text" placeholder="빈칸 시 실적 본부로 직접 정산" value={rule.targetName} onChange={e => {
                                   const n = [...globalIncentiveRules]; n[idx].targetName = e.target.value; setGlobalIncentiveRules(n);
                                 }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
                               </div>
-                              <div className="w-48">
-                                <label className="text-xs font-bold text-slate-500">수수료 지급일</label>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-2 rounded-lg border border-slate-200">다음달</span>
-                                  <div className="relative flex-1">
-                                    <input type="number" min="1" max="31" value={rule.payDay} onChange={e => {
-                                      const n = [...globalIncentiveRules]; n[idx].payDay = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
-                                    }} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-right pr-8 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
-                                    <span className="absolute right-3 top-2.5 text-slate-400 text-sm font-bold">일</span>
-                                  </div>
+                              <div className="w-64">
+                                <label className="text-xs font-bold text-slate-500">수수료 지급일 설정</label>
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  <select 
+                                    value={rule.payDay === 0 ? 'SAME' : 'CUSTOM'} 
+                                    onChange={e => {
+                                      const n = [...globalIncentiveRules]; 
+                                      n[idx].payDay = e.target.value === 'SAME' ? 0 : 25; 
+                                      setGlobalIncentiveRules(n);
+                                    }}
+                                    className="px-2 py-2 border border-slate-200 rounded-lg text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-100"
+                                  >
+                                    <option value="SAME">기존 지급일과 동일</option>
+                                    <option value="CUSTOM">지정일 (다음달)</option>
+                                  </select>
+                                  {rule.payDay !== 0 && (
+                                    <div className="relative flex-1">
+                                      <input type="number" min="1" max="31" value={rule.payDay} onChange={e => {
+                                        const n = [...globalIncentiveRules]; n[idx].payDay = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
+                                      }} className="w-full px-2 py-2 border border-slate-200 rounded-lg text-right pr-5 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold text-xs" />
+                                      <span className="absolute right-1.5 top-2 text-slate-400 text-xs font-bold">일</span>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -7102,6 +7307,54 @@ const ERP_Dashboard = () => {
                                 </div>
                               )}
                               
+                              {/* 세금계산서 발행 사업자 구분 설정 */}
+                              <div className="flex gap-4 items-center mt-3 pt-3 border-t border-indigo-100">
+                                <div className="w-48">
+                                  <label className="text-[10px] font-bold text-slate-500 block mb-1">세금계산서 발행 구분</label>
+                                  <select 
+                                    value={rule.taxType || 'DEFAULT'} 
+                                    onChange={e => {
+                                      const n = [...globalIncentiveRules]; 
+                                      n[idx].taxType = e.target.value as any; 
+                                      setGlobalIncentiveRules(n);
+                                    }}
+                                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-100"
+                                  >
+                                    <option value="DEFAULT">기본 본부 세금계산서</option>
+                                    <option value="CORPORATE">별도 법인/사업자 세금계산서</option>
+                                    <option value="INDIVIDUAL">별도 개인 (원천세 3.3%)</option>
+                                  </select>
+                                </div>
+                                <div className="flex-1">
+                                  <label className="text-[10px] font-bold text-slate-500 block mb-1">발행 사업자 상호 (생략 시 수급자명)</label>
+                                  <input 
+                                    type="text" 
+                                    placeholder="예: 주식회사 리치웰페어" 
+                                    value={rule.taxBusinessName || ''} 
+                                    onChange={e => {
+                                      const n = [...globalIncentiveRules]; 
+                                      n[idx].taxBusinessName = e.target.value; 
+                                      setGlobalIncentiveRules(n);
+                                    }}
+                                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-100"
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <label className="text-[10px] font-bold text-slate-500 block mb-1">사업자등록번호</label>
+                                  <input 
+                                    type="text" 
+                                    placeholder="예: 546-86-01339" 
+                                    value={rule.taxBusinessNo || ''} 
+                                    onChange={e => {
+                                      const n = [...globalIncentiveRules]; 
+                                      n[idx].taxBusinessNo = e.target.value; 
+                                      setGlobalIncentiveRules(n);
+                                    }}
+                                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-100"
+                                  />
+                                </div>
+                              </div>
+
                               <div className="absolute right-4 top-4">
                                 <button onClick={async () => {
                                   if(await (window as any).customConfirm('이 규칙을 삭제하시겠습니까?')) {

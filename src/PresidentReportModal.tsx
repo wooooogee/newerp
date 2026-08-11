@@ -155,7 +155,7 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
         const rules = JSON.parse(savedIncentives);
         if (Array.isArray(rules)) {
           rules.forEach((r: any) => {
-            if (r.targetName) {
+            if (r.targetName && r.targetName !== 'SELF_HQ' && r.targetName !== '판매본부' && r.targetName !== '해당본부') {
               specialHqs.add(r.targetName.trim());
             }
           });
