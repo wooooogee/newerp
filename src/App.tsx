@@ -788,7 +788,9 @@ const ERP_Dashboard = () => {
           ...hq,
           productRules: (hq.productRules || []).map((pr: any) => ({
             ...pr,
-            applyMaintenance: pr.applyMaintenance === true || (pr.applyMaintenance !== false && ((pr.productName || '').includes('유지') || (pr.maintenanceRules && pr.maintenanceRules.length > 0)))
+            applyMaintenance: typeof pr.applyMaintenance === 'boolean'
+              ? pr.applyMaintenance
+              : (pr.applyMaintenance === 'true' || pr.applyMaintenance === 1 || pr.applyMaintenance === '1')
           }))
         }));
       } catch (e) {
@@ -807,13 +809,30 @@ const ERP_Dashboard = () => {
       enableOverriding: m.enableOverriding ?? false,
       overriding: m.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
       settlementType: m.settlementType || '사업자',
-      productRules: m.productRules || []
+      productRules: (m.productRules || []).map(pr => ({
+        ...pr,
+        applyMaintenance: typeof pr.applyMaintenance === 'boolean'
+          ? pr.applyMaintenance
+          : (pr.applyMaintenance === 'true' || pr.applyMaintenance === 1 || pr.applyMaintenance === '1')
+      }))
     }));
   });
 
   const [globalIncentiveRules, setGlobalIncentiveRules] = useState<GlobalIncentiveRule[]>(() => {
     const saved = localStorage.getItem('erp_global_incentives');
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return parsed.map((r: any) => ({
+          ...r,
+          payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
+          commissionPerUnit: Number(r.commissionPerUnit || 0),
+          minimumGuarantee: Number(r.minimumGuarantee || 0)
+        }));
+      } catch (e) {
+        console.error(e);
+      }
+    }
     return [
       { id: 'jaeyun', targetName: '조재윤', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], targetItems: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 10000, minimumGuarantee: 2000000, useInstallments: false, installments: [] },
       { id: 'minkyung', targetName: '조민경', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], targetItems: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 5000, minimumGuarantee: 0, useInstallments: false, installments: [] },
@@ -940,12 +959,19 @@ const ERP_Dashboard = () => {
           ...hq,
           productRules: (hq.productRules || []).map((pr: any) => ({
             ...pr,
-            applyMaintenance: pr.applyMaintenance === true || (pr.applyMaintenance !== false && ((pr.productName || '').includes('유지') || (pr.maintenanceRules && pr.maintenanceRules.length > 0)))
+            applyMaintenance: typeof pr.applyMaintenance === 'boolean'
+              ? pr.applyMaintenance
+              : (pr.applyMaintenance === 'true' || pr.applyMaintenance === 1 || pr.applyMaintenance === '1')
           }))
         }));
         setHqSettings(sanitizedSettings);
         if (data.globalIncentives && Array.isArray(data.globalIncentives)) {
-          setGlobalIncentiveRules(data.globalIncentives);
+          setGlobalIncentiveRules(data.globalIncentives.map((r: any) => ({
+            ...r,
+            payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
+            commissionPerUnit: Number(r.commissionPerUnit || 0),
+            minimumGuarantee: Number(r.minimumGuarantee || 0)
+          })));
         }
         if (data.maintenanceRules && Array.isArray(data.maintenanceRules)) {
           setMaintenanceRules(data.maintenanceRules);
@@ -7097,283 +7123,402 @@ const ERP_Dashboard = () => {
                         {globalIncentiveRules.length === 0 && (
                           <div className="text-center py-12 text-slate-400 font-bold">등록된 특수 수당 규칙이 없습니다.</div>
                         )}
-                        {globalIncentiveRules.map((rule, idx) => (
-                          <div key={rule.id} className="relative bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-4">
-                            <div className="flex gap-4 items-center">
-                              <div className="flex-1">
-                                <label className="text-xs font-bold text-slate-500">수당 종류 (예: 글로벌인센티브, 모델비, 컨설팅비)</label>
-                                <input type="text" placeholder="글로벌인센티브" value={rule.incentiveName ?? ''} onChange={e => {
-                                  const n = [...globalIncentiveRules]; n[idx].incentiveName = e.target.value; setGlobalIncentiveRules(n);
-                                }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
-                              </div>
-                              <div className="flex-1">
-                                <label className="text-xs font-bold text-slate-500">수급자명 (본부 직접 지급 시 빈칸 또는 '해당본부')</label>
-                                <input type="text" placeholder="빈칸 시 실적 본부로 직접 정산" value={rule.targetName} onChange={e => {
-                                  const n = [...globalIncentiveRules]; n[idx].targetName = e.target.value; setGlobalIncentiveRules(n);
-                                }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold" />
-                              </div>
-                              <div className="w-64">
-                                <label className="text-xs font-bold text-slate-500">수수료 지급일 설정</label>
-                                <div className="flex items-center gap-1.5 mt-1">
-                                  <select 
-                                    value={rule.payDay === 0 ? 'SAME' : 'CUSTOM'} 
-                                    onChange={e => {
-                                      const n = [...globalIncentiveRules]; 
-                                      n[idx].payDay = e.target.value === 'SAME' ? 0 : 25; 
-                                      setGlobalIncentiveRules(n);
-                                    }}
-                                    className="px-2 py-2 border border-slate-200 rounded-lg text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-100"
-                                  >
-                                    <option value="SAME">기존 지급일과 동일</option>
-                                    <option value="CUSTOM">지정일 (다음달)</option>
-                                  </select>
-                                  {rule.payDay !== 0 && (
-                                    <div className="relative flex-1">
-                                      <input type="number" min="1" max="31" value={rule.payDay} onChange={e => {
-                                        const n = [...globalIncentiveRules]; n[idx].payDay = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
-                                      }} className="w-full px-2 py-2 border border-slate-200 rounded-lg text-right pr-5 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold text-xs" />
-                                      <span className="absolute right-1.5 top-2 text-slate-400 text-xs font-bold">일</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
+                        {globalIncentiveRules.map((rule, idx) => {
+                          const isCustomPerson = rule.targetName && rule.targetName !== 'SELF_HQ' && rule.targetName !== '해당본부' && rule.targetName !== '판매본부' && rule.targetName.trim() !== '';
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
-                              <div className="w-full">
-                                <label className="text-xs font-bold text-slate-500">대상 본부 (다중선택 가능)</label>
-                                <div className="mt-1 flex flex-col gap-2">
-                                  <select onChange={e => {
-                                    if (!e.target.value) return;
-                                    const n = [...globalIncentiveRules];
-                                    if (!n[idx].targetHqs) n[idx].targetHqs = ['ALL'];
-                                    if (e.target.value === 'ALL') n[idx].targetHqs = ['ALL'];
-                                    else {
-                                      if (n[idx].targetHqs.includes('ALL')) n[idx].targetHqs = [];
-                                      if (!n[idx].targetHqs.includes(e.target.value)) n[idx].targetHqs.push(e.target.value);
-                                    }
-                                    setGlobalIncentiveRules(n);
-                                    e.target.value = '';
-                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
-                                    <option value="">본부 추가...</option>
-                                    <option value="ALL">전체 본부 대상</option>
-                                    {hqSettings.map(h => <option key={h.id} value={h.hqName}>{h.hqName}</option>)}
-                                  </select>
-                                  {(rule.targetHqs || ['ALL']).includes('ALL') ? (
-                                    <span className="inline-block px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">전체 본부 대상</span>
-                                  ) : (
-                                    <div className="flex flex-wrap gap-2">
-                                      {(rule.targetHqs || []).map(h => (
-                                        <span key={h} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-100">
-                                          {h}
-                                          <button onClick={() => {
-                                            const n = [...globalIncentiveRules];
-                                            n[idx].targetHqs = n[idx].targetHqs.filter(x => x !== h);
-                                            if (n[idx].targetHqs.length === 0) n[idx].targetHqs = ['ALL'];
-                                            setGlobalIncentiveRules(n);
-                                          }} className="hover:text-red-500 transition-colors"><X size={14} /></button>
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
+                          return (
+                            <div key={rule.id} className="relative bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all flex flex-col gap-5 overflow-hidden">
+                              {/* 상단 뱃지 & 헤더 툴바 */}
+                              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                                <div className="flex items-center gap-3">
+                                  <span className="px-3 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full text-xs font-black tracking-wide shadow-sm">
+                                    수당 정책 #{idx + 1}
+                                  </span>
+                                  <h3 className="text-sm font-bold text-slate-800">
+                                    {rule.incentiveName || '수당 명칭 미입력'} 
+                                    <span className="ml-2 text-xs font-normal text-slate-400">
+                                      ({isCustomPerson ? `개인 수급 지정: ${rule.targetName}` : '실적 본부 직접 정산'})
+                                    </span>
+                                  </h3>
                                 </div>
-                              </div>
-                              <div className="w-full">
-                                <label className="text-xs font-bold text-slate-500">대상 상품 (다중선택 가능)</label>
-                                <div className="mt-1 flex flex-col gap-2">
-                                  <select onChange={e => {
-                                    if (!e.target.value) return;
-                                    const n = [...globalIncentiveRules];
-                                    if (e.target.value === 'ALL') n[idx].targetProducts = ['ALL'];
-                                    else {
-                                      if (n[idx].targetProducts.includes('ALL')) n[idx].targetProducts = [];
-                                      if (!n[idx].targetProducts.includes(e.target.value)) n[idx].targetProducts.push(e.target.value);
+                                <button 
+                                  onClick={async () => {
+                                    if (await (window as any).customConfirm('이 규칙을 삭제하시겠습니까?')) {
+                                      const n = [...globalIncentiveRules]; n.splice(idx, 1); setGlobalIncentiveRules(n);
                                     }
-                                    setGlobalIncentiveRules(n);
-                                    e.target.value = '';
-                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
-                                    <option value="">상품 추가...</option>
-                                    <option value="ALL">전체 상품</option>
-                                    {Array.from(new Set(hqSettings.flatMap(h => h.productRules.map(p => p.productName)))).map(p => (
-                                      <option key={p} value={p}>{p}</option>
-                                    ))}
-                                  </select>
-                                  {rule.targetProducts.includes('ALL') ? (
-                                    <span className="inline-block px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">전체 상품</span>
-                                  ) : (
-                                    <div className="flex flex-wrap gap-2">
-                                      {rule.targetProducts.map(p => (
-                                        <span key={p} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold border border-blue-100">
-                                          {p}
-                                          <button onClick={() => {
-                                            const n = [...globalIncentiveRules];
-                                            n[idx].targetProducts = n[idx].targetProducts.filter(x => x !== p);
-                                            if (n[idx].targetProducts.length === 0) n[idx].targetProducts = ['ALL'];
-                                            setGlobalIncentiveRules(n);
-                                          }} className="hover:text-red-500 transition-colors"><X size={14} /></button>
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="w-full">
-                                <label className="text-xs font-bold text-slate-500">대상 제품 (렌탈상품명)</label>
-                                <div className="mt-1 flex flex-col gap-2">
-                                  <select onChange={e => {
-                                    if (!e.target.value) return;
-                                    const n = [...globalIncentiveRules];
-                                    if (!n[idx].targetItems) n[idx].targetItems = ['ALL'];
-                                    if (e.target.value === 'ALL') n[idx].targetItems = ['ALL'];
-                                    else {
-                                      if (n[idx].targetItems.includes('ALL')) n[idx].targetItems = [];
-                                      if (!n[idx].targetItems.includes(e.target.value)) n[idx].targetItems.push(e.target.value);
-                                    }
-                                    setGlobalIncentiveRules(n);
-                                    e.target.value = '';
-                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-100 transition-all text-sm font-bold">
-                                    <option value="">제품 추가...</option>
-                                    <option value="ALL">전체 제품</option>
-                                    {Array.from(new Set(data.map(d => d.rentalProd).filter(Boolean))).sort().map(p => (
-                                      <option key={p} value={p}>{p}</option>
-                                    ))}
-                                  </select>
-                                  {(!rule.targetItems || rule.targetItems.includes('ALL')) ? (
-                                    <span className="inline-block px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">전체 제품</span>
-                                  ) : (
-                                    <div className="flex flex-wrap gap-2">
-                                      {rule.targetItems.map(p => (
-                                        <span key={p} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg text-xs font-bold border border-purple-100">
-                                          {p}
-                                          <button onClick={() => {
-                                            const n = [...globalIncentiveRules];
-                                            n[idx].targetItems = (n[idx].targetItems || []).filter(x => x !== p);
-                                            if (n[idx].targetItems.length === 0) n[idx].targetItems = ['ALL'];
-                                            setGlobalIncentiveRules(n);
-                                          }} className="hover:text-red-500 transition-colors"><X size={14} /></button>
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="w-full">
-                                <label className="text-xs font-bold text-slate-500">결합상품 실적 기준일</label>
-                                <select value={rule.baseDateType} onChange={e => {
-                                  const n = [...globalIncentiveRules]; n[idx].baseDateType = e.target.value as any; setGlobalIncentiveRules(n);
-                                }} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 transition-all text-sm font-bold">
-                                  <option value="DELIVERY">배송완료일자 기준</option>
-                                  <option value="CONTRACT">계약일자 기준</option>
-                                </select>
-                              </div>
-                            </div>
-
-                            <div className="flex flex-col gap-2 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mt-2">
-                              <div className="flex items-center justify-between">
-                                <label className="text-[11px] font-bold text-indigo-700 flex items-center gap-2">
-                                  <input type="checkbox" checked={rule.useInstallments || false} onChange={e => {
-                                    const n = [...globalIncentiveRules];
-                                    n[idx].useInstallments = e.target.checked;
-                                    if (e.target.checked && (!n[idx].installments || n[idx].installments.length === 0)) {
-                                      n[idx].installments = [{ id: Date.now().toString(), startRound: 1, endRound: 1, amount: 0 }];
-                                    }
-                                    setGlobalIncentiveRules(n);
-                                  }} className="rounded text-indigo-600 focus:ring-indigo-500" />
-                                  회차별 차등 지급 사용 (체크 시 건당 수수료 대신 적용)
-                                </label>
+                                  }} 
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                                  title="규칙 삭제"
+                                >
+                                  <X size={18} />
+                                </button>
                               </div>
 
-                              {rule.useInstallments ? (
-                                <div className="flex flex-col gap-2 mt-2">
-                                  {(rule.installments || []).map((ins, insIdx) => (
-                                    <div key={ins.id} className="flex gap-2 items-center">
-                                      <input type="number" value={ins.startRound} onChange={e => {
-                                        const n = [...globalIncentiveRules]; n[idx].installments![insIdx].startRound = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
-                                      }} className="w-16 px-2 py-1 text-sm border border-indigo-200 rounded outline-none" min="1" />
-                                      <span className="text-xs text-indigo-400">회차 ~</span>
-                                      <input type="number" value={ins.endRound} onChange={e => {
-                                        const n = [...globalIncentiveRules]; n[idx].installments![insIdx].endRound = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
-                                      }} className="w-16 px-2 py-1 text-sm border border-indigo-200 rounded outline-none" min="1" />
-                                      <span className="text-xs text-indigo-400">회차</span>
-                                      <input type="number" value={ins.amount} onChange={e => {
-                                        const n = [...globalIncentiveRules]; n[idx].installments![insIdx].amount = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
-                                      }} className="w-32 px-2 py-1 text-sm text-right font-bold text-indigo-600 border border-indigo-200 rounded outline-none ml-2" />
-                                      <span className="text-xs text-indigo-400">원</span>
-                                      <button onClick={() => {
-                                        const n = [...globalIncentiveRules]; n[idx].installments!.splice(insIdx, 1); setGlobalIncentiveRules(n);
-                                      }} className="ml-2 text-slate-400 hover:text-red-500"><X size={14} /></button>
-                                    </div>
-                                  ))}
-                                  <button onClick={() => {
-                                    const n = [...globalIncentiveRules];
-                                    if (!n[idx].installments) n[idx].installments = [];
-                                    const lastRound = n[idx].installments!.length > 0 ? n[idx].installments![n[idx].installments!.length - 1].endRound : 0;
-                                    n[idx].installments!.push({ id: Date.now().toString(), startRound: lastRound + 1, endRound: lastRound + 1, amount: 0 });
-                                    setGlobalIncentiveRules(n);
-                                  }} className="self-start text-xs text-indigo-600 font-bold px-2 py-1 bg-indigo-100 rounded hover:bg-indigo-200 mt-1">+ 회차 구간 추가</button>
-                                </div>
-                              ) : (
-                                <div className="flex gap-4 items-center mt-2">
-                                  <div className="flex-1">
-                                    <label className="text-[10px] uppercase tracking-wider font-black text-indigo-400">건당 수수료 (원)</label>
-                                    <input type="number" value={rule.commissionPerUnit} onChange={e => {
-                                      const n = [...globalIncentiveRules]; n[idx].commissionPerUnit = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
-                                    }} className="w-full mt-1 px-3 py-2 border border-indigo-200 rounded-lg text-right font-black text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-200 transition-all bg-white" />
-                                  </div>
-                                  <div className="flex-1">
-                                    <label className="text-[10px] uppercase tracking-wider font-black text-orange-400">최소 보장 금액 (원) - 없으면 0</label>
-                                    <input type="number" value={rule.minimumGuarantee} onChange={e => {
-                                      const n = [...globalIncentiveRules]; n[idx].minimumGuarantee = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
-                                    }} className="w-full mt-1 px-3 py-2 border border-orange-200 rounded-lg text-right font-black text-orange-500 outline-none focus:ring-2 focus:ring-orange-200 transition-all bg-white" />
-                                  </div>
-                                </div>
-                              )}
-                              
-                              {/* 세금계산서 발행 사업자 구분 설정 */}
-                              <div className="flex gap-4 items-center mt-3 pt-3 border-t border-indigo-100">
-                                <div className="w-48">
-                                  <label className="text-[10px] font-bold text-slate-500 block mb-1">세금계산서 발행 구분</label>
-                                  <select 
-                                    value={rule.taxType || 'DEFAULT'} 
-                                    onChange={e => {
-                                      const n = [...globalIncentiveRules]; 
-                                      n[idx].taxType = e.target.value as any; 
-                                      setGlobalIncentiveRules(n);
-                                    }}
-                                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-100"
-                                  >
-                                    <option value="DEFAULT">기본 본부 세금계산서</option>
-                                    <option value="CORPORATE">별도 법인/사업자 세금계산서</option>
-                                    <option value="INDIVIDUAL">별도 개인 (원천세 3.3%)</option>
-                                  </select>
-                                </div>
-                                <div className="flex-1">
-                                  <label className="text-[10px] font-bold text-slate-500 block mb-1">발행 사업자 상호 (생략 시 수급자명)</label>
+                              {/* 1. 기본 정보 & 정산 대상 */}
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
+                                <div>
+                                  <label className="text-xs font-bold text-slate-600 block mb-1">수당 명칭 (종류)</label>
                                   <input 
                                     type="text" 
-                                    placeholder="예: 주식회사 리치웰페어" 
-                                    value={rule.taxBusinessName || ''} 
+                                    placeholder="예: 공급 수수료, 모델비, 컨설팅비" 
+                                    value={rule.incentiveName ?? ''} 
                                     onChange={e => {
-                                      const n = [...globalIncentiveRules]; 
-                                      n[idx].taxBusinessName = e.target.value; 
-                                      setGlobalIncentiveRules(n);
-                                    }}
-                                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-100"
+                                      const n = [...globalIncentiveRules]; n[idx].incentiveName = e.target.value; setGlobalIncentiveRules(n);
+                                    }} 
+                                    className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-xs font-bold transition-all" 
                                   />
                                 </div>
-                                <div className="flex-1">
-                                  <label className="text-[10px] font-bold text-slate-500 block mb-1">사업자등록번호</label>
-                                  <input 
-                                    type="text" 
-                                    placeholder="예: 546-86-01339" 
-                                    value={rule.taxBusinessNo || ''} 
-                                    onChange={e => {
-                                      const n = [...globalIncentiveRules]; 
-                                      n[idx].taxBusinessNo = e.target.value; 
+
+                                <div>
+                                  <label className="text-xs font-bold text-slate-600 block mb-1">수수료 정산 대상</label>
+                                  <div className="flex gap-2">
+                                    <select 
+                                      value={isCustomPerson ? 'PERSON' : 'HQ'} 
+                                      onChange={e => {
+                                        const n = [...globalIncentiveRules];
+                                        if (e.target.value === 'HQ') {
+                                          n[idx].targetName = '해당본부';
+                                        } else {
+                                          n[idx].targetName = '신규 수급자';
+                                        }
+                                        setGlobalIncentiveRules(n);
+                                      }}
+                                      className="w-1/2 px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-xs font-bold transition-all"
+                                    >
+                                      <option value="HQ">본부 직접 지급</option>
+                                      <option value="PERSON">특정 개인 지정</option>
+                                    </select>
+                                    {isCustomPerson ? (
+                                      <input 
+                                        type="text" 
+                                        placeholder="성명 (예: 조재윤)" 
+                                        value={rule.targetName} 
+                                        onChange={e => {
+                                          const n = [...globalIncentiveRules]; n[idx].targetName = e.target.value; setGlobalIncentiveRules(n);
+                                        }} 
+                                        className="w-1/2 px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-xs font-bold transition-all" 
+                                      />
+                                    ) : (
+                                      <div className="w-1/2 px-3 py-2 bg-slate-100 border border-slate-200/60 rounded-xl text-slate-500 text-xs font-bold flex items-center justify-center">
+                                        실적 본부로 정산
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label className="text-xs font-bold text-slate-600 block mb-1">수수료 지급일</label>
+                                  <div className="flex items-center gap-2">
+                                    <select 
+                                      value={Number(rule.payDay || 0) === 0 ? 'SAME' : 'CUSTOM'} 
+                                      onChange={e => {
+                                        const n = [...globalIncentiveRules]; 
+                                        n[idx].payDay = e.target.value === 'SAME' ? 0 : (Number(rule.payDay) > 0 ? Number(rule.payDay) : 25); 
+                                        setGlobalIncentiveRules(n);
+                                      }}
+                                      className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                    >
+                                      <option value="SAME">기존 정산 지급일과 동일 (연동)</option>
+                                      <option value="CUSTOM">지정일 (다음달 N일)</option>
+                                    </select>
+                                    {Number(rule.payDay || 0) !== 0 && (
+                                      <div className="relative w-20">
+                                        <input 
+                                          type="number" 
+                                          min="1" 
+                                          max="31" 
+                                          value={rule.payDay || 25} 
+                                          onChange={e => {
+                                            const n = [...globalIncentiveRules]; n[idx].payDay = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
+                                          }} 
+                                          className="w-full px-2 py-2 bg-white border border-slate-200 rounded-xl text-right pr-5 outline-none focus:ring-2 focus:ring-blue-500/20 text-xs font-bold" 
+                                        />
+                                        <span className="absolute right-1.5 top-2 text-slate-400 text-xs font-bold">일</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* 2. 적용 대상 선택 (본부 / 상품 / 제품 / 기준일) */}
+                              <div>
+                                <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                  🎯 적용 대상 필터링
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                  {/* 대상 본부 */}
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold text-slate-600">대상 본부</label>
+                                    <select onChange={e => {
+                                      if (!e.target.value) return;
+                                      const n = [...globalIncentiveRules];
+                                      if (!n[idx].targetHqs) n[idx].targetHqs = ['ALL'];
+                                      if (e.target.value === 'ALL') n[idx].targetHqs = ['ALL'];
+                                      else {
+                                        if (n[idx].targetHqs.includes('ALL')) n[idx].targetHqs = [];
+                                        if (!n[idx].targetHqs.includes(e.target.value)) n[idx].targetHqs.push(e.target.value);
+                                      }
                                       setGlobalIncentiveRules(n);
-                                    }}
-                                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-100"
-                                  />
+                                      e.target.value = '';
+                                    }} className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all">
+                                      <option value="">본부 선택 추가...</option>
+                                      <option value="ALL">전체 본부 대상</option>
+                                      {hqSettings.map(h => <option key={h.id} value={h.hqName}>{h.hqName}</option>)}
+                                    </select>
+                                    <div className="flex flex-wrap gap-1.5 min-h-[32px] p-1.5 bg-slate-50 rounded-xl border border-slate-100">
+                                      {(rule.targetHqs || ['ALL']).includes('ALL') ? (
+                                        <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200/60">전체 본부</span>
+                                      ) : (
+                                        (rule.targetHqs || []).map(h => (
+                                          <span key={h} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200/60">
+                                            {h}
+                                            <button onClick={() => {
+                                              const n = [...globalIncentiveRules];
+                                              n[idx].targetHqs = n[idx].targetHqs.filter(x => x !== h);
+                                              if (n[idx].targetHqs.length === 0) n[idx].targetHqs = ['ALL'];
+                                              setGlobalIncentiveRules(n);
+                                            }} className="hover:text-rose-600 transition-colors"><X size={12} /></button>
+                                          </span>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* 대상 상품 */}
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold text-slate-600">대상 상품 (카테고리)</label>
+                                    <select onChange={e => {
+                                      if (!e.target.value) return;
+                                      const n = [...globalIncentiveRules];
+                                      if (e.target.value === 'ALL') n[idx].targetProducts = ['ALL'];
+                                      else {
+                                        if (n[idx].targetProducts.includes('ALL')) n[idx].targetProducts = [];
+                                        if (!n[idx].targetProducts.includes(e.target.value)) n[idx].targetProducts.push(e.target.value);
+                                      }
+                                      setGlobalIncentiveRules(n);
+                                      e.target.value = '';
+                                    }} className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all">
+                                      <option value="">상품 선택 추가...</option>
+                                      <option value="ALL">전체 상품</option>
+                                      {Array.from(new Set(hqSettings.flatMap(h => h.productRules.map(p => p.productName)))).map(p => (
+                                        <option key={p} value={p}>{p}</option>
+                                      ))}
+                                    </select>
+                                    <div className="flex flex-wrap gap-1.5 min-h-[32px] p-1.5 bg-slate-50 rounded-xl border border-slate-100">
+                                      {rule.targetProducts.includes('ALL') ? (
+                                        <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold border border-blue-200/60">전체 상품</span>
+                                      ) : (
+                                        rule.targetProducts.map(p => (
+                                          <span key={p} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold border border-blue-200/60">
+                                            {p}
+                                            <button onClick={() => {
+                                              const n = [...globalIncentiveRules];
+                                              n[idx].targetProducts = n[idx].targetProducts.filter(x => x !== p);
+                                              if (n[idx].targetProducts.length === 0) n[idx].targetProducts = ['ALL'];
+                                              setGlobalIncentiveRules(n);
+                                            }} className="hover:text-rose-600 transition-colors"><X size={12} /></button>
+                                          </span>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* 대상 제품 */}
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold text-slate-600">대상 제품 (렌탈상품명)</label>
+                                    <select onChange={e => {
+                                      if (!e.target.value) return;
+                                      const n = [...globalIncentiveRules];
+                                      if (!n[idx].targetItems) n[idx].targetItems = ['ALL'];
+                                      if (e.target.value === 'ALL') n[idx].targetItems = ['ALL'];
+                                      else {
+                                        if (n[idx].targetItems.includes('ALL')) n[idx].targetItems = [];
+                                        if (!n[idx].targetItems.includes(e.target.value)) n[idx].targetItems.push(e.target.value);
+                                      }
+                                      setGlobalIncentiveRules(n);
+                                      e.target.value = '';
+                                    }} className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all">
+                                      <option value="">제품 선택 추가...</option>
+                                      <option value="ALL">전체 제품</option>
+                                      {Array.from(new Set(data.map(d => d.rentalProd).filter(Boolean))).sort().map(p => (
+                                        <option key={p} value={p}>{p}</option>
+                                      ))}
+                                    </select>
+                                    <div className="flex flex-wrap gap-1.5 min-h-[32px] p-1.5 bg-slate-50 rounded-xl border border-slate-100">
+                                      {(!rule.targetItems || rule.targetItems.includes('ALL')) ? (
+                                        <span className="px-2.5 py-0.5 bg-purple-50 text-purple-700 rounded-lg text-xs font-bold border border-purple-200/60">전체 제품</span>
+                                      ) : (
+                                        rule.targetItems.map(p => (
+                                          <span key={p} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-purple-50 text-purple-700 rounded-lg text-xs font-bold border border-purple-200/60 truncate max-w-[160px]" title={p}>
+                                            <span className="truncate">{p}</span>
+                                            <button onClick={() => {
+                                              const n = [...globalIncentiveRules];
+                                              n[idx].targetItems = (n[idx].targetItems || []).filter(x => x !== p);
+                                              if (n[idx].targetItems.length === 0) n[idx].targetItems = ['ALL'];
+                                              setGlobalIncentiveRules(n);
+                                            }} className="hover:text-rose-600 transition-colors flex-shrink-0"><X size={12} /></button>
+                                          </span>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* 실적 기준일 */}
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold text-slate-600">실적 인정 기준일</label>
+                                    <select 
+                                      value={rule.baseDateType} 
+                                      onChange={e => {
+                                        const n = [...globalIncentiveRules]; n[idx].baseDateType = e.target.value as any; setGlobalIncentiveRules(n);
+                                      }} 
+                                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all h-[36px]"
+                                    >
+                                      <option value="DELIVERY">배송완료일자 기준</option>
+                                      <option value="CONTRACT">계약일자 기준</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* 3. 수수료 금액 & 회차별 차등 산정 */}
+                              <div className="bg-indigo-50/40 p-4 rounded-2xl border border-indigo-100/80 flex flex-col gap-3">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-xs font-bold text-indigo-900 flex items-center gap-2 cursor-pointer select-none">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={rule.useInstallments || false} 
+                                      onChange={e => {
+                                        const n = [...globalIncentiveRules];
+                                        n[idx].useInstallments = e.target.checked;
+                                        if (e.target.checked && (!n[idx].installments || n[idx].installments.length === 0)) {
+                                          n[idx].installments = [{ id: Date.now().toString(), startRound: 1, endRound: 1, amount: 0 }];
+                                        }
+                                        setGlobalIncentiveRules(n);
+                                      }} 
+                                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-indigo-300" 
+                                    />
+                                    회차별 차등 수수료 사용 (체크 시 구간별 회차 금액이 적용됩니다)
+                                  </label>
+                                </div>
+
+                                {rule.useInstallments ? (
+                                  <div className="flex flex-col gap-2 mt-1">
+                                    {(rule.installments || []).map((ins, insIdx) => (
+                                      <div key={ins.id} className="flex gap-2 items-center bg-white p-2 rounded-xl border border-indigo-100">
+                                        <input type="number" value={ins.startRound} onChange={e => {
+                                          const n = [...globalIncentiveRules]; n[idx].installments![insIdx].startRound = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
+                                        }} className="w-16 px-2.5 py-1 text-xs border border-slate-200 rounded-lg outline-none font-bold text-center" min="1" />
+                                        <span className="text-xs text-slate-500 font-bold">회차 ~</span>
+                                        <input type="number" value={ins.endRound} onChange={e => {
+                                          const n = [...globalIncentiveRules]; n[idx].installments![insIdx].endRound = parseInt(e.target.value) || 1; setGlobalIncentiveRules(n);
+                                        }} className="w-16 px-2.5 py-1 text-xs border border-slate-200 rounded-lg outline-none font-bold text-center" min="1" />
+                                        <span className="text-xs text-slate-500 font-bold">회차</span>
+                                        <input type="number" value={ins.amount} onChange={e => {
+                                          const n = [...globalIncentiveRules]; n[idx].installments![insIdx].amount = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
+                                        }} className="w-36 px-3 py-1 text-xs text-right font-black text-indigo-600 border border-slate-200 rounded-lg outline-none ml-auto" />
+                                        <span className="text-xs font-bold text-slate-500">원</span>
+                                        <button onClick={() => {
+                                          const n = [...globalIncentiveRules]; n[idx].installments!.splice(insIdx, 1); setGlobalIncentiveRules(n);
+                                        }} className="ml-2 text-slate-300 hover:text-rose-600"><X size={16} /></button>
+                                      </div>
+                                    ))}
+                                    <button onClick={() => {
+                                      const n = [...globalIncentiveRules];
+                                      if (!n[idx].installments) n[idx].installments = [];
+                                      const lastRound = n[idx].installments!.length > 0 ? n[idx].installments![n[idx].installments!.length - 1].endRound : 0;
+                                      n[idx].installments!.push({ id: Date.now().toString(), startRound: lastRound + 1, endRound: lastRound + 1, amount: 0 });
+                                      setGlobalIncentiveRules(n);
+                                    }} className="self-start text-xs font-bold text-indigo-600 px-3 py-1.5 bg-indigo-100/70 hover:bg-indigo-100 rounded-xl transition-all mt-1">+ 회차 구간 추가</button>
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-1">
+                                    <div className="bg-white p-3 rounded-xl border border-indigo-100">
+                                      <label className="text-[11px] font-black text-indigo-600 tracking-wide block mb-1">건당 수수료 (원)</label>
+                                      <div className="relative">
+                                        <input 
+                                          type="number" 
+                                          value={rule.commissionPerUnit} 
+                                          onChange={e => {
+                                            const n = [...globalIncentiveRules]; n[idx].commissionPerUnit = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
+                                          }} 
+                                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-right font-black text-indigo-700 text-sm outline-none focus:ring-2 focus:ring-indigo-200 pr-7" 
+                                        />
+                                        <span className="absolute right-2.5 top-2 text-xs font-bold text-slate-400">원</span>
+                                      </div>
+                                    </div>
+                                    <div className="bg-white p-3 rounded-xl border border-amber-100">
+                                      <label className="text-[11px] font-black text-amber-600 tracking-wide block mb-1">최소 보장 금액 (원) - 없으면 0</label>
+                                      <div className="relative">
+                                        <input 
+                                          type="number" 
+                                          value={rule.minimumGuarantee} 
+                                          onChange={e => {
+                                            const n = [...globalIncentiveRules]; n[idx].minimumGuarantee = parseInt(e.target.value) || 0; setGlobalIncentiveRules(n);
+                                          }} 
+                                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-right font-black text-amber-600 text-sm outline-none focus:ring-2 focus:ring-amber-200 pr-7" 
+                                        />
+                                        <span className="absolute right-2.5 top-2 text-xs font-bold text-slate-400">원</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* 4. 세금계산서 발행 및 사업자 구분 */}
+                              <div className="bg-slate-100/60 p-4 rounded-2xl border border-slate-200/70">
+                                <div className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                                  🧾 세금계산서 발행 및 정산 유형
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  <div>
+                                    <label className="text-[11px] font-bold text-slate-500 block mb-1">발행 방식</label>
+                                    <select 
+                                      value={rule.taxType || 'DEFAULT'} 
+                                      onChange={e => {
+                                        const n = [...globalIncentiveRules]; 
+                                        n[idx].taxType = e.target.value as any; 
+                                        setGlobalIncentiveRules(n);
+                                      }}
+                                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-500/20"
+                                    >
+                                      <option value="DEFAULT">기본 본부 세금계산서에 합산</option>
+                                      <option value="CORPORATE">별도 법인/사업자 세금계산서 발행</option>
+                                      <option value="INDIVIDUAL">별도 개인 원천징수 (3.3%)</option>
+                                    </select>
+                                  </div>
+
+                                  {(rule.taxType === 'CORPORATE' || rule.taxType === 'INDIVIDUAL' || (rule.taxBusinessName && rule.taxBusinessName.trim() !== '')) && (
+                                    <>
+                                      <div>
+                                        <label className="text-[11px] font-bold text-slate-500 block mb-1">발행 사업자 상호 (생략 시 수급자명)</label>
+                                        <input 
+                                          type="text" 
+                                          placeholder="예: 주식회사 리치웰페어" 
+                                          value={rule.taxBusinessName || ''} 
+                                          onChange={e => {
+                                            const n = [...globalIncentiveRules]; 
+                                            n[idx].taxBusinessName = e.target.value; 
+                                            setGlobalIncentiveRules(n);
+                                          }}
+                                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[11px] font-bold text-slate-500 block mb-1">사업자등록번호</label>
+                                        <input 
+                                          type="text" 
+                                          placeholder="예: 546-86-01339" 
+                                          value={rule.taxBusinessNo || ''} 
+                                          onChange={e => {
+                                            const n = [...globalIncentiveRules]; 
+                                            n[idx].taxBusinessNo = e.target.value; 
+                                            setGlobalIncentiveRules(n);
+                                          }}
+                                          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        />
+                                      </div>
+                                    </>
+                                  )}
                                 </div>
                               </div>
 
@@ -7387,8 +7532,8 @@ const ERP_Dashboard = () => {
                                 </button>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
