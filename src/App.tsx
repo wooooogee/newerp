@@ -118,6 +118,7 @@ export interface GlobalIncentiveRule {
   targetHq: string; // Legacy
   targetHqs: string[];
   targetProducts: string[];
+  targetItems?: string[];
   baseDateType: 'CONTRACT' | 'DELIVERY';
   commissionPerUnit: number;
   minimumGuarantee: number;
@@ -814,9 +815,9 @@ const ERP_Dashboard = () => {
     const saved = localStorage.getItem('erp_global_incentives');
     if (saved) return JSON.parse(saved);
     return [
-      { id: 'jaeyun', targetName: '조재윤', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 10000, minimumGuarantee: 2000000, useInstallments: false, installments: [] },
-      { id: 'minkyung', targetName: '조민경', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 5000, minimumGuarantee: 0, useInstallments: false, installments: [] },
-      { id: 'sunghoon', targetName: '권성훈', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], baseDateType: 'CONTRACT', commissionPerUnit: 0, minimumGuarantee: 2500000, useInstallments: false, installments: [] }
+      { id: 'jaeyun', targetName: '조재윤', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], targetItems: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 10000, minimumGuarantee: 2000000, useInstallments: false, installments: [] },
+      { id: 'minkyung', targetName: '조민경', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], targetItems: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 5000, minimumGuarantee: 0, useInstallments: false, installments: [] },
+      { id: 'sunghoon', targetName: '권성훈', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], targetItems: ['ALL'], baseDateType: 'CONTRACT', commissionPerUnit: 0, minimumGuarantee: 2500000, useInstallments: false, installments: [] }
     ];
   });
 
@@ -2555,6 +2556,10 @@ const ERP_Dashboard = () => {
 
             if (!rule.targetProducts.includes('ALL')) {
               if (!rule.targetProducts.some((p: string) => item.prodName.includes(p))) return;
+            }
+
+            if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+              if (!rule.targetItems.some((prod: string) => (item.rentalProd || '').includes(prod))) return;
             }
 
             let dateStr = '';
@@ -6862,6 +6867,7 @@ const ERP_Dashboard = () => {
                             targetHq: '',
                             targetHqs: ['ALL'],
                             targetProducts: ['ALL'],
+                            targetItems: ['ALL'],
                             baseDateType: 'DELIVERY',
                             commissionPerUnit: 0,
                             minimumGuarantee: 0,
@@ -6906,8 +6912,8 @@ const ERP_Dashboard = () => {
                               </div>
                             </div>
 
-                            <div className="flex gap-4 items-start">
-                              <div className="flex-[1.5]">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+                              <div className="w-full">
                                 <label className="text-xs font-bold text-slate-500">대상 본부 (다중선택 가능)</label>
                                 <div className="mt-1 flex flex-col gap-2">
                                   <select onChange={e => {
@@ -6945,7 +6951,7 @@ const ERP_Dashboard = () => {
                                   )}
                                 </div>
                               </div>
-                              <div className="flex-[2]">
+                              <div className="w-full">
                                 <label className="text-xs font-bold text-slate-500">대상 상품 (다중선택 가능)</label>
                                 <div className="mt-1 flex flex-col gap-2">
                                   <select onChange={e => {
@@ -6984,7 +6990,47 @@ const ERP_Dashboard = () => {
                                   )}
                                 </div>
                               </div>
-                              <div className="flex-1">
+                              <div className="w-full">
+                                <label className="text-xs font-bold text-slate-500">대상 제품 (렌탈상품명)</label>
+                                <div className="mt-1 flex flex-col gap-2">
+                                  <select onChange={e => {
+                                    if (!e.target.value) return;
+                                    const n = [...globalIncentiveRules];
+                                    if (!n[idx].targetItems) n[idx].targetItems = ['ALL'];
+                                    if (e.target.value === 'ALL') n[idx].targetItems = ['ALL'];
+                                    else {
+                                      if (n[idx].targetItems.includes('ALL')) n[idx].targetItems = [];
+                                      if (!n[idx].targetItems.includes(e.target.value)) n[idx].targetItems.push(e.target.value);
+                                    }
+                                    setGlobalIncentiveRules(n);
+                                    e.target.value = '';
+                                  }} className="w-full px-3 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-100 transition-all text-sm font-bold">
+                                    <option value="">제품 추가...</option>
+                                    <option value="ALL">전체 제품</option>
+                                    {Array.from(new Set(data.map(d => d.rentalProd).filter(Boolean))).sort().map(p => (
+                                      <option key={p} value={p}>{p}</option>
+                                    ))}
+                                  </select>
+                                  {(!rule.targetItems || rule.targetItems.includes('ALL')) ? (
+                                    <span className="inline-block px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">전체 제품</span>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-2">
+                                      {rule.targetItems.map(p => (
+                                        <span key={p} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg text-xs font-bold border border-purple-100">
+                                          {p}
+                                          <button onClick={() => {
+                                            const n = [...globalIncentiveRules];
+                                            n[idx].targetItems = (n[idx].targetItems || []).filter(x => x !== p);
+                                            if (n[idx].targetItems.length === 0) n[idx].targetItems = ['ALL'];
+                                            setGlobalIncentiveRules(n);
+                                          }} className="hover:text-red-500 transition-colors"><X size={14} /></button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="w-full">
                                 <label className="text-xs font-bold text-slate-500">결합상품 실적 기준일</label>
                                 <select value={rule.baseDateType} onChange={e => {
                                   const n = [...globalIncentiveRules]; n[idx].baseDateType = e.target.value as any; setGlobalIncentiveRules(n);

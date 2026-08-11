@@ -681,7 +681,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       }
 
       const incentiveHeaders = [
-        'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰'
+        'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰', '대상제품배열'
       ];
       
       const incentiveRows: any[][] = [incentiveHeaders];
@@ -698,7 +698,8 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           rule.incentiveName || '',
           JSON.stringify(rule.targetHqs || ['ALL']),
           rule.useInstallments ? 'Y' : 'N',
-          JSON.stringify(rule.installments || [])
+          JSON.stringify(rule.installments || []),
+          JSON.stringify(rule.targetItems || ['ALL'])
         ]);
       });
 
@@ -1089,6 +1090,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         const iTargetHqs = iCol('대상본부배열');
         const iUseInstallments = iCol('할부사용여부');
         const iInstallments = iCol('할부룰');
+        const iTargetItems = iCol('대상제품배열');
 
         globalIncentives = incRows.slice(1).map((row: string[]) => {
           const productsStr = iTargetProducts >= 0 ? (row[iTargetProducts] || '') : '';
@@ -1106,6 +1108,11 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             try { installments = JSON.parse(row[iInstallments]); } catch(e){}
           }
 
+          let targetItems = ['ALL'];
+          if (iTargetItems >= 0 && row[iTargetItems]) {
+            try { targetItems = JSON.parse(row[iTargetItems]); } catch(e){}
+          }
+
           return {
             id: iId >= 0 ? row[iId] : Date.now().toString() + Math.random(),
             incentiveName: iIncentiveName >= 0 ? row[iIncentiveName] : '',
@@ -1114,6 +1121,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             targetHq: iTargetHq >= 0 ? row[iTargetHq] : '',
             targetHqs,
             targetProducts,
+            targetItems,
             baseDateType: iBaseDateType >= 0 ? row[iBaseDateType] : 'DELIVERY',
             commissionPerUnit: iCommissionPerUnit >= 0 ? (parseInt(row[iCommissionPerUnit]) || 0) : 0,
             minimumGuarantee: iMinimumGuarantee >= 0 ? (parseInt(row[iMinimumGuarantee]) || 0) : 0,
