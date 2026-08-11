@@ -3924,8 +3924,11 @@ const ERP_Dashboard = () => {
       }
 
       if (specialSum > 0) {
+        const matchedSpecialRule = globalIncentiveRules.find(r => r.targetName === hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
+        const specialIncentiveName = matchedSpecialRule?.incentiveName || (hqName === '조재윤' ? '모델비' : (hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+
         rows.push([]);
-        rows.push(['[특수수당 상세 내역]']);
+        rows.push([`[${specialIncentiveName} 상세 내역]`]);
         rows.push(['No', '지사명', '계약일자', '지급일자', '본부명', '사원명', '고객명', '렌탈계약번호', '배송일자', '수당 종류', '제품명(렌탈상품명)', '수수료']);
 
         if (hqSpecialPayouts.length > 0) {
@@ -3942,7 +3945,7 @@ const ERP_Dashboard = () => {
               sp.memName && sp.memName !== '-' ? sp.memName : (originContract ? originContract.memName : '-'),
               sp.rentalNo || '-',
               sp.deliveryDate && sp.deliveryDate !== '-' ? sp.deliveryDate : (originContract ? originContract.deliveryDate : '-'),
-              sp.incentiveName || '공급수수료',
+              sp.incentiveName || specialIncentiveName,
               sp.rentalProd || sp.prodName || (originContract ? (originContract.rentalProd || originContract.prodName) : '-'),
               { v: Math.floor(sp.amount), t: 'n', z: '#,##0' }
             ]);
@@ -8519,13 +8522,17 @@ const ERP_Dashboard = () => {
                               if (tab === 'products' && s.items.length === 0) return null;
                               if (tab === 'details' && s.items.length === 0) return null;
                               if (tab === 'special' && s.specialSum === 0) return null;
+
+                              const matchedSpecialRule = globalIncentiveRules.find(r => r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
+                              const specialIncentiveLabel = matchedSpecialRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+
                               const tabNames: Record<string, string> = {
                                 'summary': '정산내역 요약',
                                 'tax': '세금계산서 요약',
                                 'products': '상품별 요약',
                                 'details': '일반수수료 내역',
                                 'maintenance': '유지수수료 내역',
-                                'special': '특수수당 내역'
+                                'special': `${specialIncentiveLabel} 내역`
                               };
                               return (
                                 <button key={tab} onClick={() => setPreviewTabs(prev => ({...prev, [s.hqName]: tab}))}
@@ -8586,11 +8593,10 @@ const ERP_Dashboard = () => {
                                   {s.specialSum > 0 && (
                                     <tr>
                                       <td className="border border-slate-300 p-1.5 font-bold text-slate-600">
-                                        특수 수당 ({(() => {
-                                          const rule = globalIncentiveRules.find(r => r.targetName === s.hqName);
+                                        {(() => {
                                           const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
-                                         return rule?.incentiveName || matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
-                                        })()})
+                                          return matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+                                        })()}
                                       </td>
                                       <td className="border border-slate-300 p-1.5 text-center">
                                         {settlementStats.hqSummary[s.hqName]?.count || 0}구좌
@@ -8665,7 +8671,12 @@ const ERP_Dashboard = () => {
                                   )}
                                   {s.specialSum > 0 && (
                                     <tr>
-                                      <td className="border border-slate-300 p-1.5 bg-slate-50 font-bold text-left">특수 수당</td>
+                                      <td className="border border-slate-300 p-1.5 bg-slate-50 font-bold text-left">
+                                        {(() => {
+                                          const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
+                                          return matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+                                        })()}
+                                      </td>
                                       <td className="border border-slate-300 p-1.5">
                                         {s.setting?.settlementType?.includes('개인') ? s.specialSum.toLocaleString() : Math.round(s.specialSum / 1.1).toLocaleString()}원
                                       </td>
@@ -8793,38 +8804,87 @@ const ERP_Dashboard = () => {
                             </div>
                           )}
 
-                          {activeTab === 'special' && (
-                            <div className="bg-white p-4 rounded-lg border border-slate-200">
-                              <div className="mb-2 font-bold text-xs text-slate-700">■ 특수수당 정산 내역 (총 {s.specialSum.toLocaleString()}원)</div>
-                              <table className="w-full border-collapse border border-slate-300 text-[10px] whitespace-nowrap">
-                                <thead>
-                                  <tr className="bg-slate-100 text-slate-700 text-center font-bold">
-                                    <th className="border border-slate-300 p-1.5">No</th>
-                                    <th className="border border-slate-300 p-1.5">수급자명</th>
-                                    <th className="border border-slate-300 p-1.5">수당 종류</th>
-                                    <th className="border border-slate-300 p-1.5">지급 구좌수</th>
-                                    <th className="border border-slate-300 p-1.5 text-blue-700">지급금액</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  <tr className="text-center">
-                                    <td className="border border-slate-300 p-1.5">1</td>
-                                    <td className="border border-slate-300 p-1.5 font-bold">{s.hqName}</td>
-                                    <td className="border border-slate-300 p-1.5">
-                                      {(() => {
-                                        const rule = globalIncentiveRules.find(r => r.targetName === s.hqName);
-                                        return rule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '추가 인센티브'));
-                                      })()}
-                                    </td>
-                                    <td className="border border-slate-300 p-1.5 font-mono">
-                                      {settlementStats.hqSummary[s.hqName]?.count || 0}구좌
-                                    </td>
-                                    <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{s.specialSum.toLocaleString()}원</td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
+                          {activeTab === 'special' && (() => {
+                            const matchedRule = globalIncentiveRules.find(r => 
+                              r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === ''
+                            );
+                            const matchedIncentiveName = matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+
+                            // 중복 없는 수당 해당 계약건 필터링
+                            const processedRentalNos = new Set<string>();
+                            const specialItems = s.items.filter((item: any) => {
+                              if (!matchedRule) return true;
+                              const targetHqs = matchedRule.targetHqs || ['ALL'];
+                              if (!targetHqs.includes('ALL') && !targetHqs.includes(s.hqName)) return false;
+
+                              const targetProducts = matchedRule.targetProducts || ['ALL'];
+                              if (!targetProducts.includes('ALL') && !targetProducts.includes(item.prodCategory || item.productCategory)) return false;
+
+                              const targetItems = matchedRule.targetItems || ['ALL'];
+                              if (!targetItems.includes('ALL')) {
+                                const itemProd = (item.rentalProd || item.prodName || '').replace(/\s+/g, '');
+                                const matched = targetItems.some((tItem: string) => {
+                                  const ruleProd = tItem.replace(/\s+/g, '');
+                                  return itemProd.includes(ruleProd) || ruleProd.includes(itemProd);
+                                });
+                                if (!matched) return false;
+                              }
+
+                              const rentalKey = item.rentalNo || item.resNo;
+                              if (rentalKey) {
+                                if (processedRentalNos.has(rentalKey)) return false;
+                                processedRentalNos.add(rentalKey);
+                              }
+                              return true;
+                            });
+
+                            const displayItems = specialItems.length > 0 ? specialItems : s.items;
+
+                            return (
+                              <div className="bg-white p-4 rounded-lg border border-slate-200">
+                                <div className="mb-2 font-bold text-xs text-slate-700">■ {matchedIncentiveName} 내역 (총 {s.specialSum.toLocaleString()}원)</div>
+                                <div className="overflow-x-auto">
+                                  <table className="w-full border-collapse border border-slate-300 text-[10px] whitespace-nowrap">
+                                    <thead>
+                                      <tr className="bg-slate-100 text-slate-700 text-center font-bold">
+                                        <th className="border border-slate-300 p-1.5">No</th>
+                                        <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
+                                        <th className="border border-slate-300 p-1.5">계약일자</th>
+                                        <th className="border border-slate-300 p-1.5">배송일자</th>
+                                        <th className="border border-slate-300 p-1.5">고객명</th>
+                                        <th className="border border-slate-300 p-1.5">영업사원</th>
+                                        <th className="border border-slate-300 p-1.5 text-left">제품명</th>
+                                        <th className="border border-slate-300 p-1.5 text-blue-700">합계금액</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {displayItems.map((item: any, i: number) => {
+                                        let itemAmount = matchedRule?.commissionPerUnit || 0;
+                                        if (itemAmount === 0 && displayItems.length > 0) {
+                                          itemAmount = Math.round(s.specialSum / displayItems.length);
+                                        }
+
+                                        return (
+                                          <tr key={i} className="text-center">
+                                            <td className="border border-slate-300 p-1.5">{i + 1}</td>
+                                            <td className="border border-slate-300 p-1.5 font-mono">{item.rentalNo || item.resNo || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{item.contractDate || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{item.deliveryDate || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{item.memName || item.customerName || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{item.empName || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={item.rentalProd || item.prodName}>
+                                              {item.rentalProd || item.prodName || '-'}
+                                            </td>
+                                            <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{itemAmount.toLocaleString()}원</td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            );
+                          })()}
                       </div>
                     );
                   };
