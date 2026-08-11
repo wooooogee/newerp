@@ -2549,9 +2549,17 @@ const ERP_Dashboard = () => {
           const prevYearStr = String(prevDate.getFullYear());
           const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
 
+          const processedRentalNos = new Set<string>();
+
           data.forEach(item => {
             if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
             if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
+
+            // 렌탈계약번호 기준 중복제거 (N구좌 결합상품 1회 지급)
+            const rentalKey = item.rentalNo || item.resNo;
+            if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+              if (processedRentalNos.has(rentalKey)) return;
+            }
             let isMatch = false;
             const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
             const hasAll = rule.targetHqs?.includes('ALL') || rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '';
@@ -2574,7 +2582,12 @@ const ERP_Dashboard = () => {
             }
 
             if (rule.targetItems && !rule.targetItems.includes('ALL')) {
-              if (!rule.targetItems.some((prod: string) => (item.rentalProd || '').includes(prod))) return;
+              const isItemMatch = rule.targetItems.some((prod: string) => {
+                const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
+                const cleanRuleProd = prod.replace(/\s+/g, '');
+                return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
+              });
+              if (!isItemMatch) return;
             }
 
             let dateStr = '';
@@ -2586,17 +2599,26 @@ const ERP_Dashboard = () => {
             }
 
             let isMatchedDate = false;
-            const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-            if (match) {
-              let y = match[1];
-              if (y.length === 2) y = '20' + y;
-              const m = match[2].padStart(2, '0');
-              if (y === prevYearStr && m === prevMonthStr) {
-                isMatchedDate = true;
+            const itemPayDateDisplay = item.payDate || getDisplayPayDate(item) || '';
+            if (itemPayDateDisplay && payDateFilter && itemPayDateDisplay.replace(/[-./]/g, '') === filterClean) {
+              isMatchedDate = true;
+            } else {
+              const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+              if (match) {
+                let y = match[1];
+                if (y.length === 2) y = '20' + y;
+                const m = match[2].padStart(2, '0');
+                if ((y === prevYearStr && m === prevMonthStr) || (y === String(year) && m === String(month).padStart(2, '0'))) {
+                  isMatchedDate = true;
+                }
               }
             }
 
             if (isMatchedDate) {
+              const rentalKey = item.rentalNo || item.resNo;
+              if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+                processedRentalNos.add(rentalKey);
+              }
               let itemComm = 0;
               if (rule.useInstallments && rule.installments) {
                 const paidCount = item.hcPaidCount || 0;
@@ -8421,7 +8443,8 @@ const ERP_Dashboard = () => {
                                       <td className="border border-slate-300 p-1.5 font-bold text-slate-600">
                                         특수 수당 ({(() => {
                                           const rule = globalIncentiveRules.find(r => r.targetName === s.hqName);
-                                          return rule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '추가 인센티브'));
+                                          const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
+                                         return rule?.incentiveName || matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
                                         })()})
                                       </td>
                                       <td className="border border-slate-300 p-1.5 text-center">
