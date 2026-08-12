@@ -104,6 +104,20 @@ interface HQSetting {
   productRules: ProductRule[];
 }
 
+export const parseBooleanValue = (val: any): boolean => {
+  if (val === true) return true;
+  if (val === false) return false;
+  if (val === undefined || val === null) return false;
+  if (typeof val === 'string') {
+    const s = val.trim().toUpperCase();
+    return s === 'Y' || s === 'YES' || s === 'TRUE' || s === '1';
+  }
+  if (typeof val === 'number') {
+    return val === 1;
+  }
+  return false;
+};
+
 export interface GlobalIncentiveInstallment {
   id: string;
   startRound: number;
@@ -790,9 +804,7 @@ const ERP_Dashboard = () => {
           ...hq,
           productRules: (hq.productRules || []).map((pr: any) => ({
             ...pr,
-            applyMaintenance: typeof pr.applyMaintenance === 'boolean'
-              ? pr.applyMaintenance
-              : (pr.applyMaintenance === 'true' || pr.applyMaintenance === 1 || pr.applyMaintenance === '1')
+            applyMaintenance: parseBooleanValue(pr.applyMaintenance)
           }))
         }));
       } catch (e) {
@@ -813,9 +825,7 @@ const ERP_Dashboard = () => {
       settlementType: m.settlementType || '사업자',
       productRules: (m.productRules || []).map(pr => ({
         ...pr,
-        applyMaintenance: typeof pr.applyMaintenance === 'boolean'
-          ? pr.applyMaintenance
-          : (pr.applyMaintenance === 'true' || pr.applyMaintenance === 1 || pr.applyMaintenance === '1')
+        applyMaintenance: parseBooleanValue(pr.applyMaintenance)
       }))
     }));
   });
@@ -961,9 +971,7 @@ const ERP_Dashboard = () => {
           ...hq,
           productRules: (hq.productRules || []).map((pr: any) => ({
             ...pr,
-            applyMaintenance: typeof pr.applyMaintenance === 'boolean'
-              ? pr.applyMaintenance
-              : (pr.applyMaintenance === 'true' || pr.applyMaintenance === 1 || pr.applyMaintenance === '1')
+            applyMaintenance: parseBooleanValue(pr.applyMaintenance)
           }))
         }));
         setHqSettings(sanitizedSettings);
@@ -6871,11 +6879,11 @@ const ERP_Dashboard = () => {
                                         </td>
                                         <td className="px-4 py-3 text-center align-middle w-[9%]">
                                           <div className="flex flex-col items-center justify-center">
-                                            <input type="checkbox" checked={pr.applyMaintenance === true} onChange={(e) => {
+                                            <input type="checkbox" checked={parseBooleanValue(pr.applyMaintenance)} onChange={(e) => {
                                               const updated = s.productRules.map((r, i) => {
                                                 if (i !== pIdx) return r;
                                                 const newR = { ...r, applyMaintenance: e.target.checked };
-                                                if (e.target.checked && !newR.maintenanceRules) {
+                                                if (e.target.checked && (!newR.maintenanceRules || newR.maintenanceRules.length === 0)) {
                                                   newR.maintenanceRules = [{ id: Date.now().toString(), applyStartDate: '', applyEndDate: '', tiers: [{ startMonth: 2, endMonth: 36, amount: 0 }] }];
                                                 }
                                                 return newR;
@@ -6966,7 +6974,7 @@ const ERP_Dashboard = () => {
                                           </td>
                                         </tr>
                                       )}
-                                      {pr.applyMaintenance === true && pr.maintenanceRules && pr.maintenanceRules.map((mRule, mIdx) => (
+                                      {parseBooleanValue(pr.applyMaintenance) && pr.maintenanceRules && pr.maintenanceRules.map((mRule, mIdx) => (
                                         <tr key={`mrule-${mIdx}`} className="bg-emerald-50/40 border-b border-emerald-100">
                                           <td colSpan={8} className="px-6 py-4">
                                             <div className="flex flex-col gap-3">
@@ -7076,7 +7084,7 @@ const ERP_Dashboard = () => {
                                           </td>
                                         </tr>
                                       ))}
-                                      {pr.applyMaintenance === true && (
+                                      {parseBooleanValue(pr.applyMaintenance) && (
                                         <tr className="bg-emerald-50/20 border-b border-emerald-100">
                                           <td colSpan={8} className="px-6 py-3 text-right">
                                             <button onClick={() => {

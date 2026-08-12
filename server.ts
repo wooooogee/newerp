@@ -610,7 +610,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
             p.overriding?.teamLeader ?? hq.overriding?.teamLeader ?? 0,
             p.overriding?.branchManager ?? hq.overriding?.branchManager ?? 0,
             p.overriding?.hqManager ?? hq.overriding?.hqManager ?? 0,
-            (p.applyMaintenance === true || (p.applyMaintenance !== false && ((p.productName || '').includes('유지') || (p.maintenanceRules && p.maintenanceRules.length > 0)))) ? 'Y' : 'N',
+            (p.applyMaintenance === true || p.applyMaintenance === 'Y' || p.applyMaintenance === 'true' || (p.applyMaintenance !== false && p.applyMaintenance !== 'N' && p.applyMaintenance !== 'false' && ((p.productName || '').includes('유지') || (p.maintenanceRules && p.maintenanceRules.length > 0)))) ? 'Y' : 'N',
             JSON.stringify(p.maintenanceRules || [])
           ]);
         });
@@ -1059,7 +1059,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             hqManager: Number(row[prodHmCol]) || 0
           } : undefined,
           applyMaintenance: applyMaintenanceCol >= 0 
-            ? (row[applyMaintenanceCol] === 'Y' || (row[applyMaintenanceCol] !== 'N' && (productName.includes('유지') || pMaintRules.length > 0)))
+            ? (row[applyMaintenanceCol] === 'Y' || row[applyMaintenanceCol] === 'true' || (row[applyMaintenanceCol] !== 'N' && row[applyMaintenanceCol] !== 'false' && (productName.includes('유지') || pMaintRules.length > 0)))
             : (productName.includes('유지') || pMaintRules.length > 0),
           maintenanceRules: pMaintRules
         });
