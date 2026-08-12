@@ -268,7 +268,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
       const sheetMatch = sheetOrderMap.get(contractKey);
 
-      const savedData = savedOrderStore[contractNo];
+      const savedData = savedOrderStore[contractKey] || savedOrderStore[contractNo];
 
       const delDate = savedData?.deliveryDate !== undefined ? savedData.deliveryDate : (sheetMatch?.deliveryDate || item.deliveryDate || '');
       const courier = savedData?.courier !== undefined ? savedData.courier : (sheetMatch?.courier || '');
@@ -311,7 +311,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     });
 
     return list;
-  }, [data, targetProducts, sheetOrderMap]);
+  }, [data, targetProducts, sheetOrderMap, savedOrderStore]);
 
   // 수기발주 시트 O열 요청일 목록 옵션
   const availableRequestDateOptions = useMemo(() => {
@@ -434,7 +434,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     }
   };
 
-  // 배송상태 및 배송정보 [저장하기] (자체 영구 저장소에 보관)
+  // 배송상태 및 배송정보 [저장하기] (구글 시트 및 독자 영구 저장소에 보관)
   const handleSaveChanges = async () => {
     const allEditedContractNos = new Set([
       ...Object.keys(editedValues),
@@ -451,33 +451,77 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
     try {
       const nextStore = { ...savedOrderStore };
+      const sheetUpdates: { rowIdx: number; colIdx: number; newValue: string }[] = [];
 
       allEditedContractNos.forEach((cNo) => {
         const row = extractedOrders.find((o) => o.contractNo === cNo);
         if (!row) return;
 
+        const cKey = cNo.toUpperCase();
         const editedVal = editedValues[cNo];
         const editedSt = editedStates[cNo];
 
-        const existing = nextStore[cNo] || {};
+        const existing = nextStore[cKey] || nextStore[cNo] || {};
 
-        nextStore[cNo] = {
-          ...existing,
-          deliveryDate: editedVal?.deliveryDate !== undefined ? editedVal.deliveryDate : (existing.deliveryDate ?? row.deliveryDate),
-          courier: editedVal?.courier !== undefined ? editedVal.courier : (existing.courier ?? row.courier),
-          trackingNo: editedVal?.trackingNo !== undefined ? editedVal.trackingNo : (existing.trackingNo ?? row.trackingNo),
-          deliveryState: editedSt !== undefined ? editedSt : (existing.deliveryState ?? row.deliveryState),
+        let newDelDate = editedVal?.deliveryDate !== undefined ? editedVal.deliveryDate : (existing.deliveryDate ?? row.deliveryDate ?? '');
+        let newCourier = editedVal?.courier !== undefined ? editedVal.courier.trim() : (existing.courier ?? row.courier ?? '');
+        let newTracking = editedVal?.trackingNo !== undefined ? editedVal.trackingNo.trim() : (existing.trackingNo ?? row.trackingNo ?? '');
+        let newDState = editedSt !== undefined ? editedSt : (existing.deliveryState ?? row.deliveryState ?? '발주대기');
+
+        // 배송 정보(배송일, 택배사, 송장번호)가 채워져 있는데 상태가 발주대기면 자동으로 '배송중'으로 업그레이드
+        if (newDState === '발주대기' && (newDelDate.trim() || newCourier.trim() || newTracking.trim())) {
+          newDState = '배송중';
+        }
+
+        nextStore[cKey] = {
+          deliveryDate: newDelDate,
+          courier: newCourier,
+          trackingNo: newTracking,
+          deliveryState: newDState,
         };
+
+        // 구글 시트 업데이트 객체 생성 (rowIdx가 존재하는 수기발주 건)
+        if (row.rowIdx) {
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 20, newValue: newDelDate });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 21, newValue: newCourier });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 22, newValue: newTracking });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 23, newValue: newDState });
+        }
       });
 
+      // 1. 구글 시트 '수기발주' 시트에 배치 업데이트
+      if (sheetUpdates.length > 0) {
+        const res = await fetch('/api/sheets/batch-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sheetName: '수기발주',
+            updates: sheetUpdates,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          console.warn('구글 시트 저장 응답 이상:', errData);
+        }
+      }
+
+      // 2. localStore 업데이트
       setSavedOrderStore(nextStore);
       localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(nextStore));
 
-      setNotification({ message: `성공적으로 ${allEditedContractNos.size}건의 배송정보 및 배송상태가 저장되었습니다! (시트 변동과 무관하게 데이터 유지)`, type: 'success' });
-      
+      // 3. 최신 시트 데이터 동기화
+      await fetchOrderSheetData();
+
+      setNotification({
+        message: `성공적으로 ${allEditedContractNos.size}건의 배송정보 및 배송상태가 구글 시트와 저장소에 저장되었습니다!`,
+        type: 'success',
+      });
+
       setEditedValues({});
       setEditedStates({});
     } catch (err: any) {
+      console.error('저장 중 오류:', err);
       setNotification({ message: err.message || '저장 중 오류가 발생했습니다.', type: 'error' });
     } finally {
       setSaving(false);
@@ -763,6 +807,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             <div className="flex items-center gap-2">
               {/* 발주하기 버튼 */}
               <button
+                type="button"
                 onClick={handleOpenOrderModal}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer ${
                   selectedKeys.size > 0
@@ -775,6 +820,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </button>
 
               <button
+                type="button"
                 onClick={handleExportMainExcel}
                 className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-xl border border-emerald-200 transition-all cursor-pointer shadow-2xs"
               >
@@ -784,7 +830,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
               {/* 저장하기 버튼 */}
               <button
-                onClick={handleSaveChanges}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleSaveChanges();
+                }}
                 disabled={saving || !isChanged}
                 className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer ${
                   isChanged
@@ -988,9 +1038,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           <td className="py-2 px-3 border-r border-slate-200 bg-amber-50/10">
                             <div className="flex flex-col gap-1">
                               <select
-                                value={COURIER_OPTIONS.includes(courier) ? courier : 'custom'}
+                                value={COURIER_OPTIONS.includes(courier) ? courier : courier ? 'custom' : ''}
                                 onChange={(e) => {
-                                  if (e.target.value !== 'custom') {
+                                  if (e.target.value === 'custom') {
+                                    handleInputChange(order.contractNo, 'courier', courier && !COURIER_OPTIONS.includes(courier) ? courier : ' ');
+                                  } else {
                                     handleInputChange(order.contractNo, 'courier', e.target.value);
                                   }
                                 }}
@@ -1004,11 +1056,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                                 ))}
                                 <option value="custom">직접입력...</option>
                               </select>
-                              {(!COURIER_OPTIONS.includes(courier) || courier === 'custom') && (
+                              {(!COURIER_OPTIONS.includes(courier) && courier !== '') && (
                                 <input
                                   type="text"
                                   placeholder="택배사 직접 입력"
-                                  value={courier}
+                                  value={courier.trim()}
                                   onChange={(e) => handleInputChange(order.contractNo, 'courier', e.target.value)}
                                   className="w-full px-2 py-0.5 bg-white border border-slate-300 rounded-md text-xs text-slate-800"
                                 />
