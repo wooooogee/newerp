@@ -84,6 +84,25 @@ const cleanProductName = (name: string): string => {
   return name.replace(/^[0-9]+구좌[_\s]*/g, '').trim();
 };
 
+// 택배사 이름 정규화 (예: '롯데' -> '롯데택배', 'CJ' -> 'CJ대한통운')
+export const normalizeCourierName = (courier: string): string => {
+  if (!courier) return '';
+  const trimmed = courier.trim();
+  if (!trimmed) return '';
+  if (COURIER_OPTIONS.includes(trimmed)) return trimmed;
+
+  if (trimmed.includes('롯데')) return '롯데택배';
+  if (trimmed.includes('CJ') || trimmed.includes('대한통운')) return 'CJ대한통운';
+  if (trimmed.includes('한진')) return '한진택배';
+  if (trimmed.includes('우체국')) return '우체국택배';
+  if (trimmed.includes('로젠')) return '로젠택배';
+  if (trimmed.includes('경동')) return '경동택배';
+  if (trimmed.includes('대신')) return '대신화물';
+  if (trimmed.includes('합동')) return '합동택배';
+
+  return trimmed;
+};
+
 // 택배사 배송조회 URL
 const getTrackingUrl = (courier: string, trackingNo: string) => {
   const cleanTracking = trackingNo.replace(/[^0-9a-zA-Z]/g, '');
@@ -224,7 +243,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           map.set(contractNo, {
             rowIdx: idx + 2,
             deliveryDate: String(row[20] || '').trim(), // U열 (20)
-            courier: String(row[21] || '').trim(), // V열 (21)
+            courier: normalizeCourierName(String(row[21] || '').trim()), // V열 (21)
             trackingNo: String(row[22] || '').trim(), // W열 (22)
             address: String(row[11] || '').trim(), // L열 주소 (11)
             zipCode: String(row[10] || '').trim(), // K열 우편번호 (10)
@@ -271,7 +290,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const savedData = savedOrderStore[contractKey] || savedOrderStore[contractNo];
 
       const delDate = savedData?.deliveryDate !== undefined ? savedData.deliveryDate : (sheetMatch?.deliveryDate || item.deliveryDate || '');
-      const courier = savedData?.courier !== undefined ? savedData.courier : (sheetMatch?.courier || '');
+      const rawCourier = savedData?.courier !== undefined ? savedData.courier : (sheetMatch?.courier || '');
+      const courier = normalizeCourierName(rawCourier);
       const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : (sheetMatch?.trackingNo || '');
 
       // 기본 배송상태 구별 (독자 저장소 > 수기발주 X열(23) > 상태 및 날짜 판별)
@@ -464,7 +484,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         const existing = nextStore[cKey] || nextStore[cNo] || {};
 
         let newDelDate = editedVal?.deliveryDate !== undefined ? editedVal.deliveryDate : (existing.deliveryDate ?? row.deliveryDate ?? '');
-        let newCourier = editedVal?.courier !== undefined ? editedVal.courier.trim() : (existing.courier ?? row.courier ?? '');
+        let newCourier = editedVal?.courier !== undefined ? normalizeCourierName(editedVal.courier.trim()) : (existing.courier ?? row.courier ?? '');
         let newTracking = editedVal?.trackingNo !== undefined ? editedVal.trackingNo.trim() : (existing.trackingNo ?? row.trackingNo ?? '');
         let newDState = editedSt !== undefined ? editedSt : (existing.deliveryState ?? row.deliveryState ?? '발주대기');
 
@@ -940,7 +960,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       const isSelected = selectedKeys.has(order.uniqueKey);
                       const isRowEdited = !!editedValues[order.contractNo] || !!editedStates[order.contractNo];
                       const delDate = getFieldValue(order, 'deliveryDate');
-                      const courier = getFieldValue(order, 'courier');
+                      const rawCourier = getFieldValue(order, 'courier');
+                      const courier = normalizeCourierName(rawCourier);
                       const tracking = getFieldValue(order, 'trackingNo');
                       const hasTracking = !!(courier.trim() && tracking.trim());
 
