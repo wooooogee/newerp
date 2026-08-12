@@ -7024,27 +7024,27 @@ const ERP_Dashboard = () => {
                                               <div className="flex flex-col gap-2">
                                                 {mRule.tiers.map((t, tIdx) => (
                                                   <div key={tIdx} className="flex items-center gap-3">
-                                                    <input type="number" value={t.startMonth} min={2} onChange={(e) => {
+                                                    <input type="number" value={t.startMonth || ""} min={2} onChange={(e) => {
                                                       const updated = s.productRules.map((r, i) => {
                                                         if (i !== pIdx) return r;
                                                         const newRules = [...(r.maintenanceRules || [])];
-                                                        newRules[mIdx].tiers[tIdx].startMonth = Math.max(2, parseInt(e.target.value) || 2);
+                                                        newRules[mIdx].tiers[tIdx].startMonth = e.target.value === "" ? 0 : parseInt(e.target.value) || 0;
                                                         return { ...r, maintenanceRules: newRules };
                                                       });
                                                       setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                                     }} className="w-16 px-2 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
                                                     <span className="text-[11px] text-emerald-600 font-bold">회차 ~ </span>
-                                                    <input type="number" value={t.endMonth} min={2} onChange={(e) => {
+                                                    <input type="number" value={t.endMonth || ""} min={2} onChange={(e) => {
                                                       const updated = s.productRules.map((r, i) => {
                                                         if (i !== pIdx) return r;
                                                         const newRules = [...(r.maintenanceRules || [])];
-                                                        newRules[mIdx].tiers[tIdx].endMonth = Math.max(2, parseInt(e.target.value) || 2);
+                                                        newRules[mIdx].tiers[tIdx].endMonth = e.target.value === "" ? 0 : parseInt(e.target.value) || 0;
                                                         return { ...r, maintenanceRules: newRules };
                                                       });
                                                       setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                                     }} className="w-16 px-2 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
                                                     <span className="text-[11px] text-emerald-600 font-bold">회차 : </span>
-                                                    <input type="number" value={t.amount} onChange={(e) => {
+                                                    <input type="number" value={t.amount || ""} onChange={(e) => {
                                                       const updated = s.productRules.map((r, i) => {
                                                         if (i !== pIdx) return r;
                                                         const newRules = [...(r.maintenanceRules || [])];
