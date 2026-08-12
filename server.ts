@@ -1491,13 +1491,18 @@ app.post('/api/sheets/batch-update', async (req, res) => {
   try {
     const sheets = google.sheets({ version: 'v4', auth: client });
     
-    // Get sheet name
-    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
-    const sheetsList = spreadsheet.data.sheets || [];
-    const targetSheet = sheetsList.find(s => s.properties?.title === '관리대장') || 
-                        sheetsList.find(s => s.properties?.title?.includes('회원현황')) ||
-                        sheetsList[0];
-    const sheetName = targetSheet?.properties?.title || 'Sheet1';
+    const requestedSheetName = (req.body as any).sheetName;
+    let sheetName = requestedSheetName;
+
+    if (!sheetName) {
+      // Get sheet name fallback
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+      const sheetsList = spreadsheet.data.sheets || [];
+      const targetSheet = sheetsList.find(s => s.properties?.title === '관리대장') || 
+                          sheetsList.find(s => s.properties?.title?.includes('회원현황')) ||
+                          sheetsList[0];
+      sheetName = targetSheet?.properties?.title || 'Sheet1';
+    }
 
     // colIdx to letter
     const getColLetter = (n: number) => {
@@ -1509,21 +1514,23 @@ app.post('/api/sheets/batch-update', async (req, res) => {
       return letter;
     };
 
-    const data = updates.map(u => ({
-      range: `${sheetName}!${getColLetter(u.colIdx)}${u.rowIdx}`,
-      values: [[u.newValue]]
-    }));
-
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId: sheetId,
-      requestBody: {
+    console.log(`[batch-update] Updating ${updates.length} items in sheet: '${sheetName}'`);
+    for (const u of updates) {
+      const range = `'${sheetName}'!${getColLetter(u.colIdx)}${u.rowIdx}`;
+      console.log(`[batch-update] Range: ${range}, Value: ${u.newValue}`);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range,
         valueInputOption: 'USER_ENTERED',
-        data: data
-      }
-    });
+        requestBody: {
+          values: [[u.newValue]]
+        }
+      });
+    }
 
-    res.json({ success: true });
+    res.json({ success: true, updatedCount: updates.length });
   } catch (error: any) {
+    console.error('[batch-update] Error:', error);
     return handleGoogleError(error, res);
   }
 });

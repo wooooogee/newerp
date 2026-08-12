@@ -8,6 +8,7 @@ import { DeliveryStatusModal } from './DeliveryStatusModal';
 import { DeliveryDashboardModal } from './DeliveryDashboardModal';
 import { DashboardDetailModal } from './DashboardDetailModal';
 import { CertificateDispatchModal } from './CertificateDispatchModal';
+import { ManualOrderManagementModal } from './ManualOrderManagementModal';
 import { CertificateDispatchHistoryModal } from './CertificateDispatchHistoryModal';
 import { MembershipApplicationModal } from './MembershipApplicationModal';
 import { CustomDialog } from './CustomDialog';
@@ -476,6 +477,7 @@ const ERP_Dashboard = () => {
   const [dashboardDetailType, setDashboardDetailType] = useState<'delivery' | 'cancel' | null>(null);
   const [isDeliveryDashboardOpen, setIsDeliveryDashboardOpen] = useState(false);
   const [isCertificateDispatchModalOpen, setIsCertificateDispatchModalOpen] = useState(false);
+  const [isManualOrderModalOpen, setIsManualOrderModalOpen] = useState(false);
   const [isCertificateDispatchHistoryModalOpen, setIsCertificateDispatchHistoryModalOpen] = useState(false);
   const [isMembershipApplicationModalOpen, setIsMembershipApplicationModalOpen] = useState(false);
   const [isManualSettlementModalOpen, setIsManualSettlementModalOpen] = useState(false);
@@ -4830,6 +4832,22 @@ const ERP_Dashboard = () => {
           {isManager && (
             <>
               <section className="mt-4">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">발주 관리</p>
+                <div className="grid gap-2">
+                  <nav className="flex flex-col gap-1">
+                    <motion.button
+                      onClick={() => setIsManualOrderModalOpen(true)}
+                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
+                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+                    >
+                      <span className={`w-2 h-2 rounded-full bg-cyan-500`} />
+                      <span className="font-medium">수기발주 관리</span>
+                    </motion.button>
+                  </nav>
+                </div>
+              </section>
+
+              <section className="mt-4">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">증서 관리</p>
                 <div className="grid gap-2">
                   <nav className="flex flex-col gap-1">
@@ -7873,6 +7891,11 @@ const ERP_Dashboard = () => {
           <CertificateDispatchModal
             isOpen={isCertificateDispatchModalOpen}
             onClose={() => setIsCertificateDispatchModalOpen(false)}
+            data={data}
+          />
+          <ManualOrderManagementModal
+            isOpen={isManualOrderModalOpen}
+            onClose={() => setIsManualOrderModalOpen(false)}
             data={data}
           />
           <CertificateDispatchHistoryModal
