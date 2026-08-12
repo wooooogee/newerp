@@ -6848,9 +6848,9 @@ const ERP_Dashboard = () => {
                                         </td>
                                         <td className="px-4 py-3 w-[11%] align-middle">
                                           <input
-                                            type="number" value={pr.totalAmount}
+                                            type="text" value={pr.totalAmount !== undefined && pr.totalAmount !== null ? pr.totalAmount.toLocaleString() : "0"}
                                             onChange={(e) => {
-                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, totalAmount: parseInt(e.target.value) || 0 } : r);
+                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, totalAmount: parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0 } : r);
                                               setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                             }}
                                             className="w-full bg-transparent border-0 text-right font-black outline-none"
@@ -6858,9 +6858,9 @@ const ERP_Dashboard = () => {
                                         </td>
                                         <td className="px-4 py-3 w-[11%] align-middle">
                                           <input
-                                            type="number" value={pr.salesAmount}
+                                            type="text" value={pr.salesAmount !== undefined && pr.salesAmount !== null ? pr.salesAmount.toLocaleString() : "0"}
                                             onChange={(e) => {
-                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, salesAmount: parseInt(e.target.value) || 0 } : r);
+                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, salesAmount: parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0 } : r);
                                               setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                             }}
                                             className="w-full bg-transparent border-0 text-right font-bold text-blue-600 outline-none"
@@ -6908,9 +6908,9 @@ const ERP_Dashboard = () => {
                                                 />
                                                 <span className="text-[8px] text-slate-300">↑</span>
                                                 <input
-                                                  type="number" value={(pr as any)[`tier${t}Price`]}
+                                                  type="text" value={(pr as any)[`tier${t}Price`] !== undefined && (pr as any)[`tier${t}Price`] !== null ? (pr as any)[`tier${t}Price`].toLocaleString() : "0"}
                                                   onChange={(e) => {
-                                                    const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: parseInt(e.target.value) || 0 } : r);
+                                                    const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0 } : r);
                                                     setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                                   }}
                                                   className="w-14 text-[10px] text-right outline-none font-bold text-indigo-600 bg-slate-50/50 rounded pr-1"
@@ -6953,9 +6953,9 @@ const ERP_Dashboard = () => {
                                                         {f.label} (₩)
                                                       </label>
                                                       <input
-                                                        type="number" value={(currOv as any)[f.key]}
+                                                        type="text" value={(currOv as any)[f.key] !== undefined && (currOv as any)[f.key] !== null ? (currOv as any)[f.key].toLocaleString() : "0"}
                                                         onChange={(e) => {
-                                                          const val = parseInt(e.target.value) || 0;
+                                                          const val = parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0;
                                                           const updated = s.productRules.map((r, i) => {
                                                             if (i !== pIdx) return r;
                                                             const newOv = { ...(r.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 }) };
@@ -7044,15 +7044,15 @@ const ERP_Dashboard = () => {
                                                       setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                                     }} className="w-16 px-2 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
                                                     <span className="text-[11px] text-emerald-600 font-bold">회차 : </span>
-                                                    <input type="number" value={t.amount || ""} onChange={(e) => {
+                                                    <input type="text" value={t.amount !== undefined && t.amount !== null ? t.amount.toLocaleString() : "0"} onChange={(e) => {
                                                       const updated = s.productRules.map((r, i) => {
                                                         if (i !== pIdx) return r;
                                                         const newRules = [...(r.maintenanceRules || [])];
-                                                        newRules[mIdx].tiers[tIdx].amount = parseInt(e.target.value) || 0;
+                                                        newRules[mIdx].tiers[tIdx].amount = parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0;
                                                         return { ...r, maintenanceRules: newRules };
                                                       });
                                                       setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                                    }} className="w-24 px-2 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
+                                                    }} className="w-28 px-2 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400 text-right" />
                                                     <span className="text-[11px] text-emerald-600 font-bold">원</span>
                                                     {mRule.tiers.length > 1 && (
                                                       <button onClick={() => {
