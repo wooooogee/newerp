@@ -534,12 +534,17 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       await fetchOrderSheetData();
 
       setNotification({
-        message: `성공적으로 ${allEditedContractNos.size}건의 배송정보 및 배송상태가 구글 시트와 저장소에 저장되었습니다!`,
+        message: `성공적으로 ${allEditedContractNos.size}건의 배송정보 및 배송상태가 구글 시트와 저장소에 저장되었습니다! 잠시 후 화면이 새로고침됩니다.`,
         type: 'success',
       });
 
       setEditedValues({});
       setEditedStates({});
+
+      // 4. 저장 완료 후 화면 자동 새로고침
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
     } catch (err: any) {
       console.error('저장 중 오류:', err);
       setNotification({ message: err.message || '저장 중 오류가 발생했습니다.', type: 'error' });
