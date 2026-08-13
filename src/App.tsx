@@ -704,8 +704,24 @@ const ERP_Dashboard = () => {
   const [mHistoryPage, setMHistoryPage] = useState(1);
   const [mHistorySyncing, setMHistorySyncing] = useState(false);
   const [mHistoryOnlyEligible, setMHistoryOnlyEligible] = useState(false);
-  const [hideEmptyProductsHqs, setHideEmptyProductsHqs] = useState(false);
-  const [hideInactiveHqs, setHideInactiveHqs] = useState(true);
+  const [hideEmptyProductsHqs, setHideEmptyProductsHqs] = useState<boolean>(() => {
+    const saved = localStorage.getItem('erp_hide_empty_products_hqs');
+    return saved !== null ? JSON.parse(saved) : false;
+  });
+  const [hideInactiveHqs, setHideInactiveHqs] = useState<boolean>(() => {
+    const saved = localStorage.getItem('erp_hide_inactive_hqs');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [hqSearchText, setHqSearchText] = useState('');
+
+  useEffect(() => {
+    localStorage.setItem('erp_hide_empty_products_hqs', JSON.stringify(hideEmptyProductsHqs));
+  }, [hideEmptyProductsHqs]);
+
+  useEffect(() => {
+    localStorage.setItem('erp_hide_inactive_hqs', JSON.stringify(hideInactiveHqs));
+  }, [hideInactiveHqs]);
+
 
   // 수동 수수료 정산 상태
   interface ManualProduct {
@@ -802,6 +818,7 @@ const ERP_Dashboard = () => {
         const parsed = JSON.parse(saved);
         return parsed.map((hq: any) => ({
           ...hq,
+          isActive: hq.isActive !== undefined ? parseBooleanValue(hq.isActive) : true,
           productRules: (hq.productRules || []).map((pr: any) => ({
             ...pr,
             applyMaintenance: parseBooleanValue(pr.applyMaintenance)
@@ -969,6 +986,7 @@ const ERP_Dashboard = () => {
       if (data.settings) {
         const sanitizedSettings = data.settings.map((hq: any) => ({
           ...hq,
+          isActive: hq.isActive !== undefined ? parseBooleanValue(hq.isActive) : true,
           productRules: (hq.productRules || []).map((pr: any) => ({
             ...pr,
             applyMaintenance: parseBooleanValue(pr.applyMaintenance)
@@ -6633,10 +6651,29 @@ const ERP_Dashboard = () => {
                         <div className="flex items-center gap-2">
                           <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">본부 목록</p>
                           <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full">
-                            총 {hqSettings.filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false)).length}개
+                            총 {hqSettings.filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false) && (!hqSearchText.trim() || s.hqName.toLowerCase().includes(hqSearchText.trim().toLowerCase()))).length}개
                           </span>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="relative flex items-center">
+                            <Search size={13} className="absolute left-2.5 text-slate-400 pointer-events-none" />
+                            <input
+                              type="text"
+                              placeholder="본부명 검색..."
+                              value={hqSearchText}
+                              onChange={e => setHqSearchText(e.target.value)}
+                              className="pl-7 pr-7 py-1 text-[11px] font-bold bg-white border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all w-36"
+                            />
+                            {hqSearchText && (
+                              <button
+                                onClick={() => setHqSearchText('')}
+                                className="absolute right-2 text-slate-400 hover:text-slate-600 text-[10px] font-bold"
+                                title="검색어 지우기"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
                           <label className="flex items-center gap-1.5 cursor-pointer select-none">
                             <input
                               type="checkbox"
@@ -6683,7 +6720,7 @@ const ERP_Dashboard = () => {
                       {/* Flex Wrap List of Headquarters */}
                       <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
                         {hqSettings
-                          .filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false))
+                          .filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false) && (!hqSearchText.trim() || s.hqName.toLowerCase().includes(hqSearchText.trim().toLowerCase())))
                           .map((s) => {
                             const isActive = activeHqId === s.id;
                             const isBusiness = s.settlementType === '사업자';

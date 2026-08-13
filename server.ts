@@ -564,7 +564,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     // Flatten HQ settings into tabular data
     // Header: ID, 본부명, 은행, 계좌, 예금주, 지급방식, 오버라이딩Y/N, 영업%, 팀장%, 지사%, 본부%, 상품명, 전체수수료, 판매수수료, 판매촉진비, 오버라이딩적용, 구간1건, 단가1, 구간2건, 단가2, 구간3건, 단가3, 상품영업, 상품팀장, 상품지사, 상품본부
     const headers = [
-      '본부ID', '본부명', '정산유형', '은행', '계좌번호', '예금주', '지급방식', '오버라이딩활성', 
+      '본부ID', '본부명', '정산유형', '운영여부', '은행', '계좌번호', '예금주', '지급방식', '오버라이딩활성', 
       '비율(영업)', '비율(팀장)', '비율(지사)', '비율(본부)', 
       '상품명', '전체수수료', '판매수수료', '판매촉진비', '오버라이딩적용', '구간1건', '구간1단가', '구간2건', '구간2단가', '구간3건', '구간3단가',
       '상품영업', '상품팀장', '상품지사', '상품본부',
@@ -578,6 +578,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
         hq.id,
         hq.hqName,
         hq.settlementType || '사업자',  // 정산유형 추가
+        hq.isActive !== false ? 'Y' : 'N', // 운영여부 추가
         hq.bankName,
         hq.accountNumber,
         hq.accountHolder,
@@ -689,7 +690,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
         incentiveRows.push([
           rule.id || '',
           rule.targetName || '',
-          rule.payDay || 1,
+          rule.payDay ?? 0,
           rule.targetHq || '',
           (rule.targetProducts || []).join(', '),
           rule.baseDateType || 'DELIVERY',
@@ -976,6 +977,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
     }
 
     const settlementTypeCol = col('정산유형');
+    const isActiveCol = col('운영여부');
     const bankCol = col('은행');
     const accountNumberCol = col('계좌번호');
     const accountHolderCol = col('예금주');
@@ -1002,7 +1004,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
     const applyMaintenanceCol = col('상품유지수수료활성');
     const maintenanceRulesCol = col('상품유지수수료룰');
 
-    console.log(`[CloudSync] Header detected: id=${idCol}, settlementType=${settlementTypeCol}, bank=${bankCol}`);
+    console.log(`[CloudSync] Header detected: id=${idCol}, settlementType=${settlementTypeCol}, isActive=${isActiveCol}, bank=${bankCol}`);
 
     const hqMap = new Map<string, any>();
     
@@ -1015,6 +1017,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
           id,
           hqName: hqNameCol >= 0 ? (row[hqNameCol] || '') : (row[1] || ''),
           settlementType: settlementTypeCol >= 0 ? (row[settlementTypeCol] || '사업자') : '사업자',
+          isActive: isActiveCol >= 0 ? row[isActiveCol] !== 'N' : true,
           bankName: bankCol >= 0 ? (row[bankCol] || '') : '',
           accountNumber: accountNumberCol >= 0 ? (row[accountNumberCol] || '') : '',
           accountHolder: accountHolderCol >= 0 ? (row[accountHolderCol] || '') : '',
@@ -1123,7 +1126,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             id: iId >= 0 ? row[iId] : Date.now().toString() + Math.random(),
             incentiveName: iIncentiveName >= 0 ? row[iIncentiveName] : '',
             targetName: iTargetName >= 0 ? row[iTargetName] : '',
-            payDay: iPayDay >= 0 ? (parseInt(row[iPayDay]) || 1) : 1,
+            payDay: iPayDay >= 0 && row[iPayDay] !== undefined && row[iPayDay] !== '' ? (parseInt(row[iPayDay]) || 0) : 0,
             targetHq: iTargetHq >= 0 ? row[iTargetHq] : '',
             targetHqs,
             targetProducts,
