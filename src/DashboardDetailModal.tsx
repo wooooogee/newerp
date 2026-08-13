@@ -233,6 +233,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         const name = item.memName ? item.memName.toLowerCase() : '';
         const rentalNo = item.rentalNo ? item.rentalNo.toLowerCase() : '';
         const hq = item.hq ? item.hq.toLowerCase() : '';
+        const branch = item.branch ? item.branch.toLowerCase() : '';
         const prod = item.prodName ? item.prodName.toLowerCase() : '';
         const rentalProd = item.rentalProd ? item.rentalProd.toLowerCase() : '';
         const empName = item.empName ? item.empName.toLowerCase() : '';
@@ -240,6 +241,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           name.includes(term) ||
           rentalNo.includes(term) ||
           hq.includes(term) ||
+          branch.includes(term) ||
           prod.includes(term) ||
           rentalProd.includes(term) ||
           empName.includes(term)
@@ -278,6 +280,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           '상품명': item.prodName || '',
           '제품명': item.rentalProd || '',
           '본부': item.hq || '',
+          '지사': item.branch || '',
           '사원명': item.empName || '',
           '계약상태': item.status || '',
           '배송상태': item.deliveryStatus || '',
@@ -294,6 +297,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           '상품명': item.prodName || '',
           '제품명': item.rentalProd || '',
           '본부': item.hq || '',
+          '지사': item.branch || '',
           '사원명': item.empName || '',
         };
       }
@@ -313,6 +317,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         { wch: 25 }, // 상품명
         { wch: 25 }, // 제품명
         { wch: 15 }, // 본부
+        { wch: 15 }, // 지사
         { wch: 12 }, // 사원명
         { wch: 12 }, // 계약상태
         { wch: 12 }, // 배송상태
@@ -328,6 +333,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         { wch: 25 }, // 상품명
         { wch: 25 }, // 제품명
         { wch: 15 }, // 본부
+        { wch: 15 }, // 지사
         { wch: 12 }, // 사원명
       ];
     }
@@ -594,7 +600,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="회원명, 렌탈번호, 본부, 상품명/제품명 검색"
+                      placeholder="회원명, 렌탈번호, 본부, 지사, 상품명/제품명 검색"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="w-full pl-9 pr-4 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
@@ -637,6 +643,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                       <th className="px-3 py-2">상품명</th>
                       <th className="px-3 py-2">제품명</th>
                       <th className="px-3 py-2">본부</th>
+                      <th className="px-3 py-2">지사</th>
                       <th className="px-3 py-2">사원명</th>
                       {isDelivery && <th className="px-3 py-2 text-center">계약상태</th>}
                       {isDelivery && <th className="px-3 py-2 text-center">배송상태</th>}
@@ -668,6 +675,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                             <td className="px-3 py-1.5 text-slate-700 font-medium max-w-[150px] truncate" title={item.prodName}>{item.prodName}</td>
                             <td className="px-3 py-1.5 text-slate-700 font-medium max-w-[150px] truncate" title={item.rentalProd}>{item.rentalProd || '-'}</td>
                             <td className="px-3 py-1.5 text-slate-600">{item.hq}</td>
+                            <td className="px-3 py-1.5 text-slate-600">{item.branch || '-'}</td>
                             <td className="px-3 py-1.5 text-slate-600">{item.empName}</td>
                             {isDelivery && (
                               <td className="px-3 py-1.5 text-center">
@@ -698,7 +706,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                       })
                     ) : (
                       <tr>
-                        <td colSpan={isDelivery ? 12 : 10} className="px-3 py-12 text-center text-slate-400 font-semibold">
+                        <td colSpan={isDelivery ? 13 : 11} className="px-3 py-12 text-center text-slate-400 font-semibold">
                           검색 조건에 맞는 내역이 없습니다.
                         </td>
                       </tr>
