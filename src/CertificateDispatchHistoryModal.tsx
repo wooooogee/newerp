@@ -276,7 +276,8 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
         empName: String(raw[14] || ''),    // *담당자
         empPhone: String(raw[15] || ''),   // *담당자전화번호
         memNo2: String(raw[16] || ''),     // 회원번호2
-        memNo3: String(raw[17] || '')      // 회원번호3
+        memNo3: String(raw[17] || ''),     // 회원번호3
+        memNo4: String(raw[18] || '')      // 회원번호4
       };
     });
   }, [historyList]);
