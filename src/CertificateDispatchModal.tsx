@@ -402,9 +402,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [labelStartPos, setLabelStartPos] = useState<number>(1);
 
   const handlePrintCertificates = () => {
-    const selectedItems = processedData.filter(item => selectedIds.has(item.id) && String(item.extracted.workAddress || '').trim() === '우편');
+    const selectedItems = processedData.filter(item => selectedIds.has(item.id));
     if (selectedItems.length === 0) {
-      alert('인쇄할 우편 발송 항목을 선택해 주세요.');
+      alert('인쇄할 항목을 선택해 주세요.');
       return;
     }
     const certItems: CertPrintItem[] = selectedItems.map(item => {
@@ -432,7 +432,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   };
 
   const handlePrintLabels = () => {
-    const selectedItems = combinedData.filter(item => selectedIds.has(item.id) && String(item.extracted.workAddress || '').trim() === '우편');
+    const selectedItems = processedData.filter(item => selectedIds.has(item.id));
     if (selectedItems.length === 0) return;
 
     const printWindow = window.open('', '_blank', 'width=850,height=900');
@@ -1019,16 +1019,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                   : 'hover:bg-slate-50/50'
                               }`}>
                                 <td className="p-3 text-center whitespace-nowrap w-[40px]">
-                                  {isPost ? (
-                                    <input
-                                      type="checkbox"
-                                      checked={selectedIds.has(item.id)}
-                                      onChange={() => handleToggleSelect(item.id)}
-                                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 align-middle"
-                                    />
-                                  ) : (
-                                    <span className="text-[10px] text-slate-300 font-semibold select-none">-</span>
-                                  )}
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedIds.has(item.id)}
+                                    onChange={() => handleToggleSelect(item.id)}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 align-middle"
+                                  />
                                 </td>
                                 <td className="p-3 text-[12px] font-bold text-slate-800 whitespace-nowrap">{ext.memName}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap"></td>
@@ -1047,6 +1043,33 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.rentalNo2 || ''}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.rentalNo3 || ''}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.rentalNo4 || ''}</td>
+                                <td className="p-3 text-center whitespace-nowrap">
+                                  <button
+                                    onClick={() => printCertificatesPdf([{
+                                      id: item.id,
+                                      memName: ext.memName,
+                                      phone: ext.phone,
+                                      memNo1: ext.memNo,
+                                      birthDate: ext.birthDate,
+                                      contractDate: ext.contractDate,
+                                      prodName: ext.prodName,
+                                      monthlyPay1: ext.monthlyPay1,
+                                      monthlyPay2: ext.monthlyPay2,
+                                      zipCode: ext.zipCode,
+                                      address: ext.address,
+                                      empName: ext.empName,
+                                      empPhone: ext.empPhone,
+                                      memNo2: ext.rentalNo2,
+                                      memNo3: ext.rentalNo3,
+                                      memNo4: ext.rentalNo4
+                                    }])}
+                                    className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-md text-[11px] font-bold transition-colors flex items-center gap-1 mx-auto"
+                                    title="해당 회원만 단독 PDF 출력"
+                                  >
+                                    <Printer size={12} />
+                                    출력
+                                  </button>
+                                </td>
                               </tr>
                             );
                           })}

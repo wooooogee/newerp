@@ -40,9 +40,9 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
 
   // 우편 증서 PDF 인쇄 핸들러
   const handlePrintCertificates = () => {
-    const selectedItems = mappedList.filter(item => selectedIds.has(item.id) && item.type === '우편');
+    const selectedItems = mappedList.filter(item => selectedIds.has(item.id));
     if (selectedItems.length === 0) {
-      alert('인쇄할 우편 발송 항목을 선택해 주세요.');
+      alert('인쇄할 항목을 선택해 주세요.');
       return;
     }
     printCertificatesPdf(selectedItems);
@@ -50,7 +50,7 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
 
   // 라벨 인쇄 팝업 창 생성 및 인쇄 호출
   const handlePrintLabels = () => {
-    const selectedItems = mappedList.filter(item => selectedIds.has(item.id) && item.type === '우편');
+    const selectedItems = mappedList.filter(item => selectedIds.has(item.id));
     if (selectedItems.length === 0) return;
 
     const printWindow = window.open('', '_blank', 'width=850,height=900');
@@ -550,16 +550,12 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                             return (
                               <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
                                 <td className="p-3 text-center whitespace-nowrap w-[40px]">
-                                  {isPost ? (
-                                    <input
-                                      type="checkbox"
-                                      checked={isSelected}
-                                      onChange={() => handleToggleSelect(item.id)}
-                                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 align-middle"
-                                    />
-                                  ) : (
-                                    <span className="text-[10px] text-slate-300 font-semibold select-none">-</span>
-                                  )}
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => handleToggleSelect(item.id)}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 align-middle"
+                                  />
                                 </td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap font-medium">{item.date}</td>
                                 <td className="p-3 text-[12px] whitespace-nowrap">
@@ -586,18 +582,14 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{item.memNo2 || ''}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{item.memNo3 || ''}</td>
                                 <td className="p-3 text-center whitespace-nowrap">
-                                  {isPost ? (
-                                    <button
-                                      onClick={() => printCertificatesPdf([item])}
-                                      className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-md text-[11px] font-bold transition-colors flex items-center gap-1 mx-auto"
-                                      title="해당 회원만 단독 PDF 출력"
-                                    >
-                                      <Printer size={12} />
-                                      출력
-                                    </button>
-                                  ) : (
-                                    <span className="text-[10px] text-slate-300">-</span>
-                                  )}
+                                  <button
+                                    onClick={() => printCertificatesPdf([item])}
+                                    className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-md text-[11px] font-bold transition-colors flex items-center gap-1 mx-auto"
+                                    title="해당 회원만 단독 PDF 출력"
+                                  >
+                                    <Printer size={12} />
+                                    출력
+                                  </button>
                                 </td>
                               </tr>
                             );
