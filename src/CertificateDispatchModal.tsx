@@ -864,7 +864,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       placeholder="회원명, 회원번호, 사원명 검색..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      className="w-full min-w-[240px] pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                     />
                   </div>
                   <div className="sm:w-56 flex items-center">
@@ -1033,7 +1033,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                 <td className="p-3 text-[12px] font-mono text-slate-600 whitespace-nowrap">{ext.memNo}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.birthDate}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.contractDate}</td>
-                                <td className="p-3 text-[12px] text-slate-700 truncate max-w-[150px] whitespace-nowrap" title={ext.prodName}>{ext.prodName}</td>
+                                <td className="p-3 text-[12px] font-bold text-slate-700 whitespace-nowrap min-w-[180px]" title={ext.prodName}>{ext.prodName}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.monthlyPay1}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.monthlyPay2}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.zipCode}</td>

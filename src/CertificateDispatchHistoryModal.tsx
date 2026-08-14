@@ -572,7 +572,7 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                                 <td className="p-3 text-[12px] font-mono text-slate-600 whitespace-nowrap">{item.memNo1}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{item.birthDate}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{item.contractDate}</td>
-                                <td className="p-3 text-[12px] text-slate-700 truncate max-w-[150px] whitespace-nowrap" title={item.prodName}>{item.prodName}</td>
+                                <td className="p-3 text-[12px] font-bold text-slate-700 whitespace-nowrap min-w-[180px]" title={item.prodName}>{item.prodName}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{item.monthlyPay1}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{item.monthlyPay2}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{item.zipCode}</td>

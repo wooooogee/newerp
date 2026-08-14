@@ -117,13 +117,11 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
     const templateCacheMap = new Map<string, ArrayBuffer>();
 
     for (const item of items) {
-      // 보유 구좌 수 (회원번호 목록 정밀 추출)
       const memberNos = parseMemberNumbers([item.memNo1, item.memNo2, item.memNo3, item.memNo4]);
       if (memberNos.length === 0) {
         memberNos.push(item.memNo1 || '');
       }
 
-      // 상품명에 따른 PDF 템플릿 가져오기
       const tplPath = getTemplatePathForProduct(item.prodName);
       if (!templateCacheMap.has(tplPath)) {
         let res = await fetch(tplPath);
@@ -148,7 +146,6 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
       // ----------------------------------------------------
       const [p1] = await outPdf.copyPages(tplPdf, [0]);
 
-      // 1페이지 기존 템플릿 우측 주소/수령인 영역 흰색 마스크 패치로 가리기
       p1.drawRectangle({
         x: 280,
         y: 575,
@@ -190,14 +187,14 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
             pCert.drawText(addrLine2, { x: 125, y: 655, size: 9, font, color: rgb(0, 0, 0) });
           }
 
-          // --- 우측 데이터 값 (요구사항 1: x = 450 pt 로 더 우측으로 이동하여 라벨 문구 및 콜론과 겹침 100% 완전 방지!) ---
-          pCert.drawText(item.prodName || '', { x: 450, y: 749, size: 10, font, color: rgb(0, 0, 0) });
-          pCert.drawText(item.contractDate || '', { x: 450, y: 722, size: 10, font, color: rgb(0, 0, 0) });
-          pCert.drawText(item.monthlyPay1 || '', { x: 450, y: 700, size: 8.5, font, color: rgb(0, 0, 0) });
-          pCert.drawText(item.monthlyPay2 || '', { x: 450, y: 687, size: 8.5, font, color: rgb(0, 0, 0) });
+          // --- 우측 데이터 값 (요구사항 3: x = 438 pt 로 아주 조금만 왼쪽으로 이동하여 황금 비율 피팅!) ---
+          pCert.drawText(item.prodName || '', { x: 438, y: 749, size: 10, font, color: rgb(0, 0, 0) });
+          pCert.drawText(item.contractDate || '', { x: 438, y: 722, size: 10, font, color: rgb(0, 0, 0) });
+          pCert.drawText(item.monthlyPay1 || '', { x: 438, y: 700, size: 8.5, font, color: rgb(0, 0, 0) });
+          pCert.drawText(item.monthlyPay2 || '', { x: 438, y: 687, size: 8.5, font, color: rgb(0, 0, 0) });
 
-          pCert.drawText(item.empName || '', { x: 450, y: 668, size: 10, font, color: rgb(0, 0, 0) });
-          pCert.drawText(item.empPhone || '', { x: 450, y: 653, size: 8.5, font, color: rgb(0, 0, 0) });
+          pCert.drawText(item.empName || '', { x: 438, y: 668, size: 10, font, color: rgb(0, 0, 0) });
+          pCert.drawText(item.empPhone || '', { x: 438, y: 653, size: 8.5, font, color: rgb(0, 0, 0) });
         }
         outPdf.addPage(pCert);
       }
@@ -210,18 +207,14 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
       outPdf.addPage(p5);
 
       // ----------------------------------------------------
-      // 요구사항 2: 양면 인쇄(Duplex Printing) 대응 짝수 페이지 자동 패딩
-      // 한 사람의 서식 세트 총 페이지 수 = 1(봉투) + N(증서) + 1(약관) = (2 + N)장
-      // 세트 총 페이지 수가 홀수인 경우 빈 페이지 1장을 자동으로 추가하여
-      // 다음 사람의 1페이지(봉투)가 무조건 새 종이의 앞면에서 시작되도록 보장!
+      // 양면 인쇄(Duplex Printing) 대응 짝수 페이지 자동 패딩
       // ----------------------------------------------------
       const personTotalPages = 1 + memberNos.length + 1;
       if (personTotalPages % 2 !== 0) {
-        const blankPage = outPdf.addPage([595.28, 841.89]); // A4 표준 크기 빈 페이지
+        outPdf.addPage([595.28, 841.89]);
       }
     }
 
-    // 3. 완성된 PDF 생성 및 브라우저 출력 열기
     const pdfBytes = await outPdf.save();
     const blob = new Blob([pdfBytes], { type: 'application/pdf' });
     const blobUrl = URL.createObjectURL(blob);
