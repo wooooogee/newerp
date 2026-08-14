@@ -964,10 +964,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                     <p className="text-[13px] font-medium">검색 결과가 없습니다.</p>
                   </div>
                 ) : (
-                  <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto">
+                  <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex-1 flex flex-col min-h-0">
+                    <div className="overflow-auto flex-1 max-h-[calc(85vh-240px)]">
                       <table className="w-full text-left border-collapse min-w-[1200px]">
-                        <thead>
+                        <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                           <tr className="bg-slate-50 border-b border-slate-200">
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap w-[40px] text-center">
                               {postItemsInProcessed.length > 0 && (
