@@ -23,7 +23,7 @@ export interface CertPrintItem {
 /**
  * 주소 텍스트를 지정한 최대 글자 수 기준으로 2줄로 안전하게 나누는 헬퍼 함수
  */
-function splitAddressIntoTwoLines(addr: string, maxLen: number = 22): [string, string] {
+function splitAddressIntoTwoLines(addr: string, maxLen: number = 21): [string, string] {
   const clean = String(addr || '').trim();
   if (clean.length <= maxLen) {
     return [clean, ''];
@@ -35,35 +35,37 @@ function splitAddressIntoTwoLines(addr: string, maxLen: number = 22): [string, s
     return [clean.slice(0, spaceIdx), clean.slice(spaceIdx + 1)];
   }
 
-  // 공백이 없으면 글자수 기준 단순 분할
   return [clean.slice(0, maxLen), clean.slice(maxLen)];
 }
 
 /**
- * 가입 상품명에 맞춰 적절한 PDF 템플릿 경로 반환
+ * 회원 가입 상품명에 맞춰 업로드된 5종류 PDF 템플릿 파일 경로를 정확하게 매칭
  */
 function getTemplatePathForProduct(prodName: string): string {
-  const cleanProd = String(prodName || '').trim();
+  const cleanProd = String(prodName || '').replace(/\s+/g, '');
 
+  // 1. 더좋은프리미엄540플러스
+  if (cleanProd.includes('540플러스') || cleanProd.includes('540PLUS')) {
+    return '/templates/template_540plus.pdf';
+  }
+  // 2. 더좋은프리미엄540
   if (cleanProd.includes('540')) {
-    return '/templates/certificate_template.pdf'; // 더좋은프리미엄540플러스 / 온라인전용
+    return '/templates/template_540.pdf';
   }
-  if (cleanProd.includes('상품2') || cleanProd.includes('450')) {
-    return '/templates/template_product2.pdf';
+  // 3. 더좋은하이브리드698
+  if (cleanProd.includes('698') || cleanProd.includes('하이브리드')) {
+    return '/templates/template_698.pdf';
   }
-  if (cleanProd.includes('상품3') || cleanProd.includes('360')) {
-    return '/templates/template_product3.pdf';
+  // 4. 굿라이프헬스케어실버
+  if (cleanProd.includes('실버') || cleanProd.includes('헬스케어실버')) {
+    return '/templates/template_silver.pdf';
   }
-  if (cleanProd.includes('상품4')) {
-    return '/templates/template_product4.pdf';
-  }
-  if (cleanProd.includes('상품5')) {
-    return '/templates/template_product5.pdf';
-  }
-  if (cleanProd.includes('상품6')) {
-    return '/templates/template_product6.pdf';
+  // 5. 굿라이프헬스케어올인원
+  if (cleanProd.includes('올인원') || cleanProd.includes('헬스케어올인원')) {
+    return '/templates/template_allinone.pdf';
   }
 
+  // 기본 fallback 템플릿
   return '/templates/certificate_template.pdf';
 }
 
@@ -127,22 +129,19 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
       // ----------------------------------------------------
       const [p1] = await outPdf.copyPages(tplPdf, [0]);
 
-      // 1페이지 기존 "조순옥 회원님 귀하 01664" 포함 우측 영역을 흰색으로 완전히 깨끗하게 지우기
+      // 1페이지 기존 템플릿 우측 주소/수령인 영역 흰색 마스크 패치로 가리기
       p1.drawRectangle({
         x: 270,
         y: 600,
         width: 310,
         height: 150,
-        color: rgb(1, 1, 1), // 흰색 마스크 패치
+        color: rgb(1, 1, 1),
       });
 
       if (font) {
-        // 주소 (조금 더 자연스러운 위치)
         p1.drawText(item.address || '', { x: 275, y: 695, size: 12.5, font, color: rgb(0, 0, 0) });
-        // 이름 (기존 조순옥 위치로 살짝 내려서 배치)
         p1.drawText(item.memName || '', { x: 360, y: 650, size: 18, font, color: rgb(0, 0, 0) });
         p1.drawText('회원님 귀하', { x: 450, y: 650, size: 12, font, color: rgb(0.2, 0.2, 0.2) });
-        // 우편번호 (기존 01664 위치)
         p1.drawText(item.zipCode || '', { x: 450, y: 622, size: 14.5, font, color: rgb(0, 0, 0) });
       }
       outPdf.addPage(p1);
@@ -153,12 +152,11 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
       for (const memNo of memberNos) {
         const [pCert] = await outPdf.copyPages(tplPdf, [1]);
 
-        // 피드백 2: 배경색 패치를 완전히 제거하여 투명하게 하고 텍스트만 깔끔히 표시!
         // 주소 2줄 분할 처리 (오른쪽 "담당" 칸 침범 방지)
         const [addrLine1, addrLine2] = splitAddressIntoTwoLines(item.address || '', 21);
 
         if (font) {
-          // 회원명 (라벨 옆 빈 공간)
+          // 회원명 (라벨 우측 빈 공간)
           pCert.drawText(item.memName || '', { x: 125, y: 746, size: 11.5, font, color: rgb(0, 0, 0) });
           // 가입상품
           pCert.drawText(item.prodName || '', { x: 400, y: 746, size: 10.5, font, color: rgb(0, 0, 0) });
@@ -174,7 +172,7 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
           pCert.drawText(item.monthlyPay1 || '', { x: 400, y: 696, size: 9, font, color: rgb(0, 0, 0) });
           pCert.drawText(item.monthlyPay2 || '', { x: 400, y: 683, size: 9, font, color: rgb(0, 0, 0) });
 
-          // 주소 (2줄로 나누어 옆 칸 침범 절대로 안 하도록 처리)
+          // 주소 (2줄로 나누어 옆 칸 침범 안 하도록 안전 분할)
           pCert.drawText(addrLine1, { x: 125, y: 664, size: 9, font, color: rgb(0, 0, 0) });
           if (addrLine2) {
             pCert.drawText(addrLine2, { x: 125, y: 651, size: 9, font, color: rgb(0, 0, 0) });
@@ -190,7 +188,6 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
       // ----------------------------------------------------
       // [PAGE 5] 약관 & 청약철회 신청서 (사람당 1장)
       // ----------------------------------------------------
-      // 피드백 3: 약관 하단 고객정보 오버레이는 완전히 삭제하여 원본 그대로 노출!
       const pageIndex5 = tplPdf.getPageCount() >= 5 ? 4 : tplPdf.getPageCount() - 1;
       const [p5] = await outPdf.copyPages(tplPdf, [pageIndex5]);
 
