@@ -39,7 +39,7 @@ function splitAddressIntoTwoLines(addr: string, maxLen: number = 21): [string, s
 }
 
 /**
- * 회원 가입 상품명에 맞춰 업로드된 5종류 PDF 템플릿 파일 경로를 정확하게 매칭
+ * 회원 가입 상품명에 맞춰 업로드된 6종류 PDF 템플릿 파일 경로를 정확하게 매칭
  */
 function getTemplatePathForProduct(prodName: string): string {
   const cleanProd = String(prodName || '').replace(/\s+/g, '');
@@ -56,11 +56,15 @@ function getTemplatePathForProduct(prodName: string): string {
   if (cleanProd.includes('698') || cleanProd.includes('하이브리드')) {
     return '/templates/template_698.pdf';
   }
-  // 4. 굿라이프헬스케어실버
+  // 4. 굿라이프헬스케어골드
+  if (cleanProd.includes('골드') || cleanProd.includes('헬스케어골드')) {
+    return '/templates/template_gold.pdf';
+  }
+  // 5. 굿라이프헬스케어실버
   if (cleanProd.includes('실버') || cleanProd.includes('헬스케어실버')) {
     return '/templates/template_silver.pdf';
   }
-  // 5. 굿라이프헬스케어올인원
+  // 6. 굿라이프헬스케어올인원
   if (cleanProd.includes('올인원') || cleanProd.includes('헬스케어올인원')) {
     return '/templates/template_allinone.pdf';
   }
