@@ -540,6 +540,7 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">*담당자전화번호</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">회원번호2</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">회원번호3</th>
+                            <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap text-center">개별출력</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -584,6 +585,20 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{item.empPhone}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{item.memNo2 || ''}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{item.memNo3 || ''}</td>
+                                <td className="p-3 text-center whitespace-nowrap">
+                                  {isPost ? (
+                                    <button
+                                      onClick={() => printCertificatesPdf([item])}
+                                      className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-md text-[11px] font-bold transition-colors flex items-center gap-1 mx-auto"
+                                      title="해당 회원만 단독 PDF 출력"
+                                    >
+                                      <Printer size={12} />
+                                      출력
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-300">-</span>
+                                  )}
+                                </td>
                               </tr>
                             );
                           })}

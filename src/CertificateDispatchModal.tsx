@@ -996,6 +996,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">회원번호2</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">회원번호3</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">회원번호4</th>
+                            <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap text-center">개별출력</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1018,7 +1019,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                   : 'hover:bg-slate-50/50'
                               }`}>
                                 <td className="p-3 text-center whitespace-nowrap w-[40px]">
-                                  {String(ext.workAddress || '').trim() === '우편' ? (
+                                  {isPost ? (
                                     <input
                                       type="checkbox"
                                       checked={selectedIds.has(item.id)}
