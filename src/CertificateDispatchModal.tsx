@@ -402,7 +402,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [labelStartPos, setLabelStartPos] = useState<number>(1);
 
   const handlePrintCertificates = () => {
-    const selectedItems = combinedData.filter(item => selectedIds.has(item.id) && String(item.extracted.workAddress || '').trim() === '우편');
+    const selectedItems = processedData.filter(item => selectedIds.has(item.id) && String(item.extracted.workAddress || '').trim() === '우편');
     if (selectedItems.length === 0) {
       alert('인쇄할 우편 발송 항목을 선택해 주세요.');
       return;

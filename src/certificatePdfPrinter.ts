@@ -50,7 +50,6 @@ function parseMemberNumbers(items: (string | undefined)[]): string[] {
     const str = String(raw).trim();
     if (!str || str.toUpperCase() === 'UNDEFINED' || str.toUpperCase() === 'NULL') return;
 
-    // 콤마, 줄바꿈, 탭, 공백 등으로 토큰 분할
     const tokens = str.split(/[\s,\t\r\n]+/);
     tokens.forEach(tok => {
       const cleanTok = tok.trim();
@@ -160,29 +159,29 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
       // ----------------------------------------------------
       const [p1] = await outPdf.copyPages(tplPdf, [0]);
 
-      // 1페이지 기존 템플릿 우측 주소/수령인 영역 흰색 마스크 패치로 깔끔히 가리기
+      // 1페이지 기존 템플릿 우측 주소/수령인 영역 흰색 마스크 패치로 가리기 (우측/아래로 이동)
       p1.drawRectangle({
-        x: 250,
-        y: 595,
-        width: 335,
+        x: 280,
+        y: 575,
+        width: 310,
         height: 155,
         color: rgb(1, 1, 1),
       });
 
       if (font) {
-        // 1페이지 봉투 수령인 주소 2줄 분할 (오른쪽 짤림 방지)
+        // 피드백 1: 1페이지 수령인 정보 우측 및 아래로 이동
         const [p1Addr1, p1Addr2] = splitAddressIntoTwoLines(item.address || '', 22);
 
-        p1.drawText(p1Addr1, { x: 260, y: 706, size: 11.5, font, color: rgb(0, 0, 0) });
+        p1.drawText(p1Addr1, { x: 295, y: 686, size: 12, font, color: rgb(0, 0, 0) });
         if (p1Addr2) {
-          p1.drawText(p1Addr2, { x: 260, y: 690, size: 11.5, font, color: rgb(0, 0, 0) });
+          p1.drawText(p1Addr2, { x: 295, y: 670, size: 12, font, color: rgb(0, 0, 0) });
         }
 
-        // 수령인 이름 (기존 조순옥 위치로 내림)
-        p1.drawText(item.memName || '', { x: 350, y: 648, size: 18, font, color: rgb(0, 0, 0) });
-        p1.drawText('회원님 귀하', { x: 440, y: 648, size: 12, font, color: rgb(0.2, 0.2, 0.2) });
+        // 수령인 이름 (우측 및 아래로 조정)
+        p1.drawText(item.memName || '', { x: 370, y: 630, size: 18, font, color: rgb(0, 0, 0) });
+        p1.drawText('회원님 귀하', { x: 460, y: 630, size: 12, font, color: rgb(0.2, 0.2, 0.2) });
         // 우편번호
-        p1.drawText(item.zipCode || '', { x: 440, y: 620, size: 14.5, font, color: rgb(0, 0, 0) });
+        p1.drawText(item.zipCode || '', { x: 460, y: 602, size: 14.5, font, color: rgb(0, 0, 0) });
       }
       outPdf.addPage(p1);
 
@@ -196,32 +195,34 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
         const [addrLine1, addrLine2] = splitAddressIntoTwoLines(item.address || '', 19);
 
         if (font) {
+          // 피드백 3: 회원증서 입력값 Y좌표 상향 및 우측 좌표 x=422pt 조정하여 라벨 겹침 완전 제거!
+          
           // --- 좌측 데이터 값 ---
-          // 회원명 (라벨 "회 원 명 :" 우측 x = 125)
-          pCert.drawText(item.memName || '', { x: 125, y: 746, size: 11.5, font, color: rgb(0, 0, 0) });
-          // 회원번호 (라벨 "회 원 번 호 :" 우측 x = 125)
-          pCert.drawText(memNo || '', { x: 125, y: 718, size: 11.5, font, color: rgb(0, 0, 0) });
-          // 생년월일 (라벨 "생 년 월 일 :" 우측 x = 125)
-          pCert.drawText(item.birthDate || '', { x: 125, y: 691, size: 10.5, font, color: rgb(0, 0, 0) });
+          // 회원명 (y = 749 pt)
+          pCert.drawText(item.memName || '', { x: 125, y: 749, size: 11.5, font, color: rgb(0, 0, 0) });
+          // 회원번호 (y = 722 pt)
+          pCert.drawText(memNo || '', { x: 125, y: 722, size: 11.5, font, color: rgb(0, 0, 0) });
+          // 생년월일 (y = 695 pt)
+          pCert.drawText(item.birthDate || '', { x: 125, y: 695, size: 10.5, font, color: rgb(0, 0, 0) });
 
-          // 주소 (2줄로 나누어 x = 125, 오른쪽 담당 라벨 침범 완전 방지)
-          pCert.drawText(addrLine1, { x: 125, y: 664, size: 9, font, color: rgb(0, 0, 0) });
+          // 주소 (2줄 분할, y = 668, 655 pt)
+          pCert.drawText(addrLine1, { x: 125, y: 668, size: 9, font, color: rgb(0, 0, 0) });
           if (addrLine2) {
-            pCert.drawText(addrLine2, { x: 125, y: 651, size: 9, font, color: rgb(0, 0, 0) });
+            pCert.drawText(addrLine2, { x: 125, y: 655, size: 9, font, color: rgb(0, 0, 0) });
           }
 
-          // --- 우측 데이터 값 (라벨 "가 입 상 품 :", "가 입 일 자 :", "월 불 입 금 :", "담 당 :" 우측 빈 공간 x = 430 으로 이동하여 겹침 완전 제거!) ---
-          // 가입상품
-          pCert.drawText(item.prodName || '', { x: 430, y: 746, size: 10, font, color: rgb(0, 0, 0) });
-          // 가입일자
-          pCert.drawText(item.contractDate || '', { x: 430, y: 718, size: 10, font, color: rgb(0, 0, 0) });
-          // 월불입금 2줄
-          pCert.drawText(item.monthlyPay1 || '', { x: 430, y: 696, size: 8.5, font, color: rgb(0, 0, 0) });
-          pCert.drawText(item.monthlyPay2 || '', { x: 430, y: 683, size: 8.5, font, color: rgb(0, 0, 0) });
+          // --- 우측 데이터 값 (x = 422 pt 로 라벨 우측 빈 공간 정밀 피팅, Y좌표 3~5pt 상향) ---
+          // 가입상품 (y = 749 pt)
+          pCert.drawText(item.prodName || '', { x: 422, y: 749, size: 10.5, font, color: rgb(0, 0, 0) });
+          // 가입일자 (y = 722 pt)
+          pCert.drawText(item.contractDate || '', { x: 422, y: 722, size: 10.5, font, color: rgb(0, 0, 0) });
+          // 월불입금 2줄 (y = 700, 687 pt)
+          pCert.drawText(item.monthlyPay1 || '', { x: 422, y: 700, size: 8.5, font, color: rgb(0, 0, 0) });
+          pCert.drawText(item.monthlyPay2 || '', { x: 422, y: 687, size: 8.5, font, color: rgb(0, 0, 0) });
 
-          // 담당자 / 전화번호
-          pCert.drawText(item.empName || '', { x: 430, y: 666, size: 10, font, color: rgb(0, 0, 0) });
-          pCert.drawText(item.empPhone || '', { x: 430, y: 651, size: 8.5, font, color: rgb(0, 0, 0) });
+          // 담당자 / 전화번호 (y = 668, 653 pt)
+          pCert.drawText(item.empName || '', { x: 422, y: 668, size: 10.5, font, color: rgb(0, 0, 0) });
+          pCert.drawText(item.empPhone || '', { x: 422, y: 653, size: 8.5, font, color: rgb(0, 0, 0) });
         }
         outPdf.addPage(pCert);
       }
