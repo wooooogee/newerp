@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Download, Search, FileText, Calendar } from 'lucide-react';
+import { X, Download, Search, FileText, Calendar, Printer } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { printCertificatesPdf } from './certificatePdfPrinter';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -36,6 +37,16 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
     });
   };
 
+
+  // 우편 증서 PDF 인쇄 핸들러
+  const handlePrintCertificates = () => {
+    const selectedItems = mappedList.filter(item => selectedIds.has(item.id) && item.type === '우편');
+    if (selectedItems.length === 0) {
+      alert('인쇄할 우편 발송 항목을 선택해 주세요.');
+      return;
+    }
+    printCertificatesPdf(selectedItems);
+  };
 
   // 라벨 인쇄 팝업 창 생성 및 인쇄 호출
   const handlePrintLabels = () => {
@@ -404,6 +415,18 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                 </div>
               </div>
               <div className="flex items-center gap-2 sm:gap-3">
+                <button
+                  onClick={handlePrintCertificates}
+                  disabled={selectedIds.size === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-bold transition-all ${
+                    selectedIds.size === 0 
+                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200' 
+                      : 'bg-amber-600 text-white hover:bg-amber-500 shadow-md shadow-amber-600/20'
+                  }`}
+                >
+                  <Printer size={16} />
+                  우편증서 PDF 출력 ({selectedIds.size}건)
+                </button>
                 <button
                   onClick={handlePrintLabels}
                   disabled={selectedIds.size === 0}

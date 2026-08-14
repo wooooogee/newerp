@@ -2654,16 +2654,36 @@ const ERP_Dashboard = () => {
 
             let isMatchedDate = false;
             const itemPayDateDisplay = item.payDate || getDisplayPayDate(item) || '';
-            if (itemPayDateDisplay && payDateFilter && itemPayDateDisplay.replace(/[-./]/g, '') === filterClean) {
-              isMatchedDate = true;
+            
+            // 지급일자 필터가 특정 일자(ALL이 아님)로 지정된 경우: 지급일자가 명시되어 있다면 해당 지급일자와 반드시 일치해야 함
+            if (payDateFilter && payDateFilter !== 'ALL') {
+              if (itemPayDateDisplay && itemPayDateDisplay !== '지급일 미지정' && itemPayDateDisplay !== '-') {
+                isMatchedDate = itemPayDateDisplay.replace(/[-./]/g, '') === filterClean;
+              } else {
+                // 지급일 미지정인 경우 계약/배송일자 기준 월 비교
+                const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+                if (match) {
+                  let y = match[1];
+                  if (y.length === 2) y = '20' + y;
+                  const m = match[2].padStart(2, '0');
+                  if ((y === prevYearStr && m === prevMonthStr) || (y === String(year) && m === String(month).padStart(2, '0'))) {
+                    isMatchedDate = true;
+                  }
+                }
+              }
             } else {
-              const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-              if (match) {
-                let y = match[1];
-                if (y.length === 2) y = '20' + y;
-                const m = match[2].padStart(2, '0');
-                if ((y === prevYearStr && m === prevMonthStr) || (y === String(year) && m === String(month).padStart(2, '0'))) {
-                  isMatchedDate = true;
+              // payDateFilter가 ALL이거나 없는 경우
+              if (itemPayDateDisplay && payDateFilter && itemPayDateDisplay.replace(/[-./]/g, '') === filterClean) {
+                isMatchedDate = true;
+              } else {
+                const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+                if (match) {
+                  let y = match[1];
+                  if (y.length === 2) y = '20' + y;
+                  const m = match[2].padStart(2, '0');
+                  if ((y === prevYearStr && m === prevMonthStr) || (y === String(year) && m === String(month).padStart(2, '0'))) {
+                    isMatchedDate = true;
+                  }
                 }
               }
             }
@@ -3483,7 +3503,13 @@ const ERP_Dashboard = () => {
     try {
       const items = settlementStats.hqGroups[hqName] || [];
       const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
-      let hqSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === hqName);
+      let hqSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => {
+        if (sp.hq !== hqName) return false;
+        if (payDateFilter && payDateFilter !== 'ALL' && sp.payDate && sp.payDate !== '-' && sp.payDate !== '지급일 미지정') {
+          return sp.payDate.replace(/[-./]/g, '') === payDateFilter.replace(/[-./]/g, '');
+        }
+        return true;
+      });
       const maintenanceSum = hqMaintenancePayouts.reduce((sum, m) => sum + m.amount, 0);
       const specialSum = (settlementStats.globalIncentivesSummary || {})[hqName] || 0;
 
@@ -8927,7 +8953,13 @@ const ERP_Dashboard = () => {
                                     </thead>
                                     <tbody>
                                       {displayItems.map((item: any, i: number) => {
-                                        let itemAmount = matchedRule?.commissionPerUnit || 0;
+                                        // specialPayouts에서 실제 매칭되는 수당 금액 검색
+                                        const rentalKey = item.rentalNo || item.resNo;
+                                        const matchedSp = (settlementStats.specialPayouts || []).find((sp: any) => 
+                                          sp.hq === s.hqName && (sp.rentalNo === rentalKey || sp.memName === item.memName)
+                                        );
+                                        
+                                        let itemAmount = matchedSp ? matchedSp.amount : (matchedRule?.commissionPerUnit || 0);
                                         if (itemAmount === 0 && displayItems.length > 0) {
                                           itemAmount = Math.round(s.specialSum / displayItems.length);
                                         }

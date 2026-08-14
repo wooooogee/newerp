@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Calendar, Download, Search, FileText, Save } from 'lucide-react';
+import { X, Calendar, Download, Search, FileText, Save, Printer } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
+import { printCertificatesPdf, CertPrintItem } from './certificatePdfPrinter';
 // @ts-ignore
 const XLSX = (window as any).XLSX;
 
@@ -400,6 +401,36 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
   const [labelStartPos, setLabelStartPos] = useState<number>(1);
 
+  const handlePrintCertificates = () => {
+    const selectedItems = combinedData.filter(item => selectedIds.has(item.id) && String(item.extracted.workAddress || '').trim() === '우편');
+    if (selectedItems.length === 0) {
+      alert('인쇄할 우편 발송 항목을 선택해 주세요.');
+      return;
+    }
+    const certItems: CertPrintItem[] = selectedItems.map(item => {
+      const ext = item.extracted;
+      return {
+        id: item.id,
+        memName: ext.memName,
+        phone: ext.phone,
+        memNo1: ext.memNo,
+        birthDate: ext.birthDate,
+        contractDate: ext.contractDate,
+        prodName: ext.prodName,
+        monthlyPay1: ext.monthlyPay1,
+        monthlyPay2: ext.monthlyPay2,
+        zipCode: ext.zipCode,
+        address: ext.address,
+        empName: ext.empName,
+        empPhone: ext.empPhone,
+        memNo2: ext.rentalNo2,
+        memNo3: ext.rentalNo3,
+        memNo4: ext.rentalNo4
+      };
+    });
+    printCertificatesPdf(certItems);
+  };
+
   const handlePrintLabels = () => {
     const selectedItems = combinedData.filter(item => selectedIds.has(item.id) && String(item.extracted.workAddress || '').trim() === '우편');
     if (selectedItems.length === 0) return;
@@ -773,6 +804,18 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                   </select>
                 </div>
 
+                <button
+                  onClick={handlePrintCertificates}
+                  disabled={selectedIds.size === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-bold transition-all ${
+                    selectedIds.size === 0 
+                      ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200' 
+                      : 'bg-amber-600 text-white hover:bg-amber-500 shadow-md shadow-amber-600/20'
+                  }`}
+                >
+                  <Printer size={16} />
+                  우편증서 PDF 출력 ({selectedIds.size}건)
+                </button>
                 <button
                   onClick={handlePrintLabels}
                   disabled={selectedIds.size === 0}
