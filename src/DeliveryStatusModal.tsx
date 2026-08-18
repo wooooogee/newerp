@@ -166,6 +166,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
       '상품명': item.prodName,
       '회원명': item.memName,
       '렌탈번호': item.rentalNo,
+      '렌탈제품명': item.rentalProd || '',
       '배송현황': item.deliveryStatus,
       '본부명': item.hq,
       '지사명': item.branch,
@@ -181,6 +182,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
       { wch: 25 }, // 상품명
       { wch: 15 }, // 회원명
       { wch: 20 }, // 렌탈번호
+      { wch: 30 }, // 렌탈제품명
       { wch: 12 }, // 배송현황
       { wch: 15 }, // 본부명
       { wch: 15 }, // 지사명
