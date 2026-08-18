@@ -165,7 +165,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     return ['전체', ...Array.from(emps).sort()];
   }, [data, hqFilter, branchFilter]);
 
-  // 데이터 내 존재하는 고유 계약월 목록 동적 추출 (YYYY-MM)
+  // 데이터 내 존재하는 고유 계약월 및 배송월 목록 동적 추출 (YYYY-MM)
   const uniqueMonths = useMemo(() => {
     const months = new Set<string>();
     data.forEach(item => {
@@ -176,12 +176,19 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
           months.add(`${match[1]}-${match[2]}`);
         }
       }
+      if (item.deliveryDate) {
+        const clean = item.deliveryDate.replace(/[./]/g, '-');
+        const match = clean.match(/^(\d{4})-(\d{2})/);
+        if (match) {
+          months.add(`${match[1]}-${match[2]}`);
+        }
+      }
     });
     return Array.from(months).sort((a, b) => b.localeCompare(a)); // 최신 월 순 정렬
   }, [data]);
 
-  // 1. 계약월 필터가 반영된 1차 가공 데이터
-  const monthFilteredData = useMemo(() => {
+  // 1-1. 계약월 필터가 반영된 1차 가공 데이터 (계약일자 기준)
+  const contractMonthFilteredData = useMemo(() => {
     return data.filter(item => {
       if (monthFilter !== '전체') {
         const cleanDate = (item.contractDate || '').replace(/[./]/g, '-');
@@ -191,14 +198,27 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     });
   }, [data, monthFilter]);
 
+  // 1-2. 배송월 필터가 반영된 1차 가공 데이터 (배송완료 & N열 배송일자 기준)
+  const deliveryCompletedMonthData = useMemo(() => {
+    return data.filter(item => {
+      const isDeliveryComplete = (item.deliveryStatus || '').trim() === '배송완료';
+      if (!isDeliveryComplete) return false;
+      if (monthFilter !== '전체') {
+        const cleanDate = (item.deliveryDate || '').replace(/[./]/g, '-');
+        if (!cleanDate.startsWith(monthFilter)) return false;
+      }
+      return true;
+    });
+  }, [data, monthFilter]);
+
   // 2. 보기 방식(구좌수/상품건수)에 따른 중복 제거 처리 데이터
-  const modeProcessedData = useMemo(() => {
+  const contractModeProcessedData = useMemo(() => {
     if (displayMode === '구좌수') {
-      return monthFilteredData;
+      return contractMonthFilteredData;
     }
     // 상품건수 기준: 동일한 rentalNo 중복 제거
     const uniqueMap = new Map();
-    monthFilteredData.forEach(item => {
+    contractMonthFilteredData.forEach(item => {
       if (item.rentalNo && !uniqueMap.has(item.rentalNo)) {
         uniqueMap.set(item.rentalNo, item);
       } else if (!item.rentalNo) {
@@ -206,37 +226,62 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       }
     });
     return Array.from(uniqueMap.values());
-  }, [monthFilteredData, displayMode]);
+  }, [contractMonthFilteredData, displayMode]);
+
+  const deliveryModeProcessedData = useMemo(() => {
+    if (displayMode === '구좌수') {
+      return deliveryCompletedMonthData;
+    }
+    // 상품건수 기준: 동일한 rentalNo 중복 제거
+    const uniqueMap = new Map();
+    deliveryCompletedMonthData.forEach(item => {
+      if (item.rentalNo && !uniqueMap.has(item.rentalNo)) {
+        uniqueMap.set(item.rentalNo, item);
+      } else if (!item.rentalNo) {
+        uniqueMap.set(item.uniqueKey, item);
+      }
+    });
+    return Array.from(uniqueMap.values());
+  }, [deliveryCompletedMonthData, displayMode]);
 
   // 3. 선택된 본부(hqFilter) 필터가 반영된 데이터 (대시보드 상단 통계, 목록, 보고서의 공통 모수)
-  const hqFilteredData = useMemo(() => {
-    if (hqFilter === '전체') return modeProcessedData;
-    return modeProcessedData.filter(item => (item.hq || '').trim() === hqFilter);
-  }, [modeProcessedData, hqFilter]);
+  const hqFilteredContractData = useMemo(() => {
+    if (hqFilter === '전체') return contractModeProcessedData;
+    return contractModeProcessedData.filter(item => (item.hq || '').trim() === hqFilter);
+  }, [contractModeProcessedData, hqFilter]);
 
-  // 4. 요약 통계 계산 (선택된 계약월, 구좌/상품건수, 본부선택 조건 반영)
+  const hqFilteredDeliveryData = useMemo(() => {
+    if (hqFilter === '전체') return deliveryModeProcessedData;
+    return deliveryModeProcessedData.filter(item => (item.hq || '').trim() === hqFilter);
+  }, [deliveryModeProcessedData, hqFilter]);
+
+  // 4. 요약 통계 계산 (계약일자 기준 계약/가입/해약/취소/배송대기 + N열 배송일자 기준 해당월 배송완료)
   const summary = useMemo(() => {
-    // 가입 상태가 '가입'인 데이터들로만 필터링하여 대시보드 통계의 모수로 사용 (해약, 취소 제외)
-    const activeData = hqFilteredData.filter(item => (item.status || '').trim() === '가입');
+    const activeContractData = hqFilteredContractData.filter(item => (item.status || '').trim() === '가입');
+    const activeDeliveryData = hqFilteredDeliveryData.filter(item => (item.status || '').trim() === '가입');
 
-    const total = activeData.length;
-    const waiting = activeData.filter(item => (item.deliveryStatus || '').trim() === '배송대기').length;
-    const completed = activeData.filter(item => (item.deliveryStatus || '').trim() === '배송완료').length;
+    const total = activeContractData.length;
+    const waiting = activeContractData.filter(item => (item.deliveryStatus || '').trim() === '배송대기').length;
+    const completed = activeDeliveryData.length; // N열 배송일자 기준 해당 월 배송완료 건수
     
-    // 배송 미해당 건수 산출 (배송이 없는 상품군)
-    const noDelivery = total - (waiting + completed);
+    // 배송 미해당 건수 산출 (계약 건 중 배송대기/배송완료가 아닌 상품군)
+    const contractCompletedCount = activeContractData.filter(item => (item.deliveryStatus || '').trim() === '배송완료').length;
+    const noDelivery = total - (waiting + contractCompletedCount);
 
-    // 가입 상태별 통계 (hqFilteredData 기준)
-    const signed = hqFilteredData.filter(item => (item.status || '').trim() === '가입').length;
-    const terminated = hqFilteredData.filter(item => (item.status || '').trim().includes('해약')).length;
-    const cancelled = hqFilteredData.filter(item => (item.status || '').trim().includes('취소')).length;
+    // 가입 상태별 통계 (hqFilteredContractData 기준)
+    const signed = activeContractData.length;
+    const terminated = hqFilteredContractData.filter(item => (item.status || '').trim().includes('해약')).length;
+    const cancelled = hqFilteredContractData.filter(item => (item.status || '').trim().includes('취소')).length;
 
     return { total, waiting, completed, signed, terminated, cancelled, noDelivery };
-  }, [hqFilteredData]);
+  }, [hqFilteredContractData, hqFilteredDeliveryData]);
 
   // 5. 검색 및 지사/사원/가입/배송 필터링된 최종 렌더링 데이터
   const filteredData = useMemo(() => {
-    return hqFilteredData.filter(item => {
+    // deliveryFilter가 '배송완료'인 경우 N열 배송일자 기준 데이터(hqFilteredDeliveryData) 사용
+    const targetSource = deliveryFilter === '배송완료' ? hqFilteredDeliveryData : hqFilteredContractData;
+
+    return targetSource.filter(item => {
       // 지사 필터링
       if (branchFilter !== '전체') {
         if ((item.branch || '').trim() !== branchFilter) return false;
@@ -255,8 +300,8 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         if (statusFilter === '가입' && itemStatus !== '가입') return false;
       }
 
-      // 배송상태 필터링
-      if (deliveryFilter !== '전체') {
+      // 배송상태 필터링 (deliveryFilter가 '배송대기' 등인 경우)
+      if (deliveryFilter !== '전체' && deliveryFilter !== '배송완료') {
         const itemDelivery = (item.deliveryStatus || '').trim();
         if (itemDelivery !== deliveryFilter) return false;
       }
@@ -282,10 +327,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
       return true;
     }).sort((a, b) => {
-      // 계약일 최신순 정렬
+      if (deliveryFilter === '배송완료') {
+        return String(b.deliveryDate || '').localeCompare(String(a.deliveryDate || ''));
+      }
       return String(b.contractDate || '').localeCompare(String(a.contractDate || ''));
     });
-  }, [hqFilteredData, searchTerm, statusFilter, deliveryFilter, branchFilter, empFilter, isPendingFirstRental, isUnpaidMutualAid]);
+  }, [hqFilteredContractData, hqFilteredDeliveryData, searchTerm, statusFilter, deliveryFilter, branchFilter, empFilter, isPendingFirstRental, isUnpaidMutualAid]);
 
   // 1페이지당 10개 아이템 기준 전체 페이지 계산
   const totalPages = useMemo(() => {
@@ -299,57 +346,67 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   }, [filteredData, currentPage]);
 
   // 6. 요약 보고서 전용 집계 데이터
-  // 6-1. 본부별 집계 (hqFilteredData 기준)
+  // 6-1. 본부별 집계 (sales: 계약월 기준, deliveryCompleted: N열 배송일자 기준)
   const hqReportData = useMemo(() => {
     const map = new Map<string, { hq: string; sales: number; deliveryCompleted: number }>();
 
-    hqFilteredData.forEach(item => {
+    hqFilteredContractData.forEach(item => {
       const hq = item.hq || '미지정본부';
       if (!map.has(hq)) {
         map.set(hq, { hq, sales: 0, deliveryCompleted: 0 });
       }
       const entry = map.get(hq)!;
-      
-      // 판매건수: status가 '가입'인 건수
       if ((item.status || '').trim() === '가입') {
         entry.sales += 1;
-        // 배송완료건수: status가 '가입'이면서 deliveryStatus가 '배송완료'인 건수
-        if ((item.deliveryStatus || '').trim() === '배송완료') {
-          entry.deliveryCompleted += 1;
-        }
+      }
+    });
+
+    hqFilteredDeliveryData.forEach(item => {
+      const hq = item.hq || '미지정본부';
+      if (!map.has(hq)) {
+        map.set(hq, { hq, sales: 0, deliveryCompleted: 0 });
+      }
+      const entry = map.get(hq)!;
+      if ((item.status || '').trim() === '가입') {
+        entry.deliveryCompleted += 1;
       }
     });
 
     let list = Array.from(map.values());
     if (hideZeroHq) {
-      list = list.filter(item => item.sales > 0);
+      list = list.filter(item => item.sales > 0 || item.deliveryCompleted > 0);
     }
     return list.sort((a, b) => b.sales - a.sales);
-  }, [hqFilteredData, hideZeroHq]);
+  }, [hqFilteredContractData, hqFilteredDeliveryData, hideZeroHq]);
 
-  // 6-2. 상품별 집계 (hqFilteredData 기준)
+  // 6-2. 상품별 집계 (sales: 계약월 기준, deliveryCompleted: N열 배송일자 기준)
   const prodReportData = useMemo(() => {
     const map = new Map<string, { prodName: string; sales: number; deliveryCompleted: number }>();
 
-    hqFilteredData.forEach(item => {
+    hqFilteredContractData.forEach(item => {
       const prodName = item.prodName || '미지정상품';
       if (!map.has(prodName)) {
         map.set(prodName, { prodName, sales: 0, deliveryCompleted: 0 });
       }
       const entry = map.get(prodName)!;
-
-      // 판매건수: status가 '가입'인 건수
       if ((item.status || '').trim() === '가입') {
         entry.sales += 1;
-        // 배송완료건수: status가 '가입'이면서 deliveryStatus가 '배송완료'인 건수
-        if ((item.deliveryStatus || '').trim() === '배송완료') {
-          entry.deliveryCompleted += 1;
-        }
+      }
+    });
+
+    hqFilteredDeliveryData.forEach(item => {
+      const prodName = item.prodName || '미지정상품';
+      if (!map.has(prodName)) {
+        map.set(prodName, { prodName, sales: 0, deliveryCompleted: 0 });
+      }
+      const entry = map.get(prodName)!;
+      if ((item.status || '').trim() === '가입') {
+        entry.deliveryCompleted += 1;
       }
     });
 
     return Array.from(map.values()).sort((a, b) => b.sales - a.sales);
-  }, [hqFilteredData]);
+  }, [hqFilteredContractData, hqFilteredDeliveryData]);
 
   // 메모 편집 시작
   const handleStartEdit = (rowIdx: number, currentMemo: string) => {
@@ -508,13 +565,16 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm space-y-2 relative">
           <div className="grid grid-cols-3 gap-2">
             {[
-              { label: '전체', count: summary.total, color: 'border-slate-200 bg-slate-50 text-slate-800' },
-              { label: '배송대기', count: summary.waiting, color: 'border-amber-200 bg-amber-50 text-amber-800' },
-              { label: '배송완료', count: summary.completed, color: 'border-emerald-200 bg-emerald-50 text-emerald-800' }
+              { label: '전체', filterKey: '전체', count: summary.total, color: 'border-slate-200 bg-slate-50 text-slate-800' },
+              { label: '배송대기', filterKey: '배송대기', count: summary.waiting, color: 'border-amber-200 bg-amber-50 text-amber-800' },
+              { label: '배송완료', filterKey: '배송완료', count: summary.completed, color: 'border-emerald-200 bg-emerald-50 text-emerald-800' }
             ].map((item, i) => (
               <div
                 key={i}
-                className={`p-2.5 border rounded-xl flex flex-col items-center justify-center shadow-sm ${item.color}`}
+                onClick={() => setDeliveryFilter(item.filterKey)}
+                className={`p-2.5 border rounded-xl flex flex-col items-center justify-center shadow-sm cursor-pointer hover:opacity-90 active:scale-95 transition-all ${
+                  deliveryFilter === item.filterKey ? 'ring-2 ring-blue-500 font-bold' : ''
+                } ${item.color}`}
               >
                 <span className="text-[10px] text-slate-500 font-medium">{item.label}</span>
                 <span className="text-base font-extrabold mt-1">{item.count}</span>
@@ -553,7 +613,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="bg-slate-50 border border-slate-200 p-2 rounded-xl flex justify-between items-center">
                         <span className="text-[10px] text-slate-500 font-medium">총 접수건</span>
-                        <strong className="text-xs font-bold text-slate-900">{modeProcessedData.length}건</strong>
+                        <strong className="text-xs font-bold text-slate-900">{contractModeProcessedData.length}건</strong>
                       </div>
                       <div className="bg-teal-50 border border-teal-200 p-2 rounded-xl flex justify-between items-center">
                         <span className="text-[10px] text-teal-700 font-medium">가입 건수</span>
@@ -818,11 +878,15 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                           <span>계약일자: <strong className="text-slate-800">{item.contractDate || '-'}</strong></span>
                         </div>
                         <div className="flex items-center gap-2 text-slate-500">
+                          <Truck size={13} className="text-blue-500" />
+                          <span>배송일자: <strong className="text-blue-700 font-semibold">{item.deliveryDate || '-'}</strong></span>
+                        </div>
+                        <div className="flex items-center gap-2 text-slate-500">
                           <Package size={13} className="text-slate-400" />
                           <span className="truncate">상 조: <strong className="text-slate-800" title={item.prodName}>{item.prodName || '-'}</strong></span>
                         </div>
-                        <div className="col-span-2 flex items-center gap-2 text-slate-500">
-                          <Truck size={13} className="text-slate-400" />
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <Package size={13} className="text-indigo-400" />
                           <span className="truncate">렌탈상품: <strong className="text-slate-800" title={item.rentalProd}>{item.rentalProd || '-'}</strong></span>
                         </div>
                       </div>
