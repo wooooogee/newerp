@@ -157,13 +157,13 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
       if (font) {
         const [p1Addr1, p1Addr2] = splitAddressIntoTwoLines(item.address || '', 22);
 
-        p1.drawText(p1Addr1, { x: 295, y: 686, size: 12, font, color: rgb(0, 0, 0) });
+        p1.drawText(p1Addr1, { x: 295, y: 700.5, size: 12, font, color: rgb(0, 0, 0) });
         if (p1Addr2) {
-          p1.drawText(p1Addr2, { x: 295, y: 670, size: 12, font, color: rgb(0, 0, 0) });
+          p1.drawText(p1Addr2, { x: 295, y: 684.5, size: 12, font, color: rgb(0, 0, 0) });
         }
 
-        p1.drawText(item.memName || '', { x: 370, y: 630, size: 18, font, color: rgb(0, 0, 0) });
-        p1.drawText('회원님 귀하', { x: 460, y: 630, size: 12, font, color: rgb(0.2, 0.2, 0.2) });
+        p1.drawText(item.memName || '', { x: 370, y: 644.5, size: 18, font, color: rgb(0, 0, 0) });
+        p1.drawText('회원님 귀하', { x: 460, y: 644.5, size: 12, font, color: rgb(0.2, 0.2, 0.2) });
         p1.drawText(item.zipCode || '', { x: 460, y: 616.5, size: 14.5, font, color: rgb(0, 0, 0) });
       }
       outPdf.addPage(p1);
