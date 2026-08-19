@@ -50,8 +50,8 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   // 실적 요약 상세 아코디언 상태
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
 
-  // 렌탈1회차출금 대기중 / 상조 미출금 필터 상태
-  const [isPendingFirstRental, setIsPendingFirstRental] = useState(false);
+  // 렌탈 미출금 / 상조 미출금 필터 상태
+  const [isUnpaidRental, setIsUnpaidRental] = useState(false);
   const [isUnpaidMutualAid, setIsUnpaidMutualAid] = useState(false);
 
   // 본부모바일 / 지사모바일 / 관리자모바일 권한 판별
@@ -81,7 +81,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   // 검색어나 필터 조건 변경 시 페이지 번호를 1페이지로 리셋
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, monthFilter, statusFilter, deliveryFilter, hqFilter, branchFilter, empFilter, displayMode, isPendingFirstRental, isUnpaidMutualAid]);
+  }, [searchTerm, monthFilter, statusFilter, deliveryFilter, hqFilter, branchFilter, empFilter, displayMode, isUnpaidRental, isUnpaidMutualAid]);
 
   // 스크롤 탑 이동을 위한 스크롤 컨테이너 Ref
   const containerRef = useRef<HTMLDivElement>(null);
@@ -313,9 +313,15 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         if (!searchString.includes(term)) return false;
       }
 
-      // 렌탈1회차출금 대기중 필터링
-      if (isPendingFirstRental) {
-        if (!item.deliveryMemo || !item.deliveryMemo.includes('렌탈1회차출금 대기중')) return false;
+      // 렌탈 미출금 필터링 (Y열 deliveryMemo/row[24] 및 AA열 row[26] 기준 출금날짜 유무 검사)
+      if (isUnpaidRental) {
+        const deliveryMemoVal = (item.deliveryMemo || '').trim();
+        const rawAAVal = item.raw && item.raw[26] ? String(item.raw[26]).trim() : '';
+        const rawYVal = item.raw && item.raw[24] ? String(item.raw[24]).trim() : '';
+        
+        // Y열 또는 AA열 중 하나라도 4자리 연도(날짜)가 포함되어 있으면 출금 완료건
+        const hasRentalPayDate = /\d{4}/.test(deliveryMemoVal) || /\d{4}/.test(rawAAVal) || /\d{4}/.test(rawYVal);
+        if (hasRentalPayDate) return false;
       }
 
       // 상조 미출금 필터링 (관리대장 시트 V열 row[21] 상조출금 값 기준 하이픈/공백/미출금)
@@ -332,7 +338,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       }
       return String(b.contractDate || '').localeCompare(String(a.contractDate || ''));
     });
-  }, [hqFilteredContractData, hqFilteredDeliveryData, searchTerm, statusFilter, deliveryFilter, branchFilter, empFilter, isPendingFirstRental, isUnpaidMutualAid]);
+  }, [hqFilteredContractData, hqFilteredDeliveryData, searchTerm, statusFilter, deliveryFilter, branchFilter, empFilter, isUnpaidRental, isUnpaidMutualAid]);
 
   // 1페이지당 10개 아이템 기준 전체 페이지 계산
   const totalPages = useMemo(() => {
@@ -764,11 +770,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
               <label className="flex items-center gap-1.5 cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  checked={isPendingFirstRental}
-                  onChange={(e) => setIsPendingFirstRental(e.target.checked)}
+                  checked={isUnpaidRental}
+                  onChange={(e) => setIsUnpaidRental(e.target.checked)}
                   className="w-4 h-4 bg-slate-50 border-slate-300 rounded text-blue-600 focus:ring-blue-500"
                 />
-                <span>렌탈1회차출금 대기중</span>
+                <span className="text-blue-600 font-medium">렌탈 미출금</span>
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer select-none">
                 <input
