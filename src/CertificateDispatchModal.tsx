@@ -23,7 +23,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [isConsolidated, setIsConsolidated] = useState<boolean>(true);
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
   const [certFilterType, setCertFilterType] = useState<'notSent' | 'sent' | 'all'>('notSent');
-  const [filterWorkAddressPost, setFilterWorkAddressPost] = useState<boolean>(false);
+  const [filterWorkAddressMobile, setFilterWorkAddressMobile] = useState<boolean>(false);
   const [filterPostNotSent, setFilterPostNotSent] = useState<boolean>(false);
   const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
 
@@ -265,39 +265,29 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         return isPost && !isSavedInHistory;
       });
     } else {
-      // 2. 일반 / 우편 필터링 기본 체계 작동
+      // 2. 증서 구분 (미발송 / 발송완료 / 전체) 필터링
       result = result.filter(item => {
+        const isPost = String(item.extracted.workAddress || '').trim() === '우편';
         const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3, item.extracted.rentalNo4];
         const isSavedInHistory = nosToCheck.some(no => {
           const cleanNo = String(no || '').trim().toUpperCase();
           return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
         });
         const certVal = String(item.extracted.cert || '').trim();
+        const isDispatched = isPost ? isSavedInHistory : (certVal !== '미발송' && certVal !== '');
 
-        if (filterWorkAddressPost) {
-          // 우편 모드 상태인 경우 -> 구글시트 '증서발송리스트'에 저장(포함)되었는지 여부로 판단
-          if (certFilterType === 'notSent') {
-            return !isSavedInHistory;
-          } else if (certFilterType === 'sent') {
-            return isSavedInHistory;
-          } else {
-            return true;
-          }
+        if (certFilterType === 'notSent') {
+          return !isDispatched;
+        } else if (certFilterType === 'sent') {
+          return isDispatched;
         } else {
-          // 일반 모드 상태인 경우 -> 시트1 AX열(cert) 값이 '미발송'인지 여부로 판단
-          if (certFilterType === 'notSent') {
-            return certVal === '미발송';
-          } else if (certFilterType === 'sent') {
-            return certVal !== '미발송';
-          } else {
-            return true;
-          }
+          return true;
         }
       });
 
-      // 우편 배송 조건 강제
-      if (filterWorkAddressPost) {
-        result = result.filter(item => String(item.extracted.workAddress || '').trim() === '우편');
+      // 모바일 필터 (체크 시 우편이 아닌 값들만 표시)
+      if (filterWorkAddressMobile) {
+        result = result.filter(item => String(item.extracted.workAddress || '').trim() !== '우편');
       }
     }
 
@@ -308,7 +298,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       const searchString = `${ext.memName} ${ext.memNo} ${ext.empName} ${ext.rentalNo}`.toLowerCase();
       return searchString.includes(term);
     });
-  }, [combinedData, selectedMonth, selectedProducts, filterFirstPayNotDate, certFilterType, filterWorkAddressPost, filterPostNotSent, searchTerm]);
+  }, [combinedData, selectedMonth, selectedProducts, filterFirstPayNotDate, certFilterType, filterWorkAddressMobile, filterPostNotSent, searchTerm]);
 
   const processedData = useMemo(() => {
     let result = filteredData;
@@ -364,7 +354,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   // 필터나 검색어가 바뀔 때 선택 초기화
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [searchTerm, selectedMonth, selectedProducts, isConsolidated, filterFirstPayNotDate, certFilterType, filterWorkAddressPost, filterPostNotSent]);
+  }, [searchTerm, selectedMonth, selectedProducts, isConsolidated, filterFirstPayNotDate, certFilterType, filterWorkAddressMobile, filterPostNotSent]);
 
   const handleToggleSelect = (id: number) => {
     setSelectedIds(prev => {
@@ -928,13 +918,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                   <div className="flex items-center gap-2 px-3 border-l border-slate-200 pl-4">
                     <input
                       type="checkbox"
-                      id="workaddress-post-check"
-                      checked={filterWorkAddressPost}
-                      onChange={(e) => setFilterWorkAddressPost(e.target.checked)}
+                      id="workaddress-mobile-check"
+                      checked={filterWorkAddressMobile}
+                      onChange={(e) => setFilterWorkAddressMobile(e.target.checked)}
                       className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
                     />
-                    <label htmlFor="workaddress-post-check" className="text-[13px] font-medium text-slate-700 cursor-pointer select-none whitespace-nowrap">
-                      우편
+                    <label htmlFor="workaddress-mobile-check" className="text-[13px] font-medium text-slate-700 cursor-pointer select-none whitespace-nowrap">
+                      모바일
                     </label>
                   </div>
                   <div className="flex items-center gap-2 px-3 border-l border-slate-200 pl-4">
