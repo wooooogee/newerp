@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ArrowUp, KeyRound } from 'lucide-react';
+import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ArrowUp, KeyRound, CreditCard, Hash } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
@@ -854,109 +854,133 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             <div className="space-y-3">
               <AnimatePresence mode="popLayout">
                 {paginatedData.length > 0 ? (
-                  paginatedData.map((item) => (
-                    <motion.div
-                      key={item.uniqueKey}
-                      layout
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      transition={{ duration: 0.2 }}
-                      className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3"
-                    >
-                      {/* Card Title Line */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-bold text-slate-900">{item.memName || '-'}</span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${getStatusBadgeClass(item.status)}`}>
-                            {item.status || '가입'}
+                  paginatedData.map((item) => {
+                    const mutualAidPayVal = (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '-';
+                    const rentalPayVal = (item.raw && item.raw[26]) ? String(item.raw[26]).trim() : '-';
+
+                    return (
+                      <motion.div
+                        key={item.uniqueKey}
+                        layout
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.2 }}
+                        className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-2.5"
+                      >
+                        {/* Card Title Line */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-bold text-slate-900">{item.memName || '-'}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${getStatusBadgeClass(item.status)}`}>
+                              {item.status || '가입'}
+                            </span>
+                          </div>
+                          <span className={`text-[10px] px-2.5 py-0.5 rounded font-semibold border ${getDeliveryBadgeClass(item.deliveryStatus)}`}>
+                            {item.deliveryStatus || '배송대기'}
                           </span>
                         </div>
-                        <span className={`text-[10px] px-2.5 py-0.5 rounded font-semibold border ${getDeliveryBadgeClass(item.deliveryStatus)}`}>
-                          {item.deliveryStatus || '배송대기'}
-                        </span>
-                      </div>
 
-                      {/* Card Body Details */}
-                      <div className="grid grid-cols-2 gap-y-2 gap-x-4 border-t border-slate-100 pt-3 text-[11px]">
-                        <div className="flex items-center gap-2 text-slate-500">
-                          <Calendar size={13} className="text-slate-400" />
-                          <span>계약일자: <strong className="text-slate-800">{item.contractDate || '-'}</strong></span>
-                        </div>
-                        <div className="flex items-center gap-2 text-slate-500">
-                          <Truck size={13} className="text-blue-500" />
-                          <span>배송일자: <strong className="text-blue-700 font-semibold">{item.deliveryDate || '-'}</strong></span>
-                        </div>
-                        <div className="flex items-center gap-2 text-slate-500">
-                          <Package size={13} className="text-slate-400" />
-                          <span className="truncate">상 조: <strong className="text-slate-800" title={item.prodName}>{item.prodName || '-'}</strong></span>
-                        </div>
-                        <div className="flex items-center gap-2 text-slate-500">
-                          <Package size={13} className="text-indigo-400" />
-                          <span className="truncate">렌탈상품: <strong className="text-slate-800" title={item.rentalProd}>{item.rentalProd || '-'}</strong></span>
-                        </div>
-                      </div>
-
-                      {/* Delivery Memo Area */}
-                      <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                            <FileText size={12} className="text-slate-400" />
-                            <span>배송관련 메모</span>
-                          </div>
-                          {editingRowIdx !== item.originalRowIdx && (
-                            <button
-                              onClick={() => handleStartEdit(item.originalRowIdx, item.deliveryMemo || '')}
-                              className="p-1 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-200 transition-colors"
-                            >
-                              <Edit2 size={12} />
-                            </button>
-                          )}
-                        </div>
-
-                        {editingRowIdx === item.originalRowIdx ? (
-                          <div className="space-y-2">
-                            <textarea
-                              rows={2}
-                              value={editMemoValue}
-                              onChange={(e) => setEditMemoValue(e.target.value)}
-                              placeholder="배송 관련 메모를 입력하세요..."
-                              className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
-                            />
-                            <div className="flex justify-end gap-1.5">
-                              <button
-                                disabled={isSaving}
-                                onClick={() => setEditingRowIdx(null)}
-                                className="px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:text-slate-900 border border-slate-300 rounded-md transition-colors"
-                              >
-                                취소
-                              </button>
-                              <button
-                                disabled={isSaving}
-                                onClick={() => handleSaveMemo(item.originalRowIdx)}
-                                className="px-2.5 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-500 text-white rounded-md flex items-center gap-1 shadow-md transition-all active:scale-95"
-                              >
-                                {isSaving ? (
-                                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                ) : (
-                                  <>
-                                    <Check size={12} />
-                                    저장
-                                  </>
-                                )}
-                              </button>
+                        {/* Card Body Details */}
+                        <div className="grid grid-cols-2 gap-x-3 border-t border-slate-100 pt-2.5 text-[11px]">
+                          {/* 왼쪽: 계약 및 상조 정보 */}
+                          <div className="space-y-1.5 min-w-0">
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                              <Calendar size={12} className="text-slate-400 shrink-0" />
+                              <span className="truncate">계약일자: <strong className="text-slate-800">{item.contractDate || '-'}</strong></span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                              <Package size={12} className="text-slate-400 shrink-0" />
+                              <span className="truncate">상 조: <strong className="text-slate-800" title={item.prodName}>{item.prodName || '-'}</strong></span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                              <CreditCard size={12} className="text-slate-400 shrink-0" />
+                              <span className="truncate">상조출금일: <strong className="text-slate-800">{mutualAidPayVal}</strong></span>
                             </div>
                           </div>
-                        ) : (
-                          <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
-                            {item.deliveryMemo ? item.deliveryMemo : (
-                              <span className="text-slate-400 italic">등록된 메모가 없습니다.</span>
+
+                          {/* 오른쪽: 배송 및 렌탈 정보 */}
+                          <div className="space-y-1.5 min-w-0">
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                              <Truck size={12} className="text-blue-500 shrink-0" />
+                              <span className="truncate">배송일자: <strong className="text-blue-700 font-semibold">{item.deliveryDate || '-'}</strong></span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                              <Package size={12} className="text-indigo-400 shrink-0" />
+                              <span className="truncate">렌탈상품: <strong className="text-slate-800" title={item.rentalProd}>{item.rentalProd || '-'}</strong></span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                              <Hash size={12} className="text-indigo-400 shrink-0" />
+                              <span className="truncate">렌탈번호: <strong className="font-mono text-indigo-600 font-semibold">{item.rentalNo || '-'}</strong></span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-slate-500">
+                              <CreditCard size={12} className="text-indigo-400 shrink-0" />
+                              <span className="truncate">렌탈출금일: <strong className="text-slate-800">{rentalPayVal}</strong></span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Delivery Memo Area */}
+                        <div className="bg-slate-50 border border-slate-200 px-2.5 py-2 rounded-xl space-y-1">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1 text-[9.5px] text-slate-500 font-bold uppercase tracking-wider">
+                              <FileText size={11} className="text-slate-400" />
+                              <span>배송관련 메모</span>
+                            </div>
+                            {editingRowIdx !== item.originalRowIdx && (
+                              <button
+                                onClick={() => handleStartEdit(item.originalRowIdx, item.deliveryMemo || '')}
+                                className="p-0.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-200 transition-colors"
+                              >
+                                <Edit2 size={11} />
+                              </button>
                             )}
-                          </p>
-                        )}
-                      </div>
-                    </motion.div>
-                  ))
+                          </div>
+
+                          {editingRowIdx === item.originalRowIdx ? (
+                            <div className="space-y-1.5 pt-0.5">
+                              <textarea
+                                rows={2}
+                                value={editMemoValue}
+                                onChange={(e) => setEditMemoValue(e.target.value)}
+                                placeholder="배송 관련 메모를 입력하세요..."
+                                className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-[11px] text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
+                              />
+                              <div className="flex justify-end gap-1">
+                                <button
+                                  disabled={isSaving}
+                                  onClick={() => setEditingRowIdx(null)}
+                                  className="px-2 py-0.5 text-[10px] font-bold text-slate-600 hover:text-slate-900 border border-slate-300 rounded transition-colors"
+                                >
+                                  취소
+                                </button>
+                                <button
+                                  disabled={isSaving}
+                                  onClick={() => handleSaveMemo(item.originalRowIdx)}
+                                  className="px-2 py-0.5 text-[10px] font-bold bg-blue-600 hover:bg-blue-500 text-white rounded flex items-center gap-1 shadow-sm transition-all active:scale-95"
+                                >
+                                  {isSaving ? (
+                                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                  ) : (
+                                    <>
+                                      <Check size={11} />
+                                      저장
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-slate-700 whitespace-pre-wrap leading-tight">
+                              {item.deliveryMemo ? item.deliveryMemo : (
+                                <span className="text-slate-400 italic text-[10px]">등록된 메모가 없습니다.</span>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      </motion.div>
+                    );
+                  })
                 ) : (
                   <motion.div
                     initial={{ opacity: 0 }}
