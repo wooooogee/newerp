@@ -3249,7 +3249,7 @@ const ERP_Dashboard = () => {
 
         const rule = globalIncentiveRules.find(r => r.targetName === hqName);
         const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : '특수수당');
-        const count = settlementStats.hqSummary[hqName]?.count || 0;
+        const count = settlementStats.globalIncentivesCountSummary?.[hqName] ?? (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === hqName || sp.targetName === hqName).length;
 
         reportRows.push([
           hqName,
@@ -3472,7 +3472,7 @@ const ERP_Dashboard = () => {
       XLSX.utils.book_append_sheet(wb, wsMaint, "유지수수료상세");
 
       // --- SHEET 4: 특수수당 상세 명세 ---
-      const specialRows: any[][] = [['지급일', '대상자명/본부', '수당종류', '계약ID', '고객명', '사원명', '상품명', '계약일자', '배송일자', '특수수당금액']];
+      const specialRows: any[][] = [['지급일', '대상자명/본부', '수당종류', '계약ID', '고객명', '사원명', '상품명', '제품명', '계약일자', '배송일자', '특수수당금액']];
       const rawSpecialPayouts = settlementStats.specialPayouts || [];
       const sortedSpecialPayouts = [...rawSpecialPayouts].sort((a, b) => {
         const hqDiff = (a.hq || a.targetName || '').localeCompare(b.hq || b.targetName || '', 'ko');
@@ -3489,6 +3489,7 @@ const ERP_Dashboard = () => {
           sp.memName || '-',
           sp.empName || '-',
           sp.prodName || '-',
+          sp.rentalProd || sp.prodName || '-',
           sp.contractDate || '-',
           sp.deliveryDate || '-',
           { v: sp.amount || 0, t: 'n', z: '#,##0' }
