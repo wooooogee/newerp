@@ -2647,26 +2647,34 @@ const ERP_Dashboard = () => {
             
             // 지급일자 필터가 특정 일자(ALL이 아님)로 지정된 경우
             if (payDateFilter && payDateFilter !== 'ALL') {
-              // 1) 아이템의 지정된 지급일자가 현재 정산일 필터(filterClean)와 직접 일치하면 통과
-              if (itemPayDateDisplay && itemPayDateDisplay.replace(/[-./]/g, '') === filterClean) {
-                isMatchedDate = true;
-              } else {
-                // 2) 일반 영업 수수료 지급일(예: 10일)과 특수수당/공급수수료 지급일(25일)이 다를 경우:
-                //    - rule.payDay > 0 (지정일: 다음달 N일, 예: 25일): 실적기준일(배송일자/계약일자)이 전월(prevMonth)인 건만 산출
-                //    - rule.payDay === 0 (당월 N일): 실적기준일이 당월(month)인 건만 산출
-                const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-                if (match) {
-                  let y = match[1];
-                  if (y.length === 2) y = '20' + y;
-                  const m = match[2].padStart(2, '0');
-                  
-                  if (rule.payDay && rule.payDay > 0) {
-                    // 다음달 N일 지급 (예: 25일) => 전월 배송/계약건만 25일에 지급
+              if (rule.payDay && rule.payDay > 0) {
+                // 1) "지정일 (다음달 N일, 예: 25일)" 수당 정책
+                if (itemPayDateDisplay && itemPayDateDisplay.replace(/[-./]/g, '') === filterClean) {
+                  isMatchedDate = true;
+                } else {
+                  // 실적기준일(배송일자/계약일자)이 전월(prevMonth)인 건만 25일에 산출
+                  const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+                  if (match) {
+                    let y = match[1];
+                    if (y.length === 2) y = '20' + y;
+                    const m = match[2].padStart(2, '0');
                     if (y === prevYearStr && m === prevMonthStr) {
                       isMatchedDate = true;
                     }
-                  } else {
-                    // 당월 지급 => 당월 배송/계약건만 지급
+                  }
+                }
+              } else {
+                // 2) "기존 정산 지급일과 동일 (연동)" 수당 정책
+                // -> 건별 원래 지급일(itemPayDateDisplay)이 선택된 정산일(payDateFilter)과 정확히 일치할 때만 산출
+                if (itemPayDateDisplay && itemPayDateDisplay !== '지급일 미지정' && itemPayDateDisplay !== '-') {
+                  isMatchedDate = itemPayDateDisplay.replace(/[-./]/g, '') === filterClean;
+                } else {
+                  // 지급일 미지정 시 당월 실적기준일 건만 매칭
+                  const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+                  if (match) {
+                    let y = match[1];
+                    if (y.length === 2) y = '20' + y;
+                    const m = match[2].padStart(2, '0');
                     if (y === String(year) && m === String(month).padStart(2, '0')) {
                       isMatchedDate = true;
                     }
