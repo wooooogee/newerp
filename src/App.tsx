@@ -3475,12 +3475,48 @@ const ERP_Dashboard = () => {
       const specialRows: any[][] = [['지급일', '대상자명/본부', '수당종류', '계약ID', '고객명', '사원명', '상품명', '제품명', '계약일자', '배송일자', '특수수당금액']];
       const rawSpecialPayouts = settlementStats.specialPayouts || [];
       const sortedSpecialPayouts = [...rawSpecialPayouts].sort((a, b) => {
+        const prodA = a.rentalProd || a.prodName || '';
+        const prodB = b.rentalProd || b.prodName || '';
+        const prodDiff = prodA.localeCompare(prodB, 'ko');
+        if (prodDiff !== 0) return prodDiff;
         const hqDiff = (a.hq || a.targetName || '').localeCompare(b.hq || b.targetName || '', 'ko');
         if (hqDiff !== 0) return hqDiff;
         return (a.memName || '').localeCompare(b.memName || '', 'ko');
       });
 
-      sortedSpecialPayouts.forEach((sp: any) => {
+      let currentProdKey = '';
+      let prodSubCount = 0;
+      let prodSubAmount = 0;
+      let totalSpecialCount = 0;
+      let totalSpecialAmount = 0;
+
+      sortedSpecialPayouts.forEach((sp: any, idx: number) => {
+        const prodKey = sp.rentalProd || sp.prodName || '기타제품';
+
+        if (idx > 0 && currentProdKey !== prodKey) {
+          specialRows.push([
+            '',
+            `[${currentProdKey}] 소계`,
+            '',
+            '',
+            '',
+            '',
+            '',
+            `수량: ${prodSubCount}건`,
+            '',
+            '제품 소계',
+            { v: prodSubAmount, t: 'n', z: '#,##0' }
+          ]);
+          prodSubCount = 0;
+          prodSubAmount = 0;
+        }
+
+        currentProdKey = prodKey;
+        prodSubCount++;
+        prodSubAmount += Number(sp.amount || 0);
+        totalSpecialCount++;
+        totalSpecialAmount += Number(sp.amount || 0);
+
         specialRows.push([
           sp.payDate || payDateSample,
           sp.hq || sp.targetName || '-',
@@ -3495,6 +3531,38 @@ const ERP_Dashboard = () => {
           { v: sp.amount || 0, t: 'n', z: '#,##0' }
         ]);
       });
+
+      if (prodSubCount > 0) {
+        specialRows.push([
+          '',
+          `[${currentProdKey}] 소계`,
+          '',
+          '',
+          '',
+          '',
+          '',
+          `수량: ${prodSubCount}건`,
+          '',
+          '제품 소계',
+          { v: prodSubAmount, t: 'n', z: '#,##0' }
+        ]);
+      }
+
+      if (totalSpecialCount > 0) {
+        specialRows.push([
+          '',
+          '[전체 특수수당 총계]',
+          '',
+          '',
+          '',
+          '',
+          '',
+          `총 수량: ${totalSpecialCount}건`,
+          '',
+          '전체 총계',
+          { v: totalSpecialAmount, t: 'n', z: '#,##0' }
+        ]);
+      }
 
       const wsSpecial = XLSX.utils.aoa_to_sheet(specialRows);
       const specialWidths = specialRows.reduce((acc, row) => {
@@ -3531,25 +3599,65 @@ const ERP_Dashboard = () => {
         const cellStyleAppend = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
         const headerStyleAppend = { fill: { fgColor: { rgb: "2F5597" } }, font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
 
+        const subtotalNormalStyle = { fill: { fgColor: { rgb: "E2EFDA" } }, font: { bold: true, sz: 9, color: { rgb: "276749" } }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+        const subtotalAbnormalStyle = { fill: { fgColor: { rgb: "FFC7CE" } }, font: { bold: true, sz: 9, color: { rgb: "9B2C2C" } }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+        const grandTotalStyle = { fill: { fgColor: { rgb: "D9E1F2" } }, font: { bold: true, sz: 9, color: { rgb: "1E293B" } }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+
         const range = XLSX.utils.decode_range(wsAppend['!ref'] || 'A1:A1');
         for (let R = range.s.r; R <= range.e.r; ++R) {
+          const noteAddr = XLSX.utils.encode_cell({ r: R, c: 12 }); // 12 is column M (비고)
+          const noteVal = wsAppend[noteAddr] ? String(wsAppend[noteAddr].v || '') : '';
+          const isNormalSubtotal = noteVal === '정상 소계';
+          const isAbnormalSubtotal = noteVal === '이상 소계';
+          const isGrandTotal = noteVal === '총계';
+
           for (let C = range.s.c; C <= range.e.c; ++C) {
              const addr = XLSX.utils.encode_cell({ r: R, c: C });
              if (!wsAppend[addr]) continue;
              
+             if (R === 0) {
+               wsAppend[addr].s = headerStyleAppend;
+               continue;
+             }
+
+             if (isNormalSubtotal) {
+               wsAppend[addr].s = { ...subtotalNormalStyle };
+               if (wsAppend[addr].t === 'n' || (C >= 8 && C <= 11)) {
+                 wsAppend[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+                 wsAppend[addr].t = 'n';
+                 wsAppend[addr].v = Number(wsAppend[addr].v || 0);
+               }
+               continue;
+             }
+
+             if (isAbnormalSubtotal) {
+               wsAppend[addr].s = { ...subtotalAbnormalStyle };
+               if (wsAppend[addr].t === 'n' || (C >= 8 && C <= 11)) {
+                 wsAppend[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+                 wsAppend[addr].t = 'n';
+                 wsAppend[addr].v = Number(wsAppend[addr].v || 0);
+               }
+               continue;
+             }
+
+             if (isGrandTotal) {
+               wsAppend[addr].s = { ...grandTotalStyle };
+               if (wsAppend[addr].t === 'n' || (C >= 8 && C <= 11)) {
+                 wsAppend[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+                 wsAppend[addr].t = 'n';
+                 wsAppend[addr].v = Number(wsAppend[addr].v || 0);
+               }
+               continue;
+             }
+
              let fgColor = "FFFFFF";
              const val = String(wsAppend[addr].v || '');
-             if (R > 0) {
-                const noteAddr = XLSX.utils.encode_cell({ r: R, c: 12 }); // 12 is column M (비고)
-                const noteVal = wsAppend[noteAddr] ? String(wsAppend[noteAddr].v || '') : '';
-                
-                if (noteVal.startsWith('선지급')) {
-                   if (C === 12) fgColor = "FFF2CC"; // light amber for 선지급 remark cell
-                } else if (noteVal && noteVal !== '정상' && noteVal !== '비고') {
-                   fgColor = "FFC7CE"; // light red for error rows
-                } else if (C === 12 && val === '정상') {
-                   fgColor = "E2EFDA"; // light green for 정상 remark cell
-                }
+             if (noteVal.startsWith('선지급')) {
+                if (C === 12) fgColor = "FFF2CC"; // light amber for 선지급 remark cell
+             } else if (noteVal && noteVal !== '정상' && noteVal !== '비고') {
+                fgColor = "FFC7CE"; // light red for error rows
+             } else if (C === 12 && val === '정상') {
+                fgColor = "E2EFDA"; // light green for 정상 remark cell
              }
 
              wsAppend[addr].s = { 
@@ -3557,8 +3665,7 @@ const ERP_Dashboard = () => {
                fill: { fgColor: { rgb: fgColor } }
              };
 
-             if (R === 0) wsAppend[addr].s = headerStyleAppend;
-             else if (wsAppend[addr].t === 'n' || (val && !isNaN(Number(val)) && C >= 8 && C <= 11)) {
+             if (wsAppend[addr].t === 'n' || (val && !isNaN(Number(val)) && C >= 8 && C <= 11)) {
                wsAppend[addr].s = { ...numberStyle, fill: { fgColor: { rgb: fgColor } } };
                wsAppend[addr].t = 'n';
                wsAppend[addr].v = Number(val);
@@ -9696,16 +9803,63 @@ const ERP_Dashboard = () => {
                           '비고': d['비고'] || ''
                         }));
 
+                        const normalRows = mappedData.filter(d => d['비고'] === '정상');
+                        const abnormalRows = mappedData.filter(d => d['비고'] !== '정상');
+
+                        const normalCount = normalRows.length;
+                        const normalGuzwa = normalRows.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
+                        const normalExt = normalRows.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
+                        const normalInt = normalRows.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
+                        const normalNet = normalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+
+                        const normalSubtotalRow = {
+                          '정산기준일': '',
+                          '수수료지급일자': '',
+                          '계약ID': '[정상 건 소계]',
+                          '고객명': `${normalCount}건`,
+                          '본부명': '',
+                          '상품명': '',
+                          '계약일자': '',
+                          '배송일자': '',
+                          '구좌수': normalGuzwa,
+                          '거래처입금액': normalExt,
+                          '내부지급액합계': normalInt,
+                          '최종순수익': normalNet,
+                          '비고': '정상 소계'
+                        };
+
+                        const abnormalCount = abnormalRows.length;
+                        const abnormalGuzwa = abnormalRows.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
+                        const abnormalExt = abnormalRows.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
+                        const abnormalInt = abnormalRows.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
+                        const abnormalNet = abnormalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+
+                        const abnormalSubtotalRow = {
+                          '정산기준일': '',
+                          '수수료지급일자': '',
+                          '계약ID': '[이상/선지급 건 소계]',
+                          '고객명': `${abnormalCount}건`,
+                          '본부명': '',
+                          '상품명': '',
+                          '계약일자': '',
+                          '배송일자': '',
+                          '구좌수': abnormalGuzwa,
+                          '거래처입금액': abnormalExt,
+                          '내부지급액합계': abnormalInt,
+                          '최종순수익': abnormalNet,
+                          '비고': '이상 소계'
+                        };
+
                         const totalGuzwa = mappedData.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
                         const totalExt = mappedData.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
                         const totalInt = mappedData.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
                         const totalNet = mappedData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
 
-                        const sumRow = {
+                        const grandTotalRow = {
                           '정산기준일': '',
                           '수수료지급일자': '',
-                          '계약ID': '총계',
-                          '고객명': '',
+                          '계약ID': '[전체 총계]',
+                          '고객명': `${mappedData.length}건`,
                           '본부명': '',
                           '상품명': '',
                           '계약일자': '',
@@ -9714,10 +9868,12 @@ const ERP_Dashboard = () => {
                           '거래처입금액': totalExt,
                           '내부지급액합계': totalInt,
                           '최종순수익': totalNet,
-                          '비고': ''
+                          '비고': '총계'
                         };
 
-                        const exportData = [...mappedData, sumRow];
+                        const exportData = abnormalRows.length > 0
+                          ? [...normalRows, normalSubtotalRow, ...abnormalRows, abnormalSubtotalRow, grandTotalRow]
+                          : [...normalRows, normalSubtotalRow, grandTotalRow];
                         
                         const headers = ['정산기준일', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
                         const aoaData = [headers];
