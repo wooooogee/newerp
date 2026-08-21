@@ -8904,7 +8904,50 @@ const ERP_Dashboard = () => {
                             );
                             const matchedIncentiveName = matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
 
-                            // 중복 없는 수당 해당 계약건 필터링
+                            // 실제 정산 로직에서 산출된 수당 발생 목록(specialPayouts)
+                            const actualSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === s.hqName);
+
+                            if (actualSpecialPayouts.length > 0) {
+                              return (
+                                <div className="bg-white p-4 rounded-lg border border-slate-200">
+                                  <div className="mb-2 font-bold text-xs text-slate-700">■ {matchedIncentiveName} 내역 (총 {s.specialSum.toLocaleString()}원)</div>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full border-collapse border border-slate-300 text-[10px] whitespace-nowrap">
+                                      <thead>
+                                        <tr className="bg-slate-100 text-slate-700 text-center font-bold">
+                                          <th className="border border-slate-300 p-1.5">No</th>
+                                          <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
+                                          <th className="border border-slate-300 p-1.5">계약일자</th>
+                                          <th className="border border-slate-300 p-1.5">배송일자</th>
+                                          <th className="border border-slate-300 p-1.5">고객명</th>
+                                          <th className="border border-slate-300 p-1.5">영업사원</th>
+                                          <th className="border border-slate-300 p-1.5 text-left">제품명</th>
+                                          <th className="border border-slate-300 p-1.5 text-blue-700">합계금액</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {actualSpecialPayouts.map((sp: any, i: number) => (
+                                          <tr key={i} className="text-center">
+                                            <td className="border border-slate-300 p-1.5">{i + 1}</td>
+                                            <td className="border border-slate-300 p-1.5 font-mono">{sp.rentalNo || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{sp.contractDate || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{sp.deliveryDate || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{sp.memName || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{sp.empName || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={sp.rentalProd || sp.prodName}>
+                                              {sp.rentalProd || sp.prodName || '-'}
+                                            </td>
+                                            <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{sp.amount.toLocaleString()}원</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            // 중복 없는 수당 해당 계약건 필터링 (Fallback)
                             const processedRentalNos = new Set<string>();
                             const specialItems = s.items.filter((item: any) => {
                               if (!matchedRule) return true;
