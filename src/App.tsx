@@ -2387,6 +2387,9 @@ const ERP_Dashboard = () => {
       let currentInstallment = (currentYear - bdYear) * 12 + (currentMonth - bdMonth) + 1;
       if (currentInstallment < 1) return;
 
+      const i = currentInstallment;
+      if (i <= 1) return; // 1회차는 일반수수료(1회차)를 받으므로 유지수수료 지급에서 제외
+
       let lastPaid = 0;
       maintenanceHistory.forEach(h => {
         if (h.resNo === item.resNo && h.payInstallment > lastPaid) {
@@ -2394,52 +2397,39 @@ const ERP_Dashboard = () => {
         }
       });
 
-      if (currentInstallment <= lastPaid) return; // 이미 지급됨
+      if (i <= lastPaid) return; // 이미 지급됨
 
-      let totalAmount = 0;
-      let actualPaidFrom = 0;
+      let matchedTierAmount = 0;
       
-      for (let i = lastPaid + 1; i <= currentInstallment; i++) {
-        if (i === 1) continue; // 1회차는 일반수수료(1회차)를 받으므로 유지수수료 지급에서 제외
-        let matchedTierAmount = 0;
-        
-        if (usingProductRule) {
-          let tier = activeRules.flatMap(r => r.tiers).find(t => i >= t.startMonth && i <= t.endMonth);
+      if (usingProductRule) {
+        let tier = activeRules.flatMap(r => r.tiers).find(t => i >= t.startMonth && i <= t.endMonth);
+        if (tier) matchedTierAmount = tier.amount;
+      } else {
+        // Find matching tier across all matched rules (prioritize specific hq rules over 'ALL')
+        let specificRule = activeRules.find(r => !r.targetHqs.includes('ALL'));
+        if (specificRule) {
+          let tier = specificRule.tiers.find((t: any) => i >= t.startMonth && i <= t.endMonth);
           if (tier) matchedTierAmount = tier.amount;
-        } else {
-          // Find matching tier across all matched rules (prioritize specific hq rules over 'ALL')
-          let specificRule = activeRules.find(r => !r.targetHqs.includes('ALL'));
-          if (specificRule) {
-            let tier = specificRule.tiers.find((t: any) => i >= t.startMonth && i <= t.endMonth);
-            if (tier) matchedTierAmount = tier.amount;
-          }
-          
-          if (!matchedTierAmount) {
-            let allRule = activeRules.find(r => r.targetHqs.includes('ALL'));
-            if (allRule) {
-              let tier = allRule.tiers.find((t: any) => i >= t.startMonth && i <= t.endMonth);
-              if (tier) matchedTierAmount = tier.amount;
-            }
-          }
         }
-
-        if (matchedTierAmount > 0) {
-          totalAmount += matchedTierAmount;
-          if (actualPaidFrom === 0) {
-            actualPaidFrom = i;
+        
+        if (!matchedTierAmount) {
+          let allRule = activeRules.find(r => r.targetHqs.includes('ALL'));
+          if (allRule) {
+            let tier = allRule.tiers.find((t: any) => i >= t.startMonth && i <= t.endMonth);
+            if (tier) matchedTierAmount = tier.amount;
           }
         }
       }
 
-      if (totalAmount > 0) {
+      if (matchedTierAmount > 0) {
         payouts.push({
           resNo: item.resNo,
           customerName: item.memName,
           hq: hqName,
           productName: item.prodName,
-          amount: totalAmount,
-          fromInstallment: actualPaidFrom || currentInstallment,
-          toInstallment: currentInstallment,
+          amount: matchedTierAmount,
+          fromInstallment: i,
+          toInstallment: i,
           empName: item.empName,
           branch: item.branch,
         });
