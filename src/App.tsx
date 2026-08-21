@@ -2655,12 +2655,14 @@ const ERP_Dashboard = () => {
             let isMatchedDate = false;
             const itemPayDateDisplay = item.payDate || getDisplayPayDate(item) || '';
             
-            // 지급일자 필터가 특정 일자(ALL이 아님)로 지정된 경우: 지급일자가 명시되어 있다면 해당 지급일자와 반드시 일치해야 함
+            // 지급일자 필터가 특정 일자(ALL이 아님)로 지정된 경우
             if (payDateFilter && payDateFilter !== 'ALL') {
-              if (itemPayDateDisplay && itemPayDateDisplay !== '지급일 미지정' && itemPayDateDisplay !== '-') {
-                isMatchedDate = itemPayDateDisplay.replace(/[-./]/g, '') === filterClean;
+              // 1) 아이템의 지정된 지급일자가 현재 정산일 필터(filterClean)와 직접 일치하면 통과
+              if (itemPayDateDisplay && itemPayDateDisplay.replace(/[-./]/g, '') === filterClean) {
+                isMatchedDate = true;
               } else {
-                // 지급일 미지정인 경우 계약/배송일자 기준 월 비교
+                // 2) 일반 영업 수수료 지급일(예: 10일)과 특수수당 지급일(25일)이 다르더라도,
+                //    특수수당 정책의 실적 기준일(계약/배송일자) 연/월이 해당 정산월(전월 또는 당월)과 일치하면 포함
                 const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
                 if (match) {
                   let y = match[1];
@@ -2672,20 +2674,7 @@ const ERP_Dashboard = () => {
                 }
               }
             } else {
-              // payDateFilter가 ALL이거나 없는 경우
-              if (itemPayDateDisplay && payDateFilter && itemPayDateDisplay.replace(/[-./]/g, '') === filterClean) {
-                isMatchedDate = true;
-              } else {
-                const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-                if (match) {
-                  let y = match[1];
-                  if (y.length === 2) y = '20' + y;
-                  const m = match[2].padStart(2, '0');
-                  if ((y === prevYearStr && m === prevMonthStr) || (y === String(year) && m === String(month).padStart(2, '0'))) {
-                    isMatchedDate = true;
-                  }
-                }
-              }
+              isMatchedDate = true;
             }
 
             if (isMatchedDate) {
@@ -8955,7 +8944,7 @@ const ERP_Dashboard = () => {
                               if (!targetHqs.includes('ALL') && !targetHqs.includes(s.hqName)) return false;
 
                               const targetProducts = matchedRule.targetProducts || ['ALL'];
-                              if (!targetProducts.includes('ALL') && !targetProducts.includes(item.prodCategory || item.productCategory)) return false;
+                              if (!targetProducts.includes('ALL') && !targetProducts.some((p: string) => (item.prodName || item.prodCategory || item.productCategory || '').includes(p))) return false;
 
                               const targetItems = matchedRule.targetItems || ['ALL'];
                               if (!targetItems.includes('ALL')) {
