@@ -2596,7 +2596,7 @@ const ERP_Dashboard = () => {
           const processedRentalNos = new Set<string>();
 
           data.forEach(item => {
-            if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
+            if (item.status?.includes('취소') || item.status?.includes('해약') || item.status?.includes('철회') || item.status?.includes('반품')) return;
             if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
 
             // 렌탈계약번호 기준 중복제거 (본부 공급수수료 isSelfHq인 경우에만 1회 지급 중복제거, 개인 지정 수당은 구좌대로 계산)
