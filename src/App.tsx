@@ -2651,15 +2651,25 @@ const ERP_Dashboard = () => {
               if (itemPayDateDisplay && itemPayDateDisplay.replace(/[-./]/g, '') === filterClean) {
                 isMatchedDate = true;
               } else {
-                // 2) 일반 영업 수수료 지급일(예: 10일)과 특수수당 지급일(25일)이 다르더라도,
-                //    특수수당 정책의 실적 기준일(계약/배송일자) 연/월이 해당 정산월(전월 또는 당월)과 일치하면 포함
+                // 2) 일반 영업 수수료 지급일(예: 10일)과 특수수당/공급수수료 지급일(25일)이 다를 경우:
+                //    - rule.payDay > 0 (지정일: 다음달 N일, 예: 25일): 실적기준일(배송일자/계약일자)이 전월(prevMonth)인 건만 산출
+                //    - rule.payDay === 0 (당월 N일): 실적기준일이 당월(month)인 건만 산출
                 const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
                 if (match) {
                   let y = match[1];
                   if (y.length === 2) y = '20' + y;
                   const m = match[2].padStart(2, '0');
-                  if ((y === prevYearStr && m === prevMonthStr) || (y === String(year) && m === String(month).padStart(2, '0'))) {
-                    isMatchedDate = true;
+                  
+                  if (rule.payDay && rule.payDay > 0) {
+                    // 다음달 N일 지급 (예: 25일) => 전월 배송/계약건만 25일에 지급
+                    if (y === prevYearStr && m === prevMonthStr) {
+                      isMatchedDate = true;
+                    }
+                  } else {
+                    // 당월 지급 => 당월 배송/계약건만 지급
+                    if (y === String(year) && m === String(month).padStart(2, '0')) {
+                      isMatchedDate = true;
+                    }
                   }
                 }
               }
