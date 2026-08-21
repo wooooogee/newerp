@@ -2591,9 +2591,11 @@ const ERP_Dashboard = () => {
         if (!rule.payDay || rule.payDay === 0) {
           isSettlementDate = true;
         } else {
+          const filterDayMatch = payDateFilter.match(/(\d{1,2})$/);
+          const filterDayNum = filterDayMatch ? parseInt(filterDayMatch[1]) : 0;
           const payDayStr1 = `.${rule.payDay}`;
           const payDayStr2 = `-${rule.payDay.toString().padStart(2, '0')}`;
-          isSettlementDate = payDateFilter.includes(payDayStr1) || payDateFilter.includes(payDayStr2);
+          isSettlementDate = (filterDayNum > 0 && rule.payDay === filterDayNum) || payDateFilter.includes(payDayStr1) || payDateFilter.includes(payDayStr2);
         }
 
         if (!isSettlementDate) return;
@@ -2738,7 +2740,7 @@ const ERP_Dashboard = () => {
                     hq: hqName,
                     targetName: 'SELF_HQ',
                     incentiveName: detail,
-                    rentalNo: item.rentalNo || '-',
+                    rentalNo: item.rentalNo || item.resNo || '-',
                     memName: item.memName || '-',
                     empName: item.empName || '-',
                     prodName: item.prodName || '-',
@@ -2758,6 +2760,23 @@ const ERP_Dashboard = () => {
               } else {
                 matchedCount++;
                 commission += itemComm;
+
+                const detail = rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
+                specialPayouts.push({
+                  id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
+                  hq: rule.targetName || item.hq || '-',
+                  targetName: rule.targetName,
+                  incentiveName: detail,
+                  rentalNo: item.rentalNo || item.resNo || '-',
+                  memName: item.memName || '-',
+                  empName: item.empName || '-',
+                  prodName: item.prodName || '-',
+                  rentalProd: item.rentalProd || '-',
+                  amount: itemComm,
+                  contractDate: item.contractDate || '-',
+                  deliveryDate: item.deliveryDate || '-',
+                  payDate: item.payDate || getDisplayPayDate(item) || '-'
+                });
               }
             }
           });
@@ -2779,6 +2798,24 @@ const ERP_Dashboard = () => {
             summary[specialName].amount += finalAmount;
             summary[specialName].count += matchedCount;
             
+            if (matchedCount === 0 && rule.minimumGuarantee > 0) {
+              specialPayouts.push({
+                id: `guarantee_${rule.id}`,
+                hq: rule.targetName || '-',
+                targetName: rule.targetName,
+                incentiveName: detail + ' (최저보장)',
+                rentalNo: '-',
+                memName: '-',
+                empName: '-',
+                prodName: '-',
+                rentalProd: '-',
+                amount: finalAmount,
+                contractDate: '-',
+                deliveryDate: '-',
+                payDate: payDateFilter
+              });
+            }
+
             totalAmount += finalAmount;
             totalPendingAmount += finalAmount;
             totalCount += matchedCount;
@@ -3433,6 +3470,46 @@ const ERP_Dashboard = () => {
       applyDetailSheetStyles(wsMaint);
       
       XLSX.utils.book_append_sheet(wb, wsMaint, "유지수수료상세");
+
+      // --- SHEET 4: 특수수당 상세 명세 ---
+      const specialRows: any[][] = [['지급일', '대상자명/본부', '수당종류', '계약ID', '고객명', '사원명', '상품명', '계약일자', '배송일자', '특수수당금액']];
+      const rawSpecialPayouts = settlementStats.specialPayouts || [];
+      const sortedSpecialPayouts = [...rawSpecialPayouts].sort((a, b) => {
+        const hqDiff = (a.hq || a.targetName || '').localeCompare(b.hq || b.targetName || '', 'ko');
+        if (hqDiff !== 0) return hqDiff;
+        return (a.memName || '').localeCompare(b.memName || '', 'ko');
+      });
+
+      sortedSpecialPayouts.forEach((sp: any) => {
+        specialRows.push([
+          sp.payDate || payDateSample,
+          sp.hq || sp.targetName || '-',
+          sp.incentiveName || '특수수당',
+          sp.rentalNo || '-',
+          sp.memName || '-',
+          sp.empName || '-',
+          sp.prodName || '-',
+          sp.contractDate || '-',
+          sp.deliveryDate || '-',
+          { v: sp.amount || 0, t: 'n', z: '#,##0' }
+        ]);
+      });
+
+      const wsSpecial = XLSX.utils.aoa_to_sheet(specialRows);
+      const specialWidths = specialRows.reduce((acc, row) => {
+        row.forEach((cell, i) => {
+          let str = '';
+          if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+          else if (cell !== null && cell !== undefined) str = cell.toString();
+          const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+          if (!acc[i] || len > acc[i]) acc[i] = len;
+        });
+        return acc;
+      }, [] as number[]);
+      wsSpecial['!cols'] = specialWidths.map(w => ({ wch: Math.min(w + 2, 40) }));
+      applyDetailSheetStyles(wsSpecial);
+
+      XLSX.utils.book_append_sheet(wb, wsSpecial, "특수수당상세");
 
       if (appendSheetData) {
         const wsAppend = XLSX.utils.aoa_to_sheet(appendSheetData.data);
