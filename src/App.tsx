@@ -2599,10 +2599,12 @@ const ERP_Dashboard = () => {
             if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
             if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
 
-            // 렌탈계약번호 기준 중복제거 (N구좌 결합상품 1회 지급)
-            const rentalKey = item.rentalNo || item.resNo;
-            if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
-              if (processedRentalNos.has(rentalKey)) return;
+            // 렌탈계약번호 기준 중복제거 (본부 공급수수료 isSelfHq인 경우에만 1회 지급 중복제거, 개인 지정 수당은 구좌대로 계산)
+            if (isSelfHq) {
+              const rentalKey = item.rentalNo || item.resNo;
+              if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+                if (processedRentalNos.has(rentalKey)) return;
+              }
             }
             let isMatch = false;
             const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
@@ -8701,7 +8703,22 @@ const ERP_Dashboard = () => {
                                     <td className="border border-slate-300 p-1.5 text-center bg-blue-50">
                                       {(s.items.length + 
                                         (s.maintenanceSum > 0 ? s.hqMaintenancePayouts.length : 0) + 
-                                        (s.specialSum > 0 ? (settlementStats.hqSummary[s.hqName]?.count || 0) : 0)) || '-'}
+                                        (() => {
+                                          const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
+                                          const processedRentalNos = new Set();
+                                          const specialItems = (settlementStats.specialPayouts || []).filter((item: any) => {
+                                            const isSelfHq = !matchedRule?.targetName || matchedRule.targetName.trim() === '' || matchedRule.targetName === 'SELF_HQ' || matchedRule.targetName === '판매본부' || matchedRule.targetName === '해당본부' || matchedRule.targetName === '본부';
+                                            if (isSelfHq) {
+                                              const rentalKey = item.rentalNo || item.resNo;
+                                              if (rentalKey) {
+                                                if (processedRentalNos.has(rentalKey)) return false;
+                                                processedRentalNos.add(rentalKey);
+                                              }
+                                            }
+                                            return true;
+                                          });
+                                          return s.specialSum > 0 ? (specialItems.length || 0) : 0;
+                                        })()) || '-'}
                                     </td>
                                     <td className="border border-slate-300 p-1.5 text-right text-blue-900 bg-blue-50">
                                       {s.totalSum.toLocaleString()}원
