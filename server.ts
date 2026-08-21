@@ -1849,13 +1849,62 @@ app.get('/api/sheets/reconciliation/load', async (req, res) => {
       return res.json({ history: [] });
     }
 
-    const headers = (rows[0] || []).map((h: any) => (String(h) || '').trim());
+    const firstRowHeaders = (rows[0] || []).map((h: any) => (String(h) || '').trim());
+    const hasPayDateHeader = firstRowHeaders.includes('수수료지급일자');
+
+    // 1행 헤더에 수수료지급일자가 없다면 구글 시트 1행 헤더 마이그레이션
+    if (!hasPayDateHeader) {
+      const targetHeaders = [['정산기준일', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고']];
+      sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: '유통사대사내역!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: targetHeaders }
+      }).catch(err => console.error("[Sheet Header Migration Error]", err));
+    }
+
     const history = rows.slice(1).map((row: string[]) => {
-      const obj: any = {};
-      headers.forEach((h: string, idx: number) => {
-        obj[h] = row[idx] || '';
-      });
-      return obj;
+      // 행 데이터 개수가 13개 이상이거나, 신규 13개 헤더 기반으로 저장된 행 처리
+      if (row.length >= 13 || (hasPayDateHeader && row.length >= 12)) {
+        return {
+          '정산기준일': row[0] || '',
+          '수수료지급일자': row[1] || '',
+          '지급일자': row[1] || '',
+          '계약ID': row[2] || '',
+          '계약ID(렌탈번호)': row[2] || '',
+          '고객명': row[3] || '',
+          '본부명': row[4] || '',
+          '상품명': row[5] || '',
+          '계약일자': row[6] || '',
+          '배송일자': row[7] || '',
+          '내부 배송일자': row[7] || '',
+          '구좌수': row[8] || '1',
+          '거래처입금액': row[9] || '0',
+          '내부지급액합계': row[10] || '0',
+          '최종순수익': row[11] || '0',
+          '비고': row[12] || ''
+        };
+      } else {
+        // 예전 12개 컬럼 구조: [정산기준일, 계약ID, 고객명, 본부명, 상품명, 계약일자, 배송일자, 구좌수, 거래처입금액, 내부지급액합계, 최종순수익, 비고]
+        return {
+          '정산기준일': row[0] || '',
+          '수수료지급일자': '',
+          '지급일자': '',
+          '계약ID': row[1] || '',
+          '계약ID(렌탈번호)': row[1] || '',
+          '고객명': row[2] || '',
+          '본부명': row[3] || '',
+          '상품명': row[4] || '',
+          '계약일자': row[5] || '',
+          '배송일자': row[6] || '',
+          '내부 배송일자': row[6] || '',
+          '구좌수': row[7] || '1',
+          '거래처입금액': row[8] || '0',
+          '내부지급액합계': row[9] || '0',
+          '최종순수익': row[10] || '0',
+          '비고': row[11] || ''
+        };
+      }
     }).filter((h: any) => h['계약ID'] || h['계약ID(렌탈번호)']);
 
     res.json({ history });
@@ -1930,6 +1979,26 @@ app.post('/api/sheets/reconciliation/save', async (req, res) => {
             ]
           }
         });
+      }
+    } else {
+      // 1행 헤더가 13개 신규 헤더인지 확인 후 마이그레이션
+      try {
+        const headerRes = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: '유통사대사내역!A1:M1'
+        });
+        const firstHeaders = headerRes.data.values?.[0] || [];
+        if (!firstHeaders.includes('수수료지급일자')) {
+          const targetHeaders = [['정산기준일', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고']];
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: sheetId,
+            range: '유통사대사내역!A1',
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: targetHeaders }
+          });
+        }
+      } catch (err) {
+        console.error("[Sheet Header Migration Check Error]", err);
       }
     }
 

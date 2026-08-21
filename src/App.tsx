@@ -9816,7 +9816,7 @@ const ERP_Dashboard = () => {
                         <div className="ml-auto text-sm bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
                           총 거래처입금액:{' '}
                           <span className="font-bold text-indigo-600 text-lg">
-                            {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, cur) => acc + Number(cur['거래처입금액'] || 0), 0).toLocaleString()}원
+                            {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, cur) => acc + Number(String(cur['거래처입금액'] || 0).replace(/,/g, '')), 0).toLocaleString()}원
                           </span>
                         </div>
                       </div>
