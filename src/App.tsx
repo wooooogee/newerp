@@ -3600,8 +3600,13 @@ const ERP_Dashboard = () => {
         const headerStyleAppend = { fill: { fgColor: { rgb: "2F5597" } }, font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
 
         const subtotalNormalStyle = { fill: { fgColor: { rgb: "E2EFDA" } }, font: { bold: true, sz: 9, color: { rgb: "276749" } }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+        const subtotalNormalNumberStyle = { fill: { fgColor: { rgb: "E2EFDA" } }, font: { bold: true, sz: 9, color: { rgb: "276749" } }, alignment: { vertical: "center", horizontal: "right" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }, numFmt: "#,##0" };
+
         const subtotalAbnormalStyle = { fill: { fgColor: { rgb: "FFC7CE" } }, font: { bold: true, sz: 9, color: { rgb: "9B2C2C" } }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+        const subtotalAbnormalNumberStyle = { fill: { fgColor: { rgb: "FFC7CE" } }, font: { bold: true, sz: 9, color: { rgb: "9B2C2C" } }, alignment: { vertical: "center", horizontal: "right" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }, numFmt: "#,##0" };
+
         const grandTotalStyle = { fill: { fgColor: { rgb: "D9E1F2" } }, font: { bold: true, sz: 9, color: { rgb: "1E293B" } }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+        const grandTotalNumberStyle = { fill: { fgColor: { rgb: "D9E1F2" } }, font: { bold: true, sz: 9, color: { rgb: "1E293B" } }, alignment: { vertical: "center", horizontal: "right" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }, numFmt: "#,##0" };
 
         const range = XLSX.utils.decode_range(wsAppend['!ref'] || 'A1:A1');
         for (let R = range.s.r; R <= range.e.r; ++R) {
@@ -3621,31 +3626,37 @@ const ERP_Dashboard = () => {
              }
 
              if (isNormalSubtotal) {
-               wsAppend[addr].s = { ...subtotalNormalStyle };
                if (wsAppend[addr].t === 'n' || (C >= 8 && C <= 11)) {
-                 wsAppend[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+                 wsAppend[addr].s = { ...subtotalNormalNumberStyle };
                  wsAppend[addr].t = 'n';
                  wsAppend[addr].v = Number(wsAppend[addr].v || 0);
+                 wsAppend[addr].z = '#,##0';
+               } else {
+                 wsAppend[addr].s = { ...subtotalNormalStyle };
                }
                continue;
              }
 
              if (isAbnormalSubtotal) {
-               wsAppend[addr].s = { ...subtotalAbnormalStyle };
                if (wsAppend[addr].t === 'n' || (C >= 8 && C <= 11)) {
-                 wsAppend[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+                 wsAppend[addr].s = { ...subtotalAbnormalNumberStyle };
                  wsAppend[addr].t = 'n';
                  wsAppend[addr].v = Number(wsAppend[addr].v || 0);
+                 wsAppend[addr].z = '#,##0';
+               } else {
+                 wsAppend[addr].s = { ...subtotalAbnormalStyle };
                }
                continue;
              }
 
              if (isGrandTotal) {
-               wsAppend[addr].s = { ...grandTotalStyle };
                if (wsAppend[addr].t === 'n' || (C >= 8 && C <= 11)) {
-                 wsAppend[addr].s.alignment = { horizontal: 'right', vertical: 'center' };
+                 wsAppend[addr].s = { ...grandTotalNumberStyle };
                  wsAppend[addr].t = 'n';
                  wsAppend[addr].v = Number(wsAppend[addr].v || 0);
+                 wsAppend[addr].z = '#,##0';
+               } else {
+                 wsAppend[addr].s = { ...grandTotalStyle };
                }
                continue;
              }
@@ -3669,6 +3680,7 @@ const ERP_Dashboard = () => {
                wsAppend[addr].s = { ...numberStyle, fill: { fgColor: { rgb: fgColor } } };
                wsAppend[addr].t = 'n';
                wsAppend[addr].v = Number(val);
+               wsAppend[addr].z = '#,##0';
              }
           }
         }
