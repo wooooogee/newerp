@@ -2622,7 +2622,8 @@ const ERP_Dashboard = () => {
             if (!isMatch) return;
 
             if (!rule.targetProducts.includes('ALL')) {
-              if (!rule.targetProducts.some((p: string) => item.prodName.includes(p))) return;
+              const normItemProd = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
+              if (!rule.targetProducts.some((p: string) => normItemProd.includes(p.replace(/[\s()]/g, '').toLowerCase()))) return;
             }
 
             if (rule.targetItems && !rule.targetItems.includes('ALL')) {
