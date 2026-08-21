@@ -3462,13 +3462,15 @@ const ERP_Dashboard = () => {
              let fgColor = "FFFFFF";
              const val = String(wsAppend[addr].v || '');
              if (R > 0) {
-                const noteAddr = XLSX.utils.encode_cell({ r: R, c: 11 }); // 11 is column L (비고)
+                const noteAddr = XLSX.utils.encode_cell({ r: R, c: 12 }); // 12 is column M (비고)
                 const noteVal = wsAppend[noteAddr] ? String(wsAppend[noteAddr].v || '') : '';
                 
-                if (noteVal && noteVal !== '정상' && noteVal !== '비고') {
-                   fgColor = "FFC7CE"; // light red
-                } else if (C === 11 && val === '정상') {
-                   fgColor = "E2EFDA"; // light green
+                if (noteVal.startsWith('선지급')) {
+                   if (C === 12) fgColor = "FFF2CC"; // light amber for 선지급 remark cell
+                } else if (noteVal && noteVal !== '정상' && noteVal !== '비고') {
+                   fgColor = "FFC7CE"; // light red for error rows
+                } else if (C === 12 && val === '정상') {
+                   fgColor = "E2EFDA"; // light green for 정상 remark cell
                 }
              }
 
@@ -3478,7 +3480,7 @@ const ERP_Dashboard = () => {
              };
 
              if (R === 0) wsAppend[addr].s = headerStyleAppend;
-             else if (wsAppend[addr].t === 'n' || (val && !isNaN(Number(val)) && C >= 7 && C <= 10)) {
+             else if (wsAppend[addr].t === 'n' || (val && !isNaN(Number(val)) && C >= 8 && C <= 11)) {
                wsAppend[addr].s = { ...numberStyle, fill: { fgColor: { rgb: fgColor } } };
                wsAppend[addr].t = 'n';
                wsAppend[addr].v = Number(val);
@@ -9589,7 +9591,16 @@ const ERP_Dashboard = () => {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => {
-                        const baseData = reconTab === 'NEW' ? reconData : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate);
+                        const rawBaseData = reconTab === 'NEW' ? reconData : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate);
+                        const baseData = [...rawBaseData].sort((a, b) => {
+                          const hqA = a['본부명'] || '';
+                          const hqB = b['본부명'] || '';
+                          const hqDiff = hqA.localeCompare(hqB, 'ko');
+                          if (hqDiff !== 0) return hqDiff;
+                          const custA = a['고객명'] || '';
+                          const custB = b['고객명'] || '';
+                          return custA.localeCompare(custB, 'ko');
+                        });
                         
                         const mappedData = baseData.map(d => ({
                           '정산기준일': d['정산기준일'] || '',
@@ -9746,7 +9757,7 @@ const ERP_Dashboard = () => {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
-                                {reconData.map((row, idx) => {
+                                {reconData.slice().sort((a, b) => (a['본부명'] || '').localeCompare(b['본부명'] || '', 'ko')).map((row, idx) => {
                                   const isError = row['비고'] !== '정상' && row['비고'] !== '';
                                   return (
                                   <tr key={idx} className={`transition-colors text-xs ${isError ? 'bg-red-50/70 hover:bg-red-100/70' : 'hover:bg-slate-50'}`}>
@@ -9847,7 +9858,7 @@ const ERP_Dashboard = () => {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
-                                {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).map((row, idx) => {
+                                {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).slice().sort((a, b) => (a['본부명'] || '').localeCompare(b['본부명'] || '', 'ko')).map((row, idx) => {
                                   const isError = row['비고'] !== '정상' && row['비고'] !== '';
                                   return (
                                   <tr key={idx} className={`transition-colors text-xs ${isError ? 'bg-red-50/70 hover:bg-red-100/70' : 'hover:bg-slate-50'}`}>
