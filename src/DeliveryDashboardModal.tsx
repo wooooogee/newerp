@@ -56,6 +56,10 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
       // 검색어 필터링
       if (searchTerm && !prod.toLowerCase().includes(searchTerm.toLowerCase())) return;
 
+      if (!stats[prod]) {
+        stats[prod] = { totalDays: 0, count: 0 };
+      }
+
       const cDate = new Date(item.contractDate);
       const dDate = new Date(item.deliveryDate);
 
@@ -64,9 +68,6 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
         const diffTime = dDate.getTime() - cDate.getTime();
         const diffDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
 
-        if (!stats[prod]) {
-          stats[prod] = { totalDays: 0, count: 0 };
-        }
         stats[prod].totalDays += diffDays;
         stats[prod].count += 1;
       }
@@ -78,8 +79,13 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
       count: data.count
     }));
 
-    // 소요일이 긴 순서대로 정렬
-    return result.sort((a, b) => parseFloat(b.avgDays) - parseFloat(a.avgDays));
+    // 소요일이 짧은 순서대로 정렬 (배송건이 있는 상품 우선 오름차순 정렬)
+    return result.sort((a, b) => {
+      if (a.count === 0 && b.count === 0) return 0;
+      if (a.count === 0) return 1;
+      if (b.count === 0) return -1;
+      return parseFloat(a.avgDays) - parseFloat(b.avgDays);
+    });
   }, [validData, selectedMonth, searchTerm, productFilter]);
 
   // 판매량 통계 (렌탈상품별)
@@ -195,42 +201,7 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
               </div>
 
               <div className="grid grid-cols-2 gap-6">
-                {/* 1. 평균 배송 소요일 */}
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
-                  <div className="p-4 border-b border-slate-100 flex items-center gap-2">
-                    <Clock size={18} className="text-amber-500" />
-                    <h3 className="font-bold text-slate-800">렌탈상품별 평균 배송 소요일</h3>
-                  </div>
-                  <div className="p-4 overflow-auto max-h-[600px]">
-                    {deliveryDaysStats.length === 0 ? (
-                      <p className="text-center text-slate-400 py-10">데이터가 없습니다.</p>
-                    ) : (
-                      <div className="flex flex-col gap-4">
-                        {deliveryDaysStats.map((stat, idx) => {
-                          const percentage = (parseFloat(stat.avgDays) / maxAvgDays) * 100;
-                          return (
-                            <div key={idx} className="flex flex-col gap-1">
-                              <div className="flex justify-between items-end">
-                                <span className="text-[12px] font-medium text-slate-700 truncate max-w-[250px]" title={stat.product}>
-                                  {stat.product}
-                                </span>
-                                <span className="text-[11px] text-slate-400 font-medium">평균 {stat.avgDays}일 ({stat.count}건 기준)</span>
-                              </div>
-                              <div className="w-full bg-slate-100 rounded-full h-2">
-                                <div 
-                                  className="bg-amber-400 h-2 rounded-full transition-all duration-500" 
-                                  style={{ width: `${percentage}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 2. 판매량 */}
+                {/* 1. 판매량 (왼쪽) */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
                   <div className="p-4 border-b border-slate-100 flex items-center gap-2">
                     <TrendingUp size={18} className="text-indigo-500" />
@@ -254,6 +225,41 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
                               <div className="w-full bg-slate-100 rounded-full h-2">
                                 <div 
                                   className="bg-indigo-500 h-2 rounded-full transition-all duration-500" 
+                                  style={{ width: `${percentage}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. 평균 배송 소요일 (오른쪽) */}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
+                  <div className="p-4 border-b border-slate-100 flex items-center gap-2">
+                    <Clock size={18} className="text-amber-500" />
+                    <h3 className="font-bold text-slate-800">렌탈상품별 평균 배송 소요일</h3>
+                  </div>
+                  <div className="p-4 overflow-auto max-h-[600px]">
+                    {deliveryDaysStats.length === 0 ? (
+                      <p className="text-center text-slate-400 py-10">데이터가 없습니다.</p>
+                    ) : (
+                      <div className="flex flex-col gap-4">
+                        {deliveryDaysStats.map((stat, idx) => {
+                          const percentage = (parseFloat(stat.avgDays) / maxAvgDays) * 100;
+                          return (
+                            <div key={idx} className="flex flex-col gap-1">
+                              <div className="flex justify-between items-end">
+                                <span className="text-[12px] font-medium text-slate-700 truncate max-w-[250px]" title={stat.product}>
+                                  {stat.product}
+                                </span>
+                                <span className="text-[11px] text-slate-400 font-medium">평균 {stat.avgDays}일 ({stat.count}건 기준)</span>
+                              </div>
+                              <div className="w-full bg-slate-100 rounded-full h-2">
+                                <div 
+                                  className="bg-amber-400 h-2 rounded-full transition-all duration-500" 
                                   style={{ width: `${percentage}%` }}
                                 ></div>
                               </div>
