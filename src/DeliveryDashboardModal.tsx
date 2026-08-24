@@ -49,7 +49,8 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
         if (itemMonth !== selectedMonth) return;
       }
 
-      const prod = item.rentalProd || '알 수 없음';
+      const prod = item.rentalProd || item.prodName || '';
+      if (!prod || prod.trim() === '' || prod === '알 수 없음') return;
       
       // 상품명(prodName) 필터링
       if (productFilter.length > 0 && !productFilter.includes(item.prodName)) return;
@@ -80,7 +81,7 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
     });
 
     const result = Object.entries(stats)
-      .filter(([_, data]) => data.count > 0) // 0건 미노출
+      .filter(([_, data]) => data.count > 0) // 배송완료 0건 미노출
       .map(([prod, data]) => ({
         product: prod,
         avgDays: (data.totalDays / data.count).toFixed(1),
@@ -102,7 +103,8 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
         if (itemMonth !== selectedMonth) return;
       }
 
-      const prod = item.rentalProd || '알 수 없음';
+      const prod = item.rentalProd || item.prodName || '';
+      if (!prod || prod.trim() === '' || prod === '알 수 없음') return;
 
       // 상품명(prodName) 필터링
       if (productFilter.length > 0 && !productFilter.includes(item.prodName)) return;
@@ -114,7 +116,7 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
     });
 
     const result = Object.entries(stats)
-      .filter(([_, count]) => count > 0) // 0건 미노출
+      .filter(([_, count]) => count > 0)
       .map(([prod, count]) => ({
         product: prod,
         count
@@ -149,8 +151,8 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
     const wsSales = XLSX.utils.json_to_sheet(salesSheetData);
     const wsDelivery = XLSX.utils.json_to_sheet(deliverySheetData);
 
-    wsSales['!cols'] = [{ wch: 8 }, { wch: 50 }, { wch: 18 }];
-    wsDelivery['!cols'] = [{ wch: 8 }, { wch: 50 }, { wch: 22 }, { wch: 15 }];
+    wsSales['!cols'] = [{ wch: 8 }, { wch: 60 }, { wch: 18 }];
+    wsDelivery['!cols'] = [{ wch: 8 }, { wch: 60 }, { wch: 22 }, { wch: 15 }];
 
     XLSX.utils.book_append_sheet(wb, wsSales, '누적 판매량 순위');
     XLSX.utils.book_append_sheet(wb, wsDelivery, '평균 배송 소요일');
@@ -173,7 +175,7 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="w-[1100px] max-w-[95vw] h-full bg-slate-50 flex flex-col shadow-2xl"
+            className="w-[1380px] max-w-[98vw] h-full bg-slate-50 flex flex-col shadow-2xl"
           >
             {/* Header */}
             <div className="flex items-center justify-between p-6 bg-white border-b border-slate-200">
@@ -262,11 +264,11 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
                           const percentage = (stat.count / maxSales) * 100;
                           return (
                             <div key={idx} className="flex flex-col gap-1">
-                              <div className="flex justify-between items-start gap-2">
-                                <span className="text-[12px] font-medium text-slate-700 break-words flex-1" title={stat.product}>
+                              <div className="flex justify-between items-center gap-4">
+                                <span className="text-[12px] font-medium text-slate-700 whitespace-nowrap overflow-hidden text-ellipsis flex-1" title={stat.product}>
                                   {idx + 1}. {stat.product}
                                 </span>
-                                <span className="text-[11px] text-slate-400 font-medium shrink-0 pt-0.5">{stat.count}건 판매</span>
+                                <span className="text-[11px] text-slate-400 font-medium shrink-0">{stat.count}건 판매</span>
                               </div>
                               <div className="w-full bg-slate-100 rounded-full h-2">
                                 <div 
@@ -297,11 +299,11 @@ export const DeliveryDashboardModal: React.FC<DeliveryDashboardModalProps> = ({ 
                           const percentage = (parseFloat(stat.avgDays) / maxAvgDays) * 100;
                           return (
                             <div key={idx} className="flex flex-col gap-1">
-                              <div className="flex justify-between items-start gap-2">
-                                <span className="text-[12px] font-medium text-slate-700 break-words flex-1" title={stat.product}>
+                              <div className="flex justify-between items-center gap-4">
+                                <span className="text-[12px] font-medium text-slate-700 whitespace-nowrap overflow-hidden text-ellipsis flex-1" title={stat.product}>
                                   {stat.product}
                                 </span>
-                                <span className="text-[11px] text-slate-400 font-medium shrink-0 pt-0.5">평균 {stat.avgDays}일 ({stat.count}건 기준)</span>
+                                <span className="text-[11px] text-slate-400 font-medium shrink-0">평균 {stat.avgDays}일 ({stat.count}건 기준)</span>
                               </div>
                               <div className="w-full bg-slate-100 rounded-full h-2">
                                 <div 
