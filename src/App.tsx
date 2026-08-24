@@ -862,11 +862,7 @@ const ERP_Dashboard = () => {
         console.error(e);
       }
     }
-    return [
-      { id: 'jaeyun', targetName: '조재윤', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], targetItems: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 10000, minimumGuarantee: 2000000, useInstallments: false, installments: [] },
-      { id: 'minkyung', targetName: '조민경', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], targetItems: ['ALL'], baseDateType: 'DELIVERY', commissionPerUnit: 5000, minimumGuarantee: 0, useInstallments: false, installments: [] },
-      { id: 'sunghoon', targetName: '권성훈', payDay: 25, targetHq: 'ALL', targetHqs: ['ALL'], targetProducts: ['ALL'], targetItems: ['ALL'], baseDateType: 'CONTRACT', commissionPerUnit: 0, minimumGuarantee: 2500000, useInstallments: false, installments: [] }
-    ];
+    return [];
   });
 
   const [settingsTab, setSettingsTab] = useState<'hq' | 'global_incentive' | 'maintenance' | 'member'>('hq');
@@ -1579,14 +1575,7 @@ const ERP_Dashboard = () => {
       salesPart = 50000;
       isSpecialFixedProduct = true;
     }
-    // 특수 규칙: 조민경, 조재윤
-    else if (item.empName?.includes('조민경')) {
-      unitPrice = 5000;
-      salesPart = 5000;
-    } else if (item.empName?.includes('조재윤')) {
-      unitPrice = 10000;
-      salesPart = 10000;
-    } else if (productRule) {
+    else if (productRule) {
       const pRule = productRule as ProductRule;
       if (pRule.tier3Count > 0 && count >= pRule.tier3Count) unitPrice = pRule.tier3Price;
       else if (pRule.tier2Count > 0 && count >= pRule.tier2Count) unitPrice = pRule.tier2Price;
@@ -1600,25 +1589,6 @@ const ERP_Dashboard = () => {
 
     let totalCommission = unitPrice;
     let salesComm = salesPart;
-
-    // 조재윤 최소 보장 로직 (개별 항목에 가중치 부여)
-    if (item.empName?.includes('조재윤') && !isSpecialFixedProduct) {
-      // 조재윤 사원 본인의 당월 실적(지급월이 같은 것) 전체 건수를 집계
-      const targetPayDate = getDisplayPayDate(item);
-      const jaeyunTotalCount = data.filter(x => 
-        x.empName?.includes('조재윤') && 
-        getDisplayPayDate(x) === targetPayDate &&
-        !x.status.includes('취소')
-      ).length;
-
-      const jaeyunCalcTotal = jaeyunTotalCount * 10000;
-      if (jaeyunCalcTotal < 2000000 && jaeyunTotalCount > 0) {
-        const factor = 2000000 / jaeyunCalcTotal;
-        totalCommission = 10000 * factor;
-        salesComm = totalCommission; // 조재윤은 전체가 판매수수료 개념
-      }
-    }
-
     const promoFee = Math.max(0, totalCommission - salesComm);
 
     // 지급일자 산출 (글로벌 인센티브 및 조재윤, 조민경용)
@@ -2641,11 +2611,7 @@ const ERP_Dashboard = () => {
                   : (rule.targetHq ? normalizeHq(item.hq) === normalizeHq(rule.targetHq) : false);
               }
             } else if (hasAll) {
-              if (rule.targetName === '조재윤' || rule.targetName === '조민경') {
-                isMatch = true;
-              } else {
-                isMatch = item.empName?.includes(rule.targetName) || false;
-              }
+              isMatch = rule.targetName ? (item.empName?.includes(rule.targetName) || false) : true;
             } else {
               isMatch = (rule.targetHqs && rule.targetHqs.length > 0)
                 ? rule.targetHqs.some(hq => normalizeHq(item.hq) === normalizeHq(hq))
@@ -2763,7 +2729,7 @@ const ERP_Dashboard = () => {
                     amount: itemComm,
                     contractDate: item.contractDate || '-',
                     deliveryDate: item.deliveryDate || '-',
-                    payDate: item.payDate || getDisplayPayDate(item) || '-',
+                    payDate: (payDateFilter && payDateFilter !== 'ALL') ? payDateFilter : (item.payDate || getDisplayPayDate(item) || '-'),
                     taxType: rule.taxType || 'DEFAULT',
                     taxBusinessName: rule.taxBusinessName,
                     taxBusinessNo: rule.taxBusinessNo
@@ -2790,7 +2756,7 @@ const ERP_Dashboard = () => {
                   amount: itemComm,
                   contractDate: item.contractDate || '-',
                   deliveryDate: item.deliveryDate || '-',
-                  payDate: item.payDate || getDisplayPayDate(item) || '-'
+                  payDate: (payDateFilter && payDateFilter !== 'ALL') ? payDateFilter : (item.payDate || getDisplayPayDate(item) || '-')
                 });
               }
             }
