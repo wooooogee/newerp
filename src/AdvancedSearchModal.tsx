@@ -20,6 +20,7 @@ interface ERPDataItem {
   empName?: string;     // J(9)
   status: string;       // B(1)
   deliveryStatus?: string; // L(11)
+  deliveryDate?: string;   // N(13)
   paymentStatus?: string;  // T(19) - 상조가입신청서 (O,X)
   deliveryMemo?: string;   // Y(24) - 렌탈출금/메모
   raw?: any[];
@@ -41,6 +42,9 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
   // 탭 상태: 'summary' (요약 및 본부별 실적) | 'details' (상세 계약 목록 페이지)
   const [activeTab, setActiveTab] = useState<'summary' | 'details'>('summary');
 
+  // 선택된 계약 월 (YYYY-MM 또는 'all' 또는 'custom')
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
+
   // 1. 기간 선택 (YYYY-MM-DD)
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
@@ -53,10 +57,60 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
   const [conditionDelivery, setConditionDelivery] = useState<boolean>(true);
   const [conditionCancel, setConditionCancel] = useState<boolean>(true);
 
-  // 모달이 처음 열릴 때 초기화
+  // 데이터 내 존재하는 계약 월 목록 (내림차순 정렬)
+  const availableMonths = useMemo(() => {
+    const monthsSet = new Set<string>();
+    const today = new Date();
+    const thisMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    monthsSet.add(thisMonthStr);
+
+    data.forEach(item => {
+      if (item.contractDate) {
+        const clean = item.contractDate.replace(/\./g, '-').trim();
+        const match = clean.match(/^(\d{4})-(\d{2})/);
+        if (match) {
+          monthsSet.add(`${match[1]}-${match[2]}`);
+        }
+      }
+    });
+
+    return Array.from(monthsSet).sort().reverse();
+  }, [data]);
+
+  // 계약 월 선택 핸들러
+  const handleMonthSelect = (monthStr: string) => {
+    setSelectedMonth(monthStr);
+    if (!monthStr || monthStr === 'all') {
+      setStartDate('');
+      setEndDate('');
+      return;
+    }
+
+    const [yStr, mStr] = monthStr.split('-');
+    const year = parseInt(yStr, 10);
+    const month = parseInt(mStr, 10);
+    if (year && month) {
+      const lastDay = new Date(year, month, 0).getDate();
+      setStartDate(`${monthStr}-01`);
+      setEndDate(`${monthStr}-${String(lastDay).padStart(2, '0')}`);
+    }
+  };
+
+  // 모달이 처음 열릴 때 초기화 (첫 화면 기본값: 해당 월)
   React.useEffect(() => {
-    if (isOpen && selectedHqs.length === 0 && allHqs.length > 0) {
-      setSelectedHqs([...allHqs]);
+    if (isOpen) {
+      if (selectedHqs.length === 0 && allHqs.length > 0) {
+        setSelectedHqs([...allHqs]);
+      }
+      const today = new Date();
+      const y = today.getFullYear();
+      const m = String(today.getMonth() + 1).padStart(2, '0');
+      const thisMonthStr = `${y}-${m}`;
+      const lastDay = new Date(y, today.getMonth() + 1, 0).getDate();
+
+      setStartDate(`${thisMonthStr}-01`);
+      setEndDate(`${thisMonthStr}-${String(lastDay).padStart(2, '0')}`);
+      setSelectedMonth(thisMonthStr);
     }
   }, [isOpen, allHqs]);
 
@@ -210,6 +264,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
       '계약상태': item.status || '',
       '해지일': item.cancelDate || (item.raw && item.raw[25]) || '',
       '배송상태': item.deliveryStatus || '',
+      '배송일자': item.deliveryDate || (item.raw && item.raw[13]) || '',
       '상조가입신청서': item.paymentStatus || (item.raw && item.raw[19]) || '',
       '상조출금': (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '',
       '렌탈출금': item.deliveryMemo || (item.raw && item.raw[24]) ? String(item.raw[24]).trim() : ''
@@ -296,30 +351,69 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
               {/* 1. 조건 설정 필터 패널 */}
               <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col gap-4">
                 {/* 1행: 기간 설정 */}
-                <div className="flex flex-col md:flex-row md:items-center gap-3 border-b border-slate-100 pb-4">
+                <div className="flex flex-col lg:flex-row lg:items-center gap-3 border-b border-slate-100 pb-4">
                   <span className="text-xs font-black text-slate-700 w-28 shrink-0 flex items-center gap-1.5">
                     <Calendar size={14} className="text-blue-600" /> 기간 설정
                   </span>
-                  <div className="flex items-center gap-2 flex-wrap flex-1">
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-blue-500"
-                    />
-                    <span className="text-xs text-slate-400 font-bold">~</span>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-blue-500"
-                    />
+                  <div className="flex items-center gap-3 flex-wrap flex-1">
+                    {/* 계약 월 선택 드롭다운 */}
+                    <div className="flex items-center gap-1.5 bg-blue-50/60 p-1 pl-2.5 pr-1.5 rounded-xl border border-blue-100">
+                      <span className="text-xs font-black text-blue-900 whitespace-nowrap">계약 월:</span>
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => handleMonthSelect(e.target.value)}
+                        className="px-2.5 py-1 bg-white border border-blue-200 rounded-lg text-xs font-extrabold text-blue-900 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-xs"
+                      >
+                        <option value="all">전체 월</option>
+                        {availableMonths.map((m) => {
+                          const [y, mm] = m.split('-');
+                          return (
+                            <option key={m} value={m}>
+                              {y}년 {mm}월
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+
+                    {/* 세부 기간 설정 */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-slate-500 whitespace-nowrap">세부기간:</span>
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => {
+                          setStartDate(e.target.value);
+                          setSelectedMonth('custom');
+                        }}
+                        className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-blue-500"
+                      />
+                      <span className="text-xs text-slate-400 font-bold">~</span>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => {
+                          setEndDate(e.target.value);
+                          setSelectedMonth('custom');
+                        }}
+                        className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-blue-500"
+                      />
+                    </div>
+
+                    {/* Quick period buttons */}
                     <div className="flex items-center gap-1 ml-auto flex-wrap">
-                      <button onClick={() => handleQuickPeriod('today')} className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-bold cursor-pointer">오늘</button>
-                      <button onClick={() => handleQuickPeriod('thisMonth')} className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-bold cursor-pointer">이번 달</button>
-                      <button onClick={() => handleQuickPeriod('lastMonth')} className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-bold cursor-pointer">지난 달</button>
-                      <button onClick={() => handleQuickPeriod('3months')} className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-bold cursor-pointer">최근 3개월</button>
-                      <button onClick={() => handleQuickPeriod('all')} className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-md text-[11px] font-bold cursor-pointer">전체 기간</button>
+                      <button onClick={() => { handleQuickPeriod('today'); setSelectedMonth('custom'); }} className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-bold cursor-pointer">오늘</button>
+                      <button onClick={() => {
+                        const today = new Date();
+                        const y = today.getFullYear();
+                        const m = String(today.getMonth() + 1).padStart(2, '0');
+                        handleMonthSelect(`${y}-${m}`);
+                      }} className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-bold cursor-pointer">이번 달</button>
+                      <button onClick={() => { handleQuickPeriod('lastMonth'); setSelectedMonth('custom'); }} className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-bold cursor-pointer">지난 달</button>
+                      <button onClick={() => { handleQuickPeriod('3months'); setSelectedMonth('custom'); }} className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md text-[11px] font-bold cursor-pointer">최근 3개월</button>
+                      <button onClick={() => handleMonthSelect('all')} className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-md text-[11px] font-bold cursor-pointer">전체 기간</button>
                     </div>
                   </div>
                 </div>
@@ -502,6 +596,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                       <th className="p-3 text-center whitespace-nowrap">계약상태</th>
                       <th className="p-3 text-center whitespace-nowrap">해지일</th>
                       <th className="p-3 text-center whitespace-nowrap">배송상태</th>
+                      <th className="p-3 text-center whitespace-nowrap">배송일자</th>
                       <th className="p-3 text-center whitespace-nowrap">상조가입신청서</th>
                       <th className="p-3 text-center whitespace-nowrap">상조출금</th>
                       <th className="p-3 text-center whitespace-nowrap">렌탈출금</th>
@@ -510,7 +605,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {filteredResults.length === 0 ? (
                       <tr>
-                        <td colSpan={16} className="p-16 text-center text-slate-400 font-bold">
+                        <td colSpan={17} className="p-16 text-center text-slate-400 font-bold">
                           선택하신 조건에 부합하는 상세 데이터가 없습니다.
                         </td>
                       </tr>
@@ -520,6 +615,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                         const phoneNum = item.phone || (item.raw && item.raw[5]) || '-';
                         const rentalNoVal = item.rentalNo || (item.raw && item.raw[10]) || '-';
                         const cancelDateVal = item.cancelDate || (item.raw && item.raw[25]) || '-';
+                        const deliveryDateVal = item.deliveryDate || (item.raw && item.raw[13]) || '-';
                         const mutualAidApp = item.paymentStatus || (item.raw && item.raw[19]) || '-';
                         const mutualAidWithdrawal = (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '-';
                         const rentalWithdrawal = item.deliveryMemo || (item.raw && item.raw[24]) ? String(item.raw[24]).trim() : '-';
@@ -555,6 +651,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                                 {item.deliveryStatus || '-'}
                               </span>
                             </td>
+                            <td className="p-3 text-center font-mono whitespace-nowrap text-slate-700 font-medium">{deliveryDateVal}</td>
                             <td className="p-3 text-center whitespace-nowrap">
                               <span className={`px-2 py-0.5 rounded-md text-[11px] font-black ${
                                 mutualAidApp === 'O' || mutualAidApp === 'o'
