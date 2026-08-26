@@ -438,6 +438,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     return hasValueEdit || hasStateEdit;
   }, [editedValues, editedStates, extractedOrders]);
 
+  // 요청일자 필터 1차 적용 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
+  const ordersFilteredByReqDate = useMemo(() => {
+    return extractedOrders.filter((order) => {
+      if (requestDateFilter === 'has_value') {
+        if (!order.requestDate || !order.requestDate.trim()) return false;
+      } else if (requestDateFilter === 'no_value') {
+        if (order.requestDate && order.requestDate.trim()) return false;
+      }
+      return true;
+    });
+  }, [extractedOrders, requestDateFilter]);
+
   // 검색 및 요청일(O열 탭), 상품명 다중선택, 상태 필터링
   const filteredOrders = useMemo(() => {
     return extractedOrders.filter((order) => {
@@ -881,10 +893,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setRequestDateFilter('has_value');
-                    setStateFilter('all');
-                  }}
+                  onClick={() => setRequestDateFilter('has_value')}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     requestDateFilter === 'has_value' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
@@ -893,10 +902,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setRequestDateFilter('no_value');
-                    setStateFilter('all');
-                  }}
+                  onClick={() => setRequestDateFilter('no_value')}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     requestDateFilter === 'no_value' ? 'bg-slate-700 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
@@ -978,43 +984,34 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === 'all' ? 'bg-white text-blue-700 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  전체 ({extractedOrders.length})
+                  전체 ({ordersFilteredByReqDate.length})
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setStateFilter('발주대기');
-                    setRequestDateFilter('all');
-                  }}
+                  onClick={() => setStateFilter('발주대기')}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     stateFilter === '발주대기' ? 'bg-amber-500 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  발주대기 ({extractedOrders.filter((o) => getRowDeliveryState(o) === '발주대기').length})
+                  발주대기 ({ordersFilteredByReqDate.filter((o) => getRowDeliveryState(o) === '발주대기').length})
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setStateFilter('배송중');
-                    setRequestDateFilter('all');
-                  }}
+                  onClick={() => setStateFilter('배송중')}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     stateFilter === '배송중' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  배송중 ({extractedOrders.filter((o) => getRowDeliveryState(o) === '배송중').length})
+                  배송중 ({ordersFilteredByReqDate.filter((o) => getRowDeliveryState(o) === '배송중').length})
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setStateFilter('배송완료');
-                    setRequestDateFilter('all');
-                  }}
+                  onClick={() => setStateFilter('배송완료')}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     stateFilter === '배송완료' ? 'bg-emerald-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  배송완료 ({extractedOrders.filter((o) => getRowDeliveryState(o) === '배송완료').length})
+                  배송완료 ({ordersFilteredByReqDate.filter((o) => getRowDeliveryState(o) === '배송완료').length})
                 </button>
               </div>
             </div>
