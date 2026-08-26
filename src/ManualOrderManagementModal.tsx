@@ -181,6 +181,34 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   // 발주서 엑셀 팝업 모달 상태
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
 
+  // 연락처 숫자 정제 (01000000000)
+  const formatPhoneNum = (val: any) => {
+    const str = String(val || '').trim();
+    const digits = str.replace(/[^0-9]/g, '');
+    return digits || str;
+  };
+
+  // 우편번호 5자리 정제 (00000)
+  const formatZipCodeNum = (val: any) => {
+    const str = String(val || '').trim();
+    const digits = str.replace(/[^0-9]/g, '');
+    if (!digits) return str;
+    return digits.padStart(5, '0');
+  };
+
+  // XLSX 셀 텍스트 서식(string type, z='@') 지정 헬퍼
+  const applyTextFormatToSheet = (ws: any) => {
+    if (!ws || typeof ws !== 'object') return;
+    Object.keys(ws).forEach((cellKey) => {
+      if (cellKey.startsWith('!')) return;
+      const cell = ws[cellKey];
+      if (cell && typeof cell === 'object') {
+        cell.t = 's'; // 문자열 타입 강제 설정 (앞자리 0 보존)
+        cell.z = '@';
+      }
+    });
+  };
+
   useEffect(() => {
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(targetProducts));
@@ -553,7 +581,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           trackingNo: newTracking,
           deliveryState: newDState,
         };
-
         // 구글 시트 업데이트 객체 생성 (rowIdx가 존재하는 수기발주 건)
         if (row.rowIdx) {
           sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 20, newValue: newDelDate });
@@ -621,6 +648,37 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       return;
     }
     setIsOrderModalOpen(true);
+  };
+
+  // 기존 발주서 엑셀 다운로드 (4개 필드: 받는분, 연락처, 받는분주소, 상품명)
+  const handleDownloadOrderExcel = () => {
+    if (!XLSX) {
+      alert('XLSX 라이브러리를 로드하지 못했습니다.');
+      return;
+    }
+
+    if (selectedOrdersList.length === 0) {
+      alert('발주서 엑셀을 생성할 항목을 최소 1개 이상 체크해 주세요.');
+      return;
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const headers = ['NO', '받는분', '연락처', '받는분주소', '상품명'];
+
+    const exportRows = selectedOrdersList.map((o, idx) => [
+      idx + 1,
+      o.memName,
+      formatPhoneNum(o.phone),
+      o.address,
+      o.rentalProdClean,
+    ]);
+
+    const wsData = [headers, ...exportRows];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    applyTextFormatToSheet(ws);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '발주서');
+    XLSX.writeFile(wb, `수기발주서_${todayStr}.xlsx`);
   };
 
   // 에넥스 업로드 엑셀 다운로드
@@ -695,6 +753,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       // 배송일(U열/delDate) 값이 있을 때만 설치유형(X열) 적용 (송장 있으면 "택배", 없으면 "배송설치")
       // 배송일 값이 없으면 공란("")
       const installType = (delDate && delDate.trim()) ? (tracking ? '택배' : '배송설치') : '';
+
+      // 핸드폰/연락처 (F열/index 5, J열/index 9) 및 우편번호 (K열/index 10) 텍스트 포맷팅 (앞자리 0 보존)
+      if (rowCopy[5] !== undefined) rowCopy[5] = formatPhoneNum(rowCopy[5]);
+      if (rowCopy[6] !== undefined) rowCopy[6] = formatPhoneNum(rowCopy[6]);
+      if (rowCopy[9] !== undefined) rowCopy[9] = formatPhoneNum(rowCopy[9]);
+      if (rowCopy[10] !== undefined) rowCopy[10] = formatZipCodeNum(rowCopy[10]);
 
       // U(20), V(21), W(22), X(23) 열 덮어쓰기
       rowCopy[20] = delDate;
@@ -1057,24 +1121,34 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             </div>
 
             <div className="flex items-center gap-2">
-              {/* 에넥스 업로드 파일 버튼 */}
+              {/* 발주하기 버튼 (기존 4개 필드 발주서 모달) */}
               <button
                 type="button"
                 onClick={handleOpenOrderModal}
-                className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer ${
                   selectedKeys.size > 0
                     ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-indigo-500/25 ring-2 ring-indigo-200'
                     : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                 }`}
               >
                 <FileSpreadsheet size={15} />
-                에넥스 업로드 파일 ({selectedKeys.size}건 선택)
+                발주하기 ({selectedKeys.size}건 선택)
+              </button>
+
+              {/* 에넥스 업로드 파일 버튼 */}
+              <button
+                type="button"
+                onClick={handleDownloadEnexExcel}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer ring-2 ring-emerald-200 shadow-emerald-500/25"
+              >
+                <Download size={15} />
+                에넥스 업로드 파일
               </button>
 
               <button
                 type="button"
                 onClick={handleExportMainExcel}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-xl border border-emerald-200 transition-all cursor-pointer shadow-2xs"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-all cursor-pointer shadow-2xs"
               >
                 <Download size={14} />
                 목록 엑셀
@@ -1389,20 +1463,20 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           </div>
         </motion.div>
 
-        {/* 에넥스 업로드 엑셀 미리보기 모달 */}
+        {/* 발주하기 엑셀 모달 */}
         {isOrderModalOpen && (
           <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-[1250px] max-h-[85vh] flex flex-col overflow-hidden"
+              className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-[1100px] max-h-[85vh] flex flex-col overflow-hidden"
             >
               {/* Modal Header */}
               <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <FileSpreadsheet className="w-6 h-6 text-blue-600" />
-                  <h3 className="text-lg font-bold text-slate-900">에넥스 업로드 파일 생성 및 미리보기</h3>
+                  <h3 className="text-lg font-bold text-slate-900">발주서 엑셀 생성 및 미리보기</h3>
                   <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">
                     선택된 {selectedOrdersList.length}건
                   </span>
@@ -1418,15 +1492,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               {/* Action Bar */}
               <div className="p-4 border-b border-slate-200 bg-white flex items-center justify-between">
                 <span className="text-xs text-slate-500 font-medium">
-                  * 수기발주 시트 양식 그대로 U열(배송일), V열(택배사), W열(송장번호), X열(설치유형: 송장번호 존재 시 [택배], 없으면 [배송설치]) 값으로 다운로드됩니다.
+                  * 선택된 {selectedOrdersList.length}건이 아래 4개 필드(받는분, 연락처, 받는분주소, 상품명) 양식으로 엑셀 다운로드됩니다.
                 </span>
 
                 <button
-                  onClick={handleDownloadEnexExcel}
+                  onClick={handleDownloadOrderExcel}
                   className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md cursor-pointer transition-all"
                 >
                   <Download size={16} />
-                  에넥스 업로드 파일 다운로드
+                  발주서 엑셀 다운로드
                 </button>
               </div>
 
@@ -1436,51 +1510,23 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-slate-100 text-slate-800 font-bold border-b border-slate-200">
                       <tr>
-                        <th className="py-3 px-3 border-r border-slate-200 w-10 text-center text-slate-400">NO</th>
-                        <th className="py-3 px-3 border-r border-slate-200 text-blue-900 font-bold w-28">계약번호</th>
-                        <th className="py-3 px-3 border-r border-slate-200 font-bold text-slate-900 w-24">회원명</th>
-                        <th className="py-3 px-3 border-r border-slate-200 font-mono w-28">연락처</th>
-                        <th className="py-3 px-3 border-r border-slate-200 min-w-[200px]">주소</th>
-                        <th className="py-3 px-3 border-r border-slate-200 min-w-[160px]">상품명</th>
-                        <th className="py-3 px-3 border-r border-slate-200 text-amber-800 bg-amber-50/50 w-28">U:배송일</th>
-                        <th className="py-3 px-3 border-r border-slate-200 text-amber-800 bg-amber-50/50 w-28">V:택배사</th>
-                        <th className="py-3 px-3 border-r border-slate-200 text-amber-800 bg-amber-50/50 w-32 font-mono">W:송장번호</th>
-                        <th className="py-3 px-3 text-center text-blue-900 bg-blue-50/50 font-bold w-24">X:설치유형</th>
+                        <th className="py-3 px-4 border-r border-slate-200 w-12 text-center text-slate-400">NO</th>
+                        <th className="py-3 px-4 border-r border-slate-200 text-blue-900 font-bold w-36">받는분</th>
+                        <th className="py-3 px-4 border-r border-slate-200 font-mono w-40">연락처</th>
+                        <th className="py-3 px-4 border-r border-slate-200 min-w-[280px]">받는분주소</th>
+                        <th className="py-3 px-4 font-bold text-slate-900 min-w-[200px]">상품명</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {selectedOrdersList.map((o, idx) => {
-                        const delDate = getFieldValue(o, 'deliveryDate');
-                        const rawCourier = getFieldValue(o, 'courier');
-                        const courier = normalizeCourierName(rawCourier);
-                        const tracking = getFieldValue(o, 'trackingNo').trim();
-                        const installType = (delDate && delDate.trim()) ? (tracking ? '택배' : '배송설치') : '';
-
-                        return (
-                          <tr key={o.uniqueKey} className="hover:bg-slate-50">
-                            <td className="py-2.5 px-3 border-r border-slate-200 text-center font-mono text-slate-400">{idx + 1}</td>
-                            <td className="py-2.5 px-3 border-r border-slate-200 font-bold font-mono text-slate-800">{o.contractNo}</td>
-                            <td className="py-2.5 px-3 border-r border-slate-200 font-bold text-slate-900">{o.memName}</td>
-                            <td className="py-2.5 px-3 border-r border-slate-200 font-mono text-slate-700">{o.phone}</td>
-                            <td className="py-2.5 px-3 border-r border-slate-200 text-slate-700">{o.address || '-'}</td>
-                            <td className="py-2.5 px-3 border-r border-slate-200 font-semibold text-slate-800">{o.rentalProdClean}</td>
-                            <td className="py-2.5 px-3 border-r border-slate-200 font-mono text-amber-900">{delDate || '-'}</td>
-                            <td className="py-2.5 px-3 border-r border-slate-200 text-amber-900">{courier || '-'}</td>
-                            <td className="py-2.5 px-3 border-r border-slate-200 font-mono text-amber-900">{tracking || '-'}</td>
-                            <td className="py-2.5 px-3 text-center font-bold">
-                              {installType ? (
-                                <span className={`px-2 py-0.5 rounded-md text-[11px] ${
-                                  installType === '택배' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
-                                }`}>
-                                  {installType}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 font-normal">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {selectedOrdersList.map((o, idx) => (
+                        <tr key={o.uniqueKey} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-4 border-r border-slate-200 text-center font-mono text-slate-400">{idx + 1}</td>
+                          <td className="py-2.5 px-4 border-r border-slate-200 font-bold text-slate-900">{o.memName}</td>
+                          <td className="py-2.5 px-4 border-r border-slate-200 font-mono text-slate-700">{formatPhoneNum(o.phone)}</td>
+                          <td className="py-2.5 px-4 border-r border-slate-200 text-slate-700">{o.address || '-'}</td>
+                          <td className="py-2.5 px-4 font-semibold text-blue-900">{o.rentalProdClean}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
