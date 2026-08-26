@@ -172,8 +172,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
   // 필터 상태
   const [searchTerm, setSearchTerm] = useState('');
-  const [requestDateFilter, setRequestDateFilter] = useState<string>('all'); // 수기발주 O열 요청일 필터
-  const [productFilter, setProductFilter] = useState<string>('all'); // 렌탈상품 필터
+  const [requestDateFilter, setRequestDateFilter] = useState<'all' | 'has_value' | 'no_value'>('all'); // 수기발주 O열 요청일 필터 (1클릭 탭)
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set()); // 렌탈상품 다중 선택
+  const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
   const [stateFilter, setStateFilter] = useState<'all' | DeliveryState>('all'); // 배송상태 필터
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -294,19 +295,26 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const courier = normalizeCourierName(rawCourier);
       const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : (sheetMatch?.trackingNo || '');
 
-      // 기본 배송상태 구별 (독자 저장소 > 수기발주 X열(23) > 상태 및 날짜 판별)
+      // 기본 배송상태 구별 및 자동 복구/보정 로직
+      const sheetSavedState = String(sheetMatch?.raw?.[23] || '').trim() as DeliveryState;
+      const isSheetValidState = ['발주대기', '배송중', '배송완료'].includes(sheetSavedState);
+      const hasDeliveryInfo = !!(delDate.trim() || tracking.trim() || courier.trim());
+      const isErpCompleted = !!(item.deliveryStatus && (item.deliveryStatus.includes('완료') || item.deliveryStatus.includes('배송완료')));
+
       let dState: DeliveryState = '발주대기';
-      if (savedData?.deliveryState) {
+
+      if (isErpCompleted || sheetSavedState === '배송완료') {
+        dState = '배송완료';
+      } else if (savedData?.deliveryState && savedData.deliveryState !== '발주대기') {
         dState = savedData.deliveryState;
-      } else {
-        const sheetSavedState = String(sheetMatch?.raw?.[23] || '').trim() as DeliveryState;
-        if (['발주대기', '배송중', '배송완료'].includes(sheetSavedState)) {
-          dState = sheetSavedState;
-        } else if (item.deliveryStatus && item.deliveryStatus.includes('완료')) {
-          dState = '배송완료';
-        } else if (delDate || tracking || courier) {
-          dState = '배송중';
-        }
+      } else if (isSheetValidState) {
+        dState = sheetSavedState;
+      } else if (hasDeliveryInfo) {
+        dState = '배송중';
+      }
+
+      if (dState === '발주대기' && hasDeliveryInfo) {
+        dState = '배송중';
       }
 
       list.push({
@@ -349,18 +357,41 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     return Array.from(prods).sort();
   }, [extractedOrders]);
 
-  // 배송상태 원클릭 토글 함수: 발주대기 -> 배송중 -> 배송완료 -> 발주대기
-  const handleCycleState = (contractNo: string, currentDefaultState: DeliveryState) => {
-    const cur = editedStates[contractNo] || currentDefaultState;
-    let next: DeliveryState = '발주대기';
-    if (cur === '발주대기') next = '배송중';
-    else if (cur === '배송중') next = '배송완료';
-    else if (cur === '배송완료') next = '발주대기';
-
+  // 배송상태 직접 선택 변경 핸들러
+  const handleStateChange = (contractNo: string, nextState: DeliveryState) => {
     setEditedStates((prev) => ({
       ...prev,
-      [contractNo]: next,
+      [contractNo]: nextState,
     }));
+  };
+
+  // 체크 선택된 항목들의 배송상태 일괄 변경 핸들러
+  const handleBulkStateChange = (targetState: DeliveryState) => {
+    if (selectedKeys.size === 0) {
+      alert('배송상태를 변경할 항목을 최소 1개 이상 체크해 주세요.');
+      return;
+    }
+
+    const targets = extractedOrders.filter((o) => selectedKeys.has(o.uniqueKey));
+    if (targets.length === 0) return;
+
+    setEditedStates((prev) => {
+      const next = { ...prev };
+      targets.forEach((t) => {
+        next[t.contractNo] = targetState;
+      });
+      return next;
+    });
+
+    // 일괄 변경된 항목들이 배송상태 탭 필터 때문에 목록에서 숨겨지지 않도록 배송상태 탭 필터를 '전체'로 자동 전환
+    if (stateFilter !== 'all' && stateFilter !== targetState) {
+      setStateFilter('all');
+    }
+
+    setNotification({
+      message: `선택된 ${targets.length}건의 배송상태가 [${targetState}] (으)로 변경되었습니다. 상단 [저장하기] 버튼을 눌러 확정하세요.`,
+      type: 'success',
+    });
   };
 
   const handleInputChange = (contractNo: string, field: 'deliveryDate' | 'courier' | 'trackingNo', value: string) => {
@@ -407,14 +438,25 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     return hasValueEdit || hasStateEdit;
   }, [editedValues, editedStates, extractedOrders]);
 
-  // 검색 및 요청일(O열), 상품명, 상태 필터링
+  // 검색 및 요청일(O열 탭), 상품명 다중선택, 상태 필터링
   const filteredOrders = useMemo(() => {
     return extractedOrders.filter((order) => {
       const currentState = getRowDeliveryState(order);
 
-      if (requestDateFilter !== 'all' && order.requestDate !== requestDateFilter) return false;
+      // 요청일자 1클릭 탭 필터
+      if (requestDateFilter === 'has_value') {
+        if (!order.requestDate || !order.requestDate.trim()) return false;
+      } else if (requestDateFilter === 'no_value') {
+        if (order.requestDate && order.requestDate.trim()) return false;
+      }
+
+      // 배송상태 탭 필터
       if (stateFilter !== 'all' && currentState !== stateFilter) return false;
-      if (productFilter !== 'all' && order.rentalProdClean !== productFilter) return false;
+
+      // 렌탈상품 다중 선택 필터
+      if (selectedProducts.size > 0 && !selectedProducts.has(order.rentalProdClean)) {
+        return false;
+      }
 
       if (!searchTerm.trim()) return true;
 
@@ -430,7 +472,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
       return matchContract || matchDate || matchReqDate || matchMemName || matchPhone || matchProd || matchCourier || matchTracking;
     });
-  }, [extractedOrders, editedValues, editedStates, requestDateFilter, stateFilter, productFilter, searchTerm]);
+  }, [extractedOrders, editedValues, editedStates, requestDateFilter, stateFilter, selectedProducts, searchTerm]);
 
   // 체크박스 핸들러
   const handleToggleSelect = (key: string) => {
@@ -569,27 +611,98 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     setIsOrderModalOpen(true);
   };
 
-  // 4개 필수 필드 발주서 엑셀 다운로드 (받는분, 연락처, 받는분주소, 상품명)
-  const handleDownloadOrderExcel = () => {
+  // 에넥스 업로드 엑셀 다운로드
+  // (수기발주 구글 시트 원본 rows를 그대로 사용 + 렌탈계약번호[B열/1] 기준으로 U배송일, V택배사, W송장번호, X설치유형 덮어써서 출력)
+  const handleDownloadEnexExcel = () => {
     if (!XLSX) {
       alert('XLSX 라이브러리를 로드하지 못했습니다.');
       return;
     }
 
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const headers = ['받는분', '연락처', '받는분주소', '상품명'];
-    const rows = selectedOrdersList.map((o) => [
-      o.memName,
-      o.phone,
-      o.address,
-      o.rentalProdClean,
-    ]);
+    if (!Array.isArray(sheetOrderRows) || sheetOrderRows.length <= 1) {
+      alert('수기발주 시트 데이터가 없거나 로드되지 않았습니다.');
+      return;
+    }
 
-    const wsData = [headers, ...rows];
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const headers = sheetOrderRows[0].map((h: any) => String(h || ''));
+
+    // 화면에서 체크 선택된 계약건들의 계약번호 목록
+    const selectedContractNos = new Set(
+      selectedOrdersList.map((o) => o.contractNo.toUpperCase())
+    );
+
+    const exportRows: any[][] = [];
+
+    // 수기발주 시트 데이터 행(1행부터 끝까지) 순회
+    sheetOrderRows.slice(1).forEach((row) => {
+      const contractNoInSheet = String(row[1] || '').trim(); // B열 렌탈계약번호
+      const cKey = contractNoInSheet.toUpperCase();
+
+      // 체크 선택된 항목이 있는 경우, 선택된 렌탈계약번호만 추출 (선택이 없으면 수기발주 시트 전체)
+      if (selectedContractNos.size > 0 && !selectedContractNos.has(cKey)) {
+        return;
+      }
+
+      // 수기발주 시트 원본 행 복사
+      const rowCopy = [...row];
+
+      // 화면/입력값(extractedOrders, editedValues)에서 렌탈계약번호 매칭
+      const matchedOrder = extractedOrders.find(
+        (o) => o.contractNo.toUpperCase() === cKey
+      );
+
+      let delDate = String(rowCopy[20] || '').trim();
+      let courier = normalizeCourierName(String(rowCopy[21] || '').trim());
+      let tracking = String(rowCopy[22] || '').trim();
+
+      if (matchedOrder) {
+        delDate = getFieldValue(matchedOrder, 'deliveryDate');
+        courier = normalizeCourierName(getFieldValue(matchedOrder, 'courier'));
+        tracking = getFieldValue(matchedOrder, 'trackingNo').trim();
+      } else {
+        const editedVal = editedValues[contractNoInSheet] || editedValues[cKey];
+        const savedVal = savedOrderStore[cKey] || savedOrderStore[contractNoInSheet];
+
+        if (editedVal?.deliveryDate !== undefined) delDate = editedVal.deliveryDate;
+        else if (savedVal?.deliveryDate !== undefined) delDate = savedVal.deliveryDate;
+
+        if (editedVal?.courier !== undefined) courier = normalizeCourierName(editedVal.courier);
+        else if (savedVal?.courier !== undefined) courier = normalizeCourierName(savedVal.courier);
+
+        if (editedVal?.trackingNo !== undefined) tracking = editedVal.trackingNo.trim();
+        else if (savedVal?.trackingNo !== undefined) tracking = (savedVal.trackingNo || '').trim();
+      }
+
+      // 수기발주 시트 O열(14) 요청일자 확인 (요청일자 있는 값만 적용)
+      const requestDateInSheet = matchedOrder ? matchedOrder.requestDate : String(rowCopy[14] || '').trim();
+      if (!requestDateInSheet || !requestDateInSheet.trim()) {
+        return; // 요청일자가 없으면 에넥스 업로드 엑셀 대상 제외
+      }
+
+      // 배송일(U열/delDate) 값이 있을 때만 설치유형(X열) 적용 (송장 있으면 "택배", 없으면 "배송설치")
+      // 배송일 값이 없으면 공란("")
+      const installType = (delDate && delDate.trim()) ? (tracking ? '택배' : '배송설치') : '';
+
+      // U(20), V(21), W(22), X(23) 열 덮어쓰기
+      rowCopy[20] = delDate;
+      rowCopy[21] = courier;
+      rowCopy[22] = tracking;
+      rowCopy[23] = installType;
+
+      exportRows.push(rowCopy);
+    });
+
+    if (exportRows.length === 0) {
+      alert('출력할 수기발주 시트 항목이 없습니다.');
+      return;
+    }
+
+    const wsData = [headers, ...exportRows];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '발주서');
-    XLSX.writeFile(wb, `발주서_${todayStr}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, '에넥스업로드');
+    XLSX.writeFile(wb, `에넥스_업로드_파일_${todayStr}.xlsx`);
   };
 
   const handleExportMainExcel = () => {
@@ -740,109 +853,231 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             )}
           </AnimatePresence>
 
-          {/* Filter Bar */}
-          <div className="p-4 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3 flex-1 min-w-[360px]">
+          {/* Filter Bar (Row 1: 필터 영역) */}
+          <div className="p-3.5 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5 flex-1">
               {/* 검색어 */}
-              <div className="relative flex-1 max-w-xs">
-                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <div className="relative min-w-[200px] max-w-xs">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   placeholder="계약번호, 회원명, 핸드폰, 상품명, 송장번호..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 transition-all"
+                  className="w-full pl-8.5 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 transition-all"
                 />
               </div>
 
-              {/* O열 요청일자 필터 */}
-              <div className="flex items-center gap-1 bg-slate-50 px-3 py-1.5 border border-slate-200 rounded-xl">
-                <Calendar size={14} className="text-blue-600" />
-                <span className="text-xs font-bold text-slate-700 whitespace-nowrap">요청일자:</span>
-                <select
-                  value={requestDateFilter}
-                  onChange={(e) => setRequestDateFilter(e.target.value)}
-                  className="bg-transparent text-xs font-bold text-blue-700 focus:outline-hidden cursor-pointer"
+              {/* O열 요청일자 1클릭 탭 필터 */}
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={() => setRequestDateFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    requestDateFilter === 'all' ? 'bg-white text-blue-700 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
                 >
-                  <option value="all">전체 요청일자</option>
-                  {availableRequestDateOptions.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
+                  전체 요청일
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRequestDateFilter('has_value');
+                    setStateFilter('all');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    requestDateFilter === 'has_value' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  요청일자 있음 ({extractedOrders.filter((o) => !!o.requestDate?.trim()).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRequestDateFilter('no_value');
+                    setStateFilter('all');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    requestDateFilter === 'no_value' ? 'bg-slate-700 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  요청일자 없음 ({extractedOrders.filter((o) => !o.requestDate?.trim()).length})
+                </button>
               </div>
 
-              {/* 렌탈상품 선택 필터 */}
-              <select
-                value={productFilter}
-                onChange={(e) => setProductFilter(e.target.value)}
-                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:border-blue-500"
-              >
-                <option value="all">전체 렌탈상품</option>
-                {availableProductOptions.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
+              {/* 렌탈상품 다중 선택 드롭다운 */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsProductDropdownOpen(!isProductDropdownOpen)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                    selectedProducts.size > 0
+                      ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-2xs font-bold'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <Package size={14} className={selectedProducts.size > 0 ? 'text-blue-600' : 'text-slate-500'} />
+                  {selectedProducts.size === 0
+                    ? '전체 렌탈상품'
+                    : selectedProducts.size === 1
+                    ? Array.from(selectedProducts)[0]
+                    : `렌탈상품 ${selectedProducts.size}개 선택됨`}
+                  <ChevronDown size={14} className="text-slate-400" />
+                </button>
+
+                {isProductDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-30 p-2.5 text-xs">
+                    <div className="flex items-center justify-between px-1 py-1 border-b border-slate-100 mb-1.5">
+                      <span className="font-bold text-slate-800">렌탈상품 선택 (중복가능)</span>
+                      {selectedProducts.size > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedProducts(new Set())}
+                          className="text-[11px] text-blue-600 hover:underline font-semibold cursor-pointer"
+                        >
+                          선택 해제
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar">
+                      {availableProductOptions.map((p) => {
+                        const isChecked = selectedProducts.has(p);
+                        return (
+                          <label
+                            key={p}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded-lg cursor-pointer text-slate-800 transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                setSelectedProducts((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(p)) next.delete(p);
+                                  else next.add(p);
+                                  return next;
+                                });
+                              }}
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="truncate font-medium">{p}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* 배송상태 탭 필터 */}
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold whitespace-nowrap">
                 <button
+                  type="button"
                   onClick={() => setStateFilter('all')}
-                  className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                    stateFilter === 'all' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    stateFilter === 'all' ? 'bg-white text-blue-700 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   전체 ({extractedOrders.length})
                 </button>
                 <button
-                  onClick={() => setStateFilter('발주대기')}
-                  className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                    stateFilter === '발주대기' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  type="button"
+                  onClick={() => {
+                    setStateFilter('발주대기');
+                    setRequestDateFilter('all');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    stateFilter === '발주대기' ? 'bg-amber-500 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   발주대기 ({extractedOrders.filter((o) => getRowDeliveryState(o) === '발주대기').length})
                 </button>
                 <button
-                  onClick={() => setStateFilter('배송중')}
-                  className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                    stateFilter === '배송중' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  type="button"
+                  onClick={() => {
+                    setStateFilter('배송중');
+                    setRequestDateFilter('all');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    stateFilter === '배송중' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   배송중 ({extractedOrders.filter((o) => getRowDeliveryState(o) === '배송중').length})
                 </button>
                 <button
-                  onClick={() => setStateFilter('배송완료')}
-                  className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                    stateFilter === '배송완료' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  type="button"
+                  onClick={() => {
+                    setStateFilter('배송완료');
+                    setRequestDateFilter('all');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    stateFilter === '배송완료' ? 'bg-emerald-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   배송완료 ({extractedOrders.filter((o) => getRowDeliveryState(o) === '배송완료').length})
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* Action Bar (Row 2: 일괄 작업 및 액션 버튼) */}
+          <div className="px-4 py-2 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              {/* 선택항목 배송상태 일괄 변경 */}
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs">
+                <span className="text-xs font-bold text-slate-700 whitespace-nowrap">
+                  선택항목({selectedKeys.size}건) 상태 일괄변경:
+                </span>
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      handleBulkStateChange(e.target.value as DeliveryState);
+                      e.target.value = '';
+                    }
+                  }}
+                  disabled={selectedKeys.size === 0}
+                  className={`text-xs font-bold rounded-lg px-2.5 py-1 transition-all cursor-pointer border focus:outline-hidden ${
+                    selectedKeys.size > 0
+                      ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-2xs'
+                      : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                  }`}
+                >
+                  <option value="" disabled>
+                    상태 선택...
+                  </option>
+                  <option value="발주대기" className="bg-white text-slate-800 font-medium">
+                    발주대기
+                  </option>
+                  <option value="배송중" className="bg-white text-slate-800 font-medium">
+                    배송중
+                  </option>
+                  <option value="배송완료" className="bg-white text-slate-800 font-medium">
+                    배송완료
+                  </option>
+                </select>
+              </div>
+            </div>
 
             <div className="flex items-center gap-2">
-              {/* 발주하기 버튼 */}
+              {/* 에넥스 업로드 파일 버튼 */}
               <button
                 type="button"
                 onClick={handleOpenOrderModal}
-                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer ${
                   selectedKeys.size > 0
                     ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-indigo-500/25 ring-2 ring-indigo-200'
                     : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                 }`}
               >
                 <FileSpreadsheet size={15} />
-                발주하기 ({selectedKeys.size}건 선택)
+                에넥스 업로드 파일 ({selectedKeys.size}건 선택)
               </button>
 
               <button
                 type="button"
                 onClick={handleExportMainExcel}
-                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-xl border border-emerald-200 transition-all cursor-pointer shadow-2xs"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-xl border border-emerald-200 transition-all cursor-pointer shadow-2xs"
               >
                 <Download size={14} />
                 목록 엑셀
@@ -856,7 +1091,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   handleSaveChanges();
                 }}
                 disabled={saving || !isChanged}
-                className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer ${
                   isChanged
                     ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/25 animate-pulse'
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
@@ -898,11 +1133,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               <div className="h-full flex flex-col items-center justify-center gap-2 text-slate-400">
                 <Package size={40} className="text-slate-300" />
                 <p className="text-sm font-semibold text-slate-600">추출된 수기발주 계약이 없습니다.</p>
-                {requestDateFilter !== 'all' && (
-                  <p className="text-xs text-blue-600 font-medium">
-                    선택된 요청일자({requestDateFilter})에 해당하는 건이 없습니다.
-                  </p>
-                )}
               </div>
             ) : (
               <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
@@ -926,7 +1156,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                         계약일자
                       </th>
                       <th className="py-3 px-3 w-28 border-r border-slate-200 text-blue-800 bg-blue-50/60 text-center">
-                        요청일자 (O열)
+                        요청일자
                       </th>
                       <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono">
                         계약번호
@@ -998,7 +1228,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                             {order.contractDate || '-'}
                           </td>
 
-                          {/* 요청일자 (O열) */}
+                          {/* 요청일자 */}
                           <td className="py-2.5 px-3 text-center text-blue-900 border-r border-slate-200 font-mono text-[11px] font-semibold bg-blue-50/20">
                             {order.requestDate || '-'}
                           </td>
@@ -1023,21 +1253,29 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                             {order.rentalProdClean}
                           </td>
 
-                          {/* 원클릭 배송상태 버튼 */}
+                          {/* 배송상태 선택 (드롭다운) */}
                           <td className="py-2.5 px-3 text-center border-r border-slate-200">
-                            <button
-                              onClick={() => handleCycleState(order.contractNo, order.deliveryState)}
-                              className={`px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer hover:scale-105 shadow-2xs border ${
+                            <select
+                              value={currentState}
+                              onChange={(e) => handleStateChange(order.contractNo, e.target.value as DeliveryState)}
+                              className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border focus:outline-hidden ${
                                 currentState === '배송완료'
                                   ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200'
                                   : currentState === '배송중'
                                   ? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
                                   : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
                               }`}
-                              title="클릭 시 [발주대기 -> 배송중 -> 배송완료] 상태가 순환 변경됩니다."
                             >
-                              {currentState}
-                            </button>
+                              <option value="발주대기" className="bg-white text-slate-800 font-medium">
+                                발주대기
+                              </option>
+                              <option value="배송중" className="bg-white text-slate-800 font-medium">
+                                배송중
+                              </option>
+                              <option value="배송완료" className="bg-white text-slate-800 font-medium">
+                                배송완료
+                              </option>
+                            </select>
                           </td>
 
                           {/* 배송일 / 설치일 */}
@@ -1154,20 +1392,20 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           </div>
         </motion.div>
 
-        {/* 발주하기 엑셀 모달 */}
+        {/* 에넥스 업로드 엑셀 미리보기 모달 */}
         {isOrderModalOpen && (
           <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-[1100px] max-h-[85vh] flex flex-col overflow-hidden"
+              className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-[1250px] max-h-[85vh] flex flex-col overflow-hidden"
             >
               {/* Modal Header */}
               <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <FileSpreadsheet className="w-6 h-6 text-blue-600" />
-                  <h3 className="text-lg font-bold text-slate-900">발주서 엑셀 생성 및 미리보기</h3>
+                  <h3 className="text-lg font-bold text-slate-900">에넥스 업로드 파일 생성 및 미리보기</h3>
                   <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">
                     선택된 {selectedOrdersList.length}건
                   </span>
@@ -1183,15 +1421,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               {/* Action Bar */}
               <div className="p-4 border-b border-slate-200 bg-white flex items-center justify-between">
                 <span className="text-xs text-slate-500 font-medium">
-                  * 선택된 {selectedOrdersList.length}건이 아래 4개 필드(받는분, 연락처, 받는분주소, 상품명) 양식으로 엑셀 다운로드됩니다.
+                  * 수기발주 시트 양식 그대로 U열(배송일), V열(택배사), W열(송장번호), X열(설치유형: 송장번호 존재 시 [택배], 없으면 [배송설치]) 값으로 다운로드됩니다.
                 </span>
 
                 <button
-                  onClick={handleDownloadOrderExcel}
+                  onClick={handleDownloadEnexExcel}
                   className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md cursor-pointer transition-all"
                 >
                   <Download size={16} />
-                  발주서 엑셀 다운로드
+                  에넥스 업로드 파일 다운로드
                 </button>
               </div>
 
@@ -1201,23 +1439,51 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-slate-100 text-slate-800 font-bold border-b border-slate-200">
                       <tr>
-                        <th className="py-3 px-4 border-r border-slate-200 w-12 text-center text-slate-400">NO</th>
-                        <th className="py-3 px-4 border-r border-slate-200 text-blue-900 font-bold w-36">받는분</th>
-                        <th className="py-3 px-4 border-r border-slate-200 font-mono w-40">연락처</th>
-                        <th className="py-3 px-4 border-r border-slate-200 min-w-[280px]">받는분주소</th>
-                        <th className="py-3 px-4 font-bold text-slate-900 min-w-[200px]">상품명</th>
+                        <th className="py-3 px-3 border-r border-slate-200 w-10 text-center text-slate-400">NO</th>
+                        <th className="py-3 px-3 border-r border-slate-200 text-blue-900 font-bold w-28">계약번호</th>
+                        <th className="py-3 px-3 border-r border-slate-200 font-bold text-slate-900 w-24">회원명</th>
+                        <th className="py-3 px-3 border-r border-slate-200 font-mono w-28">연락처</th>
+                        <th className="py-3 px-3 border-r border-slate-200 min-w-[200px]">주소</th>
+                        <th className="py-3 px-3 border-r border-slate-200 min-w-[160px]">상품명</th>
+                        <th className="py-3 px-3 border-r border-slate-200 text-amber-800 bg-amber-50/50 w-28">U:배송일</th>
+                        <th className="py-3 px-3 border-r border-slate-200 text-amber-800 bg-amber-50/50 w-28">V:택배사</th>
+                        <th className="py-3 px-3 border-r border-slate-200 text-amber-800 bg-amber-50/50 w-32 font-mono">W:송장번호</th>
+                        <th className="py-3 px-3 text-center text-blue-900 bg-blue-50/50 font-bold w-24">X:설치유형</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {selectedOrdersList.map((o, idx) => (
-                        <tr key={o.uniqueKey} className="hover:bg-slate-50">
-                          <td className="py-2.5 px-4 border-r border-slate-200 text-center font-mono text-slate-400">{idx + 1}</td>
-                          <td className="py-2.5 px-4 border-r border-slate-200 font-bold text-slate-900">{o.memName}</td>
-                          <td className="py-2.5 px-4 border-r border-slate-200 font-mono text-slate-700">{o.phone}</td>
-                          <td className="py-2.5 px-4 border-r border-slate-200 text-slate-700">{o.address || '-'}</td>
-                          <td className="py-2.5 px-4 font-semibold text-blue-900">{o.rentalProdClean}</td>
-                        </tr>
-                      ))}
+                      {selectedOrdersList.map((o, idx) => {
+                        const delDate = getFieldValue(o, 'deliveryDate');
+                        const rawCourier = getFieldValue(o, 'courier');
+                        const courier = normalizeCourierName(rawCourier);
+                        const tracking = getFieldValue(o, 'trackingNo').trim();
+                        const installType = (delDate && delDate.trim()) ? (tracking ? '택배' : '배송설치') : '';
+
+                        return (
+                          <tr key={o.uniqueKey} className="hover:bg-slate-50">
+                            <td className="py-2.5 px-3 border-r border-slate-200 text-center font-mono text-slate-400">{idx + 1}</td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 font-bold font-mono text-slate-800">{o.contractNo}</td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 font-bold text-slate-900">{o.memName}</td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 font-mono text-slate-700">{o.phone}</td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 text-slate-700">{o.address || '-'}</td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 font-semibold text-slate-800">{o.rentalProdClean}</td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 font-mono text-amber-900">{delDate || '-'}</td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 text-amber-900">{courier || '-'}</td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 font-mono text-amber-900">{tracking || '-'}</td>
+                            <td className="py-2.5 px-3 text-center font-bold">
+                              {installType ? (
+                                <span className={`px-2 py-0.5 rounded-md text-[11px] ${
+                                  installType === '택배' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
+                                }`}>
+                                  {installType}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 font-normal">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
