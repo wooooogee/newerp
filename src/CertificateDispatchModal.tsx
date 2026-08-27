@@ -130,7 +130,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       }
     });
 
-    return sheet1List
+    const items = sheet1List
       .map((raw, idx) => {
         const memNo = String(raw[1] || '').trim();
         const memNoKey = memNo.toUpperCase();
@@ -197,6 +197,26 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         };
       })
       .filter(item => item.extracted.status === '가입');
+
+    // 동일 회원통합 기준으로 하나라도 '우편'으로 설정되어 있으면 그룹 전체의 workAddress를 '우편'으로 설정
+    const groupPostMap = new Map<string, boolean>();
+    items.forEach(item => {
+      const ext = item.extracted;
+      const key = `${ext.memName}_${ext.phone}_${ext.prodName}`;
+      if (String(ext.workAddress || '').trim() === '우편') {
+        groupPostMap.set(key, true);
+      }
+    });
+
+    items.forEach(item => {
+      const ext = item.extracted;
+      const key = `${ext.memName}_${ext.phone}_${ext.prodName}`;
+      if (groupPostMap.get(key)) {
+        ext.workAddress = '우편';
+      }
+    });
+
+    return items;
   }, [sheet1List, empList, paymentList, data]);
 
   // 계약일자 월 목록 추출 (YYYY-MM)
