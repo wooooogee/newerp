@@ -238,20 +238,41 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const map = new Map<string, { rowIdx: number; requestDate: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; raw: any[] }>();
 
       if (rows.length >= 2) {
+        const headerRow = (rows[0] || []).map((h: any) => String(h || '').trim());
+        const findCol = (keywords: string[], defaultIdx: number) => {
+          const found = headerRow.findIndex((h: string) => keywords.some((kw) => h.includes(kw)));
+          return found !== -1 ? found : defaultIdx;
+        };
+
+        const contractNoCol = findCol(['계약번호', '렌탈계약번호', '회원번호'], 2);
+        const reqDateCol = findCol(['요청일자', '요청일', '발주일자', '요청'], 14);
+        const delDateCol = findCol(['배송일', '설치일', '배송일자'], 20);
+        const courierCol = findCol(['택배사', '배송업체'], 21);
+        const trackingCol = findCol(['송장번호', '운송장번호'], 22);
+        const addressCol = findCol(['주소', '배송지'], 11);
+        const zipCodeCol = findCol(['우편번호'], 10);
+
         rows.slice(1).forEach((row, idx) => {
           const rowIdx = idx + 2;
-          const contractNo = String(row[1] || '').trim();
+          const contractNo = String(row[contractNoCol] || row[2] || row[10] || row[1] || '').trim();
           if (!contractNo) return;
 
           const contractKey = contractNo.toUpperCase();
+          const reqDate = String(row[reqDateCol] !== undefined ? row[reqDateCol] : (row[14] || '')).trim();
+          const delDate = String(row[delDateCol] !== undefined ? row[delDateCol] : (row[20] || '')).trim();
+          const courier = String(row[courierCol] !== undefined ? row[courierCol] : (row[21] || '')).trim();
+          const tracking = String(row[trackingCol] !== undefined ? row[trackingCol] : (row[22] || '')).trim();
+          const address = String(row[addressCol] !== undefined ? row[addressCol] : (row[11] || '')).trim();
+          const zipCode = String(row[zipCodeCol] !== undefined ? row[zipCodeCol] : (row[10] || '')).trim();
+
           map.set(contractKey, {
             rowIdx,
-            requestDate: String(row[14] || '').trim(),
-            address: String(row[11] || '').trim(),
-            zipCode: String(row[10] || '').trim(),
-            deliveryDate: String(row[20] || '').trim(),
-            courier: String(row[21] || '').trim(),
-            trackingNo: String(row[22] || '').trim(),
+            requestDate: reqDate,
+            address,
+            zipCode,
+            deliveryDate: delDate,
+            courier,
+            trackingNo: tracking,
             raw: row,
           });
         });
@@ -297,6 +318,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const sheetMatch = sheetOrderMap.get(contractNo.toUpperCase());
       const savedData = savedOrderStore[contractNo.toUpperCase()] || savedOrderStore[contractNo];
 
+      let reqDate = sheetMatch?.requestDate || (item as any).requestDate || (item as any).reqDate || '';
+      if (!reqDate && item.raw && Array.isArray(item.raw)) {
+        reqDate = String(item.raw[14] || item.raw[15] || item.raw[13] || '').trim();
+      }
+
       const ordDate = savedData?.orderDate || '';
       const delDate = savedData?.deliveryDate !== undefined ? savedData.deliveryDate : (sheetMatch?.deliveryDate || item.deliveryDate || '');
       const rawCourier = savedData?.courier !== undefined ? savedData.courier : (sheetMatch?.courier || '');
@@ -311,7 +337,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         rowIdx: sheetMatch?.rowIdx,
         contractNo,
         contractDate: item.contractDate || '',
-        requestDate: sheetMatch?.requestDate || '',
+        requestDate: reqDate,
         memName: item.memName || '',
         phone: item.phone || '',
         rentalProdRaw: rawProdName,
