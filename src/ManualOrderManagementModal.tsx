@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // @ts-ignore
@@ -32,7 +32,7 @@ interface ManualOrderManagementModalProps {
   data: ERPDataItem[];
 }
 
-export type DeliveryState = '발주대기' | '배송중' | '배송완료';
+export type DeliveryState = '발주대기' | '발주완료' | '배송중' | '배송완료';
 
 interface OrderRow {
   uniqueKey: string;
@@ -49,6 +49,7 @@ interface OrderRow {
   zipCode: string; // 수기발주 K열 우편번호 (10)
 
   // 입력/저장 가능한 배송 정보
+  orderDate: string; // 발주일
   deliveryDate: string; // 배송일/설치일 (수기 U열 / 20)
   courier: string; // 택배사 (수기 V열 / 21)
   trackingNo: string; // 송장번호 (수기 W열 / 22)
@@ -119,7 +120,7 @@ const getTrackingUrl = (courier: string, trackingNo: string) => {
   } else if (cName.includes('로젠')) {
     return `https://www.ilogen.com/m/personal/trace/${cleanTracking}`;
   } else if (cName.includes('경동')) {
-    return `https://kdexp.com/service/delivery/delivery_result.do?barcode=${cleanTracking}`;
+    return `https://search.naver.com/search.naver?query=${encodeURIComponent('경동택배 ' + cleanTracking)}`;
   }
   return `https://search.naver.com/search.naver?query=${encodeURIComponent(courier + ' ' + trackingNo)}`;
 };
@@ -132,7 +133,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // 수기발주 대상 상품 목록
   const [targetProducts, setTargetProducts] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -148,12 +148,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
   const [newProductInput, setNewProductInput] = useState('');
   const [showProductConfig, setShowProductConfig] = useState(false);
-
-  // 수기발주 시트 원본 rows
   const [sheetOrderRows, setSheetOrderRows] = useState<any[]>([]);
 
-  // 원본 수기발주 시트 변동과 독립적인 독자 영구 저장소 { [contractNo]: { deliveryDate, courier, trackingNo, deliveryState } }
-  const [savedOrderStore, setSavedOrderStore] = useState<Record<string, { deliveryDate?: string; courier?: string; trackingNo?: string; deliveryState?: DeliveryState }>>(() => {
+  const [savedOrderStore, setSavedOrderStore] = useState<Record<string, { orderDate?: string; deliveryDate?: string; courier?: string; trackingNo?: string; deliveryState?: DeliveryState }>>(() => {
     try {
       const saved = localStorage.getItem('erp_manual_orders_saved_store_v1');
       if (saved) return JSON.parse(saved);
@@ -161,21 +158,14 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     return {};
   });
 
-  // 편집된 값 상태 { [contractNo]: { deliveryDate, courier, trackingNo } }
-  const [editedValues, setEditedValues] = useState<Record<string, { deliveryDate?: string; courier?: string; trackingNo?: string }>>({});
-
-  // 원클릭 변경된 배송상태 { [contractNo]: DeliveryState }
+  const [editedValues, setEditedValues] = useState<Record<string, { orderDate?: string; deliveryDate?: string; courier?: string; trackingNo?: string }>>({});
   const [editedStates, setEditedStates] = useState<Record<string, DeliveryState>>({});
-
-  // 다중 선택 상태 (체크된 uniqueKey Set)
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-
-  // 필터 상태
   const [searchTerm, setSearchTerm] = useState('');
-  const [requestDateFilter, setRequestDateFilter] = useState<'all' | 'has_value' | 'no_value'>('all'); // 수기발주 O열 요청일 필터 (1클릭 탭)
-  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set()); // 렌탈상품 다중 선택
+  const [requestDateFilter, setRequestDateFilter] = useState<'all' | 'has_value' | 'no_value'>('all');
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
-  const [stateFilter, setStateFilter] = useState<'all' | DeliveryState>('all'); // 배송상태 필터
+  const [stateFilter, setStateFilter] = useState<'all' | DeliveryState>('all');
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // 발주서 엑셀 팝업 모달 상태
@@ -209,13 +199,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     });
   };
 
-  useEffect(() => {
+  const handleCopyContractNo = (contractNo: string) => {
+    if (!contractNo) return;
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(targetProducts));
+      navigator.clipboard.writeText(contractNo);
+      setNotification({ message: `계약번호 [${contractNo}] 가 클립보드에 복사되었습니다!`, type: 'success' });
     } catch (e) {
-      console.error('Failed to save target products', e);
+      console.error('Copy error:', e);
     }
-  }, [targetProducts]);
+  };
 
   const handleAddProduct = () => {
     const trimmed = newProductInput.trim();
@@ -232,63 +224,59 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     setTargetProducts((prev) => prev.filter((p) => p !== prodToRemove));
   };
 
-  // 수기발주 시트 데이터 로드
-  const fetchOrderSheetData = async () => {
+  const [sheetOrderMap, setSheetOrderMap] = useState<Map<string, { rowIdx: number; requestDate: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; raw: any[] }>>(new Map());
+
+  const fetchOrderSheetData = useCallback(async () => {
     setLoading(true);
-    setNotification(null);
     try {
-      const timestamp = Date.now();
-      const res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('수기발주')}&t=${timestamp}`);
-      if (res.ok) {
-        const rows = await res.json();
-        setSheetOrderRows(rows || []);
-      } else {
-        setSheetOrderRows([]);
+      const res = await fetch('/api/sheets/rows?sheetName=' + encodeURIComponent('수기발주'));
+      if (!res.ok) throw new Error('수기발주 시트 로드 실패');
+      const dataJson = await res.json();
+      const rows: any[][] = dataJson.rows || [];
+      setSheetOrderRows(rows || []);
+
+      const map = new Map<string, { rowIdx: number; requestDate: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; raw: any[] }>();
+
+      if (rows.length >= 2) {
+        rows.slice(1).forEach((row, idx) => {
+          const rowIdx = idx + 2;
+          const contractNo = String(row[1] || '').trim();
+          if (!contractNo) return;
+
+          const contractKey = contractNo.toUpperCase();
+          map.set(contractKey, {
+            rowIdx,
+            requestDate: String(row[14] || '').trim(),
+            address: String(row[11] || '').trim(),
+            zipCode: String(row[10] || '').trim(),
+            deliveryDate: String(row[20] || '').trim(),
+            courier: String(row[21] || '').trim(),
+            trackingNo: String(row[22] || '').trim(),
+            raw: row,
+          });
+        });
       }
+      setSheetOrderMap(map);
     } catch (err: any) {
       console.warn('수기발주 시트 로드 실패:', err);
-      setSheetOrderRows([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (isOpen) {
-      fetchOrderSheetData();
-      setEditedValues({});
-      setEditedStates({});
-      setSelectedKeys(new Set());
-    }
-  }, [isOpen]);
+    if (isOpen) fetchOrderSheetData();
+  }, [isOpen, fetchOrderSheetData]);
 
-  // 수기발주 시트 B열 계약번호 Map (O열 요청일: index 14, L열 주소: index 11)
-  const sheetOrderMap = useMemo(() => {
-    const map = new Map<string, { rowIdx: number; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; requestDate: string; raw: any[] }>();
-    if (Array.isArray(sheetOrderRows) && sheetOrderRows.length > 1) {
-      sheetOrderRows.slice(1).forEach((row, idx) => {
-        const contractNo = String(row[1] || '').trim().toUpperCase(); // B열
-        if (contractNo) {
-          map.set(contractNo, {
-            rowIdx: idx + 2,
-            deliveryDate: String(row[20] || '').trim(), // U열 (20)
-            courier: normalizeCourierName(String(row[21] || '').trim()), // V열 (21)
-            trackingNo: String(row[22] || '').trim(), // W열 (22)
-            address: String(row[11] || '').trim(), // L열 주소 (11)
-            zipCode: String(row[10] || '').trim(), // K열 우편번호 (10)
-            requestDate: String(row[14] || '').trim(), // O열 요청일 (14)
-            raw: row,
-          });
-        }
-      });
-    }
-    return map;
-  }, [sheetOrderRows]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(targetProducts));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [targetProducts]);
 
-  // 추출된 계약건 목록
   const extractedOrders = useMemo(() => {
     if (!data || !Array.isArray(data)) return [];
-
     const list: OrderRow[] = [];
     const seenContracts = new Set<string>();
 
@@ -297,53 +285,26 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       if (!rawProdName) return;
 
       const cleanProdName = cleanProductName(rawProdName);
-
       const isTarget = targetProducts.some(
         (tp) => rawProdName.toLowerCase().includes(tp.toLowerCase()) || cleanProdName.toLowerCase().includes(tp.toLowerCase())
       );
-      if (!isTarget) return;
-
-      // 가입상태가 '가입'인 건만 추출 (취소, 해약 등 제외)
-      const itemStatus = String(item.status || '').trim();
-      if (itemStatus !== '가입') return;
+      if (!isTarget || String(item.status || '').trim() !== '가입') return;
 
       const contractNo = (item.rentalNo || item.memNo || '').trim();
-      if (!contractNo) return;
+      if (!contractNo || seenContracts.has(contractNo.toUpperCase())) return;
+      seenContracts.add(contractNo.toUpperCase());
 
-      const contractKey = contractNo.toUpperCase();
-      if (seenContracts.has(contractKey)) return;
-      seenContracts.add(contractKey);
+      const sheetMatch = sheetOrderMap.get(contractNo.toUpperCase());
+      const savedData = savedOrderStore[contractNo.toUpperCase()] || savedOrderStore[contractNo];
 
-      const sheetMatch = sheetOrderMap.get(contractKey);
-
-      const savedData = savedOrderStore[contractKey] || savedOrderStore[contractNo];
-
+      const ordDate = savedData?.orderDate || '';
       const delDate = savedData?.deliveryDate !== undefined ? savedData.deliveryDate : (sheetMatch?.deliveryDate || item.deliveryDate || '');
       const rawCourier = savedData?.courier !== undefined ? savedData.courier : (sheetMatch?.courier || '');
       const courier = normalizeCourierName(rawCourier);
       const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : (sheetMatch?.trackingNo || '');
 
-      // 기본 배송상태 구별 및 자동 복구/보정 로직
-      const sheetSavedState = String(sheetMatch?.raw?.[23] || '').trim() as DeliveryState;
-      const isSheetValidState = ['발주대기', '배송중', '배송완료'].includes(sheetSavedState);
-      const hasDeliveryInfo = !!(delDate.trim() || tracking.trim() || courier.trim());
-      const isErpCompleted = !!(item.deliveryStatus && (item.deliveryStatus.includes('완료') || item.deliveryStatus.includes('배송완료')));
-
-      let dState: DeliveryState = '발주대기';
-
-      if (isErpCompleted || sheetSavedState === '배송완료') {
-        dState = '배송완료';
-      } else if (savedData?.deliveryState && savedData.deliveryState !== '발주대기') {
-        dState = savedData.deliveryState;
-      } else if (isSheetValidState) {
-        dState = sheetSavedState;
-      } else if (hasDeliveryInfo) {
-        dState = '배송중';
-      }
-
-      if (dState === '발주대기' && hasDeliveryInfo) {
-        dState = '배송중';
-      }
+      let dState: DeliveryState = savedData?.deliveryState || (sheetMatch?.raw?.[23] as DeliveryState) || '발주대기';
+      if (dState === '발주대기' && (delDate.trim() || tracking.trim() || courier.trim())) dState = '배송중';
 
       list.push({
         uniqueKey: item.uniqueKey || `item-${contractNo}`,
@@ -358,6 +319,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         status: item.status || '가입',
         address: sheetMatch?.address || '',
         zipCode: sheetMatch?.zipCode || '',
+        orderDate: ordDate,
         deliveryDate: delDate,
         courier,
         trackingNo: tracking,
@@ -365,18 +327,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         rawOrderRow: sheetMatch?.raw,
       });
     });
-
     return list;
   }, [data, targetProducts, sheetOrderMap, savedOrderStore]);
-
-  // 수기발주 시트 O열 요청일 목록 옵션
-  const availableRequestDateOptions = useMemo(() => {
-    const dates = new Set<string>();
-    extractedOrders.forEach((o) => {
-      if (o.requestDate) dates.add(o.requestDate);
-    });
-    return Array.from(dates).sort().reverse();
-  }, [extractedOrders]);
 
   // 렌탈상품 목록 옵션
   const availableProductOptions = useMemo(() => {
@@ -385,15 +337,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     return Array.from(prods).sort();
   }, [extractedOrders]);
 
-  // 배송상태 직접 선택 변경 핸들러
   const handleStateChange = (contractNo: string, nextState: DeliveryState) => {
-    setEditedStates((prev) => ({
-      ...prev,
-      [contractNo]: nextState,
-    }));
+    const today = new Date().toISOString().slice(0, 10);
+    setEditedStates((prev) => ({ ...prev, [contractNo]: nextState }));
+    
+    const currentOrder = extractedOrders.find((o) => o.contractNo === contractNo);
+    const curOrdDate = editedValues[contractNo]?.orderDate ?? savedOrderStore[contractNo]?.orderDate ?? currentOrder?.orderDate ?? '';
+    const curDelDate = editedValues[contractNo]?.deliveryDate ?? savedOrderStore[contractNo]?.deliveryDate ?? currentOrder?.deliveryDate ?? '';
+
+    if (nextState === '발주완료' && !curOrdDate.trim()) handleInputChange(contractNo, 'orderDate', today);
+    if (nextState === '배송중' && !curDelDate.trim()) handleInputChange(contractNo, 'deliveryDate', today);
   };
 
-  // 체크 선택된 항목들의 배송상태 일괄 변경 핸들러
   const handleBulkStateChange = (targetState: DeliveryState) => {
     if (selectedKeys.size === 0) {
       alert('배송상태를 변경할 항목을 최소 1개 이상 체크해 주세요.');
@@ -402,6 +357,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
     const targets = extractedOrders.filter((o) => selectedKeys.has(o.uniqueKey));
     if (targets.length === 0) return;
+    const today = new Date().toISOString().slice(0, 10);
 
     setEditedStates((prev) => {
       const next = { ...prev };
@@ -411,7 +367,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       return next;
     });
 
-    // 일괄 변경된 항목들이 배송상태 탭 필터 때문에 목록에서 숨겨지지 않도록 배송상태 탭 필터를 '전체'로 자동 전환
+    // 일괄 발주완료 / 배송중 시 날짜 자동 채움
+    targets.forEach((t) => {
+      const curOrdDate = editedValues[t.contractNo]?.orderDate ?? savedOrderStore[t.contractNo]?.orderDate ?? t.orderDate ?? '';
+      const curDelDate = editedValues[t.contractNo]?.deliveryDate ?? savedOrderStore[t.contractNo]?.deliveryDate ?? t.deliveryDate ?? '';
+
+      if (targetState === '발주완료' && !curOrdDate.trim()) {
+        handleInputChange(t.contractNo, 'orderDate', today);
+      } else if (targetState === '배송중' && !curDelDate.trim()) {
+        handleInputChange(t.contractNo, 'deliveryDate', today);
+      }
+    });
+
     if (stateFilter !== 'all' && stateFilter !== targetState) {
       setStateFilter('all');
     }
@@ -422,7 +389,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     });
   };
 
-  const handleInputChange = (contractNo: string, field: 'deliveryDate' | 'courier' | 'trackingNo', value: string) => {
+  const handleInputChange = (contractNo: string, field: 'orderDate' | 'deliveryDate' | 'courier' | 'trackingNo', value: string) => {
     setEditedValues((prev) => ({
       ...prev,
       [contractNo]: {
@@ -432,7 +399,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     }));
   };
 
-  const getFieldValue = (row: OrderRow, field: 'deliveryDate' | 'courier' | 'trackingNo') => {
+  const getFieldValue = (row: OrderRow, field: 'orderDate' | 'deliveryDate' | 'courier' | 'trackingNo') => {
     if (editedValues[row.contractNo] && editedValues[row.contractNo][field] !== undefined) {
       return editedValues[row.contractNo][field]!;
     }
@@ -565,6 +532,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
         const existing = nextStore[cKey] || nextStore[cNo] || {};
 
+        let newOrdDate = editedVal?.orderDate !== undefined ? editedVal.orderDate : (existing.orderDate ?? row.orderDate ?? '');
         let newDelDate = editedVal?.deliveryDate !== undefined ? editedVal.deliveryDate : (existing.deliveryDate ?? row.deliveryDate ?? '');
         let newCourier = editedVal?.courier !== undefined ? normalizeCourierName(editedVal.courier.trim()) : (existing.courier ?? row.courier ?? '');
         let newTracking = editedVal?.trackingNo !== undefined ? editedVal.trackingNo.trim() : (existing.trackingNo ?? row.trackingNo ?? '');
@@ -576,6 +544,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         }
 
         nextStore[cKey] = {
+          orderDate: newOrdDate,
           deliveryDate: newDelDate,
           courier: newCourier,
           trackingNo: newTracking,
@@ -813,12 +782,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-3 md:p-6 overflow-hidden">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-2 md:p-4 overflow-hidden">
         <motion.div
           initial={{ opacity: 0, scale: 0.98, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.98, y: 10 }}
-          className="bg-white border border-slate-200 text-slate-800 w-full max-w-[1500px] h-[93vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+          className="bg-white border border-slate-200 text-slate-800 w-full max-w-[1850px] w-[98vw] h-[95vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/80 backdrop-blur-md">
@@ -1061,6 +1030,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </button>
                 <button
                   type="button"
+                  onClick={() => setStateFilter('발주완료')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    stateFilter === '발주완료' ? 'bg-purple-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  발주완료 ({ordersFilteredByReqDate.filter((o) => getRowDeliveryState(o) === '발주완료').length})
+                </button>
+                <button
+                  type="button"
                   onClick={() => setStateFilter('배송중')}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     stateFilter === '배송중' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
@@ -1109,6 +1087,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   </option>
                   <option value="발주대기" className="bg-white text-slate-800 font-medium">
                     발주대기
+                  </option>
+                  <option value="발주완료" className="bg-white text-slate-800 font-medium">
+                    발주완료
                   </option>
                   <option value="배송중" className="bg-white text-slate-800 font-medium">
                     배송중
@@ -1244,6 +1225,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       <th className="py-3 px-3 w-28 text-center border-r border-slate-200">
                         배송상태
                       </th>
+                      <th className="py-3 px-3 w-36 text-purple-900 bg-purple-50/60 border-r border-slate-200 text-center">
+                        발주일
+                      </th>
                       <th className="py-3 px-3 w-36 text-amber-800 bg-amber-50/60 border-r border-slate-200">
                         배송일 / 설치일
                       </th>
@@ -1260,6 +1244,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     {filteredOrders.map((order, idx) => {
                       const isSelected = selectedKeys.has(order.uniqueKey);
                       const isRowEdited = !!editedValues[order.contractNo] || !!editedStates[order.contractNo];
+                      const ordDate = getFieldValue(order, 'orderDate');
                       const delDate = getFieldValue(order, 'deliveryDate');
                       const rawCourier = getFieldValue(order, 'courier');
                       const courier = normalizeCourierName(rawCourier);
@@ -1304,9 +1289,17 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                             {order.requestDate || '-'}
                           </td>
 
-                          {/* 계약번호 */}
+                          {/* 계약번호 (원클릭 복사 기능) */}
                           <td className="py-2.5 px-3 font-semibold text-blue-950 border-r border-slate-200 font-mono text-xs">
-                            {order.contractNo}
+                            <button
+                              type="button"
+                              onClick={() => handleCopyContractNo(order.contractNo)}
+                              className="inline-flex items-center gap-1.5 hover:text-blue-600 hover:underline cursor-pointer group transition-colors"
+                              title="클릭하여 계약번호 복사"
+                            >
+                              <span>{order.contractNo}</span>
+                              <Copy size={13} className="text-slate-400 group-hover:text-blue-600 opacity-60 group-hover:opacity-100 transition-opacity" />
+                            </button>
                           </td>
 
                           {/* 회원명 */}
@@ -1334,11 +1327,16 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                                   ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200'
                                   : currentState === '배송중'
                                   ? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+                                  : currentState === '발주완료'
+                                  ? 'bg-purple-100 text-purple-900 border-purple-300 hover:bg-purple-200'
                                   : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
                               }`}
                             >
                               <option value="발주대기" className="bg-white text-slate-800 font-medium">
                                 발주대기
+                              </option>
+                              <option value="발주완료" className="bg-white text-slate-800 font-medium">
+                                발주완료
                               </option>
                               <option value="배송중" className="bg-white text-slate-800 font-medium">
                                 배송중
@@ -1347,6 +1345,21 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                                 배송완료
                               </option>
                             </select>
+                          </td>
+
+                          {/* 발주일 (신규 추가) */}
+                          <td className="py-2 px-3 border-r border-slate-200 bg-purple-50/10">
+                            <input
+                              type="date"
+                              value={ordDate}
+                              onChange={(e) => handleInputChange(order.contractNo, 'orderDate', e.target.value)}
+                              className={`w-full px-2 py-1 bg-white border rounded-lg text-xs font-mono transition-all ${
+                                editedValues[order.contractNo]?.orderDate !== undefined &&
+                                editedValues[order.contractNo]?.orderDate !== order.orderDate
+                                  ? 'border-purple-500 text-purple-700 ring-2 ring-purple-100 font-bold'
+                                  : 'border-slate-300 text-slate-800 focus:border-purple-500'
+                              }`}
+                            />
                           </td>
 
                           {/* 배송일 / 설치일 */}
@@ -1446,6 +1459,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </span>
               <span>
                 발주대기: <strong className="text-amber-600 font-mono font-bold">{extractedOrders.filter((o) => getRowDeliveryState(o) === '발주대기').length}</strong>건
+              </span>
+              <span>
+                발주완료: <strong className="text-purple-700 font-mono font-bold">{extractedOrders.filter((o) => getRowDeliveryState(o) === '발주완료').length}</strong>건
               </span>
               <span>
                 배송중: <strong className="text-blue-600 font-mono font-bold">{extractedOrders.filter((o) => getRowDeliveryState(o) === '배송중').length}</strong>건

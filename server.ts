@@ -531,13 +531,38 @@ app.post('/api/sheets/settings/save', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
 
-  const { settings, globalIncentives, maintenanceRules } = req.body as { settings: any[], globalIncentives?: any[], maintenanceRules?: any[] };
+  const { settings, globalIncentives, maintenanceRules, manualOrderProducts, manualOrderStores, reportSettings } = req.body as {
+    settings: any[];
+    globalIncentives?: any[];
+    maintenanceRules?: any[];
+    manualOrderProducts?: string[];
+    manualOrderStores?: Record<string, any>;
+    reportSettings?: Record<string, any>;
+  };
   let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
   if (sheetId && sheetId.includes('spreadsheets/d/')) {
     sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
   }
   
   if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  // 로컬 파일 캐시 백업 동기 저장
+  try {
+    const cachePath = path.join(process.cwd(), '.settings_cache.json');
+    let cacheData: any = {};
+    if (fs.existsSync(cachePath)) {
+      try { cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8')); } catch (e) {}
+    }
+    if (settings) cacheData.settings = settings;
+    if (globalIncentives) cacheData.globalIncentives = globalIncentives;
+    if (maintenanceRules) cacheData.maintenanceRules = maintenanceRules;
+    if (manualOrderProducts) cacheData.manualOrderProducts = manualOrderProducts;
+    if (manualOrderStores) cacheData.manualOrderStores = manualOrderStores;
+    if (reportSettings) cacheData.reportSettings = reportSettings;
+    fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8');
+  } catch (e) {
+    console.error("[CloudSync] Local cache write error:", e);
+  }
 
   console.log(`[CloudSync] Saving pretty settings to sheet: ${sheetId}`);
 
@@ -573,97 +598,98 @@ app.post('/api/sheets/settings/save', async (req, res) => {
 
     const rows: any[][] = [headers];
 
-    settings.forEach((hq: any) => {
-      const baseInfo = [
-        hq.id,
-        hq.hqName,
-        hq.settlementType || '사업자',  // 정산유형 추가
-        hq.isActive !== false ? 'Y' : 'N', // 운영여부 추가
-        hq.bankName,
-        hq.accountNumber,
-        hq.accountHolder,
-        hq.paymentMethod,
-        hq.enableOverriding ? 'Y' : 'N',
-        hq.overriding?.salesperson || 0,
-        hq.overriding?.teamLeader || 0,
-        hq.overriding?.branchManager || 0,
-        hq.overriding?.hqManager || 0
-      ];
+    if (settings && Array.isArray(settings)) {
+      settings.forEach((hq: any) => {
+        const baseInfo = [
+          hq.id,
+          hq.hqName,
+          hq.settlementType || '사업자',  // 정산유형 추가
+          hq.isActive !== false ? 'Y' : 'N', // 운영여부 추가
+          hq.bankName,
+          hq.accountNumber,
+          hq.accountHolder,
+          hq.paymentMethod,
+          hq.enableOverriding ? 'Y' : 'N',
+          hq.overriding?.salesperson || 0,
+          hq.overriding?.teamLeader || 0,
+          hq.overriding?.branchManager || 0,
+          hq.overriding?.hqManager || 0
+        ];
 
-      if (hq.productRules && hq.productRules.length > 0) {
-        hq.productRules.forEach((p: any) => {
-          const total = p.totalAmount || 0;
-          const sales = p.salesAmount || 0;
+        if (hq.productRules && hq.productRules.length > 0) {
+          hq.productRules.forEach((p: any) => {
+            const total = p.totalAmount || 0;
+            const sales = p.salesAmount || 0;
+            rows.push([
+              ...baseInfo,
+              p.productName,
+              total,
+              sales,
+              total - sales, // 판매촉진비
+              p.applyOverriding !== false ? 'Y' : 'N',
+              p.tier1Count || 0,
+              p.tier1Price || 0,
+              p.tier2Count || 0,
+              p.tier2Price || 0,
+              p.tier3Count || 0,
+              p.tier3Price || 0,
+              p.overriding?.salesperson ?? hq.overriding?.salesperson ?? 0,
+              p.overriding?.teamLeader ?? hq.overriding?.teamLeader ?? 0,
+              p.overriding?.branchManager ?? hq.overriding?.branchManager ?? 0,
+              p.overriding?.hqManager ?? hq.overriding?.hqManager ?? 0,
+              (p.applyMaintenance === true || p.applyMaintenance === 'Y' || p.applyMaintenance === 'true' || (p.applyMaintenance !== false && p.applyMaintenance !== 'N' && p.applyMaintenance !== 'false' && ((p.productName || '').includes('유지') || (p.maintenanceRules && p.maintenanceRules.length > 0)))) ? 'Y' : 'N',
+              JSON.stringify(p.maintenanceRules || [])
+            ]);
+          });
+        } else {
+          // HQ with no products
           rows.push([
             ...baseInfo,
-            p.productName,
-            total,
-            sales,
-            total - sales, // 판매촉진비
-            p.applyOverriding !== false ? 'Y' : 'N',
-            p.tier1Count || 0,
-            p.tier1Price || 0,
-            p.tier2Count || 0,
-            p.tier2Price || 0,
-            p.tier3Count || 0,
-            p.tier3Price || 0,
-            p.overriding?.salesperson ?? hq.overriding?.salesperson ?? 0,
-            p.overriding?.teamLeader ?? hq.overriding?.teamLeader ?? 0,
-            p.overriding?.branchManager ?? hq.overriding?.branchManager ?? 0,
-            p.overriding?.hqManager ?? hq.overriding?.hqManager ?? 0,
-            (p.applyMaintenance === true || p.applyMaintenance === 'Y' || p.applyMaintenance === 'true' || (p.applyMaintenance !== false && p.applyMaintenance !== 'N' && p.applyMaintenance !== 'false' && ((p.productName || '').includes('유지') || (p.maintenanceRules && p.maintenanceRules.length > 0)))) ? 'Y' : 'N',
-            JSON.stringify(p.maintenanceRules || [])
+            '-', 0, 0, 0, 'Y', 0, 0, 0, 0, 0, 0,
+            hq.overriding?.salesperson ?? 0, hq.overriding?.teamLeader ?? 0, hq.overriding?.branchManager ?? 0, hq.overriding?.hqManager ?? 0,
+            'N', '[]'
           ]);
-        });
-      } else {
-        // HQ with no products
-        rows.push([
-          ...baseInfo,
-          '-', 0, 0, 0, 'Y', 0, 0, 0, 0, 0, 0,
-          hq.overriding?.salesperson ?? 0, hq.overriding?.teamLeader ?? 0, hq.overriding?.branchManager ?? 0, hq.overriding?.hqManager ?? 0,
-          'N', '[]'
-        ]);
-      }
-    });
-
-    // Clear and update the sheet
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId: sheetId,
-      range: '시스템설정',
-    });
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: sheetId,
-      range: '시스템설정!A1',
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: rows }
-    });
-
-    // Apply formatting to headers
-    if (sheetInternalId != null) {
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: sheetId,
-        requestBody: {
-          requests: [
-            {
-              repeatCell: {
-                range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
-                cell: {
-                  userEnteredFormat: {
-                    backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
-                    textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                    horizontalAlignment: 'CENTER'
-                  }
-                },
-                fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
-              }
-            }
-          ]
         }
       });
-    }
 
-    console.log("[CloudSync] Beautiful settings saved successfully.");
+      // Clear and update the sheet
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: sheetId,
+        range: '시스템설정',
+      });
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: '시스템설정!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: rows }
+      });
+
+      // Apply formatting to headers
+      if (sheetInternalId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+      console.log("[CloudSync] Beautiful settings saved successfully.");
+    }
 
     // -- Handle globalIncentives --
     if (globalIncentives && Array.isArray(globalIncentives)) {
@@ -811,6 +837,50 @@ app.post('/api/sheets/settings/save', async (req, res) => {
         });
       }
       console.log("[CloudSync] Maintenance rules saved successfully.");
+    }
+
+    // -- Handle manualOrderProducts & manualOrderStores & reportSettings --
+    if (manualOrderProducts || manualOrderStores || reportSettings) {
+      let extraSheet = sheetsList.find(s => s.properties?.title === '수기발주및기타설정');
+      let extraSheetId: number | null | undefined = extraSheet?.properties?.sheetId;
+      
+      if (!extraSheet) {
+        console.log("[CloudSync] Creating '수기발주및기타설정' sheet...");
+        const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: '수기발주및기타설정' } } }]
+          }
+        });
+        extraSheetId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+      }
+
+      const extraHeaders = ['Key', 'ValueJSON', '최종수정일'];
+      const extraRows: any[][] = [extraHeaders];
+      const nowStr = new Date().toISOString();
+
+      if (manualOrderProducts) {
+        extraRows.push(['MANUAL_ORDER_PRODUCTS', JSON.stringify(manualOrderProducts), nowStr]);
+      }
+      if (manualOrderStores) {
+        extraRows.push(['MANUAL_ORDER_STORES', JSON.stringify(manualOrderStores), nowStr]);
+      }
+      if (reportSettings) {
+        extraRows.push(['REPORT_SETTINGS', JSON.stringify(reportSettings), nowStr]);
+      }
+
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: sheetId,
+        range: '수기발주및기타설정',
+      });
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: '수기발주및기타설정!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: extraRows }
+      });
+      console.log("[CloudSync] Extra settings (manual orders & report) saved successfully.");
     }
 
     res.json({ success: true });
@@ -1191,10 +1261,73 @@ app.get('/api/sheets/settings/load', async (req, res) => {
       console.log("[CloudSync] '유지수수료설정' sheet might not exist yet.");
     }
 
-    res.json({ settings: Array.from(hqMap.values()), globalIncentives, maintenanceRules });
+    // -- Load extra settings (manualOrderProducts, manualOrderStores, reportSettings) --
+    let manualOrderProducts: string[] | null = null;
+    let manualOrderStores: Record<string, any> | null = null;
+    let reportSettings: Record<string, any> | null = null;
+
+    try {
+      const extraResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: '수기발주및기타설정',
+      });
+      const extraRows = extraResponse.data.values;
+      if (extraRows && extraRows.length >= 2) {
+        extraRows.slice(1).forEach((row: string[]) => {
+          const key = row[0];
+          const valStr = row[1];
+          if (!key || !valStr) return;
+          try {
+            if (key === 'MANUAL_ORDER_PRODUCTS') manualOrderProducts = JSON.parse(valStr);
+            if (key === 'MANUAL_ORDER_STORES') manualOrderStores = JSON.parse(valStr);
+            if (key === 'REPORT_SETTINGS') reportSettings = JSON.parse(valStr);
+          } catch (e) {
+            console.error(`[CloudSync] Parse ${key} error:`, e);
+          }
+        });
+        console.log(`[CloudSync] Loaded extra settings (manual orders & report) from cloud.`);
+      }
+    } catch (e: any) {
+      console.log("[CloudSync] '수기발주및기타설정' sheet might not exist yet.");
+    }
+
+    // 로컬 파일 캐시 백업 병합 (구글시트에 데이터가 없는 항목이 있으면 백업에서 채움)
+    try {
+      const cachePath = path.join(process.cwd(), '.settings_cache.json');
+      if (fs.existsSync(cachePath)) {
+        const cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+        if (!manualOrderProducts && cacheData.manualOrderProducts) manualOrderProducts = cacheData.manualOrderProducts;
+        if (!manualOrderStores && cacheData.manualOrderStores) manualOrderStores = cacheData.manualOrderStores;
+        if (!reportSettings && cacheData.reportSettings) reportSettings = cacheData.reportSettings;
+      }
+    } catch (e) {}
+
+    res.json({
+      settings: Array.from(hqMap.values()),
+      globalIncentives,
+      maintenanceRules,
+      manualOrderProducts,
+      manualOrderStores,
+      reportSettings
+    });
   } catch (error: any) {
     if (error.response?.status === 400 || error.message?.toLowerCase().includes('not found')) {
-      return res.json({ settings: null, globalIncentives: [], maintenanceRules: [] });
+      // 구글시트 조회가 안 될 경우 로컬 디스크 캐시 복구 시도
+      try {
+        const cachePath = path.join(process.cwd(), '.settings_cache.json');
+        if (fs.existsSync(cachePath)) {
+          const cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+          return res.json({
+            settings: cacheData.settings || null,
+            globalIncentives: cacheData.globalIncentives || [],
+            maintenanceRules: cacheData.maintenanceRules || [],
+            manualOrderProducts: cacheData.manualOrderProducts || null,
+            manualOrderStores: cacheData.manualOrderStores || null,
+            reportSettings: cacheData.reportSettings || null
+          });
+        }
+      } catch (e) {}
+      return res.json({ settings: null, globalIncentives: [], maintenanceRules: [], manualOrderProducts: null, manualOrderStores: null, reportSettings: null });
     }
     console.error("[CloudSync] Load error:", error.message);
     return handleGoogleError(error, res);

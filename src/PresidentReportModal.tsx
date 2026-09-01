@@ -95,24 +95,44 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
     return new Set();
   });
 
+  // 클라우드 설정 이벤트 수신
+  useEffect(() => {
+    const handleCloudSettingsLoaded = (e: any) => {
+      const reportSettings = e.detail?.reportSettings;
+      if (reportSettings && typeof reportSettings === 'object') {
+        if (reportSettings.extraMetrics && Array.isArray(reportSettings.extraMetrics)) setExtraMetrics(reportSettings.extraMetrics);
+        if (reportSettings.hideZeroHqs !== undefined) setHideZeroHqs(reportSettings.hideZeroHqs);
+        if (reportSettings.additionalMemo !== undefined) setAdditionalMemo(reportSettings.additionalMemo);
+        if (reportSettings.hiddenHqs && Array.isArray(reportSettings.hiddenHqs)) setHiddenHqs(new Set(reportSettings.hiddenHqs));
+      }
+    };
+    window.addEventListener('cloudSettingsLoaded', handleCloudSettingsLoaded);
+    return () => window.removeEventListener('cloudSettingsLoaded', handleCloudSettingsLoaded);
+  }, []);
+
   // ----------------------------------------------------
-  // 상태 변경 시 LocalStorage에 영구 저장하는 Side Effects
+  // 상태 변경 시 LocalStorage 영구 저장 및 클라우드 실시간 자동 동기화
   // ----------------------------------------------------
+  const isFirstReportRender = React.useRef(true);
+
   useEffect(() => {
     localStorage.setItem('report_extra_metrics', JSON.stringify(extraMetrics));
-  }, [extraMetrics]);
-
-  useEffect(() => {
     localStorage.setItem('report_hide_zero_hqs', String(hideZeroHqs));
-  }, [hideZeroHqs]);
-
-  useEffect(() => {
     localStorage.setItem('report_additional_memo', additionalMemo);
-  }, [additionalMemo]);
-
-  useEffect(() => {
     localStorage.setItem('report_hidden_hqs', JSON.stringify(Array.from(hiddenHqs)));
-  }, [hiddenHqs]);
+
+    if (isFirstReportRender.current) {
+      isFirstReportRender.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if ((window as any).triggerCloudSettingsSave) {
+        (window as any).triggerCloudSettingsSave(true);
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [extraMetrics, hideZeroHqs, additionalMemo, hiddenHqs]);
 
   // 날짜 비교용 파싱 함수
   const parseDate = (dateStr: string): Date | null => {

@@ -953,24 +953,58 @@ const ERP_Dashboard = () => {
     }
   }, [isSettingsModalOpen, activeHqId, hqSettings]);
 
-  const saveSettingsToCloud = async () => {
+  const saveSettingsToCloud = async (silent: boolean = false) => {
     if (!isAuthenticated) return;
-    setSaveSettingsStatus('saving');
+    if (!silent) setSaveSettingsStatus('saving');
     try {
+      // 로컬 스토리지에 보관된 수기발주 및 보고서 설정 추가 수집
+      let manualOrderProducts: string[] | undefined;
+      let manualOrderStores: Record<string, any> | undefined;
+      let reportSettings: Record<string, any> | undefined;
+
+      try {
+        const savedProd = localStorage.getItem('erp_manual_order_target_products_v1');
+        if (savedProd) manualOrderProducts = JSON.parse(savedProd);
+        const savedStores = localStorage.getItem('erp_manual_orders_saved_store_v1');
+        if (savedStores) manualOrderStores = JSON.parse(savedStores);
+        
+        const extraMetrics = localStorage.getItem('report_extra_metrics');
+        const hideZeroHqs = localStorage.getItem('report_hide_zero_hqs');
+        const additionalMemo = localStorage.getItem('report_additional_memo');
+        const hiddenHqs = localStorage.getItem('report_hidden_hqs');
+        reportSettings = {
+          extraMetrics: extraMetrics ? JSON.parse(extraMetrics) : undefined,
+          hideZeroHqs: hideZeroHqs ? hideZeroHqs === 'true' : undefined,
+          additionalMemo: additionalMemo || undefined,
+          hiddenHqs: hiddenHqs ? JSON.parse(hiddenHqs) : undefined
+        };
+      } catch (e) {}
+
       const res = await fetch('/api/sheets/settings/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: hqSettings, globalIncentives: globalIncentiveRules, maintenanceRules })
+        body: JSON.stringify({
+          settings: hqSettings,
+          globalIncentives: globalIncentiveRules,
+          maintenanceRules,
+          manualOrderProducts,
+          manualOrderStores,
+          reportSettings
+        })
       });
       if (!res.ok) throw new Error('Cloud save failed');
-      setSaveSettingsStatus('success');
-      setNotification({ message: '본부 및 전체 설정이 구글 시트에 저장되었습니다.', type: 'success' });
-      setTimeout(() => setSaveSettingsStatus('idle'), 3000);
+      if (!silent) {
+        setSaveSettingsStatus('success');
+        setNotification({ message: '모든 설정이 구글 시트에 자동 저장되었습니다.', type: 'success' });
+        setTimeout(() => setSaveSettingsStatus('idle'), 3000);
+      }
     } catch (err) {
       console.error(err);
-      setSaveSettingsStatus('error');
-      alert('설정 저장 중 오류가 발생했습니다.');
-      setTimeout(() => setSaveSettingsStatus('idle'), 3000);
+      if (!silent) {
+        setSaveSettingsStatus('error');
+        alert('설정 저장 중 오류가 발생했습니다.');
+        setTimeout(() => setSaveSettingsStatus('idle'), 3000);
+      }
     }
   };
 
@@ -1000,7 +1034,24 @@ const ERP_Dashboard = () => {
         if (data.maintenanceRules && Array.isArray(data.maintenanceRules)) {
           setMaintenanceRules(data.maintenanceRules);
         }
-        setNotification({ message: '구글 시트에서 설정을 불러왔습니다.', type: 'success' });
+
+        // 수기발주 및 기타 설정 로컬스토리지 동기화 및 전파
+        if (data.manualOrderProducts && Array.isArray(data.manualOrderProducts)) {
+          localStorage.setItem('erp_manual_order_target_products_v1', JSON.stringify(data.manualOrderProducts));
+        }
+        if (data.manualOrderStores && typeof data.manualOrderStores === 'object') {
+          localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(data.manualOrderStores));
+        }
+        if (data.reportSettings && typeof data.reportSettings === 'object') {
+          if (data.reportSettings.extraMetrics) localStorage.setItem('report_extra_metrics', JSON.stringify(data.reportSettings.extraMetrics));
+          if (data.reportSettings.hideZeroHqs !== undefined) localStorage.setItem('report_hide_zero_hqs', String(data.reportSettings.hideZeroHqs));
+          if (data.reportSettings.additionalMemo !== undefined) localStorage.setItem('report_additional_memo', data.reportSettings.additionalMemo);
+          if (data.reportSettings.hiddenHqs) localStorage.setItem('report_hidden_hqs', JSON.stringify(data.reportSettings.hiddenHqs));
+        }
+
+        // 컴포넌트에 클라우드 설정 로드 완료 알림
+        window.dispatchEvent(new CustomEvent('cloudSettingsLoaded', { detail: data }));
+        setNotification({ message: '구글 시트에서 최신 설정을 불러왔습니다.', type: 'success' });
       }
     } catch (err) {
       console.error(err);
@@ -1012,6 +1063,27 @@ const ERP_Dashboard = () => {
       loadSettingsFromCloud();
     }
   }, [isAuthenticated]);
+
+  // 전역 클라우드 저장 함수 노출
+  useEffect(() => {
+    (window as any).triggerCloudSettingsSave = (silent = true) => {
+      saveSettingsToCloud(silent);
+    };
+  }, [hqSettings, globalIncentiveRules, maintenanceRules, isAuthenticated]);
+
+  // 본부 설정 및 수수료 변경 시 디바운스 자동 동기화 (1.5초 후 실행)
+  const isFirstRender = React.useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (!isAuthenticated) return;
+    const timer = setTimeout(() => {
+      saveSettingsToCloud(true);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [hqSettings, globalIncentiveRules, maintenanceRules]);
 
   // 구글 시트 + 로컬 설정을 완전 초기화하고 MASTER_HQ_DATA로 재설정
   const resetSettingsToDefault = async () => {
