@@ -624,6 +624,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
       setEditedValues({});
       setEditedStates({});
+      setSelectedKeys(new Set());
     } catch (err: any) {
       console.error('저장 중 오류:', err);
       setNotification({ message: err.message || '저장 중 오류가 발생했습니다.', type: 'error' });
