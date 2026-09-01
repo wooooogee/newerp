@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Download, Calendar } from 'lucide-react';
+import { X, Download, Calendar, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface ERPDataItem {
@@ -18,6 +18,7 @@ interface HealthcareModalProps {
   initialFilter?: { type: 'date' | 'month', value: string } | null;
   onRowClick?: (item: ERPDataItem) => void;
   onOpenCalendar?: () => void;
+  onOpenReconModal?: () => void;
 }
 
 const mapProductCode = (rawProdName: string) => {
@@ -71,7 +72,7 @@ const parseResidentNumber = (qColumn: string) => {
   return { birthdate: qColumn, gender: '' };
 };
 
-export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClose, data, initialFilter, onRowClick, onOpenCalendar }) => {
+export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClose, data, initialFilter, onRowClick, onOpenCalendar, onOpenReconModal }) => {
   const [filterMonth, setFilterMonth] = useState<string>(''); // YYYY-MM
   const [filterDate, setFilterDate] = useState<string>(''); // YYYY-MM-DD
 
@@ -195,12 +196,22 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
               </h2>
               <p className="text-sm text-slate-500 mt-1">S열 헬스케어등록일 기준으로 조회 및 엑셀 다운로드가 가능합니다.</p>
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-600 rounded-lg transition-colors"
-            >
-              <X size={20} />
-            </button>
+            <div className="flex items-center gap-3">
+              {onOpenReconModal && (
+                <button
+                  onClick={onOpenReconModal}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw size={14} /> 헬스케어 명단 대사작업
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-600 rounded-lg transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
           </div>
 
           <div className="p-4 border-b border-slate-100 flex items-center gap-4 bg-white">

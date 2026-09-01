@@ -1841,6 +1841,127 @@ app.post('/api/sheets/manual-settlement/save', async (req, res) => {
     console.error("[Manual Settlement Save Error]", error);
     return handleGoogleError(error, res);
   }
+});
+
+// KB헬스케어대상자 시트 데이터 로드 API
+app.get('/api/sheets/kb-healthcare-data', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    
+    // 스프레드시트 전체 시트(탭) 목록 가져오기
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    const allSheetTitles = sheetsList.map(s => s.properties?.title || '').filter(Boolean);
+
+    console.log("[Google Sheets All Titles]", allSheetTitles);
+
+    const reqTabName = req.query.tabName ? String(req.query.tabName) : '';
+
+    let targetSheetTitle = reqTabName;
+    if (!targetSheetTitle) {
+      const foundSheet = sheetsList.find(s => {
+        const title = (s.properties?.title || '').replace(/\s+/g, '');
+        return title.includes('KB헬스케어') || title.includes('KB') || title.includes('헬스케어');
+      });
+      targetSheetTitle = foundSheet?.properties?.title || 'KB헬스케어대상자';
+    }
+
+    console.log("[Target Sheet Title Selected]", targetSheetTitle);
+
+    let rows: any[][] = [];
+    try {
+      const range = `${targetSheetTitle}!A:ZZ`;
+      console.log(`[KB Healthcare Fetching Range]: ${range}`);
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range,
+      });
+      rows = response.data.values || [];
+    } catch (e1: any) {
+      console.warn("[KB Healthcare Fetch Range Error]", e1?.message);
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: 'KB헬스케어대상자!A:ZZ',
+      });
+      rows = response.data.values || [];
+    }
+
+    console.log(`[KB Healthcare Loaded Rows Count]: ${rows.length}`);
+    return res.json({ success: true, sheetTitle: targetSheetTitle, allSheetTitles, rows });
+  } catch (error: any) {
+    console.error("[KB Healthcare Load Error]", error?.message || error);
+    return res.json({ success: false, sheetTitle: 'KB헬스케어대상자', allSheetTitles: [], rows: [] });
+  }
+});
+
+// 공급사대사작업 시트 데이터 로드 API
+app.get('/api/sheets/supplier-recon-data', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    
+    // 시트 메타데이터 조회
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    const allSheetTitles = sheetsList.map(s => s.properties?.title || '').filter(Boolean);
+
+    const reqTabName = req.query.tabName ? String(req.query.tabName) : '';
+
+    let targetSheetTitle = reqTabName;
+    if (!targetSheetTitle) {
+      const foundSheet = sheetsList.find(s => {
+        const title = (s.properties?.title || '').replace(/\s+/g, '');
+        return title === '공급사대사작업' || title.includes('공급사대사작업');
+      }) || sheetsList.find(s => {
+        const title = (s.properties?.title || '').replace(/\s+/g, '');
+        return title.includes('유통사대사내역') || title.includes('공급사대사') || title.includes('유통사대사');
+      });
+      targetSheetTitle = foundSheet?.properties?.title || '공급사대사작업';
+    }
+
+    let rows: any[][] = [];
+    try {
+      const range = `${targetSheetTitle}!A:ZZ`;
+      console.log(`[Supplier Recon Fetching Range]: ${range}`);
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range,
+      });
+      rows = response.data.values || [];
+    } catch (e1: any) {
+      console.warn("[Supplier Recon Fetch Range Error]", e1?.message);
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: '공급사대사작업!A:ZZ',
+      });
+      rows = response.data.values || [];
+    }
+
+    console.log(`[Supplier Recon Loaded Rows Count]: ${rows.length}`);
+    return res.json({ success: true, sheetTitle: targetSheetTitle, allSheetTitles, rows });
+  } catch (error: any) {
+    console.error("[Supplier Recon Load Error]", error?.message || error);
+    return res.json({ success: false, sheetTitle: '공급사대사작업', allSheetTitles: [], rows: [] });
+  }
+});
+
 // 수수료 일괄/단건 변경 및 '수수료변경이력' 탭 기록 API
 app.post('/api/sheets/commission-log/batch-update', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);

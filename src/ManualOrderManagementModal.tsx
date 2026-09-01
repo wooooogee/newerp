@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ManualOrderReconModal } from './ManualOrderReconModal';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -30,6 +31,7 @@ interface ManualOrderManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
   data: ERPDataItem[];
+  onOpenReconModal?: () => void;
 }
 
 export type DeliveryState = '발주대기' | '발주완료' | '배송중' | '배송완료';
@@ -129,9 +131,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   isOpen,
   onClose,
   data,
+  onOpenReconModal
 }) => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isReconModalOpen, setIsReconModalOpen] = useState(false);
 
   const [targetProducts, setTargetProducts] = useState<string[]>(() => {
     try {
@@ -474,6 +478,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
     return hasValueEdit || hasStateEdit;
   }, [editedValues, editedStates, extractedOrders]);
+
+  // 공급사 대사 모달로 전달할 수기발주 대장 목록 전체
+  const completedManualOrdersForRecon = useMemo(() => {
+    return extractedOrders.map((o) => ({
+      contractNo: o.contractNo,
+      memName: o.memName,
+      prodName: o.rentalProdClean,
+      deliveryStatus: getRowDeliveryState(o),
+      delDate: getFieldValue(o, 'deliveryDate'),
+      phone: o.phone
+    }));
+  }, [extractedOrders, editedStates, editedValues]);
 
   // 요청일자 필터 1차 적용 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
   const ordersFilteredByReqDate = useMemo(() => {
@@ -854,6 +870,14 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsReconModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-emerald-500/20"
+                title="공급사대사작업 시트 A열(계약번호) vs 수기발주 배송완료(24건) 계약번호 1:1 대조"
+              >
+                <RefreshCw size={14} />
+                공급사 대사작업
+              </button>
               <button
                 onClick={() => setShowProductConfig(!showProductConfig)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
@@ -1596,6 +1620,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           </div>
         )}
       </div>
+
+      <ManualOrderReconModal
+        isOpen={isReconModalOpen}
+        onClose={() => setIsReconModalOpen(false)}
+        manualOrders={completedManualOrdersForRecon}
+      />
     </AnimatePresence>
   );
 };

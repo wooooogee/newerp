@@ -3,12 +3,14 @@ import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Fi
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
+import { HealthcareReconModal } from './HealthcareReconModal';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { DeliveryStatusModal } from './DeliveryStatusModal';
 import { DeliveryDashboardModal } from './DeliveryDashboardModal';
 import { DashboardDetailModal } from './DashboardDetailModal';
 import { CertificateDispatchModal } from './CertificateDispatchModal';
 import { ManualOrderManagementModal } from './ManualOrderManagementModal';
+import { ManualOrderReconModal } from './ManualOrderReconModal';
 import { CertificateDispatchHistoryModal } from './CertificateDispatchHistoryModal';
 import { MembershipApplicationModal } from './MembershipApplicationModal';
 import { CustomDialog } from './CustomDialog';
@@ -669,6 +671,8 @@ const ERP_Dashboard = () => {
   } | null>(null);
   const [singleReasonInput, setSingleReasonInput] = useState<string>('');
   const [commissionLogList, setCommissionLogList] = useState<any[]>([]);
+  const [isHealthcareReconModalOpen, setIsHealthcareReconModalOpen] = useState(false);
+  const [isManualOrderReconModalOpen, setIsManualOrderReconModalOpen] = useState(false);
   const [previewTarget, setPreviewTarget] = useState<string | null>(null);
   const [expandedHqs, setExpandedHqs] = useState<Record<string, boolean>>({});
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
@@ -5348,6 +5352,14 @@ const ERP_Dashboard = () => {
                     {isSuperAdmin && (
                       <div className="flex items-center gap-1.5">
                         <button
+                          onClick={() => setIsHealthcareReconModalOpen(true)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
+                          title="KB헬스케어대상자 vs 관리대장 헬스케어 등록일/서비스제공일 대사 대조"
+                        >
+                          <RefreshCw size={13} />
+                          <span className="hidden sm:inline">헬스케어 명단 대사작업</span>
+                        </button>
+                        <button
                           onClick={() => setIsPresidentReportModalOpen(true)}
                           className="flex items-center gap-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
                         >
@@ -8920,6 +8932,12 @@ const ERP_Dashboard = () => {
             isOpen={isManualOrderModalOpen}
             onClose={() => setIsManualOrderModalOpen(false)}
             data={data}
+            onOpenReconModal={() => setIsManualOrderReconModalOpen(true)}
+          />
+          <ManualOrderReconModal
+            isOpen={isManualOrderReconModalOpen}
+            onClose={() => setIsManualOrderReconModalOpen(false)}
+            manualOrders={data}
           />
           <CertificateDispatchHistoryModal
             isOpen={isCertificateDispatchHistoryModalOpen}
@@ -8956,6 +8974,13 @@ const ERP_Dashboard = () => {
               setDetailSource('healthcare');
             }}
             onOpenCalendar={() => setIsHealthcareCalendarModalOpen(true)}
+            onOpenReconModal={() => setIsHealthcareReconModalOpen(true)}
+          />
+          <HealthcareReconModal
+            isOpen={isHealthcareReconModalOpen}
+            onClose={() => setIsHealthcareReconModalOpen(false)}
+            masterData={data}
+            initialMonth={healthcareFilter?.value ? healthcareFilter.value.replace(/\./g, '-').substring(0, 7) : '2026-08'}
           />
 
           {isMonthlyDashboardModalOpen && (
