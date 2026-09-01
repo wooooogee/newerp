@@ -338,7 +338,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : (sheetMatch?.trackingNo || '');
 
       let dState: DeliveryState = savedData?.deliveryState || (sheetMatch?.raw?.[23] as DeliveryState) || '발주대기';
-      if (dState === '발주대기' && (delDate.trim() || tracking.trim() || courier.trim())) dState = '배송중';
+      
+      // 배송상태 자동 추론 및 보정 (배송일 기입 건은 배송완료로 처리)
+      if (delDate.trim()) {
+        dState = '배송완료';
+      } else if (dState === '발주대기' && (tracking.trim() || courier.trim())) {
+        dState = '배송중';
+      } else if (dState === '발주대기' && ordDate.trim()) {
+        dState = '발주완료';
+      }
 
       list.push({
         uniqueKey: item.uniqueKey || `item-${contractNo}`,
@@ -572,8 +580,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         let newTracking = editedVal?.trackingNo !== undefined ? editedVal.trackingNo.trim() : (existing.trackingNo ?? row.trackingNo ?? '');
         let newDState = editedSt !== undefined ? editedSt : (existing.deliveryState ?? row.deliveryState ?? '발주대기');
 
-        // 배송 정보(배송일, 택배사, 송장번호)가 채워져 있는데 상태가 발주대기면 자동으로 '배송중'으로 업그레이드
-        if (newDState === '발주대기' && (newDelDate.trim() || newCourier.trim() || newTracking.trim())) {
+        // 배송상태 자동 보정: 배송일이 입력되어 있으면 배송완료, 송장/택배사만 있으면 배송중
+        if (newDelDate.trim()) {
+          newDState = '배송완료';
+        } else if (newDState === '발주대기' && (newCourier.trim() || newTracking.trim())) {
           newDState = '배송중';
         }
 
