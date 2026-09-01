@@ -6911,7 +6911,7 @@ const ERP_Dashboard = () => {
                 {settingsTab === 'hq' && isSuperAdmin ? (
                   <div className="flex-1 overflow-hidden flex bg-white border-t border-slate-100">
                     {/* Left Sidebar: Headquarters Vertical Single List */}
-                    <div className="w-80 shrink-0 border-r border-slate-200 bg-slate-50/70 flex flex-col h-full">
+                    <div className="w-[420px] shrink-0 border-r border-slate-200 bg-slate-50/70 flex flex-col h-full">
                       {/* Top HQ Filter & Action Bar */}
                       <div className="p-4 border-b border-slate-200/80 flex flex-col gap-3 bg-white">
                         <div className="flex items-center justify-between">
@@ -7428,12 +7428,12 @@ const ERP_Dashboard = () => {
                 ) : settingsTab === 'global_incentive' && isSuperAdmin ? (
                   <div className="flex-1 overflow-hidden flex bg-white border-t border-slate-100">
                     {/* Left Sidebar: Special Incentive Vertical Single List */}
-                    <div className="w-80 shrink-0 border-r border-slate-200 bg-slate-50/70 flex flex-col h-full">
+                    <div className="w-[420px] shrink-0 border-r border-slate-200 bg-slate-50/70 flex flex-col h-full">
                       {/* Sidebar Header & Add Button */}
-                      <div className="p-4 border-b border-slate-200/80 flex items-center justify-between bg-white">
-                        <div className="flex items-center gap-2">
+                      <div className="p-4 border-b border-slate-200/80 flex items-center justify-between bg-white gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className="text-xs font-black text-slate-800 uppercase tracking-wide">특수수당 정책</span>
-                          <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                          <span className="text-[10px] font-extrabold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100/60">
                             총 {globalIncentiveRules.length}개
                           </span>
                         </div>
@@ -7967,15 +7967,6 @@ const ERP_Dashboard = () => {
                                 </div>
                               </div>
 
-                              <div className="absolute right-4 top-4">
-                                <button onClick={async () => {
-                                  if(await (window as any).customConfirm('이 규칙을 삭제하시겠습니까?')) {
-                                    const n = [...globalIncentiveRules]; n.splice(idx, 1); setGlobalIncentiveRules(n);
-                                  }
-                                }} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors" title="규칙 삭제">
-                                  <X size={20} />
-                                </button>
-                              </div>
                             </div>
                           </div>
                         );
