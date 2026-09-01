@@ -645,6 +645,10 @@ const ERP_Dashboard = () => {
   const [historyReconData, setHistoryReconData] = useState<any[]>([]);
   const [reconLoading, setReconLoading] = useState(false);
   const [activeHqId, setActiveHqId] = useState<string | null>(null);
+  const [activeIncentiveId, setActiveIncentiveId] = useState<string | null>(null);
+  const [isAddHqModalOpen, setIsAddHqModalOpen] = useState(false);
+  const [newHqNameInput, setNewHqNameInput] = useState('');
+  const [copySourceHqId, setCopySourceHqId] = useState<string>('NONE');
   const [previewTarget, setPreviewTarget] = useState<string | null>(null);
   const [expandedHqs, setExpandedHqs] = useState<Record<string, boolean>>({});
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
@@ -946,12 +950,17 @@ const ERP_Dashboard = () => {
     }).filter(Boolean));
   }, [data, globalIncentiveRules]);
 
-  // 설정 모달 열릴 때 첫 번째 본부 자동 선택
+  // 설정 모달 열릴 때 첫 번째 본부 및 특수수당 자동 선택
   React.useEffect(() => {
-    if (isSettingsModalOpen && !activeHqId && hqSettings.length > 0) {
-      setActiveHqId(hqSettings[0].id);
+    if (isSettingsModalOpen) {
+      if (!activeHqId && hqSettings.length > 0) {
+        setActiveHqId(hqSettings[0].id);
+      }
+      if (!activeIncentiveId && globalIncentiveRules.length > 0) {
+        setActiveIncentiveId(globalIncentiveRules[0].id);
+      }
     }
-  }, [isSettingsModalOpen, activeHqId, hqSettings]);
+  }, [isSettingsModalOpen, activeHqId, hqSettings, activeIncentiveId, globalIncentiveRules]);
 
   const saveSettingsToCloud = async (silent: boolean = false) => {
     if (!isAuthenticated) return;
@@ -6809,7 +6818,7 @@ const ERP_Dashboard = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 20 }}
-                className="relative bg-white w-full max-w-6xl h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+                className="relative bg-white w-full max-w-[1850px] w-[97vw] h-[94vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
               >
                 {/* Modal Header */}
                 <div className="px-8 py-5 border-b border-slate-100 bg-slate-900 text-white flex justify-between items-center">
@@ -6884,36 +6893,52 @@ const ERP_Dashboard = () => {
                 </div>
 
                 {settingsTab === 'hq' && isSuperAdmin ? (
-                  <div className="flex-1 overflow-hidden flex flex-col bg-white">
-                    {/* Top HQ Selection Bar */}
-                    <div className="bg-slate-50 border-b border-slate-200 p-4 shrink-0 flex flex-col gap-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">본부 목록</p>
-                          <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full">
-                            총 {hqSettings.filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false) && (!hqSearchText.trim() || s.hqName.toLowerCase().includes(hqSearchText.trim().toLowerCase()))).length}개
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="relative flex items-center">
-                            <Search size={13} className="absolute left-2.5 text-slate-400 pointer-events-none" />
-                            <input
-                              type="text"
-                              placeholder="본부명 검색..."
-                              value={hqSearchText}
-                              onChange={e => setHqSearchText(e.target.value)}
-                              className="pl-7 pr-7 py-1 text-[11px] font-bold bg-white border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all w-36"
-                            />
-                            {hqSearchText && (
-                              <button
-                                onClick={() => setHqSearchText('')}
-                                className="absolute right-2 text-slate-400 hover:text-slate-600 text-[10px] font-bold"
-                                title="검색어 지우기"
-                              >
-                                ✕
-                              </button>
-                            )}
+                  <div className="flex-1 overflow-hidden flex bg-white border-t border-slate-100">
+                    {/* Left Sidebar: Headquarters Vertical Single List */}
+                    <div className="w-80 shrink-0 border-r border-slate-200 bg-slate-50/70 flex flex-col h-full">
+                      {/* Top HQ Filter & Action Bar */}
+                      <div className="p-4 border-b border-slate-200/80 flex flex-col gap-3 bg-white">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-slate-800 uppercase tracking-wide">본부 목록</span>
+                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                              총 {hqSettings.filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false) && (!hqSearchText.trim() || s.hqName.toLowerCase().includes(hqSearchText.trim().toLowerCase()))).length}개
+                            </span>
                           </div>
+                          <button
+                            onClick={() => {
+                              setNewHqNameInput('');
+                              setCopySourceHqId('NONE');
+                              setIsAddHqModalOpen(true);
+                            }}
+                            className="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-slate-900 transition-all shadow-xs"
+                          >
+                            <Plus size={13} /> 본부 추가
+                          </button>
+                        </div>
+
+                        {/* Search Input */}
+                        <div className="relative flex items-center">
+                          <Search size={14} className="absolute left-2.5 text-slate-400 pointer-events-none" />
+                          <input
+                            type="text"
+                            placeholder="본부명 검색..."
+                            value={hqSearchText}
+                            onChange={e => setHqSearchText(e.target.value)}
+                            className="w-full pl-8 pr-7 py-1.5 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 outline-none focus:border-blue-500 focus:bg-white transition-all"
+                          />
+                          {hqSearchText && (
+                            <button
+                              onClick={() => setHqSearchText('')}
+                              className="absolute right-2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Checkbox Options */}
+                        <div className="flex items-center gap-3 pt-0.5">
                           <label className="flex items-center gap-1.5 cursor-pointer select-none">
                             <input
                               type="checkbox"
@@ -6932,33 +6957,11 @@ const ERP_Dashboard = () => {
                             />
                             <span className="text-[11px] font-bold text-slate-600 hover:text-slate-800 transition-colors">상품 0개 제외</span>
                           </label>
-                          <button
-                            onClick={async () => {
-                              const name = await (window as any).customPrompt('새로운 본부/거래처명을 입력하세요');
-                              if (!name) return;
-                              const newId = `hq-${Date.now()}`;
-                              const newHq: HQSetting = {
-                                id: newId,
-                                hqName: name,
-                                bankName: '-', accountNumber: '-', accountHolder: '-',
-                                paymentMethod: '계좌이체',
-                                settlementType: '사업자',
-                                enableOverriding: false,
-                                overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
-                                productRules: []
-                              };
-                              setHqSettings([...hqSettings, newHq]);
-                              setActiveHqId(newId);
-                            }}
-                            className="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-black transition-all"
-                          >
-                            <Plus size={12} /> 본부 추가
-                          </button>
                         </div>
                       </div>
 
-                      {/* Flex Wrap List of Headquarters */}
-                      <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
+                      {/* Single Column Vertical List of Headquarters */}
+                      <div className="flex-1 overflow-y-auto p-3 space-y-2">
                         {hqSettings
                           .filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false) && (!hqSearchText.trim() || s.hqName.toLowerCase().includes(hqSearchText.trim().toLowerCase())))
                           .map((s) => {
@@ -6968,28 +6971,37 @@ const ERP_Dashboard = () => {
                               <button
                                 key={s.id}
                                 onClick={() => setActiveHqId(s.id)}
-                                className={`px-4 py-2 rounded-xl transition-all border flex items-center gap-2.5 text-left text-[12px] font-extrabold shadow-sm ${
+                                className={`w-full p-3 rounded-xl transition-all border flex items-center justify-between text-left text-xs font-black cursor-pointer ${
                                   isActive
-                                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100'
-                                    : 'bg-white border-slate-200/80 text-slate-700 hover:border-blue-400 hover:bg-blue-50/10'
+                                    ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-100'
+                                    : 'bg-white border-slate-200/80 text-slate-800 hover:border-blue-400 hover:bg-blue-50/20'
                                 }`}
                               >
-                                <span>{s.hqName}</span>
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                  isActive ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-500'
-                                }`}>
-                                  {s.productRules.length}개
-                                </span>
-                                <span className="text-[10px] opacity-75 shrink-0" title={isBusiness ? '사업자대리점' : '개인/프리랜서'}>
-                                  {isBusiness ? '🏢' : '👤'}
-                                </span>
+                                <div className="flex items-center gap-2 truncate">
+                                  <span>{isBusiness ? '🏢' : '👤'}</span>
+                                  <span className="truncate">{s.hqName}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                    isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {s.productRules.length}개
+                                  </span>
+                                  {s.isActive === false && (
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                      isActive ? 'bg-red-500 text-white' : 'bg-red-100 text-red-600'
+                                    }`}>
+                                      미운영
+                                    </span>
+                                  )}
+                                </div>
                               </button>
                             );
                           })}
                       </div>
                     </div>
 
-                    {/* Bottom Content: Details & Rules (Full Width) */}
+                    {/* Right Main Details Area */}
                     <div className="flex-1 flex flex-col overflow-hidden bg-white">
                     {activeHqId ? (
                       (() => {
@@ -7196,8 +7208,6 @@ const ERP_Dashboard = () => {
                                               </div>
                                             ))}
                                           </div>
-                                        </td>
-                                        <td className="px-4 py-3 text-center w-[4%] align-middle">
                                           <button
                                             onClick={async () => {
                                               if (await (window as any).customConfirm('삭제하시겠습니까?')) {
@@ -7319,7 +7329,7 @@ const ERP_Dashboard = () => {
                                                         return { ...r, maintenanceRules: newRules };
                                                       });
                                                       setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                                    }} className="w-16 px-2 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
+                                                    }} className="w-16 px-2.5 py-1.5 text-xs font-bold border border-emerald-200 rounded outline-none focus:ring-1 focus:ring-emerald-400" />
                                                     <span className="text-[11px] text-emerald-600 font-bold">회차 : </span>
                                                     <input type="text" value={t.amount !== undefined && t.amount !== null ? t.amount.toLocaleString() : "0"} onChange={(e) => {
                                                       const updated = s.productRules.map((r, i) => {
@@ -7397,42 +7407,106 @@ const ERP_Dashboard = () => {
                         <p className="font-bold">좌측 리스트에서 본부를 선택하여 설정을 시작하세요.</p>
                       </div>
                     )}
+                    </div>
                   </div>
-                </div>
                 ) : settingsTab === 'global_incentive' && isSuperAdmin ? (
-                  <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
-                    <div className="max-w-5xl mx-auto space-y-6">
-                      <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold">특수수당 정책 관리</h2>
-                        <button onClick={() => {
-                          setGlobalIncentiveRules([{
-                            id: Date.now().toString(),
-                            incentiveName: '',
-                            targetName: '신규 대상자',
-                            payDay: 25,
-                            targetHq: '',
-                            targetHqs: ['ALL'],
-                            targetProducts: ['ALL'],
-                            targetItems: ['ALL'],
-                            baseDateType: 'DELIVERY',
-                            commissionPerUnit: 0,
-                            minimumGuarantee: 0,
-                            useInstallments: false,
-                            installments: []
-                          }, ...globalIncentiveRules]);
-                        }} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
-                          <Plus size={16} /> 새 규칙 추가
+                  <div className="flex-1 overflow-hidden flex bg-white border-t border-slate-100">
+                    {/* Left Sidebar: Special Incentive Vertical Single List */}
+                    <div className="w-80 shrink-0 border-r border-slate-200 bg-slate-50/70 flex flex-col h-full">
+                      {/* Sidebar Header & Add Button */}
+                      <div className="p-4 border-b border-slate-200/80 flex items-center justify-between bg-white">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-slate-800 uppercase tracking-wide">특수수당 정책</span>
+                          <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                            총 {globalIncentiveRules.length}개
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const newId = Date.now().toString();
+                            const newRule = {
+                              id: newId,
+                              incentiveName: '',
+                              targetName: '신규 대상자',
+                              payDay: 25,
+                              targetHq: '',
+                              targetHqs: ['ALL'],
+                              targetProducts: ['ALL'],
+                              targetItems: ['ALL'],
+                              baseDateType: 'DELIVERY',
+                              commissionPerUnit: 0,
+                              minimumGuarantee: 0,
+                              useInstallments: false,
+                              installments: []
+                            };
+                            setGlobalIncentiveRules([newRule, ...globalIncentiveRules]);
+                            setActiveIncentiveId(newId);
+                          }}
+                          className="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-slate-900 transition-all shadow-xs"
+                        >
+                          <Plus size={13} /> 규칙 추가
                         </button>
                       </div>
 
-                      <div className="space-y-4">
+                      {/* Single Column Vertical List of Special Incentive Rules */}
+                      <div className="flex-1 overflow-y-auto p-3 space-y-2">
                         {globalIncentiveRules.length === 0 && (
-                          <div className="text-center py-12 text-slate-400 font-bold">등록된 특수 수당 규칙이 없습니다.</div>
+                          <div className="py-12 text-center text-slate-400 text-xs font-bold">등록된 특수 수당 규칙이 없습니다.</div>
                         )}
                         {globalIncentiveRules.map((rule, idx) => {
+                          const isActive = activeIncentiveId === rule.id || (!activeIncentiveId && idx === 0);
                           const isCustomPerson = rule.targetName && rule.targetName !== 'SELF_HQ' && rule.targetName !== '해당본부' && rule.targetName !== '판매본부' && rule.targetName.trim() !== '';
 
                           return (
+                            <button
+                              key={rule.id}
+                              onClick={() => setActiveIncentiveId(rule.id)}
+                              className={`w-full p-3.5 rounded-xl transition-all border flex flex-col gap-1.5 text-left cursor-pointer ${
+                                isActive
+                                  ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-100'
+                                  : 'bg-white border-slate-200/80 text-slate-800 hover:border-blue-400 hover:bg-blue-50/20'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                                  isActive ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-700'
+                                }`}>
+                                  정책 #{idx + 1}
+                                </span>
+                                <span className={`text-[10px] font-bold ${isActive ? 'text-blue-100' : 'text-slate-500'}`}>
+                                  {isCustomPerson ? rule.targetName : '실적본부'}
+                                </span>
+                              </div>
+                              <span className="truncate text-xs font-black mt-0.5">
+                                {rule.incentiveName || '수당 명칭 미입력'}
+                              </span>
+                              <span className={`text-[10px] font-bold ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
+                                건당 {(rule.commissionPerUnit || 0).toLocaleString()}원
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Right Main Details Area */}
+                    <div className="flex-1 flex flex-col overflow-y-auto bg-slate-50 p-8">
+                      {(() => {
+                        const selectedIdx = globalIncentiveRules.findIndex(r => r.id === activeIncentiveId);
+                        const idx = selectedIdx !== -1 ? selectedIdx : 0;
+                        const rule = globalIncentiveRules[idx];
+                        if (!rule) {
+                          return (
+                            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 font-bold py-20">
+                              등록되거나 선택된 특수수당 규칙이 없습니다. 좌측 [규칙 추가] 버튼을 누르세요.
+                            </div>
+                          );
+                        }
+
+                        const isCustomPerson = rule.targetName && rule.targetName !== 'SELF_HQ' && rule.targetName !== '해당본부' && rule.targetName !== '판매본부' && rule.targetName.trim() !== '';
+
+                        return (
+                          <div className="max-w-5xl mx-auto w-full space-y-6">
                             <div key={rule.id} className="relative bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all flex flex-col gap-5 overflow-hidden">
                               {/* 상단 뱃지 & 헤더 툴바 */}
                               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -7450,13 +7524,16 @@ const ERP_Dashboard = () => {
                                 <button 
                                   onClick={async () => {
                                     if (await (window as any).customConfirm('이 규칙을 삭제하시겠습니까?')) {
-                                      const n = [...globalIncentiveRules]; n.splice(idx, 1); setGlobalIncentiveRules(n);
+                                      const n = [...globalIncentiveRules]; n.splice(idx, 1);
+                                      setGlobalIncentiveRules(n);
+                                      if (n.length > 0) setActiveIncentiveId(n[0].id);
+                                      else setActiveIncentiveId(null);
                                     }
                                   }} 
-                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all flex items-center gap-1 text-xs font-bold"
                                   title="규칙 삭제"
                                 >
-                                  <X size={18} />
+                                  <X size={18} /> 삭제
                                 </button>
                               </div>
 
@@ -7731,10 +7808,12 @@ const ERP_Dashboard = () => {
                                     <button onClick={() => {
                                       const n = [...globalIncentiveRules];
                                       if (!n[idx].installments) n[idx].installments = [];
-                                      const lastRound = n[idx].installments!.length > 0 ? n[idx].installments![n[idx].installments!.length - 1].endRound : 0;
-                                      n[idx].installments!.push({ id: Date.now().toString(), startRound: lastRound + 1, endRound: lastRound + 1, amount: 0 });
+                                      const lastEnd = n[idx].installments.length > 0 ? n[idx].installments[n[idx].installments.length - 1].endRound : 0;
+                                      n[idx].installments.push({ id: Date.now().toString(), startRound: lastEnd + 1, endRound: lastEnd + 1, amount: 0 });
                                       setGlobalIncentiveRules(n);
-                                    }} className="self-start text-xs font-bold text-indigo-600 px-3 py-1.5 bg-indigo-100/70 hover:bg-indigo-100 rounded-xl transition-all mt-1">+ 회차 구간 추가</button>
+                                    }} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all self-start shadow-xs">
+                                      + 회차 구간 추가
+                                    </button>
                                   </div>
                                 ) : (
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-1">
@@ -7838,12 +7917,12 @@ const ERP_Dashboard = () => {
                                 </button>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
-                ) : (settingsTab === 'member' || !isSuperAdmin) ? (
+                ) : (
                   <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
                     <div className="max-w-5xl mx-auto space-y-6">
                       <div className="flex justify-between items-center mb-6">
@@ -8086,7 +8165,210 @@ const ERP_Dashboard = () => {
                       </div>
                     </div>
                   </div>
-                ) : null}
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* 본부 추가 및 설정 복사 팝업 모달 */}
+        <AnimatePresence>
+          {isAddHqModalOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsAddHqModalOpen(false)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col z-10 border border-slate-100"
+              >
+                {/* Modal Header */}
+                <div className="px-6 py-4 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <Building className="text-blue-400" size={20} />
+                    <h3 className="text-base font-bold">새로운 본부/거래처 추가</h3>
+                  </div>
+                  <button
+                    onClick={() => setIsAddHqModalOpen(false)}
+                    className="p-1.5 hover:bg-white/10 rounded-full transition-colors text-slate-300 hover:text-white"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Modal Content Form */}
+                <div className="p-6 flex flex-col gap-5">
+                  {/* 1. 본부 명칭 입력 */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                      신규 본부/거래처명 <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="예: 서울강남본부, 경기북부지사, 제휴사업3팀"
+                      value={newHqNameInput}
+                      onChange={e => setNewHqNameInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          if (!newHqNameInput.trim()) {
+                            alert('새로운 본부/거래처명을 입력해 주세요.');
+                            return;
+                          }
+                          const newId = `hq-${Date.now()}`;
+                          let newHq: HQSetting;
+                          if (copySourceHqId !== 'NONE') {
+                            const srcHq = hqSettings.find(h => h.id === copySourceHqId);
+                            if (srcHq) {
+                              newHq = {
+                                ...JSON.parse(JSON.stringify(srcHq)),
+                                id: newId,
+                                hqName: newHqNameInput.trim(),
+                                isActive: true
+                              };
+                            } else {
+                              newHq = {
+                                id: newId,
+                                hqName: newHqNameInput.trim(),
+                                bankName: '-', accountNumber: '-', accountHolder: '-',
+                                paymentMethod: '계좌이체',
+                                settlementType: '사업자',
+                                enableOverriding: false,
+                                overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
+                                productRules: []
+                              };
+                            }
+                          } else {
+                            newHq = {
+                              id: newId,
+                              hqName: newHqNameInput.trim(),
+                              bankName: '-', accountNumber: '-', accountHolder: '-',
+                              paymentMethod: '계좌이체',
+                              settlementType: '사업자',
+                              enableOverriding: false,
+                              overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
+                              productRules: []
+                            };
+                          }
+                          setHqSettings([...hqSettings, newHq]);
+                          setActiveHqId(newId);
+                          setIsAddHqModalOpen(false);
+                        }
+                      }}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-bold transition-all"
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* 2. 기존 본부 설정 복사 선택 */}
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 flex flex-col gap-2">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      📋 수수료 세팅 복사 선택 (기본 세팅 동일 적용)
+                    </label>
+                    <p className="text-[11px] text-slate-500 font-normal">
+                      기존 등록된 본부 중 하나를 선택하면 해당 본부의 상품 수수료, 오버라이딩 비율 및 결제 수단 세팅을 동일하게 복사하여 생성합니다.
+                    </p>
+                    <select
+                      value={copySourceHqId}
+                      onChange={e => setCopySourceHqId(e.target.value)}
+                      className="w-full mt-1 px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-xs"
+                    >
+                      <option value="NONE">✨ 직접 설정 (새 빈 본부 생성)</option>
+                      {hqSettings.map(h => (
+                        <option key={h.id} value={h.id}>
+                          📂 {h.hqName} (상품 수수료 {h.productRules.length}개 설정 복사)
+                        </option>
+                      ))}
+                    </select>
+
+                    {copySourceHqId !== 'NONE' && (() => {
+                      const srcHq = hqSettings.find(h => h.id === copySourceHqId);
+                      if (!srcHq) return null;
+                      return (
+                        <div className="mt-2 p-3 bg-blue-50/70 rounded-xl border border-blue-100 text-blue-900 text-xs flex flex-col gap-1 font-bold">
+                          <div className="flex justify-between items-center">
+                            <span>복사 대상: {srcHq.hqName}</span>
+                            <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-black">
+                              상품 {srcHq.productRules.length}개 규칙 포함
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-normal text-blue-700">
+                            계좌: {srcHq.bankName} {srcHq.accountNumber} ({srcHq.accountHolder}) | 정산: {srcHq.settlementType}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddHqModalOpen(false)}
+                      className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!newHqNameInput.trim()) {
+                          alert('새로운 본부/거래처명을 입력해 주세요.');
+                          return;
+                        }
+
+                        const newId = `hq-${Date.now()}`;
+                        let newHq: HQSetting;
+
+                        if (copySourceHqId !== 'NONE') {
+                          const srcHq = hqSettings.find(h => h.id === copySourceHqId);
+                          if (srcHq) {
+                            newHq = {
+                              ...JSON.parse(JSON.stringify(srcHq)),
+                              id: newId,
+                              hqName: newHqNameInput.trim(),
+                              isActive: true
+                            };
+                          } else {
+                            newHq = {
+                              id: newId,
+                              hqName: newHqNameInput.trim(),
+                              bankName: '-', accountNumber: '-', accountHolder: '-',
+                              paymentMethod: '계좌이체',
+                              settlementType: '사업자',
+                              enableOverriding: false,
+                              overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
+                              productRules: []
+                            };
+                          }
+                        } else {
+                          newHq = {
+                            id: newId,
+                            hqName: newHqNameInput.trim(),
+                            bankName: '-', accountNumber: '-', accountHolder: '-',
+                            paymentMethod: '계좌이체',
+                            settlementType: '사업자',
+                            enableOverriding: false,
+                            overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
+                            productRules: []
+                          };
+                        }
+
+                        setHqSettings([...hqSettings, newHq]);
+                        setActiveHqId(newId);
+                        setIsAddHqModalOpen(false);
+                      }}
+                      className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-200 flex items-center gap-1.5"
+                    >
+                      <Plus size={15} /> 본부 생성하기
+                    </button>
+                  </div>
+                </div>
               </motion.div>
             </div>
           )}
