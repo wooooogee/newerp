@@ -20,15 +20,16 @@ interface HealthcareModalProps {
   onOpenCalendar?: () => void;
 }
 
-const mapProductCode = (prodName: string) => {
+const mapProductCode = (rawProdName: string) => {
+  const prodName = String(rawProdName || '').replace(/\s+/g, '').toUpperCase();
   if (prodName.includes('하이브리드698')) return 'A070';
   if (prodName.includes('라이즈498')) return 'A071';
   if (prodName.includes('프리미엄540')) return 'A072';
-  if (prodName.includes('헬스케어실버')) return 'A073';
-  if (prodName.includes('좋은건강크루즈')) return 'A074';
-  if (prodName.includes('헬스케어골드')) return 'A075';
-  if (prodName.includes('헬스케어올인원') || prodName.includes('굿라이프헬스케어올인원')) return 'A077';
-  if (prodName.includes('헬스케어580')) return 'A081';
+  if (prodName.includes('헬스케어실버') || prodName.includes('실버')) return 'A073';
+  if (prodName.includes('좋은건강크루즈') || prodName.includes('크루즈')) return 'A074';
+  if (prodName.includes('헬스케어골드') || prodName.includes('골드')) return 'A075';
+  if (prodName.includes('올인원') || prodName.includes('ALLINONE') || prodName.includes('ALL-IN-ONE')) return 'A077';
+  if (prodName.includes('헬스케어580') || prodName.includes('580')) return 'A081';
   return '';
 };
 

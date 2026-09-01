@@ -4542,9 +4542,18 @@ const ERP_Dashboard = () => {
         const serviceStartDate = item.raw[18] ? String(item.raw[18]).replace(/[./]/g, '-') : '';
 
         const { birth, gender } = parseResNo(insuredResNo);
-        const matchedProd = Object.keys(productCodeMap).find(name => item.prodName.includes(name));
-        const prodCode = productCodeMap[matchedProd || ''] || 'A070';
-        const displayProdName = matchedProd || item.prodName;
+        const cleanProd = String(item.prodName || '').replace(/\s+/g, '').toUpperCase();
+        let prodCode = 'A070';
+        if (cleanProd.includes('하이브리드698')) prodCode = 'A070';
+        else if (cleanProd.includes('라이즈498')) prodCode = 'A071';
+        else if (cleanProd.includes('프리미엄540')) prodCode = 'A072';
+        else if (cleanProd.includes('실버')) prodCode = 'A073';
+        else if (cleanProd.includes('크루즈')) prodCode = 'A074';
+        else if (cleanProd.includes('골드')) prodCode = 'A075';
+        else if (cleanProd.includes('올인원') || cleanProd.includes('ALLINONE') || cleanProd.includes('ALL-IN-ONE')) prodCode = 'A077';
+        else if (cleanProd.includes('580')) prodCode = 'A081';
+
+        const displayProdName = item.prodName;
 
         return [
           idx + 1, item.memNo, prodCode, displayProdName, insuredName,
