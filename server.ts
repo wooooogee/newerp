@@ -1210,7 +1210,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             taxBusinessName: iTaxBusinessName >= 0 ? row[iTaxBusinessName] || '' : '',
             taxBusinessNo: iTaxBusinessNo >= 0 ? row[iTaxBusinessNo] || '' : ''
           };
-        }).filter((r: any) => r.targetName);
+        }).filter((r: any) => r.targetName || r.incentiveName || r.commissionPerUnit || (r.installments && r.installments.length > 0) || r.id);
         console.log(`[CloudSync] Loaded ${globalIncentives.length} global incentives from cloud.`);
         console.log('[CloudSync] Global incentives detail:', JSON.stringify(globalIncentives, null, 2));
       }

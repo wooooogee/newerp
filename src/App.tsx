@@ -852,16 +852,18 @@ const ERP_Dashboard = () => {
   });
 
   const [globalIncentiveRules, setGlobalIncentiveRules] = useState<GlobalIncentiveRule[]>(() => {
-    const saved = localStorage.getItem('erp_global_incentives');
+    const saved = localStorage.getItem('erp_global_incentives') || localStorage.getItem('erp_global_incentives_bak');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        return parsed.map((r: any) => ({
-          ...r,
-          payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
-          commissionPerUnit: Number(r.commissionPerUnit || 0),
-          minimumGuarantee: Number(r.minimumGuarantee || 0)
-        }));
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((r: any) => ({
+            ...r,
+            payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
+            commissionPerUnit: Number(r.commissionPerUnit || 0),
+            minimumGuarantee: Number(r.minimumGuarantee || 0)
+          }));
+        }
       } catch (e) {
         console.error(e);
       }
@@ -939,7 +941,10 @@ const ERP_Dashboard = () => {
 
   useEffect(() => {
     localStorage.setItem('erp_hq_settings_v2', JSON.stringify(hqSettings));
-    localStorage.setItem('erp_global_incentives', JSON.stringify(globalIncentiveRules));
+    if (globalIncentiveRules && globalIncentiveRules.length > 0) {
+      localStorage.setItem('erp_global_incentives', JSON.stringify(globalIncentiveRules));
+      localStorage.setItem('erp_global_incentives_bak', JSON.stringify(globalIncentiveRules));
+    }
     localStorage.setItem('erp_maintenance_rules', JSON.stringify(maintenanceRules));
   }, [hqSettings, globalIncentiveRules, maintenanceRules]);
 
@@ -1032,7 +1037,7 @@ const ERP_Dashboard = () => {
           }))
         }));
         setHqSettings(sanitizedSettings);
-        if (data.globalIncentives && Array.isArray(data.globalIncentives)) {
+        if (data.globalIncentives && Array.isArray(data.globalIncentives) && data.globalIncentives.length > 0) {
           setGlobalIncentiveRules(data.globalIncentives.map((r: any) => ({
             ...r,
             payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
@@ -7421,31 +7426,59 @@ const ERP_Dashboard = () => {
                             총 {globalIncentiveRules.length}개
                           </span>
                         </div>
-                        <button
-                          onClick={() => {
-                            const newId = Date.now().toString();
-                            const newRule = {
-                              id: newId,
-                              incentiveName: '',
-                              targetName: '신규 대상자',
-                              payDay: 25,
-                              targetHq: '',
-                              targetHqs: ['ALL'],
-                              targetProducts: ['ALL'],
-                              targetItems: ['ALL'],
-                              baseDateType: 'DELIVERY',
-                              commissionPerUnit: 0,
-                              minimumGuarantee: 0,
-                              useInstallments: false,
-                              installments: []
-                            };
-                            setGlobalIncentiveRules([newRule, ...globalIncentiveRules]);
-                            setActiveIncentiveId(newId);
-                          }}
-                          className="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-slate-900 transition-all shadow-xs"
-                        >
-                          <Plus size={13} /> 규칙 추가
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {localStorage.getItem('erp_global_incentives_bak') && (
+                            <button
+                              onClick={async () => {
+                                const bakStr = localStorage.getItem('erp_global_incentives_bak');
+                                if (!bakStr) return;
+                                try {
+                                  const bak = JSON.parse(bakStr);
+                                  if (Array.isArray(bak) && bak.length > 0) {
+                                    if (await (window as any).customConfirm(`로컬 백업 데이터(${bak.length}개)에서 특수수당 규칙을 복구하시겠습니까?`)) {
+                                      setGlobalIncentiveRules(bak);
+                                      if (bak[0]?.id) setActiveIncentiveId(bak[0].id);
+                                      alert('특수수당 규칙이 성공적으로 복구되었습니다.');
+                                    }
+                                  } else {
+                                    alert('저장된 백업 데이터가 없습니다.');
+                                  }
+                                } catch(e) {
+                                  alert('백업 데이터 복구 중 오류가 발생했습니다.');
+                                }
+                              }}
+                              className="px-2 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-[11px] font-bold transition-all"
+                              title="로컬 백업 데이터에서 복구"
+                            >
+                              백업 복구
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              const newId = Date.now().toString();
+                              const newRule = {
+                                id: newId,
+                                incentiveName: '',
+                                targetName: '신규 대상자',
+                                payDay: 25,
+                                targetHq: '',
+                                targetHqs: ['ALL'],
+                                targetProducts: ['ALL'],
+                                targetItems: ['ALL'],
+                                baseDateType: 'DELIVERY',
+                                commissionPerUnit: 0,
+                                minimumGuarantee: 0,
+                                useInstallments: false,
+                                installments: []
+                              };
+                              setGlobalIncentiveRules([newRule, ...globalIncentiveRules]);
+                              setActiveIncentiveId(newId);
+                            }}
+                            className="px-2.5 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-slate-900 transition-all shadow-xs"
+                          >
+                            <Plus size={13} /> 규칙 추가
+                          </button>
+                        </div>
                       </div>
 
                       {/* Single Column Vertical List of Special Incentive Rules */}
