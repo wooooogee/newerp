@@ -1296,6 +1296,12 @@ app.get('/api/sheets/settings/load', async (req, res) => {
       const cachePath = path.join(process.cwd(), '.settings_cache.json');
       if (fs.existsSync(cachePath)) {
         const cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+        if ((!globalIncentives || globalIncentives.length === 0) && cacheData.globalIncentives && Array.isArray(cacheData.globalIncentives)) {
+          globalIncentives = cacheData.globalIncentives;
+        }
+        if ((!maintenanceRules || maintenanceRules.length === 0) && cacheData.maintenanceRules && Array.isArray(cacheData.maintenanceRules)) {
+          maintenanceRules = cacheData.maintenanceRules;
+        }
         if (!manualOrderProducts && cacheData.manualOrderProducts) manualOrderProducts = cacheData.manualOrderProducts;
         if (!manualOrderStores && cacheData.manualOrderStores) manualOrderStores = cacheData.manualOrderStores;
         if (!reportSettings && cacheData.reportSettings) reportSettings = cacheData.reportSettings;

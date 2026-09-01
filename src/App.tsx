@@ -852,20 +852,31 @@ const ERP_Dashboard = () => {
   });
 
   const [globalIncentiveRules, setGlobalIncentiveRules] = useState<GlobalIncentiveRule[]>(() => {
-    const saved = localStorage.getItem('erp_global_incentives') || localStorage.getItem('erp_global_incentives_bak');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((r: any) => ({
-            ...r,
-            payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
-            commissionPerUnit: Number(r.commissionPerUnit || 0),
-            minimumGuarantee: Number(r.minimumGuarantee || 0)
-          }));
-        }
-      } catch (e) {
-        console.error(e);
+    const keysToSearch = [
+      'erp_global_incentives',
+      'erp_global_incentives_bak',
+      'erp_global_incentives_v1',
+      'erp_global_incentives_v2',
+      'globalIncentives',
+      'erp_settings_backup'
+    ];
+    for (const key of keysToSearch) {
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        try {
+          let parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.globalIncentives) {
+            parsed = parsed.globalIncentives;
+          }
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.map((r: any) => ({
+              ...r,
+              payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
+              commissionPerUnit: Number(r.commissionPerUnit || 0),
+              minimumGuarantee: Number(r.minimumGuarantee || 0)
+            }));
+          }
+        } catch (e) {}
       }
     }
     return [];
@@ -7427,32 +7438,48 @@ const ERP_Dashboard = () => {
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          {localStorage.getItem('erp_global_incentives_bak') && (
-                            <button
-                              onClick={async () => {
-                                const bakStr = localStorage.getItem('erp_global_incentives_bak');
-                                if (!bakStr) return;
-                                try {
-                                  const bak = JSON.parse(bakStr);
-                                  if (Array.isArray(bak) && bak.length > 0) {
-                                    if (await (window as any).customConfirm(`로컬 백업 데이터(${bak.length}개)에서 특수수당 규칙을 복구하시겠습니까?`)) {
-                                      setGlobalIncentiveRules(bak);
-                                      if (bak[0]?.id) setActiveIncentiveId(bak[0].id);
-                                      alert('특수수당 규칙이 성공적으로 복구되었습니다.');
+                          <button
+                            onClick={async () => {
+                              const keysToSearch = [
+                                'erp_global_incentives',
+                                'erp_global_incentives_bak',
+                                'erp_global_incentives_v1',
+                                'erp_global_incentives_v2',
+                                'globalIncentives',
+                                'erp_settings_backup'
+                              ];
+                              let found: any[] | null = null;
+                              for (const k of keysToSearch) {
+                                const str = localStorage.getItem(k);
+                                if (str) {
+                                  try {
+                                    let parsed = JSON.parse(str);
+                                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.globalIncentives) {
+                                      parsed = parsed.globalIncentives;
                                     }
-                                  } else {
-                                    alert('저장된 백업 데이터가 없습니다.');
-                                  }
-                                } catch(e) {
-                                  alert('백업 데이터 복구 중 오류가 발생했습니다.');
+                                    if (Array.isArray(parsed) && parsed.length > 0) {
+                                      found = parsed;
+                                      break;
+                                    }
+                                  } catch (e) {}
                                 }
-                              }}
-                              className="px-2 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-[11px] font-bold transition-all"
-                              title="로컬 백업 데이터에서 복구"
-                            >
-                              백업 복구
-                            </button>
-                          )}
+                              }
+
+                              if (found && found.length > 0) {
+                                if (await (window as any).customConfirm(`보존된 백업 데이터(${found.length}개 규칙)에서 특수수당 설정을 복구하시겠습니까?`)) {
+                                  setGlobalIncentiveRules(found);
+                                  if (found[0]?.id) setActiveIncentiveId(found[0].id);
+                                  alert(`성공적으로 ${found.length}개의 특수수당 규칙이 복구되었습니다.`);
+                                }
+                              } else {
+                                alert('브라우저에 보존된 이전 특수수당 백업 데이터를 찾을 수 없습니다.');
+                              }
+                            }}
+                            className="px-2 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200/80 rounded-lg text-[11px] font-bold transition-all shadow-xs"
+                            title="로컬 백업 데이터에서 복구"
+                          >
+                            백업 복구
+                          </button>
                           <button
                             onClick={() => {
                               const newId = Date.now().toString();
