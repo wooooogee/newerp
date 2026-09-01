@@ -1841,6 +1841,154 @@ app.post('/api/sheets/manual-settlement/save', async (req, res) => {
     console.error("[Manual Settlement Save Error]", error);
     return handleGoogleError(error, res);
   }
+// 수수료 일괄/단건 변경 및 '수수료변경이력' 탭 기록 API
+app.post('/api/sheets/commission-log/batch-update', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { updates, reason, worker } = req.body as {
+    updates: Array<{
+      rowIdx: number;
+      colIdx: number;
+      oldValue?: string;
+      newValue: string;
+      contractNo?: string;
+      rentalNo?: string;
+      memName?: string;
+      hqName?: string;
+      fieldName?: string;
+    }>;
+    reason?: string;
+    worker?: string;
+  };
+
+  if (!updates || !Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ error: '업데이트할 항목이 없습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    
+    // 1. 원본 시트 셀 업데이트
+    for (const u of updates) {
+      const colLetter = String.fromCharCode(65 + u.colIdx);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `A${u.rowIdx}:${colLetter}${u.rowIdx}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [[u.newValue]] }
+      }).catch(async () => {
+        // 단일 셀 업데이트 fallback
+        const singleRange = `'접수'!${colLetter}${u.rowIdx}`;
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: sheetId,
+          range: singleRange,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [[u.newValue]] }
+        }).catch(e => console.warn('Cell update fallback warn:', e));
+      });
+    }
+
+    // 2. '수수료변경이력' 탭 확인 및 생성
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let logSheet = sheetsList.find(s => s.properties?.title === '수수료변경이력');
+
+    if (!logSheet) {
+      console.log("[CloudSync] Creating '수수료변경이력' sheet...");
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '수수료변경이력' } } }]
+        }
+      });
+      const headers = [['변경일시', '계약번호', '렌탈계약번호', '회원명', '본부명', '변경항목', '변경 전 값', '변경 후 값', '변경 사유', '작업자']];
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: '수수료변경이력!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: headers }
+      });
+    }
+
+    // 3. 로그 행 생성 및 Append
+    const nowStr = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+    const logRows: any[][] = updates.map(u => [
+      nowStr,
+      u.contractNo || '-',
+      u.rentalNo || '-',
+      u.memName || '-',
+      u.hqName || '-',
+      u.fieldName || (u.colIdx === 14 ? '수수료지급일자' : u.colIdx === 19 ? '지급상태' : '수수료정보'),
+      u.oldValue || '-',
+      u.newValue || '-',
+      reason || '일괄/단건 변경',
+      worker || 'admin'
+    ]);
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: '수수료변경이력!A1',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: logRows }
+    }).catch(e => console.warn('Log sheet append warn:', e));
+
+    // 4. 로컬 캐시 .commission_logs.json 저장
+    const logCachePath = path.join(process.cwd(), '.commission_logs.json');
+    let localLogs: any[] = [];
+    if (fs.existsSync(logCachePath)) {
+      try { localLogs = JSON.parse(fs.readFileSync(logCachePath, 'utf8')); } catch (e) {}
+    }
+    const newLogObjs = updates.map(u => ({
+      timestamp: nowStr,
+      contractNo: u.contractNo || '-',
+      rentalNo: u.rentalNo || '-',
+      memName: u.memName || '-',
+      hqName: u.hqName || '-',
+      fieldName: u.fieldName || (u.colIdx === 14 ? '수수료지급일자' : u.colIdx === 19 ? '지급상태' : '수수료정보'),
+      oldValue: u.oldValue || '-',
+      newValue: u.newValue || '-',
+      reason: reason || '일괄/단건 변경',
+      worker: worker || 'admin'
+    }));
+    localLogs.unshift(...newLogObjs);
+    fs.writeFileSync(logCachePath, JSON.stringify(localLogs.slice(0, 1000), null, 2), 'utf8');
+
+    res.json({ success: true, updatedCount: updates.length });
+  } catch (error: any) {
+    console.error("[Commission Log Batch Update Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
+// 수수료 변경 이력 조회 API
+app.get('/api/sheets/commission-log/list', async (req, res) => {
+  const { contractNo, rentalNo } = req.query;
+  const logCachePath = path.join(process.cwd(), '.commission_logs.json');
+  let localLogs: any[] = [];
+  if (fs.existsSync(logCachePath)) {
+    try { localLogs = JSON.parse(fs.readFileSync(logCachePath, 'utf8')); } catch (e) {}
+  }
+
+  if (contractNo || rentalNo) {
+    const cStr = String(contractNo || '').trim().toLowerCase();
+    const rStr = String(rentalNo || '').trim().toLowerCase();
+    const filtered = localLogs.filter(l => {
+      const matchC = cStr && String(l.contractNo || '').toLowerCase().includes(cStr);
+      const matchR = rStr && String(l.rentalNo || '').toLowerCase().includes(rStr);
+      return matchC || matchR;
+    });
+    return res.json({ logs: filtered });
+  }
+
+  res.json({ logs: localLogs.slice(0, 200) });
 });
 
 app.post('/api/sheets/saveCertificateDispatch', async (req, res) => {

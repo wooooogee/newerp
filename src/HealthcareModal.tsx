@@ -27,6 +27,7 @@ const mapProductCode = (prodName: string) => {
   if (prodName.includes('헬스케어실버')) return 'A073';
   if (prodName.includes('좋은건강크루즈')) return 'A074';
   if (prodName.includes('헬스케어골드')) return 'A075';
+  if (prodName.includes('헬스케어올인원') || prodName.includes('굿라이프헬스케어올인원')) return 'A077';
   if (prodName.includes('헬스케어580')) return 'A081';
   return '';
 };

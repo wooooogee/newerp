@@ -649,6 +649,26 @@ const ERP_Dashboard = () => {
   const [isAddHqModalOpen, setIsAddHqModalOpen] = useState(false);
   const [newHqNameInput, setNewHqNameInput] = useState('');
   const [copySourceHqId, setCopySourceHqId] = useState<string>('NONE');
+  
+  // 수수료 일괄/동일 렌탈번호 변경 및 이력 관련 state
+  const [selectedTableKeys, setSelectedTableKeys] = useState<Set<string>>(new Set());
+  const [isBatchPayDateModalOpen, setIsBatchPayDateModalOpen] = useState(false);
+  const [batchPayDateInput, setBatchPayDateInput] = useState<string>('');
+  const [batchReasonInput, setBatchReasonInput] = useState<string>('');
+  const [isChangeReasonModalOpen, setIsChangeReasonModalOpen] = useState(false);
+  const [singleChangePending, setSingleChangePending] = useState<{
+    rowIdx: number;
+    colIdx: number;
+    oldValue: string;
+    newValue: string;
+    contractNo: string;
+    rentalNo: string;
+    memName: string;
+    hqName: string;
+    fieldName: string;
+  } | null>(null);
+  const [singleReasonInput, setSingleReasonInput] = useState<string>('');
+  const [commissionLogList, setCommissionLogList] = useState<any[]>([]);
   const [previewTarget, setPreviewTarget] = useState<string | null>(null);
   const [expandedHqs, setExpandedHqs] = useState<Record<string, boolean>>({});
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
@@ -804,6 +824,33 @@ const ERP_Dashboard = () => {
       alert('업데이트 중 오류가 발생했습니다.');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  // 동일 렌탈계약번호를 지닌 모든 데이터 행 수집
+  const collectSameRentalNoRows = (targetRentalNos: string[]) => {
+    const validNos = new Set(targetRentalNos.map(r => String(r || '').trim().toUpperCase()).filter(Boolean));
+    if (validNos.size === 0) return [];
+    
+    return data.filter(item => {
+      const rNo = String(item.rentalNo || item.memNo || '').trim().toUpperCase();
+      return rNo && validNos.has(rNo);
+    });
+  };
+
+  // 특정 계약/렌탈번호 수수료 변경 이력 불러오기
+  const fetchCommissionLogs = async (contractNo?: string, rentalNo?: string) => {
+    try {
+      const params = new URLSearchParams();
+      if (contractNo) params.append('contractNo', contractNo);
+      if (rentalNo) params.append('rentalNo', rentalNo);
+      const res = await fetch(`/api/sheets/commission-log/list?${params.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        setCommissionLogList(json.logs || []);
+      }
+    } catch (e) {
+      console.error('Fetch commission logs error:', e);
     }
   };
 
@@ -4443,6 +4490,8 @@ const ERP_Dashboard = () => {
         '헬스케어실버': 'A073',
         '좋은건강크루즈': 'A074',
         '헬스케어골드': 'A075',
+        '헬스케어올인원': 'A077',
+        '굿라이프헬스케어올인원': 'A077',
         '헬스케어580': 'A081'
       };
 
@@ -5867,6 +5916,19 @@ const ERP_Dashboard = () => {
                       className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
                     />
                   </div>
+                  {showCommissionInfo && selectedTableKeys.size > 0 && (
+                    <button
+                      onClick={() => {
+                        setBatchPayDateInput('');
+                        setBatchReasonInput('');
+                        setIsBatchPayDateModalOpen(true);
+                      }}
+                      className="px-3.5 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-[12px] font-extrabold transition-all shadow-md flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    >
+                      <Calendar size={14} />
+                      수수료 지급일자 일괄 변경 ({selectedTableKeys.size}건)
+                    </button>
+                  )}
                   {showCommissionInfo && filteredData.length > 0 && (
                     <button
                       onClick={async () => {
@@ -5901,6 +5963,20 @@ const ERP_Dashboard = () => {
               <table className="w-full text-left border-collapse text-[11px] min-w-[1200px]">
                 <thead>
                   <tr className="bg-slate-800 text-white border-b border-slate-700">
+                    <th className="px-3 py-3 font-bold text-center border-r border-slate-700 w-10">
+                      <input
+                        type="checkbox"
+                        checked={selectedTableKeys.size === filteredData.length && filteredData.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedTableKeys(new Set(filteredData.map(i => i.uniqueKey)));
+                          } else {
+                            setSelectedTableKeys(new Set());
+                          }
+                        }}
+                        className="rounded border-slate-500 text-blue-600 focus:ring-blue-400 cursor-pointer"
+                      />
+                    </th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">계약일자</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">상태</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원번호</th>
@@ -5936,6 +6012,7 @@ const ERP_Dashboard = () => {
                       const count = data.filter(i => i.hq === item.hq && i.prodName === item.prodName).length;
                       const dummyMap = new Map<string, number>([[`${item.hq}|${item.prodName}`, count]]);
                       const { totalCommission } = calculateCommissionDetails(item, dummyMap);
+                      const isSelected = selectedTableKeys.has(item.uniqueKey);
 
                       return (
                         <motion.tr
@@ -5943,9 +6020,32 @@ const ERP_Dashboard = () => {
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: idx * 0.01 }}
                           key={item.uniqueKey}
-                          className={`hover:bg-blue-50/50 transition-colors group cursor-pointer border-b border-slate-50 text-[12px] ${item.status.includes('취소') ? 'text-red-500' : ''}`}
+                          className={`transition-colors group cursor-pointer border-b border-slate-100 text-[12px] ${
+                            isSelected
+                              ? 'bg-blue-50/90 font-medium border-l-4 border-l-blue-600 shadow-2xs'
+                              : 'hover:bg-blue-50/50'
+                          } ${item.status.includes('취소') ? 'text-red-500' : ''}`}
                           onClick={() => setSelectedItem(item)}
                         >
+                          <td
+                            className="px-3 py-3.5 text-center border-r border-slate-100"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedTableKeys(prev => {
+                                const next = new Set(prev);
+                                if (next.has(item.uniqueKey)) next.delete(item.uniqueKey);
+                                else next.add(item.uniqueKey);
+                                return next;
+                              });
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-400 cursor-pointer"
+                            />
+                          </td>
                           <td className="px-3 py-3.5 text-slate-500 font-mono text-center border-r border-slate-50 whitespace-nowrap">{item.contractDate}</td>
                           <td className="px-3 py-3.5 text-center border-r border-slate-50 font-bold">
                             {item.status.includes('취소') ? (
@@ -6263,9 +6363,21 @@ const ERP_Dashboard = () => {
                             <button
                               onClick={() => {
                                 const val = (document.getElementById('editPayDate') as HTMLInputElement).value;
-                                updateCell(selectedItem.originalRowIdx, 14, val);
+                                setSingleChangePending({
+                                  rowIdx: selectedItem.originalRowIdx,
+                                  colIdx: 14,
+                                  oldValue: selectedItem.payDate || '',
+                                  newValue: val,
+                                  contractNo: selectedItem.memNo || '',
+                                  rentalNo: selectedItem.rentalNo || '',
+                                  memName: selectedItem.memName || '',
+                                  hqName: selectedItem.hq || '',
+                                  fieldName: '수수료지급일자'
+                                });
+                                setSingleReasonInput('');
+                                setIsChangeReasonModalOpen(true);
                               }}
-                              className="p-1 px-2 bg-blue-600 text-white text-[10px] font-bold rounded"
+                              className="p-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors"
                             >
                               저장
                             </button>
@@ -6285,9 +6397,21 @@ const ERP_Dashboard = () => {
                             <button
                               onClick={() => {
                                 const val = (document.getElementById('editPaymentStatus') as HTMLSelectElement).value;
-                                updateCell(selectedItem.originalRowIdx, 19, val);
+                                setSingleChangePending({
+                                  rowIdx: selectedItem.originalRowIdx,
+                                  colIdx: 19,
+                                  oldValue: selectedItem.paymentStatus || '',
+                                  newValue: val,
+                                  contractNo: selectedItem.memNo || '',
+                                  rentalNo: selectedItem.rentalNo || '',
+                                  memName: selectedItem.memName || '',
+                                  hqName: selectedItem.hq || '',
+                                  fieldName: '지급상태'
+                                });
+                                setSingleReasonInput('');
+                                setIsChangeReasonModalOpen(true);
                               }}
-                              className="p-1 px-2 bg-emerald-600 text-white text-[10px] font-bold rounded"
+                              className="p-1 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded cursor-pointer transition-colors"
                             >
                               저장
                             </button>
@@ -6296,6 +6420,48 @@ const ERP_Dashboard = () => {
                       </div>
                     </section>
                   )}
+
+                  {/* 수수료 변경 이력 타임라인 */}
+                  <section className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-widest flex items-center gap-1.5">
+                        <History size={14} className="text-orange-500" /> 수수료 변경 이력 타임라인 (구글 시트 보관)
+                      </h4>
+                      <button
+                        onClick={() => fetchCommissionLogs(selectedItem.memNo, selectedItem.rentalNo)}
+                        className="text-[10px] font-bold text-blue-600 hover:underline flex items-center gap-1"
+                      >
+                        <RefreshCw size={10} /> 새로고침
+                      </button>
+                    </div>
+
+                    {commissionLogList.length > 0 ? (
+                      <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                        {commissionLogList.map((log, idx) => (
+                          <div key={idx} className="bg-white p-2.5 rounded-lg border border-slate-200/90 text-xs space-y-1 shadow-2xs">
+                            <div className="flex justify-between items-center text-[10px] text-slate-400 font-medium">
+                              <span>⏱️ {log.timestamp}</span>
+                              <span className="font-bold text-slate-600">작업자: {log.worker}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                              <span className="text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded text-[10px]">[{log.fieldName}]</span>
+                              <span className="line-through text-slate-400">{log.oldValue || '미지정'}</span>
+                              <span className="text-blue-600">➔ {log.newValue}</span>
+                            </div>
+                            {log.reason && (
+                              <div className="text-[11px] text-slate-600 bg-slate-50 p-1.5 rounded italic">
+                                💬 사유: {log.reason}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="py-4 text-center text-xs text-slate-400 italic bg-white rounded-lg border border-slate-100">
+                        저장된 수수료 변경 이력이 없습니다.
+                      </div>
+                    )}
+                  </section>
 
                   {/* 영업자정보 */}
                   <section>
@@ -8417,6 +8583,236 @@ const ERP_Dashboard = () => {
                       className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-200 flex items-center gap-1.5"
                     >
                       <Plus size={15} /> 본부 생성하기
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+        {/* 단건 수수료 변경 사유 입력 모달 */}
+        <AnimatePresence>
+          {isChangeReasonModalOpen && singleChangePending && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsChangeReasonModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col z-10">
+                <div className="px-6 py-4 border-b border-slate-100 bg-slate-900 text-white flex justify-between items-center">
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <FileText size={18} className="text-orange-400" /> 수수료 정보 변경 사유 입력
+                  </h3>
+                  <button onClick={() => setIsChangeReasonModalOpen(false)} className="p-1.5 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors"><X size={18} /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="bg-orange-50/70 p-4 rounded-2xl border border-orange-100 text-xs space-y-1 font-medium text-orange-950">
+                    <div className="flex justify-between">
+                      <span className="font-bold">변경 항목: {singleChangePending.fieldName}</span>
+                      <span>회원명: {singleChangePending.memName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>계약번호: {singleChangePending.contractNo}</span>
+                      <span>렌탈번호: {singleChangePending.rentalNo || '-'}</span>
+                    </div>
+                    <div className="pt-2 font-extrabold flex items-center gap-2 text-sm border-t border-orange-200/60">
+                      <span className="line-through text-slate-400">{singleChangePending.oldValue || '미지정'}</span>
+                      <span className="text-orange-600">➔ {singleChangePending.newValue}</span>
+                    </div>
+                    <div className="text-[10px] text-orange-700 italic pt-1">
+                      ℹ️ 동일한 렌탈계약번호({singleChangePending.rentalNo || '-'})를 공유하는 연관 구좌/상품 건들도 함께 자동 변경되며, 변경 사유가 구글 시트 '수수료변경이력' 탭에 영구 저장됩니다.
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1.5">변경 사유 (필수 또는 권장)</label>
+                    <textarea
+                      rows={3}
+                      value={singleReasonInput}
+                      onChange={e => setSingleReasonInput(e.target.value)}
+                      placeholder="예: 본부 요청으로 지급일자 연기 변경, 서류 확인 후 정정 등"
+                      className="w-full p-3 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-orange-400/20 focus:border-orange-500"
+                    />
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      onClick={() => setIsChangeReasonModalOpen(false)}
+                      className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
+                    >
+                      취소
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          // 동일 렌탈번호 묶음 건들 수집
+                          const sameRentalRows = singleChangePending.rentalNo ? collectSameRentalNoRows([singleChangePending.rentalNo]) : [];
+                          const updatesMap = new Map<number, any>();
+
+                          // 대상 행 추가
+                          updatesMap.set(singleChangePending.rowIdx, {
+                            rowIdx: singleChangePending.rowIdx,
+                            colIdx: singleChangePending.colIdx,
+                            oldValue: singleChangePending.oldValue,
+                            newValue: singleChangePending.newValue,
+                            contractNo: singleChangePending.contractNo,
+                            rentalNo: singleChangePending.rentalNo,
+                            memName: singleChangePending.memName,
+                            hqName: singleChangePending.hqName,
+                            fieldName: singleChangePending.fieldName
+                          });
+
+                          // 동일 렌탈번호 묶음 행 전파
+                          sameRentalRows.forEach(item => {
+                            if (item.originalRowIdx && !updatesMap.has(item.originalRowIdx)) {
+                              updatesMap.set(item.originalRowIdx, {
+                                rowIdx: item.originalRowIdx,
+                                colIdx: singleChangePending.colIdx,
+                                oldValue: singleChangePending.colIdx === 14 ? (item.payDate || '') : (item.paymentStatus || ''),
+                                newValue: singleChangePending.newValue,
+                                contractNo: item.memNo || '',
+                                rentalNo: item.rentalNo || '',
+                                memName: item.memName || '',
+                                hqName: item.hq || '',
+                                fieldName: singleChangePending.fieldName
+                              });
+                            }
+                          });
+
+                          const updatesArray = Array.from(updatesMap.values());
+
+                          const res = await fetch('/api/sheets/commission-log/batch-update', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              updates: updatesArray,
+                              reason: singleReasonInput.trim() || '단건/동일렌탈번호 수수료 변경',
+                              worker: 'admin'
+                            })
+                          });
+
+                          if (res.ok) {
+                            setNotification({ message: `성공적으로 ${updatesArray.length}건(동일 렌탈번호 포함)의 수수료 정보 및 사유가 구글 시트에 보관되었습니다!`, type: 'success' });
+                            setIsChangeReasonModalOpen(false);
+                            await loadData();
+                            fetchCommissionLogs(singleChangePending.contractNo, singleChangePending.rentalNo);
+                          } else {
+                            alert('수수료 변경 기록 저장 중 오류가 발생했습니다.');
+                          }
+                        } catch(e: any) {
+                          alert(`변경 실패: ${e.message}`);
+                        }
+                      }}
+                      className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-orange-500/20"
+                    >
+                      변경 및 사유 저장
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* 다중 수수료 지급일자 일괄 변경 모달 */}
+        <AnimatePresence>
+          {isBatchPayDateModalOpen && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsBatchPayDateModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col z-10">
+                <div className="px-6 py-4 border-b border-slate-100 bg-orange-500 text-white flex justify-between items-center">
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <Calendar size={18} /> 수수료 지급일자 일괄 변경 ({selectedTableKeys.size}건 선택됨)
+                  </h3>
+                  <button onClick={() => setIsBatchPayDateModalOpen(false)} className="p-1.5 hover:bg-orange-600 rounded-full text-white transition-colors"><X size={18} /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="bg-orange-50 p-4 rounded-2xl border border-orange-200/80 text-xs space-y-1 font-medium text-orange-950">
+                    <div className="font-bold text-sm text-orange-700">
+                      체크 선택한 {selectedTableKeys.size}건 및 동일 렌탈계약번호 묶음 건 일괄 변경
+                    </div>
+                    <p className="text-[11px] text-orange-800 font-normal leading-relaxed">
+                      선택하신 건들과 동일한 렌탈번호를 공유하는 연관 구좌 건들이 한 번에 동일 일자로 변경되며, 변경 이력 및 사유가 구글 시트 '수수료변경이력' 탭에 영구 기록됩니다.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1.5">변경할 수수료 지급일자 (예: 2026.09.18)</label>
+                    <input
+                      type="text"
+                      value={batchPayDateInput}
+                      onChange={e => setBatchPayDateInput(e.target.value)}
+                      placeholder="2026.09.18"
+                      className="w-full p-3 border border-slate-200 rounded-xl text-base font-bold text-slate-800 outline-none focus:ring-2 focus:ring-orange-400/20 focus:border-orange-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1.5">일괄 변경 사유</label>
+                    <textarea
+                      rows={3}
+                      value={batchReasonInput}
+                      onChange={e => setBatchReasonInput(e.target.value)}
+                      placeholder="예: 본부 일괄 요청으로 9/18 지급 변경"
+                      className="w-full p-3 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-orange-400/20 focus:border-orange-500"
+                    />
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      onClick={() => setIsBatchPayDateModalOpen(false)}
+                      className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
+                    >
+                      취소
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!batchPayDateInput.trim()) return alert('수수료 지급일자를 입력해 주세요.');
+
+                        try {
+                          // 선택된 항목들과 연관 렌탈번호 항목들 수집
+                          const selectedItems = data.filter(d => selectedTableKeys.has(d.uniqueKey));
+                          const targetRentalNos = selectedItems.map(d => d.rentalNo || d.memNo || '').filter(Boolean);
+                          const sameRentalItems = collectSameRentalNoRows(targetRentalNos);
+
+                          const allTargetItemsMap = new Map<string, any>();
+                          selectedItems.forEach(item => allTargetItemsMap.set(item.uniqueKey, item));
+                          sameRentalItems.forEach(item => allTargetItemsMap.set(item.uniqueKey, item));
+
+                          const updatesArray = Array.from(allTargetItemsMap.values()).map(item => ({
+                            rowIdx: item.originalRowIdx,
+                            colIdx: 14,
+                            oldValue: item.payDate || '',
+                            newValue: batchPayDateInput.trim(),
+                            contractNo: item.memNo || '',
+                            rentalNo: item.rentalNo || '',
+                            memName: item.memName || '',
+                            hqName: item.hq || '',
+                            fieldName: '수수료지급일자'
+                          }));
+
+                          const res = await fetch('/api/sheets/commission-log/batch-update', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              updates: updatesArray,
+                              reason: batchReasonInput.trim() || '다중 선택 수수료 지급일자 일괄 변경',
+                              worker: 'admin'
+                            })
+                          });
+
+                          if (res.ok) {
+                            alert(`성공적으로 ${updatesArray.length}건(동일 렌탈번호 묶음 포함)의 수수료지급일자가 [${batchPayDateInput.trim()}] (으)로 변경되고 구글 시트에 보관되었습니다!`);
+                            setIsBatchPayDateModalOpen(false);
+                            setSelectedTableKeys(new Set());
+                            await loadData();
+                          } else {
+                            alert('일괄 수수료 변경 중 오류가 발생했습니다.');
+                          }
+                        } catch(e: any) {
+                          alert(`일괄 변경 실패: ${e.message}`);
+                        }
+                      }}
+                      className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-orange-500/20"
+                    >
+                      일괄 변경 및 사유 저장
                     </button>
                   </div>
                 </div>
