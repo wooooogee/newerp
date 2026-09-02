@@ -4147,10 +4147,14 @@ const ERP_Dashboard = () => {
         ]);
       }
 
+      const specialCount = specialSum > 0 
+        ? (settlementStats.globalIncentivesCountSummary?.[hqName] ?? (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === hqName || sp.targetName === hqName).length)
+        : 0;
+
       if (specialSum > 0) {
         rows.push([
-          '특수수당 합계',
-          settlementStats.hqSummary[hqName]?.count || 0,
+          '공급 수수료 / 특수수당 합계',
+          specialCount,
           { v: 0, t: 'n', z: '#,##0' },
           { v: specialSum, t: 'n', z: '#,##0' },
           { v: specialSum, t: 'n', z: '#,##0' }
@@ -4159,7 +4163,7 @@ const ERP_Dashboard = () => {
 
       const totalItemsCount = items.length + 
         (maintenanceSum > 0 ? hqMaintenancePayouts.length : 0) + 
-        (specialSum > 0 ? (settlementStats.hqSummary[hqName]?.count || 0) : 0);
+        specialCount;
 
       rows.push([
         '계',
