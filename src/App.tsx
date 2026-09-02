@@ -10649,17 +10649,11 @@ const ERP_Dashboard = () => {
                         });
 
                         const targetDate = reconTab === 'NEW' ? reconDate : selectedHistoryDate;
-                        if (payDateFilter !== targetDate) {
-                          setOriginalPayDateFilter(payDateFilter);
-                          setPayDateFilter(targetDate);
-                          setPendingAppendSheet({ name: '대사보고', data: aoaData });
-                          setPendingExportDate(targetDate);
-                        } else {
-                          exportIntegratedSettlement({
-                            name: '대사보고',
-                            data: aoaData
-                          });
-                        }
+                        const ws = XLSX.utils.aoa_to_sheet(aoaData);
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, '유통사대사_내역');
+                        const fileName = `유통사_대사내역_${targetDate || new Date().toISOString().slice(0, 10)}.xlsx`;
+                        XLSX.writeFile(wb, fileName);
                       }}
                       disabled={(reconTab === 'NEW' ? reconData.length : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).length) === 0}
                       className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-100 disabled:opacity-50"
