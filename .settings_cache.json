@@ -2114,10 +2114,11 @@
       "deliveryState": "배송완료"
     },
     "12327050": {
-      "deliveryDate": "",
+      "orderDate": "",
+      "deliveryDate": "2026-08-31",
       "courier": "CJ대한통운",
       "trackingNo": "600019295684",
-      "deliveryState": "배송중"
+      "deliveryState": "배송완료"
     },
     "12327167": {
       "deliveryDate": "2026-08-28",
@@ -2144,10 +2145,11 @@
       "deliveryState": "배송중"
     },
     "12330246": {
-      "deliveryDate": "",
-      "courier": "CJ대한통운",
+      "orderDate": "",
+      "deliveryDate": "2026-08-29",
+      "courier": "경동택배",
       "trackingNo": "8026081623250",
-      "deliveryState": "배송중"
+      "deliveryState": "배송완료"
     },
     "12330329": {
       "deliveryDate": "2026-08-28",
@@ -2156,10 +2158,11 @@
       "deliveryState": "배송완료"
     },
     "12330481": {
-      "deliveryDate": "",
+      "orderDate": "",
+      "deliveryDate": "2026-08-29",
       "courier": "CJ대한통운",
       "trackingNo": "600019295695",
-      "deliveryState": "배송중"
+      "deliveryState": "배송완료"
     },
     "12330539": {
       "deliveryDate": "",

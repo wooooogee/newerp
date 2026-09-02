@@ -678,7 +678,7 @@ const ERP_Dashboard = () => {
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
   const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('상품개수');
-  const [tableDisplayMode, setTableDisplayMode] = useState<'구좌수' | '상품개수'>('상품개수');
+  const [tableDisplayMode, setTableDisplayMode] = useState<'구좌수' | '상품개수'>('구좌수');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [pendingExportDate, setPendingExportDate] = useState<string | null>(null);
