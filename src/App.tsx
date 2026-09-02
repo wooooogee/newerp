@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound } from 'lucide-react';
+import React, { useState, useEffect, useRef, Component, ReactNode } from 'react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -677,8 +677,8 @@ const ERP_Dashboard = () => {
   const [expandedHqs, setExpandedHqs] = useState<Record<string, boolean>>({});
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
-  const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('구좌수');
-  const [tableDisplayMode, setTableDisplayMode] = useState<'구좌수' | '상품개수'>('구좌수');
+  const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('상품개수');
+  const [tableDisplayMode, setTableDisplayMode] = useState<'구좌수' | '상품개수'>('상품개수');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [pendingExportDate, setPendingExportDate] = useState<string | null>(null);
@@ -5352,14 +5352,6 @@ const ERP_Dashboard = () => {
                     {isSuperAdmin && (
                       <div className="flex items-center gap-1.5">
                         <button
-                          onClick={() => setIsHealthcareReconModalOpen(true)}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
-                          title="KB헬스케어대상자 vs 관리대장 헬스케어 등록일/서비스제공일 대사 대조"
-                        >
-                          <RefreshCw size={13} />
-                          <span className="hidden sm:inline">헬스케어 명단 대사작업</span>
-                        </button>
-                        <button
                           onClick={() => setIsPresidentReportModalOpen(true)}
                           className="flex items-center gap-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
                         >
@@ -6045,7 +6037,7 @@ const ERP_Dashboard = () => {
                             isSelected
                               ? 'bg-blue-50/90 font-medium border-l-4 border-l-blue-600 shadow-2xs'
                               : 'hover:bg-blue-50/50'
-                          } ${item.status.includes('취소') ? 'text-red-500' : ''}`}
+                          } ${(item.status || '').includes('취소') ? 'text-red-500' : ''}`}
                           onClick={() => setSelectedItem(item)}
                         >
                           <td
@@ -6069,7 +6061,7 @@ const ERP_Dashboard = () => {
                           </td>
                           <td className="px-3 py-3.5 text-slate-500 font-mono text-center border-r border-slate-50 whitespace-nowrap">{item.contractDate}</td>
                           <td className="px-3 py-3.5 text-center border-r border-slate-50 font-bold">
-                            {item.status.includes('취소') ? (
+                            {(item.status || '').includes('취소') ? (
                               <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded-md">취소</span>
                             ) : (
                               <span className={`px-2 py-0.5 rounded-md ${item.status === '가입' ? 'text-blue-600 bg-blue-50' : 'text-slate-400'}`}>
@@ -6095,8 +6087,8 @@ const ERP_Dashboard = () => {
                           )}
                           <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-500">{item.rentalNo}</td>
                         <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded-md text-[10px] font-black border ${item.deliveryStatus.includes('완료') ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                            item.deliveryStatus.includes('취소') ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-orange-50 text-orange-600 border-orange-100'
+                          <span className={`px-2 py-1 rounded-md text-[10px] font-black border ${(item.deliveryStatus || '').includes('완료') ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                            (item.deliveryStatus || '').includes('취소') ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-orange-50 text-orange-600 border-orange-100'
                             }`}>
                             {item.deliveryStatus}
                           </span>
@@ -6108,11 +6100,11 @@ const ERP_Dashboard = () => {
                               {item.payDate || '-'}
                             </td>
                             <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
-                              <span className={`px-2 py-1 rounded text-[10px] font-black ${(item.paymentStatus === '지급완료' || item.hc.includes('지급완료'))
+                              <span className={`px-2 py-1 rounded text-[10px] font-black ${(item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료')))
                                 ? 'bg-emerald-500 text-white'
                                 : 'bg-slate-100 text-slate-400'
                                 }`}>
-                                {(item.paymentStatus === '지급완료' || item.hc.includes('지급완료')) ? '지급완료' : '지급예정'}
+                                {(item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료'))) ? '지급완료' : '지급예정'}
                               </span>
                             </td>
                           </>
@@ -6359,7 +6351,7 @@ const ERP_Dashboard = () => {
                       <DetailItem label="상품명" value={selectedItem.prodName} />
                       <DetailItem label="렌탈상품명" value={selectedItem.rentalProd} />
                       <DetailItem label="렌탈계약번호" value={selectedItem.rentalNo} />
-                      <DetailItem label="배송현황" value={selectedItem.deliveryStatus.replace('완료', ' 완료')} />
+                      <DetailItem label="배송현황" value={selectedItem.deliveryStatus ? selectedItem.deliveryStatus.replace('완료', ' 완료') : '-'} />
                       <DetailItem label="배송일자" value={selectedItem.deliveryDate} />
                     </div>
                   </section>
@@ -6511,7 +6503,7 @@ const ERP_Dashboard = () => {
 
                 <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
                   <div>
-                    {showCommissionInfo && (selectedItem.paymentStatus === '지급완료' || selectedItem.hc.includes('지급완료')) && (
+                    {showCommissionInfo && (selectedItem.paymentStatus === '지급완료' || (selectedItem.hc && selectedItem.hc.includes('지급완료'))) && (
                       <button
                         onClick={async () => {
                           if (await (window as any).customConfirm('해당 건의 지급 완료 처리를 취소하시겠습니까?')) {
@@ -11278,4 +11270,62 @@ const DetailItem = ({ label, value, className = "" }: { label: string, value: an
   </div>
 );
 
-export default ERP_Dashboard;
+class ErrorBoundary extends React.Component<any, any> {
+  constructor(props: any) {
+    super(props);
+    (this as any).state = {
+      hasError: false,
+      error: null,
+    };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("React Error Boundary Caught:", error, errorInfo);
+  }
+
+  render() {
+    const state = (this as any).state;
+    const props = (this as any).props;
+    if (state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6 bg-slate-100 font-sans">
+          <div className="max-w-xl w-full bg-white border-2 border-rose-200 rounded-2xl shadow-2xl p-6 text-slate-800 space-y-4">
+            <h2 className="text-lg font-bold text-rose-600 flex items-center gap-2">
+              ⚠️ 화면 렌더링 중 오류가 발생했습니다
+            </h2>
+            <p className="text-xs text-slate-600">
+              특정 데이터 항목 렌더링 과정에서 오류가 발생했습니다. 아래의 상세 에러 메시지를 확인해 주세요:
+            </p>
+            <pre className="text-[11px] text-rose-800 font-mono bg-rose-50 p-3 rounded-xl border border-rose-100 overflow-x-auto whitespace-pre-wrap break-all">
+              {state.error?.stack || state.error?.toString() || '알 수 없는 렌더링 오류'}
+            </pre>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => {
+                  (this as any).setState({ hasError: false, error: null });
+                  window.location.reload();
+                }}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs transition-colors shadow-sm cursor-pointer"
+              >
+                페이지 새로고침
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return props.children;
+  }
+}
+
+const AppWithErrorBoundary = () => (
+  <ErrorBoundary>
+    <ERP_Dashboard />
+  </ErrorBoundary>
+);
+
+export default AppWithErrorBoundary;

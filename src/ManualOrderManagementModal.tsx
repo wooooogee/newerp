@@ -290,6 +290,23 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         });
       }
       setSheetOrderMap(map);
+
+      // 클라우드 저장소(구글 시트 '수기발주및기타설정' 시트)에서 최신 수기발주 상태 불러와 다른 PC/IP 동기화
+      try {
+        const cloudRes = await fetch('/api/sheets/settings/load');
+        if (cloudRes.ok) {
+          const cloudData = await cloudRes.json();
+          if (cloudData.manualOrderStores && typeof cloudData.manualOrderStores === 'object') {
+            setSavedOrderStore((prev) => ({
+              ...cloudData.manualOrderStores,
+              ...prev,
+            }));
+            localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(cloudData.manualOrderStores));
+          }
+        }
+      } catch (cloudErr) {
+        console.warn('클라우드 수기발주 설정 로드 실패:', cloudErr);
+      }
     } catch (err: any) {
       console.warn('수기발주 시트 로드 실패:', err);
     } finally {
@@ -341,15 +358,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const courier = normalizeCourierName(rawCourier);
       const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : (sheetMatch?.trackingNo || '');
 
-      let dState: DeliveryState = savedData?.deliveryState || (sheetMatch?.raw?.[23] as DeliveryState) || '발주대기';
+      const explicitState = savedData?.deliveryState || (sheetMatch?.raw?.[23] as DeliveryState);
+      let dState: DeliveryState = explicitState || '발주대기';
       
-      // 배송상태 자동 추론 및 보정 (배송일 기입 건은 배송완료로 처리)
-      if (delDate.trim()) {
-        dState = '배송완료';
-      } else if (dState === '발주대기' && (tracking.trim() || courier.trim())) {
-        dState = '배송중';
-      } else if (dState === '발주대기' && ordDate.trim()) {
-        dState = '발주완료';
+      // 명시적인 수동 지정 상태가 없을 때만 초기 보조 추론 적용
+      if (!explicitState) {
+        if (delDate.trim()) {
+          dState = '배송완료';
+        } else if (tracking.trim() || courier.trim()) {
+          dState = '배송중';
+        } else if (ordDate.trim()) {
+          dState = '발주완료';
+        }
       }
 
       list.push({
@@ -596,11 +616,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         let newTracking = editedVal?.trackingNo !== undefined ? editedVal.trackingNo.trim() : (existing.trackingNo ?? row.trackingNo ?? '');
         let newDState = editedSt !== undefined ? editedSt : (existing.deliveryState ?? row.deliveryState ?? '발주대기');
 
-        // 배송상태 자동 보정: 배송일이 입력되어 있으면 배송완료, 송장/택배사만 있으면 배송중
-        if (newDelDate.trim()) {
-          newDState = '배송완료';
-        } else if (newDState === '발주대기' && (newCourier.trim() || newTracking.trim())) {
-          newDState = '배송중';
+        // 사용자가 배송상태를 수동 선택(editedSt)하지 않았고 기존 명시 지정 상태도 없을 때만 보조 추론
+        if (editedSt === undefined && !existing.deliveryState && !row.deliveryState) {
+          if (newDelDate.trim()) {
+            newDState = '배송완료';
+          } else if (newCourier.trim() || newTracking.trim()) {
+            newDState = '배송중';
+          }
         }
 
         nextStore[cKey] = {
@@ -619,7 +641,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         }
       });
 
-      // 1. 구글 시트 '수기발주' 시트에 배치 업데이트
+      // 1. 구글 시트 '수기발주' 시트에 배치 업데이트 (X열 배송상태 포함)
       if (sheetUpdates.length > 0) {
         const res = await fetch('/api/sheets/batch-update', {
           method: 'POST',
@@ -636,9 +658,22 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         }
       }
 
-      // 2. localStore 업데이트
+      // 2. localStore 및 다른 PC/IP 동기화용 클라우드 동기화 저장소 반영
       setSavedOrderStore(nextStore);
       localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(nextStore));
+
+      try {
+        await fetch('/api/sheets/settings/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            manualOrderStores: nextStore,
+            manualOrderProducts: targetProducts,
+          }),
+        });
+      } catch (cloudErr) {
+        console.warn('클라우드 동기화 저장 오류:', cloudErr);
+      }
 
       // 3. 최신 시트 데이터 동기화
       await fetchOrderSheetData();

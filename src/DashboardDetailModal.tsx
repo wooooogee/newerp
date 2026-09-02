@@ -35,6 +35,16 @@ interface DashboardDetailModalProps {
   isAdmin: boolean;
 }
 
+const DEFAULT_TARGET_PRODUCTS = [
+  '뉴스카이타워G9 3in1',
+  'G210NW',
+  'CRVC-CAC1620W',
+  '가스트로플러스',
+  '쿠쿠',
+];
+
+const LOCAL_STORAGE_KEY = 'erp_manual_order_target_products_v1';
+
 export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   isOpen,
   onClose,
@@ -53,12 +63,37 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   // 전체 기간 보기 토글 상태
   const [viewAllMonths, setViewAllMonths] = useState(false);
 
+  // 수기발주 필터링 상태 (all: 전체, manual: 수기발주, normal: 일반)
+  const [manualOrderFilter, setManualOrderFilter] = useState<'all' | 'manual' | 'normal'>('all');
+
   // 신규 취소/해약 등록 모드 관련 상태
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedContracts, setSelectedContracts] = useState<ERPDataItem[]>([]);
   const [newStatus, setNewStatus] = useState('취소');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 수기발주 대상 상품 목록 로드
+  const targetProducts = useMemo(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return DEFAULT_TARGET_PRODUCTS;
+  }, []);
+
+  // 수기발주건 여부 판별 함수
+  const checkIsManualOrder = (item: ERPDataItem) => {
+    const rawProdName = (item.rentalProd || item.prodName || '').trim();
+    if (!rawProdName) return false;
+    const cleanProdName = rawProdName.replace(/^[0-9]+구좌[_\s]*/g, '').trim();
+    return targetProducts.some(
+      (tp: string) => tp && (rawProdName.toLowerCase().includes(tp.toLowerCase()) || cleanProdName.toLowerCase().includes(tp.toLowerCase()))
+    );
+  };
 
   // 검색어 변경이나 모드 변경 시 페이지네이션 초기화
   React.useEffect(() => {
@@ -72,6 +107,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     setSelectedContracts([]);
     setSearchQuery('');
     setViewAllMonths(false);
+    setManualOrderFilter('all');
   }, [type, month, isOpen]);
 
   // 관리자가 아닌데 등록모드가 켜져 있다면 방어 조치로 강제 리셋
@@ -226,6 +262,13 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
     temp = [...groupedItems, ...nonRentalItems];
 
+    // 수기발주 필터링
+    if (manualOrderFilter === 'manual') {
+      temp = temp.filter(item => checkIsManualOrder(item));
+    } else if (manualOrderFilter === 'normal') {
+      temp = temp.filter(item => !checkIsManualOrder(item));
+    }
+
     // 검색어 필터링
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
@@ -251,7 +294,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
     // 계약일 기준 정렬
     return temp.sort((a, b) => b.contractDate.localeCompare(a.contractDate));
-  }, [data, type, month, mode, searchTerm, viewAllMonths]);
+  }, [data, type, month, mode, searchTerm, viewAllMonths, manualOrderFilter, targetProducts]);
 
   // 페이지네이션 처리
   const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
@@ -272,6 +315,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       if (type === 'delivery') {
         return {
           '순번': index + 1,
+          '발주구분': checkIsManualOrder(item) ? '수기발주' : '일반',
           '계약일자': item.contractDate,
           '배송일자': item.deliveryDate || '',
           '회원번호': item.memNo || '',
@@ -309,6 +353,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     if (type === 'delivery') {
       ws['!cols'] = [
         { wch: 6 },  // 순번
+        { wch: 12 }, // 발주구분
         { wch: 15 }, // 계약일자
         { wch: 15 }, // 배송일자
         { wch: 15 }, // 회원번호
@@ -355,7 +400,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
-          className="bg-white rounded-2xl shadow-xl w-full max-w-7xl overflow-hidden flex flex-col max-h-[90vh]"
+          className="bg-white rounded-2xl shadow-xl w-[96vw] max-w-[1700px] overflow-hidden flex flex-col max-h-[92vh]"
         >
           {/* 헤더 */}
           <div className={`px-6 py-4 flex items-center justify-between text-white ${isDelivery ? 'bg-sky-600' : 'bg-rose-600'}`}>
@@ -574,7 +619,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             <>
               {/* 필터 및 검색어 영역 */}
               <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row gap-3 items-center justify-between">
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-4">
                   <span className="text-sm font-semibold text-slate-600">
                     총 <span className={isDelivery ? 'text-sky-600 font-bold' : 'text-rose-600 font-bold'}>{filteredData.length}</span> 건
                   </span>
@@ -593,6 +638,45 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                     />
                     전체 기간 보기
                   </label>
+
+                  {/* 수기발주 구분 필터 버튼 그룹 */}
+                  {isDelivery && (
+                    <div className="flex bg-slate-200/70 p-0.5 rounded-lg text-[11px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setManualOrderFilter('all')}
+                        className={`px-2.5 py-1 rounded-md transition-all ${
+                          manualOrderFilter === 'all'
+                            ? 'bg-white text-slate-800 shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        전체
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManualOrderFilter('manual')}
+                        className={`px-2.5 py-1 rounded-md transition-all ${
+                          manualOrderFilter === 'manual'
+                            ? 'bg-amber-500 text-white shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        수기발주
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManualOrderFilter('normal')}
+                        className={`px-2.5 py-1 rounded-md transition-all ${
+                          manualOrderFilter === 'normal'
+                            ? 'bg-white text-slate-800 shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        일반
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex w-full sm:w-auto items-center gap-2">
@@ -633,31 +717,46 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                 <table className="w-full text-left border-collapse text-[11px]">
                   <thead>
                     <tr className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-                      <th className="px-3 py-2 text-center">순번</th>
-                      {!isDelivery && <th className="px-3 py-2 text-center">계약상태</th>}
-                      <th className="px-3 py-2">계약일자</th>
-                      {isDelivery && <th className="px-3 py-2">배송일자</th>}
-                      <th className="px-3 py-2">회원번호</th>
-                      <th className="px-3 py-2">회원명</th>
-                      <th className="px-3 py-2">렌탈번호</th>
-                      <th className="px-3 py-2">상품명</th>
-                      <th className="px-3 py-2">제품명</th>
-                      <th className="px-3 py-2">본부</th>
-                      <th className="px-3 py-2">지사</th>
-                      <th className="px-3 py-2">사원명</th>
-                      {isDelivery && <th className="px-3 py-2 text-center">계약상태</th>}
-                      {isDelivery && <th className="px-3 py-2 text-center">배송상태</th>}
+                      <th className="px-3 py-2 text-center whitespace-nowrap">순번</th>
+                      {isDelivery && <th className="px-3 py-2 text-center whitespace-nowrap">발주구분</th>}
+                      {!isDelivery && <th className="px-3 py-2 text-center whitespace-nowrap">계약상태</th>}
+                      <th className="px-3 py-2 whitespace-nowrap">계약일자</th>
+                      {isDelivery && <th className="px-3 py-2 whitespace-nowrap">배송일자</th>}
+                      <th className="px-3 py-2 whitespace-nowrap">회원번호</th>
+                      <th className="px-3 py-2 whitespace-nowrap">회원명</th>
+                      <th className="px-3 py-2 whitespace-nowrap">렌탈번호</th>
+                      <th className="px-3 py-2 whitespace-nowrap">상품명</th>
+                      <th className="px-3 py-2 whitespace-nowrap">제품명</th>
+                      <th className="px-3 py-2 whitespace-nowrap">본부</th>
+                      <th className="px-3 py-2 whitespace-nowrap">지사</th>
+                      <th className="px-3 py-2 whitespace-nowrap">사원명</th>
+                      {isDelivery && <th className="px-3 py-2 text-center whitespace-nowrap">계약상태</th>}
+                      {isDelivery && <th className="px-3 py-2 text-center whitespace-nowrap">배송상태</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {paginatedData.length > 0 ? (
                       paginatedData.map((item, idx) => {
                         const globalIdx = (currentPage - 1) * itemsPerPage + idx + 1;
+                        const isManual = checkIsManualOrder(item);
                         return (
                           <tr key={item.uniqueKey} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-3 py-1.5 text-center text-slate-400 font-medium">{globalIdx}</td>
+                            <td className="px-3 py-1.5 text-center text-slate-400 font-medium whitespace-nowrap">{globalIdx}</td>
+                            {isDelivery && (
+                              <td className="px-3 py-1.5 text-center whitespace-nowrap">
+                                {isManual ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                    수기발주
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                    일반
+                                  </span>
+                                )}
+                              </td>
+                            )}
                             {!isDelivery && (
-                              <td className="px-3 py-1.5 text-center">
+                              <td className="px-3 py-1.5 text-center whitespace-nowrap">
                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                   item.status.includes('취소') || item.status.includes('해약')
                                     ? 'bg-rose-50 text-rose-600 border border-rose-100'
@@ -667,18 +766,18 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                                 </span>
                               </td>
                             )}
-                            <td className="px-3 py-1.5 font-medium text-slate-600">{item.contractDate}</td>
-                            {isDelivery && <td className="px-3 py-1.5 font-medium text-sky-600">{item.deliveryDate || '-'}</td>}
-                            <td className="px-3 py-1.5 text-slate-500 max-w-[150px] break-all">{item.memNo}</td>
-                            <td className="px-3 py-1.5 font-bold text-slate-800 max-w-[120px] break-all">{item.memName}</td>
-                            <td className="px-3 py-1.5 font-mono text-slate-600">{item.rentalNo || '-'}</td>
-                            <td className="px-3 py-1.5 text-slate-700 font-medium max-w-[150px] truncate" title={item.prodName}>{item.prodName}</td>
-                            <td className="px-3 py-1.5 text-slate-700 font-medium max-w-[150px] truncate" title={item.rentalProd}>{item.rentalProd || '-'}</td>
-                            <td className="px-3 py-1.5 text-slate-600">{item.hq}</td>
-                            <td className="px-3 py-1.5 text-slate-600">{item.branch || '-'}</td>
-                            <td className="px-3 py-1.5 text-slate-600">{item.empName}</td>
+                            <td className="px-3 py-1.5 font-medium text-slate-600 whitespace-nowrap">{item.contractDate}</td>
+                            {isDelivery && <td className="px-3 py-1.5 font-medium text-sky-600 whitespace-nowrap">{item.deliveryDate || '-'}</td>}
+                            <td className="px-3 py-1.5 text-slate-500 whitespace-nowrap">{item.memNo}</td>
+                            <td className="px-3 py-1.5 font-bold text-slate-800 whitespace-nowrap">{item.memName}</td>
+                            <td className="px-3 py-1.5 font-mono text-slate-600 whitespace-nowrap">{item.rentalNo || '-'}</td>
+                            <td className="px-3 py-1.5 text-slate-700 font-medium whitespace-nowrap" title={item.prodName}>{item.prodName}</td>
+                            <td className="px-3 py-1.5 text-slate-700 font-medium whitespace-nowrap" title={item.rentalProd}>{item.rentalProd || '-'}</td>
+                            <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{item.hq}</td>
+                            <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{item.branch || '-'}</td>
+                            <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{item.empName}</td>
                             {isDelivery && (
-                              <td className="px-3 py-1.5 text-center">
+                              <td className="px-3 py-1.5 text-center whitespace-nowrap">
                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                   item.status.includes('취소') || item.status.includes('해약')
                                     ? 'bg-rose-50 text-rose-600 border border-rose-100'
@@ -689,7 +788,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                               </td>
                             )}
                             {isDelivery && (
-                              <td className="px-3 py-1.5 text-center">
+                              <td className="px-3 py-1.5 text-center whitespace-nowrap">
                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                   item.deliveryStatus === '배송완료'
                                     ? 'bg-sky-50 text-sky-600 border border-sky-100'
@@ -706,7 +805,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                       })
                     ) : (
                       <tr>
-                        <td colSpan={isDelivery ? 13 : 11} className="px-3 py-12 text-center text-slate-400 font-semibold">
+                        <td colSpan={isDelivery ? 14 : 11} className="px-3 py-12 text-center text-slate-400 font-semibold">
                           검색 조건에 맞는 내역이 없습니다.
                         </td>
                       </tr>
