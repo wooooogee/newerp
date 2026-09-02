@@ -175,11 +175,33 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   // 발주서 엑셀 팝업 모달 상태
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
 
-  // 연락처 숫자 정제 (01000000000)
+  // 연락처 하이픈 포맷팅 (010-0000-0000)
   const formatPhoneNum = (val: any) => {
     const str = String(val || '').trim();
+    if (!str) return '';
     const digits = str.replace(/[^0-9]/g, '');
-    return digits || str;
+    if (!digits) return str;
+
+    // 11자리 (예: 01012345678 -> 010-1234-5678)
+    if (digits.length === 11) {
+      return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+    }
+    // 10자리 (예: 0101234567 -> 010-123-4567, 0212345678 -> 02-1234-5678)
+    if (digits.length === 10) {
+      if (digits.startsWith('02')) {
+        return `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6)}`;
+      }
+      return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+    }
+    // 9자리 (예: 021234567 -> 02-123-4567)
+    if (digits.length === 9 && digits.startsWith('02')) {
+      return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
+    }
+    // 12자리 이상
+    if (digits.length > 10) {
+      return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+    }
+    return str;
   };
 
   // 우편번호 5자리 정제 (00000)
