@@ -361,15 +361,14 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const explicitState = savedData?.deliveryState || (sheetMatch?.raw?.[23] as DeliveryState);
       let dState: DeliveryState = explicitState || '발주대기';
       
-      // 명시적인 수동 지정 상태가 없을 때만 초기 보조 추론 적용
-      if (!explicitState) {
-        if (delDate.trim()) {
-          dState = '배송완료';
-        } else if (tracking.trim() || courier.trim()) {
-          dState = '배송중';
-        } else if (ordDate.trim()) {
-          dState = '발주완료';
-        }
+      if (explicitState) {
+        dState = explicitState;
+      } else if (delDate.trim()) {
+        dState = '배송완료';
+      } else if (tracking.trim() || courier.trim()) {
+        dState = '배송중';
+      } else if (ordDate.trim()) {
+        dState = '발주완료';
       }
 
       list.push({
@@ -625,15 +624,22 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           }
         }
 
-        nextStore[cKey] = {
+        const valObj = {
           orderDate: newOrdDate,
           deliveryDate: newDelDate,
           courier: newCourier,
           trackingNo: newTracking,
           deliveryState: newDState,
         };
-        // 구글 시트 업데이트 객체 생성 (rowIdx가 존재하는 수기발주 건)
+
+        nextStore[cKey] = valObj;
+        nextStore[cNo] = valObj;
+        const cDigits = cNo.replace(/[^0-9]/g, '');
+        if (cDigits) nextStore[cDigits] = valObj;
+
+        // 구글 시트 업데이트 객체 생성 (rowIdx가 존재하는 수기발주 건 - 발주일 O열/14 포함)
         if (row.rowIdx) {
+          if (newOrdDate) sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 14, newValue: newOrdDate });
           sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 20, newValue: newDelDate });
           sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 21, newValue: newCourier });
           sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 22, newValue: newTracking });
