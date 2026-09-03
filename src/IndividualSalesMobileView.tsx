@@ -102,46 +102,50 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       data.forEach(item => {
         if (item.hq && item.hq.trim()) hqs.add(item.hq.trim());
       });
-      return ['전체', ...Array.from(hqs).sort()];
+      const list = Array.from(hqs).sort();
+      return list.length > 1 ? ['전체', ...list] : list;
     }
 
-    const hqs = new Set<string>();
-    // currentUser.orgs에 등록된 본부 정보 수집
+    const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
+    const userHqNames = new Set<string>();
+
     if (currentUser.orgs && currentUser.orgs.length > 0) {
       currentUser.orgs.forEach(o => {
-        if (o.orgName && !['관리자', '시스템관리자'].includes(o.orgName.trim())) {
-          hqs.add(o.orgName.trim());
+        const name = (o.orgName || '').trim();
+        if (name && !['관리자', '시스템관리자'].includes(name)) {
+          if (['본부', '총무', '본부모바일'].includes(o.role)) {
+            userHqNames.add(name);
+          }
         }
       });
     }
-    if (currentUser.orgName && !['관리자', '시스템관리자'].includes(currentUser.orgName.trim())) {
-      hqs.add(currentUser.orgName.trim());
+    const mainName = (currentUser.orgName || '').trim();
+    if (mainName && !['관리자', '시스템관리자'].includes(mainName)) {
+      if (['본부', '총무', '본부모바일'].includes(currentUser.role)) {
+        userHqNames.add(mainName);
+      }
     }
 
-    // data 항목 중 유저 권한에 해당하는 본부만 확인
+    const matchedHqs = new Set<string>();
     data.forEach(item => {
       if (item.hq && item.hq.trim()) {
         const cleanHq = item.hq.trim();
-        if (hqs.has(cleanHq)) {
-          hqs.add(cleanHq);
+        if (userHqNames.size > 0) {
+          const cleanHqNorm = normOrg(cleanHq);
+          if (Array.from(userHqNames).some(h => {
+            const hNorm = normOrg(h);
+            return hNorm === cleanHqNorm || (hNorm !== '' && cleanHqNorm.includes(hNorm)) || (cleanHqNorm !== '' && hNorm.includes(cleanHqNorm));
+          })) {
+            matchedHqs.add(cleanHq);
+          }
+        } else {
+          matchedHqs.add(cleanHq);
         }
       }
     });
 
-    const list = Array.from(hqs).sort();
-    if (list.length > 1) {
-      return ['전체', ...list];
-    } else if (list.length === 1) {
-      return list;
-    }
-
-    // fallback: 데이터 내 전체 본부 목록
-    const fallbackHqs = new Set<string>();
-    data.forEach(item => {
-      if (item.hq && item.hq.trim()) fallbackHqs.add(item.hq.trim());
-    });
-    const fallbackList = Array.from(fallbackHqs).sort();
-    return fallbackList.length > 0 ? (fallbackList.length > 1 ? ['전체', ...fallbackList] : fallbackList) : ['전체'];
+    const list = Array.from(matchedHqs).sort();
+    return list.length > 1 ? ['전체', ...list] : list;
   }, [data, currentUser, isAdminMobile]);
 
   // 지사 선택 옵션 (본부 선택 hqFilter 반영)
@@ -186,6 +190,13 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     });
     return Array.from(months).sort((a, b) => b.localeCompare(a)); // 최신 월 순 정렬
   }, [data]);
+
+  // data 내 존재하는 계약월 목록에 현재 monthFilter가 없으면 최신월로 자동 지정
+  useEffect(() => {
+    if (uniqueMonths.length > 0 && !uniqueMonths.includes(monthFilter)) {
+      setMonthFilter(uniqueMonths[0]);
+    }
+  }, [uniqueMonths]);
 
   // 1-1. 계약월 필터가 반영된 1차 가공 데이터 (계약일자 기준)
   const contractMonthFilteredData = useMemo(() => {
@@ -245,14 +256,24 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   }, [deliveryCompletedMonthData, displayMode]);
 
   // 3. 선택된 본부(hqFilter) 필터가 반영된 데이터 (대시보드 상단 통계, 목록, 보고서의 공통 모수)
+  const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
+
   const hqFilteredContractData = useMemo(() => {
     if (hqFilter === '전체') return contractModeProcessedData;
-    return contractModeProcessedData.filter(item => (item.hq || '').trim() === hqFilter);
+    const filterNorm = normOrg(hqFilter);
+    return contractModeProcessedData.filter(item => {
+      const itemHqNorm = normOrg(item.hq);
+      return itemHqNorm === filterNorm || (filterNorm !== '' && itemHqNorm.includes(filterNorm)) || (itemHqNorm !== '' && filterNorm.includes(itemHqNorm));
+    });
   }, [contractModeProcessedData, hqFilter]);
 
   const hqFilteredDeliveryData = useMemo(() => {
     if (hqFilter === '전체') return deliveryModeProcessedData;
-    return deliveryModeProcessedData.filter(item => (item.hq || '').trim() === hqFilter);
+    const filterNorm = normOrg(hqFilter);
+    return deliveryModeProcessedData.filter(item => {
+      const itemHqNorm = normOrg(item.hq);
+      return itemHqNorm === filterNorm || (filterNorm !== '' && itemHqNorm.includes(filterNorm)) || (itemHqNorm !== '' && filterNorm.includes(itemHqNorm));
+    });
   }, [deliveryModeProcessedData, hqFilter]);
 
   // 4. 요약 통계 계산 (계약일자 기준 계약/가입/해약/취소/배송대기 + N열 배송일자 기준 해당월 배송완료)

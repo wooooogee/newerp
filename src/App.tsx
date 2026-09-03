@@ -1497,30 +1497,42 @@ const ERP_Dashboard = () => {
         let finalData = initialData;
         if (currentUser && !isManager) {
           const usernameClean = currentUser.username.trim().toUpperCase();
+          const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
+
           if (currentUser.orgs && currentUser.orgs.length > 0) {
             finalData = initialData.filter(item => {
               return currentUser.orgs!.some(org => {
                 const orgNameClean = (org.orgName || '').trim();
+                const normOrgName = normOrg(orgNameClean);
                 if (org.role === '본부' || org.role === '총무' || org.role === '본부모바일') {
-                  return String(item.hq || '').trim() === orgNameClean;
+                  const itemHqNorm = normOrg(item.hq);
+                  return itemHqNorm === normOrgName || (normOrgName !== '' && itemHqNorm.includes(normOrgName)) || (itemHqNorm !== '' && normOrgName.includes(itemHqNorm));
                 } else if (org.role === '지사' || org.role === '지점' || org.role === '지사모바일') {
-                  return String(item.branch || '').trim() === orgNameClean;
+                  const itemBranchNorm = normOrg(item.branch);
+                  return itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
                 } else {
                   return (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
-                         (!item.empCode && String(item.empName || '').trim() === orgNameClean);
+                         (!item.empCode && normOrg(item.empName) === normOrgName);
                 }
               });
             });
           } else {
             const orgNameClean = (currentUser.orgName || '').trim();
+            const normOrgName = normOrg(orgNameClean);
             if (currentUser.role === '본부' || currentUser.role === '총무' || currentUser.role === '본부모바일') {
-              finalData = initialData.filter(item => String(item.hq || '').trim() === orgNameClean);
+              finalData = initialData.filter(item => {
+                const itemHqNorm = normOrg(item.hq);
+                return itemHqNorm === normOrgName || (normOrgName !== '' && itemHqNorm.includes(normOrgName)) || (itemHqNorm !== '' && normOrgName.includes(itemHqNorm));
+              });
             } else if (currentUser.role === '지사' || currentUser.role === '지점' || currentUser.role === '지사모바일') {
-              finalData = initialData.filter(item => String(item.branch || '').trim() === orgNameClean);
+              finalData = initialData.filter(item => {
+                const itemBranchNorm = normOrg(item.branch);
+                return itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
+              });
             } else {
               finalData = initialData.filter(item =>
                 (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
-                (!item.empCode && String(item.empName || '').trim() === orgNameClean)
+                (!item.empCode && normOrg(item.empName) === normOrgName)
               );
             }
           }
@@ -1603,30 +1615,42 @@ const ERP_Dashboard = () => {
       let finalData = formatted;
       if (currentUser && !isManager) {
         const usernameClean = currentUser.username.trim().toUpperCase();
+        const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
+
         if (currentUser.orgs && currentUser.orgs.length > 0) {
           finalData = formatted.filter(item => {
             return currentUser.orgs!.some(org => {
               const orgNameClean = (org.orgName || '').trim();
+              const normOrgName = normOrg(orgNameClean);
               if (org.role === '본부' || org.role === '총무' || org.role === '본부모바일') {
-                return String(item.hq || '').trim() === orgNameClean;
+                const itemHqNorm = normOrg(item.hq);
+                return itemHqNorm === normOrgName || (normOrgName !== '' && itemHqNorm.includes(normOrgName)) || (itemHqNorm !== '' && normOrgName.includes(itemHqNorm));
               } else if (org.role === '지사' || org.role === '지점' || org.role === '지사모바일') {
-                return String(item.branch || '').trim() === orgNameClean;
+                const itemBranchNorm = normOrg(item.branch);
+                return itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
               } else {
                 return (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
-                       (!item.empCode && String(item.empName || '').trim() === orgNameClean);
+                       (!item.empCode && normOrg(item.empName) === normOrgName);
               }
             });
           });
         } else {
           const orgNameClean = (currentUser.orgName || '').trim();
+          const normOrgName = normOrg(orgNameClean);
           if (currentUser.role === '본부' || currentUser.role === '총무' || currentUser.role === '본부모바일') {
-            finalData = formatted.filter(item => String(item.hq || '').trim() === orgNameClean);
+            finalData = formatted.filter(item => {
+              const itemHqNorm = normOrg(item.hq);
+              return itemHqNorm === normOrgName || (normOrgName !== '' && itemHqNorm.includes(normOrgName)) || (itemHqNorm !== '' && normOrgName.includes(itemHqNorm));
+            });
           } else if (currentUser.role === '지사' || currentUser.role === '지점' || currentUser.role === '지사모바일') {
-            finalData = formatted.filter(item => String(item.branch || '').trim() === orgNameClean);
+            finalData = formatted.filter(item => {
+              const itemBranchNorm = normOrg(item.branch);
+              return itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
+            });
           } else {
             finalData = formatted.filter(item =>
               (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
-              (!item.empCode && String(item.empName || '').trim() === orgNameClean)
+              (!item.empCode && normOrg(item.empName) === normOrgName)
             );
           }
         }
