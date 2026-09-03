@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, Component, ReactNode } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -20,6 +20,7 @@ import { IndividualSalesMobileView } from './IndividualSalesMobileView';
 import { AdvancedSearchModal } from './AdvancedSearchModal';
 import { CommissionNotesModal } from './CommissionNotesModal';
 import { ChangePasswordModal } from './ChangePasswordModal';
+import { VocManagementModal } from './VocManagementModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -673,6 +674,22 @@ const ERP_Dashboard = () => {
   const [commissionLogList, setCommissionLogList] = useState<any[]>([]);
   const [isHealthcareReconModalOpen, setIsHealthcareReconModalOpen] = useState(false);
   const [isManualOrderReconModalOpen, setIsManualOrderReconModalOpen] = useState(false);
+  const [isVocManagementModalOpen, setIsVocManagementModalOpen] = useState(false);
+
+  // 사이드바 아코디언 메뉴 접힘/열림 상태 (기본값: 접힘)
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    settlement: false,
+    delivery: false,
+    order: false,
+    certificate: false,
+    membership: false,
+    healthcare: false,
+    voc: false,
+  });
+
+  const toggleSection = (key: string) => {
+    setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+  };
   const [previewTarget, setPreviewTarget] = useState<string | null>(null);
   const [expandedHqs, setExpandedHqs] = useState<Record<string, boolean>>({});
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
@@ -5009,7 +5026,7 @@ const ERP_Dashboard = () => {
           </h1>
         </div>
 
-        <div className="flex items-center gap-4 sm:gap-5 text-[12px] text-slate-400">
+        <div className="flex items-center gap-3 sm:gap-4 text-[12px] text-slate-400">
           <div className="hidden md:flex items-center gap-1.5">
             <div className={`w-2 h-2 ${loading ? 'bg-orange-400 animate-pulse' : 'bg-emerald-500'} rounded-full shadow-[0_0_6px_rgba(16,185,129,0.4)]`} />
             <span className="font-medium text-slate-200">{loading ? 'Processing...' : 'DB 연결됨'}</span>
@@ -5018,6 +5035,20 @@ const ERP_Dashboard = () => {
             <span>마지막 업데이트:</span>
             <span className="text-slate-200 font-mono tracking-tight">{lastUpdate}</span>
           </div>
+
+          {isSuperAdmin && (
+            <motion.button
+              onClick={handleOpenSettings}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              title="본부별 수수료 설정"
+              className="flex items-center gap-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white px-3 py-1.5 rounded-lg border border-slate-700 transition-all text-xs font-bold shadow-xs cursor-pointer"
+            >
+              <Settings size={15} className="text-slate-300" />
+              <span className="hidden sm:inline">본부별 수수료 설정</span>
+            </motion.button>
+          )}
+
           <a
             href="https://totalsign.netlify.app/admin/dashboard"
             target="_blank"
@@ -5035,257 +5066,369 @@ const ERP_Dashboard = () => {
         <motion.aside
           initial={{ x: -20, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
-          className="w-[240px] bg-white border-r border-slate-200 p-5 flex flex-col gap-6 shadow-sm z-40 shrink-0 overflow-y-auto"
+          className="w-[265px] bg-white border-r border-slate-200 p-4 flex flex-col gap-4 shadow-sm z-40 shrink-0 overflow-y-auto"
         >
-          {isSuperAdmin && (
-          <section>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Google Integration</p>
-            <div className="grid gap-2">
-              {!isAuthenticated ? (
-                <div className="space-y-2">
-                  <motion.button
-                    onClick={handleConnect}
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.99 }}
-                    className="w-full flex items-center justify-center gap-2.5 bg-emerald-600 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-emerald-700"
-                  >
-                    <CheckCircle size={16} /> 구글 시트 연동하기
-                  </motion.button>
-                  <button
-                    onClick={async () => {
-                      try {
-                        const res = await fetch('/api/auth/debug');
-                        const debug = await res.json();
-                        if (navigator.clipboard) {
-                          await navigator.clipboard.writeText(debug.expectedRedirectUri);
-                          alert(`[구글 연동 진단 및 가이드]\n\n1. 리디렉션 URI (클립보드에 복사됨):\n${debug.expectedRedirectUri}\n\n2. 조치 사항:\n- Google Cloud Console > 사용자 인증 정보 > OAuth 클라이언트 ID 편집\n- '승인된 리디렉션 URI' 항목에 위 주소를 추가하세요.\n- 클라이언트 ID 유형이 '웹 애플리케이션'인지 반드시 확인하세요.\n\n[진단 결과]\n- ID 상태: ${debug.clientIdStatus}\n- Secret 상태: ${debug.clientSecretStatus}\n- 형식 확인: ${debug.clientIdFormat}`);
-                        } else {
-                          alert(`[리디렉션 URI]\n${debug.expectedRedirectUri}\n\n위 주소를 구글 콘솔에 등록하세요.`);
-                        }
-                      } catch (e) {
-                        alert('연동 진단 정보를 불러올 수 없습니다.');
-                      }
-                    }}
-                    className="w-full text-center text-[10px] text-slate-400 hover:text-blue-500 transition-colors flex items-center justify-center gap-1 py-1"
-                  >
-                    <Settings size={10} /> 연동 해결 방법 확인
-                  </button>
-
-                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter mb-1">Cloud Sync</p>
-                    <button
-                      onClick={() => {
-                        if (!isAuthenticated) return alert('먼저 [구글 시트 연동하기]를 진행해 주세요.');
-                        saveSettingsToCloud();
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg text-[11px] font-bold hover:bg-blue-600 hover:text-white transition-all border border-blue-100"
-                    >
-                      <Save size={12} /> 설정 클라우드 저장
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (!isAuthenticated) return alert('먼저 [구글 시트 연동하기]를 진행해 주세요.');
-                        loadSettingsFromCloud();
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-2 bg-slate-50 text-slate-600 rounded-lg text-[11px] font-bold hover:bg-slate-200 transition-all border border-slate-200"
-                    >
-                      <RefreshCw size={12} /> 설정 클라우드 불러오기
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <motion.button
-                  onClick={handleLogout}
-                  whileHover={{ backgroundColor: '#fee2e2' }}
-                  whileTap={{ scale: 0.99 }}
-                  className="flex items-center justify-center gap-2.5 border border-rose-200 text-rose-600 py-2.5 rounded-md text-[13px] font-medium transition-all"
-                >
-                  <X size={16} /> 연동 해제
-                </motion.button>
-              )}
-            </div>
+          <section className="mb-1">
+            <motion.button
+              onClick={loadData}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:border-blue-400 hover:bg-blue-50/50 text-slate-800 py-3 rounded-xl shadow-xs text-sm font-bold transition-all cursor-pointer"
+            >
+              <RefreshCw size={18} className={`text-blue-600 ${loading ? 'animate-spin' : ''}`} />
+              <span>실시간 새로고침</span>
+            </motion.button>
           </section>
-          )}
 
+          {/* 정산 및 리포트 */}
           {isSuperAdmin && (
-            <section>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">본부 및 정산 관리</p>
-              <div className="grid gap-2">
-                <motion.button
-                  onClick={handleOpenSettings}
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
-                  className="flex items-center justify-center gap-2.5 bg-slate-800 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-slate-900"
-                >
-                  <Save size={16} /> 본부별 수수료 설정
-                </motion.button>
-
-                <motion.button
-                  onClick={() => setIsManualSettlementModalOpen(true)}
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
-                  className="flex items-center justify-center gap-2.5 bg-purple-600 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-purple-700"
-                >
-                  <Calculator size={16} /> 수동 수수료 정산
-                </motion.button>
-              </div>
-            </section>
-          )}
-
-          {isManager && !isSuperAdmin && (
-            <section>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">조직 및 회원 관리</p>
-              <div className="grid gap-2">
-                <motion.button
-                  onClick={handleOpenSettings}
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
-                  className="flex items-center justify-center gap-2.5 bg-slate-800 text-white py-2.5 rounded-md shadow-sm text-[13px] font-medium transition-colors hover:bg-slate-900"
-                >
-                  <Settings size={16} /> 조직계정설정
-                </motion.button>
-              </div>
-            </section>
-          )}
-
-          <section className={isAdmin ? 'mt-4' : ''}>
-            <div className="grid gap-2">
-              <motion.button
-                onClick={loadData}
-                whileHover={{ backgroundColor: '#f8fafc' }}
-                whileTap={{ scale: 0.99 }}
-                className="flex items-center justify-center gap-2.5 border border-slate-200 text-slate-700 py-2.5 rounded-md text-[13px] font-medium hover:border-slate-300 transition-all font-bold"
+            <section className="mt-1">
+              <button
+                type="button"
+                onClick={() => toggleSection('settlement')}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
               >
-                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                실시간 새로고침
-              </motion.button>
-            </div>
-          </section>
-
-          {isSuperAdmin && (
-            <section className="mt-4">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">정산 및 리포트</p>
-              <div className="grid gap-2">
-                <nav className="flex flex-col gap-1">
-                  {[
-                    { dot: 'bg-amber-500', label: '수수료 특이사항', action: () => setIsCommissionNotesModalOpen(true) },
-                    { dot: 'bg-emerald-500', label: '유지수수료 현황 조회', action: () => { setMaintenanceTab('eligible'); setIsMaintenanceStatusModalOpen(true); } },
-                    { dot: 'bg-indigo-500', label: '유지수수료 지급 관리', action: () => setIsMaintenanceHistoryModalOpen(true) },
-                    { dot: 'bg-orange-500', label: '유통사 대사 작업', action: () => { setIsReconciliationModalOpen(true); if (reconHistoryDates.length === 0) loadReconHistory(); } },
-                  ].map((item, idx) => (
-                    <motion.button
-                      key={idx}
-                      onClick={item.action}
-                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
-                    >
-                      <span className={`w-2 h-2 rounded-full ${item.dot}`} />
-                      <span className="font-medium">{item.label}</span>
-                    </motion.button>
-                  ))}
-                </nav>
-              </div>
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1 bg-amber-100 text-amber-600 rounded-lg group-hover:scale-105 transition-transform">
+                    <TrendingUp size={18} />
+                  </div>
+                  <span className="text-sm font-bold text-slate-800 tracking-tight">정산 및 리포트</span>
+                </div>
+                <ChevronDown
+                  size={18}
+                  className={`text-slate-400 transition-transform duration-200 ${openSections.settlement ? 'rotate-180 text-slate-700' : ''}`}
+                />
+              </button>
+              <AnimatePresence initial={false}>
+                {openSections.settlement && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
+                      {[
+                        { dot: 'bg-purple-500', label: '수동 수수료 정산', action: () => setIsManualSettlementModalOpen(true) },
+                        { dot: 'bg-amber-500', label: '수수료 특이사항', action: () => setIsCommissionNotesModalOpen(true) },
+                        { dot: 'bg-emerald-500', label: '유지수수료 현황 조회', action: () => { setMaintenanceTab('eligible'); setIsMaintenanceStatusModalOpen(true); } },
+                        { dot: 'bg-indigo-500', label: '유지수수료 지급 관리', action: () => setIsMaintenanceHistoryModalOpen(true) },
+                        { dot: 'bg-orange-500', label: '유통사 대사 작업', action: () => { setIsReconciliationModalOpen(true); if (reconHistoryDates.length === 0) loadReconHistory(); } },
+                      ].map((item, idx) => (
+                        <motion.button
+                          key={idx}
+                          onClick={item.action}
+                          whileHover={{ x: 3, backgroundColor: '#ffffff' }}
+                          whileTap={{ scale: 0.98 }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-700 text-left border border-slate-200/70 bg-white hover:border-blue-300 hover:text-blue-600 hover:shadow-xs transition-all cursor-pointer"
+                        >
+                          <span className={`w-2.5 h-2.5 rounded-full ${item.dot} shrink-0`} />
+                          <span className="truncate">{item.label}</span>
+                        </motion.button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </section>
           )}
 
-          <section className="mt-4">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">배송 관리</p>
-            <div className="grid gap-2">
-              <nav className="flex flex-col gap-1">
-                <motion.button
-                  onClick={() => setIsDeliveryStatusModalOpen(true)}
-                  whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+          {/* 배송 관리 */}
+          <section className="mt-1">
+            <button
+              type="button"
+              onClick={() => toggleSection('delivery')}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="p-1 bg-blue-100 text-blue-600 rounded-lg group-hover:scale-105 transition-transform">
+                  <Truck size={18} />
+                </div>
+                <span className="text-sm font-bold text-slate-800 tracking-tight">배송 관리</span>
+              </div>
+              <ChevronDown
+                size={18}
+                className={`text-slate-400 transition-transform duration-200 ${openSections.delivery ? 'rotate-180 text-slate-700' : ''}`}
+              />
+            </button>
+            <AnimatePresence initial={false}>
+              {openSections.delivery && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="overflow-hidden"
                 >
-                  <span className={`w-2 h-2 rounded-full bg-blue-500`} />
-                  <span className="font-medium">배송현황</span>
-                </motion.button>
-                <motion.button
-                  onClick={() => setIsDeliveryDashboardOpen(true)}
-                  whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
-                >
-                  <span className={`w-2 h-2 rounded-full bg-indigo-500`} />
-                  <span className="font-medium">배송 대시보드</span>
-                </motion.button>
-              </nav>
-            </div>
+                  <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
+                    {[
+                      { dot: 'bg-blue-500', label: '배송현황', action: () => setIsDeliveryStatusModalOpen(true) },
+                      { dot: 'bg-indigo-500', label: '배송 대시보드', action: () => setIsDeliveryDashboardOpen(true) },
+                    ].map((item, idx) => (
+                      <motion.button
+                        key={idx}
+                        onClick={item.action}
+                        whileHover={{ x: 3, backgroundColor: '#ffffff' }}
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-700 text-left border border-slate-200/70 bg-white hover:border-blue-300 hover:text-blue-600 hover:shadow-xs transition-all cursor-pointer"
+                      >
+                        <span className={`w-2.5 h-2.5 rounded-full ${item.dot} shrink-0`} />
+                        <span className="truncate">{item.label}</span>
+                      </motion.button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </section>
 
           {isManager && (
             <>
-              <section className="mt-4">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">발주 관리</p>
-                <div className="grid gap-2">
-                  <nav className="flex flex-col gap-1">
-                    <motion.button
-                      onClick={() => setIsManualOrderModalOpen(true)}
-                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+              {/* 발주 관리 */}
+              <section className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('order')}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-1 bg-cyan-100 text-cyan-600 rounded-lg group-hover:scale-105 transition-transform">
+                      <Package size={18} />
+                    </div>
+                    <span className="text-sm font-bold text-slate-800 tracking-tight">발주 관리</span>
+                  </div>
+                  <ChevronDown
+                    size={18}
+                    className={`text-slate-400 transition-transform duration-200 ${openSections.order ? 'rotate-180 text-slate-700' : ''}`}
+                  />
+                </button>
+                <AnimatePresence initial={false}>
+                  {openSections.order && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                      className="overflow-hidden"
                     >
-                      <span className={`w-2 h-2 rounded-full bg-cyan-500`} />
-                      <span className="font-medium">수기발주 관리</span>
-                    </motion.button>
-                  </nav>
-                </div>
+                      <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
+                        {[
+                          { dot: 'bg-cyan-500', label: '수기발주 관리', action: () => setIsManualOrderModalOpen(true) },
+                        ].map((item, idx) => (
+                          <motion.button
+                            key={idx}
+                            onClick={item.action}
+                            whileHover={{ x: 3, backgroundColor: '#ffffff' }}
+                            whileTap={{ scale: 0.98 }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-700 text-left border border-slate-200/70 bg-white hover:border-blue-300 hover:text-blue-600 hover:shadow-xs transition-all cursor-pointer"
+                          >
+                            <span className={`w-2.5 h-2.5 rounded-full ${item.dot} shrink-0`} />
+                            <span className="truncate">{item.label}</span>
+                          </motion.button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </section>
 
-              <section className="mt-4">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">증서 관리</p>
-                <div className="grid gap-2">
-                  <nav className="flex flex-col gap-1">
-                    <motion.button
-                      onClick={() => setIsCertificateDispatchModalOpen(true)}
-                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+              {/* 증서 관리 */}
+              <section className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('certificate')}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-1 bg-emerald-100 text-emerald-600 rounded-lg group-hover:scale-105 transition-transform">
+                      <FileText size={18} />
+                    </div>
+                    <span className="text-sm font-bold text-slate-800 tracking-tight">증서 관리</span>
+                  </div>
+                  <ChevronDown
+                    size={18}
+                    className={`text-slate-400 transition-transform duration-200 ${openSections.certificate ? 'rotate-180 text-slate-700' : ''}`}
+                  />
+                </button>
+                <AnimatePresence initial={false}>
+                  {openSections.certificate && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                      className="overflow-hidden"
                     >
-                      <span className={`w-2 h-2 rounded-full bg-teal-500`} />
-                      <span className="font-medium">증서발송대장</span>
-                    </motion.button>
-                    <motion.button
-                      onClick={() => setIsCertificateDispatchHistoryModalOpen(true)}
-                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
-                    >
-                      <span className={`w-2 h-2 rounded-full bg-emerald-500`} />
-                      <span className="font-medium">증서발송이력</span>
-                    </motion.button>
-                  </nav>
-                </div>
+                      <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
+                        {[
+                          { dot: 'bg-teal-500', label: '증서발송대장', action: () => setIsCertificateDispatchModalOpen(true) },
+                          { dot: 'bg-emerald-500', label: '증서발송이력', action: () => setIsCertificateDispatchHistoryModalOpen(true) },
+                        ].map((item, idx) => (
+                          <motion.button
+                            key={idx}
+                            onClick={item.action}
+                            whileHover={{ x: 3, backgroundColor: '#ffffff' }}
+                            whileTap={{ scale: 0.98 }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-700 text-left border border-slate-200/70 bg-white hover:border-blue-300 hover:text-blue-600 hover:shadow-xs transition-all cursor-pointer"
+                          >
+                            <span className={`w-2.5 h-2.5 rounded-full ${item.dot} shrink-0`} />
+                            <span className="truncate">{item.label}</span>
+                          </motion.button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </section>
 
-              <section className="mt-4">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">회원가입신청서</p>
-                <div className="grid gap-2">
-                  <nav className="flex flex-col gap-1">
-                    <motion.button
-                      onClick={() => setIsMembershipApplicationModalOpen(true)}
-                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+              {/* 회원가입신청서 */}
+              <section className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('membership')}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-1 bg-purple-100 text-purple-600 rounded-lg group-hover:scale-105 transition-transform">
+                      <Users size={18} />
+                    </div>
+                    <span className="text-sm font-bold text-slate-800 tracking-tight">회원가입신청서</span>
+                  </div>
+                  <ChevronDown
+                    size={18}
+                    className={`text-slate-400 transition-transform duration-200 ${openSections.membership ? 'rotate-180 text-slate-700' : ''}`}
+                  />
+                </button>
+                <AnimatePresence initial={false}>
+                  {openSections.membership && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                      className="overflow-hidden"
                     >
-                      <span className={`w-2 h-2 rounded-full bg-purple-500`} />
-                      <span className="font-medium">회원가입신청서</span>
-                    </motion.button>
-                  </nav>
-                </div>
+                      <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
+                        {[
+                          { dot: 'bg-purple-500', label: '회원가입신청서 대장', action: () => setIsMembershipApplicationModalOpen(true) },
+                        ].map((item, idx) => (
+                          <motion.button
+                            key={idx}
+                            onClick={item.action}
+                            whileHover={{ x: 3, backgroundColor: '#ffffff' }}
+                            whileTap={{ scale: 0.98 }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-700 text-left border border-slate-200/70 bg-white hover:border-blue-300 hover:text-blue-600 hover:shadow-xs transition-all cursor-pointer"
+                          >
+                            <span className={`w-2.5 h-2.5 rounded-full ${item.dot} shrink-0`} />
+                            <span className="truncate">{item.label}</span>
+                          </motion.button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </section>
 
-              <section className="mt-4">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">헬스케어</p>
-                <div className="grid gap-2">
-                  <nav className="flex flex-col gap-1">
-                    <motion.button
-                      onClick={() => setIsHealthcareCalendarModalOpen(true)}
-                      whileHover={{ x: 2, backgroundColor: '#f8fafc' }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] text-slate-700 text-left transition-all"
+              {/* 헬스케어 */}
+              <section className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSection('healthcare')}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-1 bg-pink-100 text-pink-600 rounded-lg group-hover:scale-105 transition-transform">
+                      <Activity size={18} />
+                    </div>
+                    <span className="text-sm font-bold text-slate-800 tracking-tight">헬스케어</span>
+                  </div>
+                  <ChevronDown
+                    size={18}
+                    className={`text-slate-400 transition-transform duration-200 ${openSections.healthcare ? 'rotate-180 text-slate-700' : ''}`}
+                  />
+                </button>
+                <AnimatePresence initial={false}>
+                  {openSections.healthcare && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                      className="overflow-hidden"
                     >
-                      <span className={`w-2 h-2 rounded-full bg-pink-500`} />
-                      <span className="font-medium">헬스케어 명단</span>
-                    </motion.button>
-                  </nav>
-                </div>
+                      <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
+                        {[
+                          { dot: 'bg-pink-500', label: '헬스케어 명단', action: () => setIsHealthcareCalendarModalOpen(true) },
+                        ].map((item, idx) => (
+                          <motion.button
+                            key={idx}
+                            onClick={item.action}
+                            whileHover={{ x: 3, backgroundColor: '#ffffff' }}
+                            whileTap={{ scale: 0.98 }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-700 text-left border border-slate-200/70 bg-white hover:border-blue-300 hover:text-blue-600 hover:shadow-xs transition-all cursor-pointer"
+                          >
+                            <span className={`w-2.5 h-2.5 rounded-full ${item.dot} shrink-0`} />
+                            <span className="truncate">{item.label}</span>
+                          </motion.button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </section>
+
             </>
+          )}
+
+          {/* VOC 관리 (관리자 및 본부 계정 모두 이용 및 공유 가능) */}
+          {(isManager || isHQStaff) && (
+            <section className="mt-1">
+              <button
+                type="button"
+                onClick={() => toggleSection('voc')}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1 bg-indigo-100 text-indigo-600 rounded-lg group-hover:scale-105 transition-transform">
+                    <MessageSquare size={18} />
+                  </div>
+                  <span className="text-sm font-bold text-slate-800 tracking-tight">VOC 관리</span>
+                </div>
+                <ChevronDown
+                  size={18}
+                  className={`text-slate-400 transition-transform duration-200 ${openSections.voc ? 'rotate-180 text-slate-700' : ''}`}
+                />
+              </button>
+              <AnimatePresence initial={false}>
+                {openSections.voc && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
+                      {[
+                        { dot: 'bg-indigo-500', label: 'VOC 대장 / 접수', action: () => setIsVocManagementModalOpen(true) },
+                      ].map((item, idx) => (
+                        <motion.button
+                          key={idx}
+                          onClick={item.action}
+                          whileHover={{ x: 3, backgroundColor: '#ffffff' }}
+                          whileTap={{ scale: 0.98 }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-700 text-left border border-slate-200/70 bg-white hover:border-blue-300 hover:text-blue-600 hover:shadow-xs transition-all cursor-pointer"
+                        >
+                          <span className={`w-2.5 h-2.5 rounded-full ${item.dot} shrink-0`} />
+                          <span className="truncate">{item.label}</span>
+                        </motion.button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </section>
           )}
 
           <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-2">
@@ -5410,24 +5553,34 @@ const ERP_Dashboard = () => {
               </div>
             </div>
 
-                        {/* 구좌 현황 대시보드 (수수료 대시보드 위) */}
-            <div className="mb-6 bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+            {/* 구좌 현황 대시보드 (수수료 대시보드 위) */}
+            <div className="mb-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-200/90">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 pb-4 border-b border-slate-100 gap-4">
-                <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
-                  <TrendingUp size={18} className="text-blue-500" />
-                  월별 계약 현황
-                </h3>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full sm:w-auto">
-                  <div className="flex bg-slate-100 p-1 rounded-lg w-full sm:w-auto">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-blue-50 rounded-xl text-blue-600 border border-blue-100 shadow-2xs">
+                    <TrendingUp size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2.5">
+                      월별 계약 현황
+                      <span className="text-xs font-bold px-2.5 py-0.5 bg-slate-100 text-slate-600 rounded-md">
+                        {topDashboardMonth} 기준
+                      </span>
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">선택하신 월의 상품별·본부별·지사별 계약 실적 및 배송/취소 현황입니다.</p>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2.5 w-full sm:w-auto">
+                  <div className="flex bg-slate-100/90 p-1 rounded-xl border border-slate-200/60 w-full sm:w-auto shadow-2xs">
                     <button
                       onClick={() => setTopDashboardMode('구좌수')}
-                      className={`flex-1 sm:flex-none px-4 py-1.5 text-[12px] font-bold rounded-md transition-all ${topDashboardMode === '구좌수' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      className={`flex-1 sm:flex-none px-4 py-2 text-sm font-extrabold rounded-lg transition-all cursor-pointer ${topDashboardMode === '구좌수' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
                     >
                       구좌수 기준
                     </button>
                     <button
                       onClick={() => setTopDashboardMode('상품개수')}
-                      className={`flex-1 sm:flex-none px-4 py-1.5 text-[12px] font-bold rounded-md transition-all ${topDashboardMode === '상품개수' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      className={`flex-1 sm:flex-none px-4 py-2 text-sm font-extrabold rounded-lg transition-all cursor-pointer ${topDashboardMode === '상품개수' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
                     >
                       상품개수 기준
                     </button>
@@ -5436,7 +5589,7 @@ const ERP_Dashboard = () => {
                     type="month"
                     value={topDashboardMonth}
                     onChange={(e) => setTopDashboardMonth(e.target.value)}
-                    className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 w-full sm:w-auto"
+                    className="px-3.5 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs w-full sm:w-auto cursor-pointer"
                   />
                 </div>
               </div>
@@ -5502,104 +5655,164 @@ const ERP_Dashboard = () => {
                 const countUnit = topDashboardMode === '구좌수' ? '구좌' : '개';
 
                 return (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* 상품별 계약건수와 총합 */}
-                    <div className="flex flex-col">
-                      <div className="flex items-center justify-between mb-3 text-sm font-bold text-slate-700 bg-blue-50 px-3 py-2 rounded-lg">
-                        <span className="flex items-center gap-1.5"><Package size={14} className="text-blue-500" /> 상품별 {topDashboardMode === '구좌수' ? '계약건수' : '수량'}</span>
-                        <span className="text-blue-600">총 {totalContracts.toLocaleString()}{countUnit}</span>
-                      </div>
-                      <div className="space-y-2 overflow-y-auto max-h-48 pr-2 custom-scrollbar">
-                        {sortedProds.length > 0 ? sortedProds.map(([p, count], idx) => (
-                          <div key={p} className="flex justify-between items-center text-xs">
-                            <div className="flex items-center gap-1.5 overflow-hidden">
-                              <span className="text-[10px] font-black text-slate-400 w-4">{idx + 1}</span>
-                              <span className="font-medium text-slate-600 truncate" title={p}>{p}</span>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    {/* 1열: 상품별 계약 현황 */}
+                    <div className="bg-slate-50/50 rounded-xl p-4.5 border border-slate-200/70 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-3.5 pb-2.5 border-b border-slate-200/60">
+                          <span className="flex items-center gap-2 text-sm sm:text-base font-black text-slate-800">
+                            <span className="p-1.5 bg-blue-100 text-blue-700 rounded-lg">
+                              <Package size={16} />
+                            </span>
+                            상품별 {topDashboardMode === '구좌수' ? '계약구좌' : '수량'}
+                          </span>
+                          <span className="text-xs sm:text-sm font-black text-blue-700 bg-blue-100/70 px-3 py-1 rounded-full">
+                            총 {totalContracts.toLocaleString()}{countUnit}
+                          </span>
+                        </div>
+                        <div className="space-y-2 overflow-y-auto max-h-56 pr-1 custom-scrollbar">
+                          {sortedProds.length > 0 ? sortedProds.map(([p, count], idx) => (
+                            <div key={p} className="flex justify-between items-center p-2 rounded-lg hover:bg-white hover:shadow-2xs transition-all">
+                              <div className="flex items-center gap-2.5 overflow-hidden flex-1 mr-2">
+                                <span className={`text-[11px] font-black w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                                  idx === 0 ? 'bg-blue-600 text-white' :
+                                  idx === 1 ? 'bg-blue-400 text-white' :
+                                  idx === 2 ? 'bg-blue-200 text-blue-800' :
+                                  'bg-slate-200 text-slate-600'
+                                }`}>
+                                  {idx + 1}
+                                </span>
+                                <span className="font-bold text-slate-800 truncate text-sm" title={p}>{p}</span>
+                              </div>
+                              <span className="font-black text-slate-900 shrink-0 font-mono text-sm sm:text-base">{count.toLocaleString()} {countUnit}</span>
                             </div>
-                            <span className="font-bold text-slate-800 shrink-0">{count.toLocaleString()}{countUnit}</span>
+                          )) : <div className="text-xs text-slate-400 text-center py-8">해당 월 데이터가 없습니다.</div>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 2열: 본부별 & 지사별 계약 현황 (본부명, 지사명은 슬림하게 유지) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* 본부별 */}
+                      <div className="bg-slate-50/50 rounded-xl p-3.5 border border-slate-200/70 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-200/60">
+                            <span className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-slate-800">
+                              <span className="p-1 bg-emerald-100 text-emerald-700 rounded-md">
+                                <Building size={14} />
+                              </span>
+                              본부별
+                            </span>
+                            <span className="text-xs font-black text-emerald-700 bg-emerald-100/70 px-2.5 py-0.5 rounded-full">
+                              {totalContracts.toLocaleString()}{countUnit}
+                            </span>
                           </div>
-                        )) : <div className="text-xs text-slate-400 text-center py-4">해당 월 데이터가 없습니다.</div>}
+                          <div className="space-y-1 overflow-y-auto max-h-52 pr-1 custom-scrollbar">
+                            {sortedHqs.length > 0 ? sortedHqs.map(([h, count], idx) => (
+                              <div key={h} className="flex justify-between items-center text-xs p-1 rounded-md hover:bg-white transition-all">
+                                <div className="flex items-center gap-1.5 overflow-hidden flex-1 mr-1">
+                                  <span className="text-[10px] font-bold text-slate-400 w-3.5 text-center shrink-0">{idx + 1}</span>
+                                  <span className="font-semibold text-slate-700 truncate text-[11px]" title={h}>{h}</span>
+                                </div>
+                                <span className="font-bold text-slate-800 shrink-0 font-mono text-[11px]">{count.toLocaleString()}{countUnit}</span>
+                              </div>
+                            )) : <div className="text-[11px] text-slate-400 text-center py-6">데이터 없음</div>}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 지사별 */}
+                      <div className="bg-slate-50/50 rounded-xl p-3.5 border border-slate-200/70 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-200/60">
+                            <span className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-slate-800">
+                              <span className="p-1 bg-teal-100 text-teal-700 rounded-md">
+                                <Building size={14} />
+                              </span>
+                              지사별
+                            </span>
+                            <span className="text-xs font-black text-teal-700 bg-teal-100/70 px-2.5 py-0.5 rounded-full">
+                              {totalContracts.toLocaleString()}{countUnit}
+                            </span>
+                          </div>
+                          <div className="space-y-1 overflow-y-auto max-h-52 pr-1 custom-scrollbar">
+                            {sortedBranches.length > 0 ? sortedBranches.map(([b, count], idx) => (
+                              <div key={b} className="flex justify-between items-center text-xs p-1 rounded-md hover:bg-white transition-all">
+                                <div className="flex items-center gap-1.5 overflow-hidden flex-1 mr-1">
+                                  <span className="text-[10px] font-bold text-slate-400 w-3.5 text-center shrink-0">{idx + 1}</span>
+                                  <span className="font-semibold text-slate-700 truncate text-[11px]" title={b}>{b}</span>
+                                </div>
+                                <span className="font-bold text-slate-800 shrink-0 font-mono text-[11px]">{count.toLocaleString()}{countUnit}</span>
+                              </div>
+                            )) : <div className="text-[11px] text-slate-400 text-center py-6">데이터 없음</div>}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    {/* 본부/지사별 계약건수 */}
-                    <div className="flex flex-col gap-4">
-                      {/* 본부별 계약건수 */}
-                      <div className="flex flex-col">
-                        <div className="flex items-center justify-between mb-3 text-sm font-bold text-slate-700 bg-emerald-50 px-3 py-2 rounded-lg">
-                          <span className="flex items-center gap-1.5"><Building size={14} className="text-emerald-500" /> 본부별 {topDashboardMode === '구좌수' ? '계약건수' : '수량'}</span>
-                          <span className="text-emerald-600">총 {totalContracts.toLocaleString()}{countUnit}</span>
-                        </div>
-                        <div className="space-y-2 overflow-y-auto max-h-48 pr-2 custom-scrollbar">
-                          {sortedHqs.length > 0 ? sortedHqs.map(([h, count], idx) => (
-                            <div key={h} className="flex justify-between items-center text-xs">
-                              <div className="flex items-center gap-1.5 overflow-hidden">
-                                <span className="text-[10px] font-black text-slate-400 w-4">{idx + 1}</span>
-                                <span className="font-medium text-slate-600 truncate" title={h}>{h}</span>
-                              </div>
-                              <span className="font-bold text-slate-800 shrink-0">{count.toLocaleString()}{countUnit}</span>
+                    {/* 3열: 상태 핵심 KPI 카드 (배송완료 & 취소/해약) */}
+                    <div className="flex flex-col gap-3">
+                      {/* 해당월 배송완료 카드 */}
+                      <div 
+                        onClick={() => {
+                          setDashboardDetailType('delivery');
+                          setIsDashboardDetailModalOpen(true);
+                        }}
+                        className="flex-1 bg-linear-to-br from-sky-50/90 via-sky-50/40 to-white hover:from-sky-100/70 hover:to-sky-50/60 border border-sky-200/80 rounded-xl p-4.5 transition-all cursor-pointer shadow-2xs group flex flex-col justify-between"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <span className="p-2 bg-sky-500 text-white rounded-lg shadow-xs shadow-sky-500/20 group-hover:scale-105 transition-transform">
+                              <Truck size={18} />
+                            </span>
+                            <div>
+                              <span className="text-sm sm:text-base font-black text-slate-800 block">해당월 배송완료</span>
+                              <span className="text-xs text-slate-500 font-medium">선택월 계약 중 설치·배송완료 건수</span>
                             </div>
-                          )) : <div className="text-xs text-slate-400 text-center py-4">해당 월 데이터가 없습니다.</div>}
+                          </div>
+                          <span className="text-xs font-black text-sky-600 group-hover:text-sky-700 flex items-center gap-0.5 bg-white px-2.5 py-1 rounded-md border border-sky-200/60">
+                            상세보기 →
+                          </span>
+                        </div>
+                        <div className="mt-3 flex items-baseline justify-between pt-2.5 border-t border-sky-100">
+                          <span className="text-4xl font-black text-sky-600 tracking-tight">
+                            {deliveryCompleteCount.toLocaleString()}<span className="text-base font-extrabold text-sky-500 ml-1.5">{countUnit}</span>
+                          </span>
+                          <span className="text-xs text-sky-700 font-extrabold bg-sky-100/70 px-2.5 py-1 rounded-full">
+                            실시간 집계
+                          </span>
                         </div>
                       </div>
 
-                      {/* 지사별 계약건수 */}
-                      <div className="flex flex-col">
-                        <div className="flex items-center justify-between mb-3 text-sm font-bold text-slate-700 bg-teal-50 px-3 py-2 rounded-lg">
-                          <span className="flex items-center gap-1.5"><Building size={14} className="text-teal-500" /> 지사별 {topDashboardMode === '구좌수' ? '계약건수' : '수량'}</span>
-                          <span className="text-teal-600">총 {totalContracts.toLocaleString()}{countUnit}</span>
-                        </div>
-                        <div className="space-y-2 overflow-y-auto max-h-48 pr-2 custom-scrollbar">
-                          {sortedBranches.length > 0 ? sortedBranches.map(([b, count], idx) => (
-                            <div key={b} className="flex justify-between items-center text-xs">
-                              <div className="flex items-center gap-1.5 overflow-hidden">
-                                <span className="text-[10px] font-black text-slate-400 w-4">{idx + 1}</span>
-                                <span className="font-medium text-slate-600 truncate" title={b}>{b}</span>
-                              </div>
-                              <span className="font-bold text-slate-800 shrink-0">{count.toLocaleString()}{countUnit}</span>
+                      {/* 취소 및 해약 카드 */}
+                      <div 
+                        onClick={() => {
+                          setDashboardDetailType('cancel');
+                          setIsDashboardDetailModalOpen(true);
+                        }}
+                        className="flex-1 bg-linear-to-br from-rose-50/90 via-rose-50/40 to-white hover:from-rose-100/70 hover:to-rose-50/60 border border-rose-200/80 rounded-xl p-4.5 transition-all cursor-pointer shadow-2xs group flex flex-col justify-between"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <span className="p-2 bg-rose-500 text-white rounded-lg shadow-xs shadow-rose-500/20 group-hover:scale-105 transition-transform">
+                              <AlertCircle size={18} />
+                            </span>
+                            <div>
+                              <span className="text-sm sm:text-base font-black text-slate-800 block">취소 및 해약</span>
+                              <span className="text-xs text-slate-500 font-medium">배송취소, 반품, 해약 포함</span>
                             </div>
-                          )) : <div className="text-xs text-slate-400 text-center py-4">해당 월 데이터가 없습니다.</div>}
+                          </div>
+                          <span className="text-xs font-black text-rose-600 group-hover:text-rose-700 flex items-center gap-0.5 bg-white px-2.5 py-1 rounded-md border border-rose-200/60">
+                            상세보기 →
+                          </span>
                         </div>
-                      </div>
-                    </div>
-
-                    {/* 상태 현황 */}
-                    <div className="flex flex-col gap-4">
-                      {/* 배송완료 현황 */}
-                      <div className="flex flex-col flex-1">
-                        <div className="flex items-center justify-between mb-2 text-sm font-bold text-slate-700 bg-sky-50 px-3 py-1.5 rounded-lg">
-                          <span className="flex items-center gap-1.5"><Truck size={14} className="text-sky-500" /> 해당월 배송완료</span>
-                          <span className="text-sky-600">총 {deliveryCompleteCount.toLocaleString()}{countUnit}</span>
-                        </div>
-                        <div 
-                          onClick={() => {
-                            setDashboardDetailType('delivery');
-                            setIsDashboardDetailModalOpen(true);
-                          }}
-                          className="flex-1 flex flex-col items-center justify-center bg-sky-50/30 hover:bg-sky-50/70 active:bg-sky-100/50 cursor-pointer rounded-lg border border-sky-100/50 hover:border-sky-200 p-3 transition-all group"
-                        >
-                          <div className="text-2xl font-black text-sky-500 mb-1 group-hover:scale-105 transition-transform">{deliveryCompleteCount.toLocaleString()}{countUnit}</div>
-                          <p className="text-[10px] text-slate-500 text-center mb-1">선택된 월 계약 중 배송완료 건수</p>
-                          <span className="text-[10px] text-sky-600 font-bold underline hover:text-sky-700 mt-1 flex items-center gap-0.5">상세 내역보기 →</span>
-                        </div>
-                      </div>
-
-                      {/* 취소/해약 현황 */}
-                      <div className="flex flex-col flex-1">
-                        <div className="flex items-center justify-between mb-2 text-sm font-bold text-slate-700 bg-rose-50 px-3 py-1.5 rounded-lg">
-                          <span className="flex items-center gap-1.5"><AlertCircle size={14} className="text-rose-500" /> 취소 및 해약</span>
-                          <span className="text-rose-600">총 {cancelCount.toLocaleString()}{countUnit}</span>
-                        </div>
-                        <div 
-                          onClick={() => {
-                            setDashboardDetailType('cancel');
-                            setIsDashboardDetailModalOpen(true);
-                          }}
-                          className="flex-1 flex flex-col items-center justify-center bg-rose-50/30 hover:bg-rose-50/70 active:bg-rose-100/50 cursor-pointer rounded-lg border border-rose-100/50 hover:border-rose-200 p-3 transition-all group"
-                        >
-                          <div className="text-2xl font-black text-rose-500 mb-1 group-hover:scale-105 transition-transform">{cancelCount.toLocaleString()}{countUnit}</div>
-                          <p className="text-[10px] text-slate-500 text-center mb-1">선택된 월의 총 취소/해약 수<br/>(배송취소, 반품 포함)</p>
-                          <span className="text-[10px] text-rose-600 font-bold underline hover:text-rose-700 mt-1 flex items-center gap-0.5">상세 내역보기 →</span>
+                        <div className="mt-3 flex items-baseline justify-between pt-2.5 border-t border-rose-100">
+                          <span className="text-4xl font-black text-rose-600 tracking-tight">
+                            {cancelCount.toLocaleString()}<span className="text-base font-extrabold text-rose-500 ml-1.5">{countUnit}</span>
+                          </span>
+                          <span className="text-xs text-rose-700 font-extrabold bg-rose-100/70 px-2.5 py-1 rounded-full">
+                            집계 완료
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -5617,64 +5830,74 @@ const ERP_Dashboard = () => {
                 className="flex flex-col gap-4"
               >
                 <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-                  <div className="lg:col-span-1 bg-indigo-900 p-6 rounded-2xl shadow-xl border border-indigo-800 text-white relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                  {/* 카드 1: 에넥스 입금예정액 */}
+                  <div className="lg:col-span-1 bg-linear-to-br from-indigo-950 via-indigo-900 to-slate-900 p-5 rounded-2xl shadow-md border border-indigo-800/80 text-white relative overflow-hidden group flex flex-col justify-between">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-15 transition-opacity pointer-events-none">
                       <FileText size={80} />
                     </div>
                     <div className="relative z-10">
-                      <div className="text-indigo-300 text-[11px] font-bold uppercase tracking-wider mb-2">
+                      <div className="text-indigo-300 text-[11px] font-extrabold uppercase tracking-wider mb-2">
                         {isHQStaff ? '가입/배송대기 수수료' : '에넥스 입금예정액'}
                       </div>
-                      <div className="text-3xl font-black mb-1">
+                      <div className="text-2xl sm:text-3xl font-black tracking-tight mb-2">
                         {isHQStaff
                           ? `${pendingDeliveryStats.totalAmount.toLocaleString()}원`
                           : `${settlementStats.totalPendingEnexAmount.toLocaleString()}원`}
                       </div>
-                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded text-[12px] font-bold">
+                    </div>
+                    <div className="relative z-10 pt-2 border-t border-indigo-800/60">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-500/20 text-indigo-200 border border-indigo-400/30 rounded-lg text-xs font-bold">
                         {isHQStaff
                           ? `지급예정 ${pendingDeliveryStats.totalCount}구좌`
                           : `미입금 ${settlementStats.totalPendingCount}구좌`}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="lg:col-span-1 bg-slate-900 p-6 rounded-2xl shadow-xl border border-slate-800 text-white relative overflow-hidden group">
-                    <button
-                      onClick={() => setIsSettlementModalOpen(true)}
-                      className="absolute top-2 right-2 p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors z-20"
-                      title="정산서 생성하기"
-                    >
-                      <Download size={16} className="text-orange-400 group-hover:scale-110 transition-transform" />
-                    </button>
-                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                      <FileText size={80} />
-                    </div>
-                    <div className="relative z-10">
-                      <div className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">지급 예정 합계</div>
-                      <div className="text-3xl font-black mb-1">{settlementStats.totalPendingAmount.toLocaleString()}원</div>
-                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-[12px] font-bold">
-                        미지급 {settlementStats.totalPendingCount}구좌
-                      </div>
+                      </span>
                     </div>
                   </div>
 
-                  <div className="lg:col-span-3 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col">
-                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-4 flex justify-between items-center">
-                      <div className="flex items-center gap-6">
-                        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                  {/* 카드 2: 지급 예정 합계 */}
+                  <div className="lg:col-span-1 bg-linear-to-br from-slate-950 via-slate-900 to-slate-900 p-5 rounded-2xl shadow-md border border-slate-800 text-white relative overflow-hidden group flex flex-col justify-between">
+                    <button
+                      onClick={() => setIsSettlementModalOpen(true)}
+                      className="absolute top-3 right-3 p-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-colors z-20 cursor-pointer"
+                      title="정산서 생성하기"
+                    >
+                      <Download size={15} className="text-orange-400 group-hover:scale-110 transition-transform" />
+                    </button>
+                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-15 transition-opacity pointer-events-none">
+                      <FileText size={80} />
+                    </div>
+                    <div className="relative z-10">
+                      <div className="text-slate-400 text-[11px] font-extrabold uppercase tracking-wider mb-2">지급 예정 합계</div>
+                      <div className="text-2xl sm:text-3xl font-black tracking-tight mb-2 text-white">
+                        {settlementStats.totalPendingAmount.toLocaleString()}<span className="text-lg font-bold text-slate-300 ml-1">원</span>
+                      </div>
+                    </div>
+                    <div className="relative z-10 pt-2 border-t border-slate-800/80">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-500/20 text-blue-300 border border-blue-400/30 rounded-lg text-xs font-bold">
+                        미지급 {settlementStats.totalPendingCount}구좌
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 우측 3열: 정산 상세 품목/본부 리스트 */}
+                  <div className="lg:col-span-3 bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                    <div className="text-xs font-bold text-slate-600 mb-3 flex flex-wrap justify-between items-center gap-2">
+                      <div className="flex items-center gap-3">
+                        <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200">
                           <button
                             onClick={() => setDashboardView('product')}
-                            className={`px-3 py-1 rounded-md text-[10px] font-black transition-all ${dashboardView === 'product' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+                            className={`px-3 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${dashboardView === 'product' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
                           >
                             상품별
                           </button>
                           <button
                             onClick={() => setDashboardView('hq')}
-                            className={`px-3 py-1 rounded-md text-[10px] font-black transition-all ${dashboardView === 'hq' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+                            className={`px-3 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${dashboardView === 'hq' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
                           >
                             본부별
                           </button>
                         </div>
-                        <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                        <span className="text-blue-700 bg-blue-50 border border-blue-200/60 px-2.5 py-0.5 rounded-full text-xs font-bold">
                           {dashboardView === 'product' ? `품목 ${settlementStats.details.length}종` : `본부 ${settlementStats.hqDetails.length}개`}
                         </span>
                       </div>
@@ -5682,7 +5905,7 @@ const ERP_Dashboard = () => {
                         <div className="relative">
                           <button
                             onClick={() => setPreviewTarget('ALL')}
-                            className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
+                            className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                             title="전사통합정산보고서 미리보기"
                           >
                             <FileText size={14} />
@@ -5784,24 +6007,33 @@ const ERP_Dashboard = () => {
                         </div>
                       </div>
                     </div>
-                    <div className="flex gap-6 overflow-x-auto pb-2 scrollbar-hide">
+
+                    <div className="flex gap-3 overflow-x-auto pb-1.5 custom-scrollbar">
                       {dashboardView === 'product' ? (
                         settlementStats.details.map(([name, stat]) => (
-                          <div key={name} className="flex flex-col min-w-[160px] border-l-3 border-blue-50 pl-4 py-1">
-                            <div className="text-[12px] font-bold text-slate-500 truncate mb-1" title={name}>{name}</div>
+                          <div key={name} className="flex flex-col min-w-[170px] bg-slate-50 hover:bg-blue-50/40 p-3 rounded-xl border border-slate-200/80 transition-all shadow-2xs">
+                            <div className="text-[11px] font-bold text-slate-600 truncate mb-1.5" title={name}>{name}</div>
                             <div className="flex flex-col">
-                              <span className="text-lg font-black text-slate-900">{stat.amount.toLocaleString()}원</span>
-                              <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded w-fit">{stat.count}구좌</span>
+                              <span className="text-base font-black text-slate-900 tracking-tight">{stat.amount.toLocaleString()}원</span>
+                              <div className="mt-1">
+                                <span className="text-[10px] font-extrabold text-blue-600 bg-blue-100/70 px-2 py-0.5 rounded-md">
+                                  {stat.count}구좌
+                                </span>
+                              </div>
                             </div>
                           </div>
                         ))
                       ) : (
                         settlementStats.hqDetails.map(([name, stat]) => (
-                          <div key={name} className="flex flex-col min-w-[160px] border-l-3 border-emerald-50 pl-4 py-1">
-                            <div className="text-[12px] font-bold text-slate-500 truncate mb-1" title={name}>{name}</div>
+                          <div key={name} className="flex flex-col min-w-[170px] bg-slate-50 hover:bg-emerald-50/40 p-3 rounded-xl border border-slate-200/80 transition-all shadow-2xs">
+                            <div className="text-[11px] font-bold text-slate-600 truncate mb-1.5" title={name}>{name}</div>
                             <div className="flex flex-col">
-                              <span className="text-lg font-black text-emerald-700">{stat.amount.toLocaleString()}원</span>
-                              <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded w-fit">{stat.count}구좌</span>
+                              <span className="text-base font-black text-emerald-700 tracking-tight">{stat.amount.toLocaleString()}원</span>
+                              <div className="mt-1">
+                                <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-100/70 px-2 py-0.5 rounded-md">
+                                  {stat.count}구좌
+                                </span>
+                              </div>
                             </div>
                           </div>
                         ))
@@ -5812,20 +6044,20 @@ const ERP_Dashboard = () => {
               </motion.div>
             )}
 
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-5">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-50">
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/90 flex flex-col gap-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-3.5 border-b border-slate-100">
                 <div className="flex flex-wrap items-center gap-4">
                   {/* 가입상태 필터 */}
-                  <div className="flex items-center gap-3 min-w-max mr-2">
-                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider select-none">가입상태</div>
-                    <div className="flex flex-wrap gap-1.5">
+                  <div className="flex items-center gap-2.5 min-w-max">
+                    <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider select-none">가입상태</span>
+                    <div className="flex flex-wrap gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
                       {['전체', '가입', '취소 및 해약'].map(status => (
                         <button
                           key={status}
                           onClick={() => setStatusFilter(status)}
-                          className={`px-4 py-1.5 rounded-full text-[12px] font-bold transition-all ${statusFilter === status
-                            ? 'bg-slate-900 text-white shadow-sm'
-                            : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${statusFilter === status
+                            ? 'bg-slate-900 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                             }`}
                         >
                           {status}
@@ -5834,35 +6066,17 @@ const ERP_Dashboard = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 min-w-max">
-                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">배송현황</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {['전체', ...uniqueDeliveryStatus].map(status => (
-                      <button
-                        key={status}
-                        onClick={() => setDeliveryFilter(status)}
-                        className={`px-4 py-1.5 rounded-full text-[12px] font-bold transition-all ${deliveryFilter === status
-                          ? 'bg-slate-900 text-white shadow-sm'
-                          : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                          }`}
-                      >
-                        {status}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {showCommissionInfo && (
-                  <div className="flex items-center gap-3 min-w-max ml-4">
-                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">지급상태</div>
-                    <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                      {['전체', '지급완료', '지급예정'].map(status => (
+                  {/* 배송현황 필터 */}
+                  <div className="flex items-center gap-2.5 min-w-max">
+                    <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider select-none">배송현황</span>
+                    <div className="flex flex-wrap gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
+                      {['전체', ...uniqueDeliveryStatus].map(status => (
                         <button
                           key={status}
-                          onClick={() => setPaymentStatusFilter(status)}
-                          className={`px-3 py-1 rounded-md text-[11px] font-black transition-all ${paymentStatusFilter === status
-                            ? 'bg-white text-blue-600 shadow-sm'
-                            : 'text-slate-400 hover:text-slate-600'
+                          onClick={() => setDeliveryFilter(status)}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${deliveryFilter === status
+                            ? 'bg-slate-900 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                             }`}
                         >
                           {status}
@@ -5870,20 +6084,40 @@ const ERP_Dashboard = () => {
                       ))}
                     </div>
                   </div>
-                )}
+
+                  {/* 지급상태 필터 */}
+                  {showCommissionInfo && (
+                    <div className="flex items-center gap-2.5 min-w-max">
+                      <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider select-none">지급상태</span>
+                      <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 gap-1">
+                        {['전체', '지급완료', '지급예정'].map(status => (
+                          <button
+                            key={status}
+                            onClick={() => setPaymentStatusFilter(status)}
+                            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${paymentStatusFilter === status
+                              ? 'bg-blue-600 text-white shadow-2xs'
+                              : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                              }`}
+                          >
+                            {status}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="md:ml-auto flex flex-col md:flex-row md:items-center gap-4">
-                  <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 w-full sm:w-auto">
+                <div className="md:ml-auto flex flex-col md:flex-row md:items-center gap-3">
+                  <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 w-full sm:w-auto shadow-2xs">
                     <button
                       onClick={() => setTableDisplayMode('구좌수')}
-                      className={`flex-1 sm:flex-none px-4 py-1.5 text-[12px] font-bold rounded-md transition-all ${tableDisplayMode === '구좌수' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      className={`flex-1 sm:flex-none px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${tableDisplayMode === '구좌수' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
                     >
                       구좌수 기준
                     </button>
                     <button
                       onClick={() => setTableDisplayMode('상품개수')}
-                      className={`flex-1 sm:flex-none px-4 py-1.5 text-[12px] font-bold rounded-md transition-all ${tableDisplayMode === '상품개수' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      className={`flex-1 sm:flex-none px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${tableDisplayMode === '상품개수' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
                     >
                       상품개수 기준
                     </button>
@@ -8905,6 +9139,14 @@ const ERP_Dashboard = () => {
             </div>
           )}
         </AnimatePresence>
+        <VocManagementModal
+          isOpen={isVocManagementModalOpen}
+          onClose={() => setIsVocManagementModalOpen(false)}
+          hqs={uniqueHqs}
+          erpData={isHQStaff && userHqNames.length > 0 ? data.filter(d => userHqNames.some(uh => (d.hq || '').replace(/[\s()본부]/g, '').includes(uh))) : data}
+          isHQStaff={isHQStaff}
+          userHqs={userHqNames}
+        />
         <AnimatePresence>
           <DeliveryStatusModal
             isOpen={isDeliveryStatusModalOpen}

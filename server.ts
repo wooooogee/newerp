@@ -2766,6 +2766,196 @@ app.post('/api/sheets/commission-notes/delete', async (req, res) => {
   }
 });
 
+// ================= VOC 관리 구글 시트 연동 API =================
+app.get('/api/sheets/voc', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let vocSheet = sheetsList.find(s => s.properties?.title === 'VOC관리' || s.properties?.title === 'VOC 관리');
+
+    if (!vocSheet) {
+      return res.json({ vocList: [] });
+    }
+
+    const sheetName = vocSheet.properties?.title || 'VOC관리';
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `${sheetName}!A:U`,
+    });
+
+    const rows = response.data.values || [];
+    const vocList = [];
+    for (let i = 1; i < rows.length; i++) {
+      const [
+        id, regDate, customerName, phone, hqName, branchName, category, status,
+        title, content, processResult, manager, completeDate,
+        memNo, allMemNos, rentalNo, rentalProd, contractDate, statusB, empInfo, commentsJson
+      ] = rows[i];
+
+      if (id || customerName || title) {
+        let comments = [];
+        if (commentsJson) {
+          try {
+            comments = JSON.parse(commentsJson);
+          } catch (e) {
+            comments = [];
+          }
+        }
+
+        vocList.push({
+          id: id || `VOC-${i}`,
+          regDate: regDate || '',
+          customerName: customerName || '',
+          phone: phone || '',
+          hqName: hqName || '',
+          branchName: branchName || '',
+          category: category || '기타',
+          status: (status as any) || '접수',
+          title: title || '',
+          content: content || '',
+          processResult: processResult || '',
+          manager: manager || '',
+          completeDate: completeDate || '',
+          memNo: memNo || '',
+          allMemNos: allMemNos || memNo || '',
+          rentalNo: rentalNo || '',
+          rentalProd: rentalProd || '',
+          contractDate: contractDate || '',
+          statusB: statusB || '',
+          empInfo: empInfo || '',
+          comments: Array.isArray(comments) ? comments : []
+        });
+      }
+    }
+
+    res.json({ vocList });
+  } catch (error: any) {
+    console.error("[VOC Get Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
+app.post('/api/sheets/voc/save', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { vocList } = req.body as { vocList: any[] };
+  if (!vocList || !Array.isArray(vocList)) {
+    return res.status(400).json({ error: '필수 파라미터가 누락되었습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let vocSheet = sheetsList.find(s => s.properties?.title === 'VOC관리' || s.properties?.title === 'VOC 관리');
+    let sheetInternalId: number | null | undefined = vocSheet?.properties?.sheetId;
+    let targetSheetTitle = vocSheet?.properties?.title || 'VOC관리';
+
+    if (!vocSheet) {
+      console.log("[CloudSync] Creating 'VOC관리' sheet...");
+      const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: 'VOC관리' } } }]
+        }
+      });
+      sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+      targetSheetTitle = 'VOC관리';
+
+      if (sheetInternalId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.15, green: 0.25, blue: 0.45 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+    }
+
+    const headers = [
+      'VOC ID', '접수일자', '고객명', '연락처', '본부명', '지사명', '접수유형', '처리상태',
+      'VOC 제목', '상세내용', '처리내용/답변', '담당자', '완료일자',
+      '선택회원번호', '보유전체회원번호목록', '렌탈번호', '렌탈상품명', '계약일자', '가입상태', '영업사원정보', '코멘트히스토리JSON'
+    ];
+    const rows = [headers];
+
+    vocList.forEach(item => {
+      const commentsStr = item.comments && item.comments.length > 0 ? JSON.stringify(item.comments) : '';
+      rows.push([
+        item.id || '',
+        item.regDate || '',
+        item.customerName || '',
+        item.phone || '',
+        item.hqName || '',
+        item.branchName || '',
+        item.category || '',
+        item.status || '접수',
+        item.title || '',
+        item.content || '',
+        item.processResult || '',
+        item.manager || '',
+        item.completeDate || '',
+        item.memNo || '',
+        item.allMemNos || item.memNo || '',
+        item.rentalNo || '',
+        item.rentalProd || '',
+        item.contractDate || '',
+        item.statusB || '',
+        item.empInfo || '',
+        commentsStr
+      ]);
+    });
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: sheetId,
+      range: `${targetSheetTitle}!A:U`,
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `${targetSheetTitle}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rows }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[VOC Save Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
 // Vite Middleware
 async function start() {
   try {
