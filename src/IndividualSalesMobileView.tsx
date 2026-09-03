@@ -499,10 +499,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
               <div>
                 <div className="text-[11px] text-slate-500 font-semibold tracking-wider uppercase">Welcome Back</div>
                 <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  {currentUser.orgName || '영업사원'} 님
-                  <span className="text-[10px] font-normal text-slate-600 px-1.5 py-0.5 rounded-full bg-slate-100 border border-slate-200">
-                    {currentUser.username}
-                  </span>
+                  {currentUser?.username || '영업사원'} 님
                 </div>
               </div>
             </div>
@@ -882,40 +879,47 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                         </div>
 
                         {/* Card Body Details */}
-                        <div className="grid grid-cols-2 gap-x-3 border-t border-slate-100 pt-2.5 text-[11px]">
-                          {/* 왼쪽: 계약 및 상조 정보 */}
-                          <div className="space-y-1.5 min-w-0">
-                            <div className="flex items-center gap-1.5 text-slate-500">
-                              <Calendar size={12} className="text-slate-400 shrink-0" />
-                              <span className="truncate">계약일자: <strong className="text-slate-800">{item.contractDate || '-'}</strong></span>
+                        <div className="border-t border-slate-100 pt-2.5 space-y-2 text-[11px]">
+                          <div className="grid grid-cols-2 gap-x-3">
+                            {/* 왼쪽: 계약 및 상조 정보 */}
+                            <div className="space-y-1.5 min-w-0">
+                              <div className="flex items-center gap-1.5 text-slate-500">
+                                <Calendar size={12} className="text-slate-400 shrink-0" />
+                                <span className="truncate">계약일자: <strong className="text-slate-800">{item.contractDate || '-'}</strong></span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-slate-500">
+                                <Package size={12} className="text-slate-400 shrink-0" />
+                                <span className="truncate">상 조: <strong className="text-slate-800" title={item.prodName}>{item.prodName || '-'}</strong></span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-slate-500">
+                                <CreditCard size={12} className="text-slate-400 shrink-0" />
+                                <span className="truncate">상조출금일: <strong className="text-slate-800">{mutualAidPayVal}</strong></span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1.5 text-slate-500">
-                              <Package size={12} className="text-slate-400 shrink-0" />
-                              <span className="truncate">상 조: <strong className="text-slate-800" title={item.prodName}>{item.prodName || '-'}</strong></span>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-slate-500">
-                              <CreditCard size={12} className="text-slate-400 shrink-0" />
-                              <span className="truncate">상조출금일: <strong className="text-slate-800">{mutualAidPayVal}</strong></span>
+
+                            {/* 오른쪽: 배송 및 렌탈 정보 */}
+                            <div className="space-y-1.5 min-w-0">
+                              <div className="flex items-center gap-1.5 text-slate-500">
+                                <Truck size={12} className="text-blue-500 shrink-0" />
+                                <span className="truncate">배송일자: <strong className="text-blue-700 font-semibold">{item.deliveryDate || '-'}</strong></span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-slate-500">
+                                <Hash size={12} className="text-indigo-400 shrink-0" />
+                                <span className="truncate">렌탈번호: <strong className="font-mono text-indigo-600 font-semibold">{item.rentalNo || '-'}</strong></span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-slate-500">
+                                <CreditCard size={12} className="text-indigo-400 shrink-0" />
+                                <span className="truncate">렌탈출금일: <strong className="text-slate-800">{rentalPayVal}</strong></span>
+                              </div>
                             </div>
                           </div>
 
-                          {/* 오른쪽: 배송 및 렌탈 정보 */}
-                          <div className="space-y-1.5 min-w-0">
-                            <div className="flex items-center gap-1.5 text-slate-500">
-                              <Truck size={12} className="text-blue-500 shrink-0" />
-                              <span className="truncate">배송일자: <strong className="text-blue-700 font-semibold">{item.deliveryDate || '-'}</strong></span>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-slate-500">
-                              <Package size={12} className="text-indigo-400 shrink-0" />
-                              <span className="truncate">렌탈상품: <strong className="text-slate-800" title={item.rentalProd}>{item.rentalProd || '-'}</strong></span>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-slate-500">
-                              <Hash size={12} className="text-indigo-400 shrink-0" />
-                              <span className="truncate">렌탈번호: <strong className="font-mono text-indigo-600 font-semibold">{item.rentalNo || '-'}</strong></span>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-slate-500">
-                              <CreditCard size={12} className="text-indigo-400 shrink-0" />
-                              <span className="truncate">렌탈출금일: <strong className="text-slate-800">{rentalPayVal}</strong></span>
+                          {/* 렌탈상품 단독 Full-Width 행 (상조출금일 & 렌탈출금일 바로 아래에 전체 상품명 100% 노출) */}
+                          <div className="flex items-start gap-1.5 text-slate-500 bg-slate-50/80 p-2 rounded-xl border border-slate-100/80 mt-1">
+                            <Package size={13} className="text-indigo-500 shrink-0 mt-0.5" />
+                            <div className="flex-1 text-[11px] leading-tight">
+                              <span className="font-medium text-slate-500">렌탈상품: </span>
+                              <strong className="text-slate-900 font-bold break-all">{item.rentalProd || '-'}</strong>
                             </div>
                           </div>
                         </div>

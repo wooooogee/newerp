@@ -660,8 +660,8 @@
           "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
-          "tier1Count": 300,
-          "tier1Price": 740000,
+          "tier1Count": 0,
+          "tier1Price": 0,
           "tier2Count": 0,
           "tier2Price": 0,
           "tier3Count": 0,
@@ -2169,6 +2169,55 @@
       "courier": "",
       "trackingNo": "",
       "deliveryState": "배송중"
+    },
+    "12331355": {
+      "orderDate": "2026-09-03",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12332288": {
+      "orderDate": "2026-09-03",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12333173": {
+      "orderDate": "2026-09-03",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12333656": {
+      "orderDate": "2026-09-03",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12334800": {
+      "orderDate": "2026-09-03",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12334806": {
+      "orderDate": "2026-09-03",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12335108": {
+      "orderDate": "2026-09-03",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
     }
   },
   "reportSettings": {
