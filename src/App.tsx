@@ -10657,8 +10657,149 @@ const ERP_Dashboard = () => {
                       }}
                       disabled={(reconTab === 'NEW' ? reconData.length : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).length) === 0}
                       className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-100 disabled:opacity-50"
+                      title="유통사 대사 모달의 104건 전체 상세 내역을 엑셀로 다운로드합니다."
                     >
-                      <Download size={14} /> 엑셀 다운로드
+                      <Download size={14} /> 대사 내역 엑셀
+                    </button>
+                    <button
+                      onClick={() => {
+                        const rawBaseData = reconTab === 'NEW' ? reconData : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate);
+                        const baseData = [...rawBaseData].sort((a, b) => {
+                          const hqA = a['본부명'] || '';
+                          const hqB = b['본부명'] || '';
+                          const hqDiff = hqA.localeCompare(hqB, 'ko');
+                          if (hqDiff !== 0) return hqDiff;
+                          const custA = a['고객명'] || '';
+                          const custB = b['고객명'] || '';
+                          return custA.localeCompare(custB, 'ko');
+                        });
+                        
+                        const mappedData = baseData.map(d => ({
+                          '정산기준일': d['정산기준일'] || '',
+                          '수수료지급일자': d['수수료지급일자'] || d['지급일자'] || '',
+                          '계약ID': d['계약ID(렌탈번호)'] || d['계약ID'] || '',
+                          '고객명': d['고객명'] || '',
+                          '본부명': d['본부명'] || '',
+                          '상품명': d['상품명'] || '',
+                          '계약일자': d['계약일자'] || '',
+                          '배송일자': d['내부 배송일자'] || d['배송일자'] || '',
+                          '구좌수': d['구좌수'] || 0,
+                          '거래처입금액': d['거래처입금액'] || 0,
+                          '내부지급액합계': d['내부지급액합계'] || 0,
+                          '최종순수익': d['최종순수익'] || 0,
+                          '비고': d['비고'] || ''
+                        }));
+
+                        const normalRows = mappedData.filter(d => d['비고'] === '정상');
+                        const abnormalRows = mappedData.filter(d => d['비고'] !== '정상');
+
+                        const normalCount = normalRows.length;
+                        const normalGuzwa = normalRows.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
+                        const normalExt = normalRows.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
+                        const normalInt = normalRows.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
+                        const normalNet = normalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+
+                        const normalSubtotalRow = {
+                          '정산기준일': '',
+                          '수수료지급일자': '',
+                          '계약ID': '[정상 건 소계]',
+                          '고객명': `${normalCount}건`,
+                          '본부명': '',
+                          '상품명': '',
+                          '계약일자': '',
+                          '배송일자': '',
+                          '구좌수': normalGuzwa,
+                          '거래처입금액': normalExt,
+                          '내부지급액합계': normalInt,
+                          '최종순수익': normalNet,
+                          '비고': '정상 소계'
+                        };
+
+                        const abnormalCount = abnormalRows.length;
+                        const abnormalGuzwa = abnormalRows.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
+                        const abnormalExt = abnormalRows.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
+                        const abnormalInt = abnormalRows.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
+                        const abnormalNet = abnormalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+
+                        const abnormalSubtotalRow = {
+                          '정산기준일': '',
+                          '수수료지급일자': '',
+                          '계약ID': '[이상/선지급 건 소계]',
+                          '고객명': `${abnormalCount}건`,
+                          '본부명': '',
+                          '상품명': '',
+                          '계약일자': '',
+                          '배송일자': '',
+                          '구좌수': abnormalGuzwa,
+                          '거래처입금액': abnormalExt,
+                          '내부지급액합계': abnormalInt,
+                          '최종순수익': abnormalNet,
+                          '비고': '이상 소계'
+                        };
+
+                        const totalGuzwa = mappedData.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
+                        const totalExt = mappedData.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
+                        const totalInt = mappedData.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
+                        const totalNet = mappedData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+
+                        const grandTotalRow = {
+                          '정산기준일': '',
+                          '수수료지급일자': '',
+                          '계약ID': '[전체 총계]',
+                          '고객명': `${mappedData.length}건`,
+                          '본부명': '',
+                          '상품명': '',
+                          '계약일자': '',
+                          '배송일자': '',
+                          '구좌수': totalGuzwa,
+                          '거래처입금액': totalExt,
+                          '내부지급액합계': totalInt,
+                          '최종순수익': totalNet,
+                          '비고': '총계'
+                        };
+
+                        const exportData = abnormalRows.length > 0
+                          ? [...normalRows, normalSubtotalRow, ...abnormalRows, abnormalSubtotalRow, grandTotalRow]
+                          : [...normalRows, normalSubtotalRow, grandTotalRow];
+                        
+                        const headers = ['정산기준일', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
+                        const aoaData = [headers];
+                        exportData.forEach(row => {
+                           aoaData.push([
+                             row['정산기준일'],
+                             row['수수료지급일자'],
+                             row['계약ID'],
+                             row['고객명'],
+                             row['본부명'],
+                             row['상품명'],
+                             row['계약일자'],
+                             row['배송일자'],
+                             row['구좌수'],
+                             { v: row['거래처입금액'] || 0, t: 'n' },
+                             { v: row['내부지급액합계'] || 0, t: 'n' },
+                             { v: row['최종순수익'] || 0, t: 'n' },
+                             row['비고']
+                           ]);
+                        });
+
+                        const targetDate = reconTab === 'NEW' ? reconDate : selectedHistoryDate;
+                        if (payDateFilter !== targetDate) {
+                          setOriginalPayDateFilter(payDateFilter);
+                          setPayDateFilter(targetDate);
+                          setPendingAppendSheet({ name: '대사보고', data: aoaData });
+                          setPendingExportDate(targetDate);
+                        } else {
+                          exportIntegratedSettlement({
+                            name: '대사보고',
+                            data: aoaData
+                          });
+                        }
+                      }}
+                      disabled={(reconTab === 'NEW' ? reconData.length : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).length) === 0}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:opacity-50"
+                      title="첫페이지 종합보고서 + 본부별 명세 + 전체상세명세 + 대사보고 시트까지 완전 통합 엑셀로 내려받습니다."
+                    >
+                      <FileSpreadsheet size={14} /> 통합 정산 보고서 (Excel)
                     </button>
                     <button onClick={() => setIsReconciliationModalOpen(false)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-lg transition-colors"><X size={20} /></button>
                   </div>
