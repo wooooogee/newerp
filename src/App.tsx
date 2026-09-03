@@ -1496,6 +1496,7 @@ const ERP_Dashboard = () => {
         
         let finalData = initialData;
         if (currentUser && !isManager) {
+          const usernameClean = currentUser.username.trim().toUpperCase();
           if (currentUser.orgs && currentUser.orgs.length > 0) {
             finalData = initialData.filter(item => {
               return currentUser.orgs!.some(org => {
@@ -1505,7 +1506,7 @@ const ERP_Dashboard = () => {
                 } else if (org.role === '지사' || org.role === '지점' || org.role === '지사모바일') {
                   return String(item.branch || '').trim() === orgNameClean;
                 } else {
-                  return (item.empCode && String(item.empCode).trim() === currentUser.username) ||
+                  return (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
                          (!item.empCode && String(item.empName || '').trim() === orgNameClean);
                 }
               });
@@ -1518,7 +1519,7 @@ const ERP_Dashboard = () => {
               finalData = initialData.filter(item => String(item.branch || '').trim() === orgNameClean);
             } else {
               finalData = initialData.filter(item =>
-                (item.empCode && String(item.empCode).trim() === currentUser.username) ||
+                (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
                 (!item.empCode && String(item.empName || '').trim() === orgNameClean)
               );
             }
@@ -1587,7 +1588,7 @@ const ERP_Dashboard = () => {
             hq: String(row[7] || ''),               // H(7)
             branch: String(row[8] || ''),           // I(8)
             empName: String(row[9] || ''),          // J(9)
-            empCode: String(row[39] || '').trim(),  // AN(39) 사원코드
+            empCode: String(row[27] || row[39] || '').trim(),  // AB(27) 사원코드 (AN(39) fallback)
             hc: [row[15], row[16], row[17]].filter(Boolean).join(', '), // P,Q,R
             hcRegDate: String(row[18] || ''),       // S(18)
             paymentStatus: String(row[19] || ''),   // T(19)
@@ -1601,6 +1602,7 @@ const ERP_Dashboard = () => {
       // 로그인 권한 필터링 추가
       let finalData = formatted;
       if (currentUser && !isManager) {
+        const usernameClean = currentUser.username.trim().toUpperCase();
         if (currentUser.orgs && currentUser.orgs.length > 0) {
           finalData = formatted.filter(item => {
             return currentUser.orgs!.some(org => {
@@ -1610,7 +1612,7 @@ const ERP_Dashboard = () => {
               } else if (org.role === '지사' || org.role === '지점' || org.role === '지사모바일') {
                 return String(item.branch || '').trim() === orgNameClean;
               } else {
-                return (item.empCode && String(item.empCode).trim() === currentUser.username) ||
+                return (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
                        (!item.empCode && String(item.empName || '').trim() === orgNameClean);
               }
             });
@@ -1623,7 +1625,7 @@ const ERP_Dashboard = () => {
             finalData = formatted.filter(item => String(item.branch || '').trim() === orgNameClean);
           } else {
             finalData = formatted.filter(item =>
-              (item.empCode && String(item.empCode).trim() === currentUser.username) ||
+              (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
               (!item.empCode && String(item.empName || '').trim() === orgNameClean)
             );
           }

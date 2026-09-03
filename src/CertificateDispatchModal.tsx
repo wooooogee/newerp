@@ -138,7 +138,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         const status = maintenanceStatusMap.get(memNoKey) || '';
 
         const hq = String(raw[38] || '');         // AM(38): 본부명
-        const empCode = String(raw[39] || '');    // AN(39): 사원코드
+        const empCode = String(raw[27] || raw[39] || '');    // AB(27) / AN(39): 사원코드
         const empName = String(raw[10] || '');    // K(10): 사원명
         const contractDate = String(raw[2] || ''); // C(2): 계약일자
         const memName = String(raw[5] || '');     // F(5): 회원명

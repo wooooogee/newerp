@@ -258,7 +258,7 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
       }
 
       // 영업자연락처
-      const empCode = String(raw[39] || '').trim().toUpperCase();
+      const empCode = String(raw[27] || raw[39] || '').trim().toUpperCase();
       const empName = String(raw[10] || '').trim();
       let empPhone = empCodePhoneMap.get(empCode) || empNamePhoneMap.get(empName) || '';
       if (!empPhone) {
