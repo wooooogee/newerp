@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, Component, ReactNode } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -475,6 +475,7 @@ const ERP_Dashboard = () => {
   const [notification, setNotification] = useState<SyncNotification | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ERPDataItem | null>(null);
+  const [isCopiedMemberInfo, setIsCopiedMemberInfo] = useState(false);
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -878,10 +879,61 @@ const ERP_Dashboard = () => {
     }
   };
 
+  // 회원정보 모달 양식 복사
+  const fallbackCopyText = (text: string, onSuccess: () => void) => {
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand('copy');
+      textArea.remove();
+      if (successful) {
+        onSuccess();
+      } else {
+        alert('클립보드 복사에 실패했습니다.');
+      }
+    } catch (err) {
+      alert('클립보드 복사에 실패했습니다.');
+    }
+  };
 
+  const handleCopyMemberInfo = () => {
+    if (!selectedItem) return;
+    const textToCopy = `[회원 정보]
 
+계약일자 - ${selectedItem.contractDate || ''}
+회원명 - ${selectedItem.memName || ''}
 
+[상품 정보]
 
+상품명 - ${selectedItem.prodName || ''}
+렌탈상품명 - ${selectedItem.rentalProd || ''}
+렌탈계약번호 - ${selectedItem.rentalNo || ''}
+
+[영업자 정보]
+
+본부명 - ${selectedItem.hq || ''}
+지사명 - ${selectedItem.branch || ''}
+사원명 - ${selectedItem.empName || ''}`;
+
+    const doSuccess = () => {
+      setIsCopiedMemberInfo(true);
+      setTimeout(() => setIsCopiedMemberInfo(false), 2000);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(textToCopy).then(doSuccess).catch(() => {
+        fallbackCopyText(textToCopy, doSuccess);
+      });
+    } else {
+      fallbackCopyText(textToCopy, doSuccess);
+    }
+  };
 
 
 
@@ -6479,7 +6531,7 @@ const ERP_Dashboard = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                onClick={() => { setSelectedItem(null); setDetailSource('main'); }}
+                onClick={() => { setSelectedItem(null); setDetailSource('main'); setIsCopiedMemberInfo(false); }}
                 className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
               />
               <motion.div
@@ -6494,7 +6546,7 @@ const ERP_Dashboard = () => {
                     회원 상세 정보
                   </h3>
                   <button
-                    onClick={() => { setSelectedItem(null); setDetailSource('main'); }}
+                    onClick={() => { setSelectedItem(null); setDetailSource('main'); setIsCopiedMemberInfo(false); }}
                     className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
                   >
                     <X size={20} />
@@ -6565,10 +6617,34 @@ const ERP_Dashboard = () => {
 
                   {/* 회원정보 */}
                   <section>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <div className="w-1 h-3 bg-blue-500 rounded-full" />
-                      회원 정보
-                    </h4>
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                        <div className="w-1 h-3 bg-blue-500 rounded-full" />
+                        회원 정보
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={handleCopyMemberInfo}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg transition-all shadow-sm ${
+                          isCopiedMemberInfo
+                            ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                            : 'bg-white text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 border border-slate-200 cursor-pointer'
+                        }`}
+                        title="회원정보 복사"
+                      >
+                        {isCopiedMemberInfo ? (
+                          <>
+                            <Check size={13} className="text-emerald-500" />
+                            <span>복사완료!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={13} />
+                            <span>회원정보 복사</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <DetailItem label="계약일자" value={selectedItem.contractDate} />
                       <DetailItem label="회원번호" value={selectedItem.memNo} />
@@ -6806,8 +6882,8 @@ const ERP_Dashboard = () => {
                     )}
                   </div>
                   <button
-                    onClick={() => setSelectedItem(null)}
-                    className="px-8 py-2 bg-slate-900 text-white rounded-xl text-sm font-black shadow-lg"
+                    onClick={() => { setSelectedItem(null); setIsCopiedMemberInfo(false); }}
+                    className="px-8 py-2 bg-slate-900 text-white rounded-xl text-sm font-black shadow-lg cursor-pointer hover:bg-slate-800 transition-colors"
                   >
                     확인
                   </button>
