@@ -935,6 +935,57 @@ const ERP_Dashboard = () => {
     }
   };
 
+  // 모달 내 관련 회원 계약 상태 일괄 변경
+  const handleBatchStatusUpdate = async (members: ERPDataItem[], targetStatus: string) => {
+    if (!members || members.length === 0) return;
+    setIsUpdating(true);
+    try {
+      const updates = members.map(m => ({
+        rowIdx: m.originalRowIdx,
+        colIdx: 1,
+        newValue: targetStatus
+      }));
+
+      const res = await fetch('/api/sheets/batch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates })
+      });
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          setIsAuthenticated(false);
+          throw new Error('인증 세션이 만료되었습니다. 다시 연동해 주세요.');
+        }
+        const errorData = await res.json();
+        throw new Error(errorData.error || '일괄 업데이트 실패');
+      }
+
+      setNotification({ message: `${updates.length}건의 상태가 '${targetStatus}'(으)로 일괄 변경되었습니다.`, type: 'success' });
+      await loadData();
+
+      // 모달 내부의 selectedItem 갱신
+      if (selectedItem) {
+        setSelectedItem(prev => {
+          if (!prev) return null;
+          const isIncluded = members.some(m => m.originalRowIdx === prev.originalRowIdx);
+          return isIncluded ? { ...prev, status: targetStatus } : prev;
+        });
+      }
+
+      // 각 행의 editStatus 셀렉트 박스 DOM 값 동기화
+      members.forEach(m => {
+        const el = document.getElementById(`editStatus-${m.originalRowIdx}`) as HTMLSelectElement;
+        if (el) el.value = targetStatus;
+      });
+    } catch (err: any) {
+      console.error(err);
+      alert('일괄 변경 중 오류가 발생했습니다: ' + (err.message || ''));
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
 
 
   // 정산 설정 상태 (본부별) - v2 키 사용으로 강제 리셋 (최신 데이터 반영)
@@ -2469,6 +2520,7 @@ const ERP_Dashboard = () => {
         const matchesStatus =
           statusFilter === '전체' ||
           (statusFilter === '가입' && item.status === '가입') ||
+          (statusFilter === '대기' && item.status === '대기') ||
           (statusFilter === '취소 및 해약' &&
             (item.status?.includes('취소') ||
               item.status?.includes('해약') ||
@@ -6123,7 +6175,7 @@ const ERP_Dashboard = () => {
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider select-none">가입상태</span>
                     <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
-                      {['전체', '가입', '취소 및 해약'].map(status => (
+                      {['전체', '가입', '대기', '취소 및 해약'].map(status => (
                         <button
                           key={status}
                           onClick={() => setStatusFilter(status)}
@@ -6403,7 +6455,15 @@ const ERP_Dashboard = () => {
                             {(item.status || '').includes('취소') ? (
                               <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded-md">취소</span>
                             ) : (
-                              <span className={`px-2 py-0.5 rounded-md ${item.status === '가입' ? 'text-blue-600 bg-blue-50' : 'text-slate-400'}`}>
+                              <span className={`px-2 py-0.5 rounded-md ${
+                                item.status === '가입'
+                                  ? 'text-blue-600 bg-blue-50'
+                                  : item.status === '대기'
+                                    ? 'text-amber-600 bg-amber-50'
+                                    : (item.status || '').includes('해약')
+                                      ? 'text-rose-600 bg-rose-50'
+                                      : 'text-slate-400'
+                              }`}>
                                 {item.status}
                               </span>
                             )}
@@ -6656,52 +6716,105 @@ const ERP_Dashboard = () => {
 
                   {/* 계약 상태 관리 */}
                   <section>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <div className="w-1 h-3 bg-rose-500 rounded-full" />
-                      계약 상태 관리
-                    </h4>
-                    <div className="space-y-3">
-                      {getRelatedMembers(selectedItem.rentalNo, selectedItem.memNo).map((m, mIdx) => (
-                        <div key={m.uniqueKey || mIdx} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-[10px] font-bold text-slate-400">회원번호</span>
-                            <span className="text-[13px] font-black text-slate-800">{m.memNo}</span>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <div className="flex flex-col gap-0.5 min-w-[70px]">
-                              <span className="text-[10px] font-bold text-slate-400">현재 상태</span>
-                              <span className={`text-[12px] font-black ${m.status.includes('취소') || m.status.includes('해약') ? 'text-rose-600' : 'text-blue-600'}`}>{m.status}</span>
-                            </div>
-                            {isAdmin ? (
-                              <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200 shadow-sm shrink-0">
+                    {(() => {
+                      const relatedMembers = getRelatedMembers(selectedItem.rentalNo, selectedItem.memNo);
+                      return (
+                        <>
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                              <div className="w-1 h-3 bg-rose-500 rounded-full" />
+                              계약 상태 관리
+                              <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                                총 {relatedMembers.length}건
+                              </span>
+                            </h4>
+
+                            {isAdmin && relatedMembers.length > 0 && (
+                              <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-xs">
+                                <span className="text-[11px] font-bold text-slate-600 pl-1">일괄 변경:</span>
                                 <select
-                                  defaultValue={m.status}
-                                  id={`editStatus-${m.originalRowIdx}`}
-                                  className="text-[12px] font-bold text-slate-700 bg-transparent px-2 py-1 focus:outline-none"
+                                  id="batchContractStatusSelect"
+                                  defaultValue="가입"
+                                  className="text-[12px] font-bold text-slate-700 bg-white border border-slate-200 px-2 py-1 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500"
                                 >
                                   <option value="가입">가입</option>
+                                  <option value="대기">대기</option>
                                   <option value="해약">해약</option>
                                   <option value="취소">취소</option>
                                 </select>
                                 <button
+                                  type="button"
                                   onClick={async () => {
-                                    const selectEl = document.getElementById(`editStatus-${m.originalRowIdx}`) as HTMLSelectElement;
-                                    const val = selectEl.value;
-                                    if (await (window as any).customConfirm(`회원번호 ${m.memNo}의 상태를 '${val}'(으)로 변경하시겠습니까?`)) {
-                                      await updateCell(m.originalRowIdx, 1, val);
+                                    const selectEl = document.getElementById('batchContractStatusSelect') as HTMLSelectElement;
+                                    const val = selectEl?.value;
+                                    if (!val) return;
+                                    if (await (window as any).customConfirm(`관련 회원 ${relatedMembers.length}건의 계약 상태를 모두 '${val}'(으)로 일괄 변경하시겠습니까?`)) {
+                                      await handleBatchStatusUpdate(relatedMembers, val);
                                     }
                                   }}
                                   disabled={isUpdating}
-                                  className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-[11px] font-semibold rounded-md shadow-sm transition-colors cursor-pointer"
+                                  className="px-3 py-1 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-[11px] font-bold rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap"
                                 >
-                                  변경
+                                  일괄 변경
                                 </button>
                               </div>
-                            ) : null}
+                            )}
                           </div>
-                        </div>
-                      ))}
-                    </div>
+
+                          <div className="space-y-3">
+                            {relatedMembers.map((m, mIdx) => (
+                              <div key={m.uniqueKey || mIdx} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold text-slate-400">회원번호</span>
+                                  <span className="text-[13px] font-black text-slate-800">{m.memNo}</span>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <div className="flex flex-col gap-0.5 min-w-[70px]">
+                                    <span className="text-[10px] font-bold text-slate-400">현재 상태</span>
+                                    <span className={`text-[12px] font-black ${
+                                      m.status.includes('취소') || m.status.includes('해약')
+                                        ? 'text-rose-600'
+                                        : m.status.includes('대기')
+                                          ? 'text-amber-600'
+                                          : 'text-blue-600'
+                                    }`}>
+                                      {m.status}
+                                    </span>
+                                  </div>
+                                  {isAdmin ? (
+                                    <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200 shadow-sm shrink-0">
+                                      <select
+                                        defaultValue={m.status}
+                                        id={`editStatus-${m.originalRowIdx}`}
+                                        className="text-[12px] font-bold text-slate-700 bg-transparent px-2 py-1 focus:outline-none"
+                                      >
+                                        <option value="가입">가입</option>
+                                        <option value="대기">대기</option>
+                                        <option value="해약">해약</option>
+                                        <option value="취소">취소</option>
+                                      </select>
+                                      <button
+                                        onClick={async () => {
+                                          const selectEl = document.getElementById(`editStatus-${m.originalRowIdx}`) as HTMLSelectElement;
+                                          const val = selectEl.value;
+                                          if (await (window as any).customConfirm(`회원번호 ${m.memNo}의 상태를 '${val}'(으)로 변경하시겠습니까?`)) {
+                                            await updateCell(m.originalRowIdx, 1, val);
+                                          }
+                                        }}
+                                        disabled={isUpdating}
+                                        className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-[11px] font-semibold rounded-md shadow-sm transition-colors cursor-pointer"
+                                      >
+                                        변경
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </section>
 
                   {/* 상품정보 */}
