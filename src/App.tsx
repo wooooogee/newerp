@@ -3,6 +3,7 @@ import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Fi
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
+import { HealthcareMonthlyModal } from './HealthcareMonthlyModal';
 import { HealthcareReconModal } from './HealthcareReconModal';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { DeliveryStatusModal } from './DeliveryStatusModal';
@@ -632,6 +633,7 @@ const ERP_Dashboard = () => {
   const [isHealthcareCalendarModalOpen, setIsHealthcareCalendarModalOpen] = useState(false);
   const [hcCalendarViewDate, setHcCalendarViewDate] = useState(new Date());
   const [isHealthcareListModalOpen, setIsHealthcareListModalOpen] = useState(false);
+  const [isHealthcareMonthlyModalOpen, setIsHealthcareMonthlyModalOpen] = useState(false);
   const [healthcareFilter, setHealthcareFilter] = useState<{ type: 'date' | 'month', value: string } | null>(null);
   const [detailSource, setDetailSource] = useState<'main' | 'healthcare'>('main');
   const [isMaintenanceStatusModalOpen, setIsMaintenanceStatusModalOpen] = useState(false);
@@ -5360,6 +5362,7 @@ const ERP_Dashboard = () => {
                       <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
                         {[
                           { dot: 'bg-pink-500', label: '헬스케어 명단', action: () => setIsHealthcareCalendarModalOpen(true) },
+                          { dot: 'bg-purple-500', label: '월납 대상자', action: () => setIsHealthcareMonthlyModalOpen(true) },
                         ].map((item, idx) => (
                           <motion.button
                             key={idx}
@@ -9245,6 +9248,15 @@ const ERP_Dashboard = () => {
             onClose={() => setIsHealthcareReconModalOpen(false)}
             masterData={data}
             initialMonth={healthcareFilter?.value ? healthcareFilter.value.replace(/\./g, '-').substring(0, 7) : '2026-08'}
+          />
+          <HealthcareMonthlyModal
+            isOpen={isHealthcareMonthlyModalOpen}
+            onClose={() => setIsHealthcareMonthlyModalOpen(false)}
+            data={data}
+            onRowClick={(item) => {
+              setSelectedItem(item);
+              setDetailSource('healthcare');
+            }}
           />
 
           {isMonthlyDashboardModalOpen && (

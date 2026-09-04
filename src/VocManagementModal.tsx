@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Search, Filter, Plus, Edit3, Trash2, Download, RefreshCw, MessageSquare, CheckCircle2, Clock, AlertCircle, Calendar, User, Phone, Building, Check, Loader2, Send, CornerDownRight, UserCheck, CreditCard, Tag, ShieldAlert, FileText, Layers, Info } from 'lucide-react';
+import { X, Search, Filter, Plus, Edit3, Trash2, Download, RefreshCw, MessageSquare, CheckCircle2, Clock, AlertCircle, Calendar, User, Phone, Building, Check, Loader2, Send, CornerDownRight, UserCheck, CreditCard, Tag, ShieldAlert, FileText, Layers, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const XLSX = (window as any).XLSX;
@@ -109,6 +109,14 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
   const [comments, setComments] = useState<VocComment[]>([]);
   const [newCommentText, setNewCommentText] = useState('');
   const [newCommentWriter, setNewCommentWriter] = useState('');
+
+  // 코멘트 전용 열람 모달 상태
+  const [commentViewItem, setCommentViewItem] = useState<VocItem | null>(null);
+  const [quickCommentText, setQuickCommentText] = useState('');
+  const [quickCommentWriter, setQuickCommentWriter] = useState('');
+
+  // 회원 상세 정보 아코디언 토글 상태
+  const [isMemberDetailExpanded, setIsMemberDetailExpanded] = useState(false);
 
   // 회원 자동완성 검색 추천 드롭다운 상태
   const [searchMemberQuery, setSearchMemberQuery] = useState('');
@@ -235,6 +243,7 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
     setNewCommentWriter('');
     setSearchMemberQuery('');
     setShowMemberDropdown(false);
+    setIsMemberDetailExpanded(true);
   };
 
   // 회원 자동완성 검색 추천 데이터 (상품/렌탈계약번호 기준 유일 노출)
@@ -351,6 +360,7 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
 
     setSearchMemberQuery(`${m.memName} (${m.phone})`);
     setShowMemberDropdown(false);
+    setIsMemberDetailExpanded(true);
   };
 
   // 등록 모달 오픈
@@ -362,6 +372,7 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
   // 수정 모달 오픈
   const handleOpenEditForm = (item: VocItem) => {
     setEditingId(item.id);
+    setIsMemberDetailExpanded(false); // 수정/열람 시 상세 회원 정보는 기본 접어서 접수내용/코멘트가 바로 크게 보이도록
     setFormRegDate(item.regDate || new Date().toISOString().split('T')[0]);
     setFormCustomerName(item.customerName || '');
     setFormPhone(item.phone || '');
@@ -428,6 +439,45 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
   // 코멘트 삭제
   const handleDeleteComment = (commentId: string) => {
     setComments(prev => prev.filter(c => c.id !== commentId));
+  };
+
+  // 코멘트 전용 모달에서 빠른 코멘트 추가
+  const handleAddQuickComment = async () => {
+    if (!commentViewItem) return;
+    if (!quickCommentText.trim()) {
+      alert('코멘트 내용을 입력해주세요.');
+      return;
+    }
+    const nowStr = new Date().toLocaleString('sv-SE').replace('T', ' ');
+    const newComment: VocComment = {
+      id: `cmt-${Date.now()}`,
+      createdAt: nowStr,
+      writer: quickCommentWriter.trim() || commentViewItem.manager || '담당자',
+      content: quickCommentText.trim()
+    };
+    const updatedComments = [...(commentViewItem.comments || []), newComment];
+    const updatedItem: VocItem = {
+      ...commentViewItem,
+      comments: updatedComments
+    };
+    const updatedList = vocList.map(v => v.id === updatedItem.id ? updatedItem : v);
+    await saveVocData(updatedList);
+    setCommentViewItem(updatedItem);
+    setQuickCommentText('');
+  };
+
+  // 코멘트 전용 모달에서 코멘트 삭제
+  const handleDeleteQuickComment = async (commentId: string) => {
+    if (!commentViewItem) return;
+    if (!window.confirm('해당 코멘트를 삭제하시겠습니까?')) return;
+    const updatedComments = (commentViewItem.comments || []).filter(c => c.id !== commentId);
+    const updatedItem: VocItem = {
+      ...commentViewItem,
+      comments: updatedComments
+    };
+    const updatedList = vocList.map(v => v.id === updatedItem.id ? updatedItem : v);
+    await saveVocData(updatedList);
+    setCommentViewItem(updatedItem);
   };
 
   // 폼 제출
@@ -590,13 +640,13 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/65 backdrop-blur-xs p-2 md:p-4 overflow-hidden">
       <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 15 }}
+        initial={{ opacity: 0, scale: 0.98, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 0 }}
+        exit={{ opacity: 0, scale: 0.98, y: 0 }}
         transition={{ duration: 0.2 }}
-        className="bg-white w-full max-w-7xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh] border border-slate-200"
+        className="bg-white border border-slate-200 text-slate-800 w-full max-w-[1850px] w-[98vw] h-[95vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
       >
         {/* Header */}
         <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0 shadow-md">
@@ -606,7 +656,6 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
             </div>
             <div>
               <h2 className="text-lg font-bold tracking-tight">VOC (고객의 소리) 통합 관리 대장</h2>
-              <p className="text-xs text-slate-400 font-medium">상품/렌탈계약번호(rentalNo) 기준으로 중복을 제거하여 상품당 딱 1건씩 깔끔하게 노출합니다.</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -729,31 +778,30 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-slate-100/80 text-slate-600 border-b border-slate-200 font-bold uppercase tracking-wider">
-                    <th className="py-3 px-3">접수일자</th>
-                    <th className="py-3 px-3">회원명 / 연락처</th>
-                    <th className="py-3 px-3">보유 회원번호 전체 / 렌탈번호</th>
-                    <th className="py-3 px-3">계약일자 / 가입상태</th>
-                    <th className="py-3 px-3">본부 / 지사</th>
-                    <th className="py-3 px-3">영업사원 (연락처)</th>
-                    <th className="py-3 px-3">유형</th>
-                    <th className="py-3 px-3">VOC 제목 및 상품명</th>
-                    <th className="py-3 px-3">처리상태</th>
-                    <th className="py-3 px-3">최근 코멘트 / 처리내용</th>
-                    <th className="py-3 px-3 text-center">관리</th>
+                  <tr className="bg-slate-100/80 text-slate-600 border-b border-slate-200 font-bold uppercase tracking-wider whitespace-nowrap">
+                    <th className="py-3 px-3 whitespace-nowrap">접수일자</th>
+                    <th className="py-3 px-3 whitespace-nowrap">회원명 / 연락처</th>
+                    <th className="py-3 px-3 whitespace-nowrap">렌탈계약번호</th>
+                    <th className="py-3 px-3 whitespace-nowrap">계약일자 / 가입상태</th>
+                    <th className="py-3 px-3 whitespace-nowrap">본부 / 지사</th>
+                    <th className="py-3 px-3 whitespace-nowrap">영업사원 (연락처)</th>
+                    <th className="py-3 px-3 whitespace-nowrap">유형</th>
+                    <th className="py-3 px-3 whitespace-nowrap">VOC 제목</th>
+                    <th className="py-3 px-3 whitespace-nowrap">처리상태</th>
+                    <th className="py-3 px-3 whitespace-nowrap min-w-[340px]">처리내용</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {loading ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-slate-400">
+                      <td colSpan={10} className="py-12 text-center text-slate-400">
                         <Loader2 size={24} className="animate-spin mx-auto mb-2 text-blue-500" />
                         <p className="font-semibold">VOC 데이터를 불러오는 중입니다...</p>
                       </td>
                     </tr>
                   ) : filteredList.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-slate-400">
+                      <td colSpan={10} className="py-12 text-center text-slate-400">
                         <MessageSquare size={32} className="mx-auto mb-2 text-slate-300" />
                         <p className="font-bold text-slate-500">등록된 VOC 내역이 없습니다.</p>
                       </td>
@@ -762,63 +810,62 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
                     filteredList.map(item => {
                       const commentCount = item.comments ? item.comments.length : 0;
                       const latestComment = item.comments && item.comments.length > 0 ? item.comments[item.comments.length - 1] : null;
-                      const memNosDisplay = item.allMemNos || item.memNo || '-';
 
                       return (
-                        <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
+                        <tr
+                          key={item.id}
+                          onClick={() => handleOpenEditForm(item)}
+                          className="hover:bg-blue-50/60 transition-colors cursor-pointer group"
+                        >
                           <td className="py-3 px-3 font-mono text-slate-500 whitespace-nowrap">
                             {item.regDate}
                           </td>
                           <td className="py-3 px-3 whitespace-nowrap">
-                            <div className="font-bold text-slate-800">{item.customerName}</div>
-                            <div className="text-[11px] text-slate-400 font-mono">{item.phone || '-'}</div>
-                          </td>
-                          <td className="py-3 px-3 max-w-[180px]">
-                            <div className="text-slate-800 font-semibold text-[11px] truncate" title={memNosDisplay}>
-                              {memNosDisplay}
+                            <div className="flex items-center gap-1.5 whitespace-nowrap">
+                              <span className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{item.customerName}</span>
+                              {item.phone && <span className="text-[11px] text-slate-500 font-mono">({item.phone})</span>}
                             </div>
-                            <div className="text-blue-600 font-mono text-[11px] font-medium">{item.rentalNo || '-'}</div>
                           </td>
                           <td className="py-3 px-3 whitespace-nowrap">
-                            <div className="font-mono text-[11px] text-slate-600">{item.contractDate || '-'}</div>
-                            {item.statusB && (
-                              <span className={`inline-block px-1.5 py-0.2 rounded-sm text-[10px] font-bold ${
-                                item.statusB === '유지' ? 'bg-emerald-100 text-emerald-700' :
-                                item.statusB === '해지' || item.statusB === '취소' ? 'bg-rose-100 text-rose-700' :
-                                'bg-slate-100 text-slate-600'
-                              }`}>
-                                {item.statusB}
-                              </span>
-                            )}
+                            <span className="text-blue-600 font-mono text-xs font-bold">{item.rentalNo || '-'}</span>
                           </td>
                           <td className="py-3 px-3 whitespace-nowrap">
-                            <div className="font-semibold text-slate-700">{item.hqName || '-'}</div>
-                            <div className="text-[11px] text-slate-400">{item.branchName || '-'}</div>
+                            <div className="flex items-center gap-1.5 whitespace-nowrap">
+                              <span className="font-mono text-xs text-slate-600">{item.contractDate || '-'}</span>
+                              {item.statusB && (
+                                <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  item.statusB === '유지' || item.statusB === '가입' ? 'bg-emerald-100 text-emerald-700' :
+                                  item.statusB === '해지' || item.statusB === '취소' ? 'bg-rose-100 text-rose-700' :
+                                  'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {item.statusB}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3 px-3 whitespace-nowrap">
-                            <div className="font-bold text-slate-800">{item.empName || '-'}</div>
-                            {item.empPhone ? (
-                              <div className="text-[11px] text-blue-600 font-mono font-bold">📞 {item.empPhone}</div>
-                            ) : (
-                              <div className="text-[10px] text-slate-300">-</div>
-                            )}
+                            <div className="flex items-center gap-1 text-xs whitespace-nowrap">
+                              <span className="font-bold text-slate-700">{item.hqName || '-'}</span>
+                              {item.branchName && <span className="text-slate-400">/ {item.branchName}</span>}
+                            </div>
                           </td>
                           <td className="py-3 px-3 whitespace-nowrap">
-                            <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-600 text-[11px] font-bold">
+                            <div className="flex items-center gap-1.5 text-xs whitespace-nowrap">
+                              <span className="font-bold text-slate-800">{item.empName || '-'}</span>
+                              {item.empPhone && <span className="text-[11px] text-blue-600 font-mono font-semibold">({item.empPhone})</span>}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold">
                               {item.category}
                             </span>
                           </td>
-                          <td className="py-3 px-3 max-w-[200px]">
-                            <div className="font-bold text-slate-900 truncate" title={item.title}>
-                              {item.title}
-                            </div>
-                            {item.rentalProd && (
-                              <div className="text-[11px] text-indigo-600 font-medium truncate mt-0.5" title={item.rentalProd}>
-                                📦 {item.rentalProd}
-                              </div>
-                            )}
-                          </td>
                           <td className="py-3 px-3 whitespace-nowrap">
+                            <span className="font-bold text-slate-900 text-xs" title={item.title}>
+                              {item.title}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3.5 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                             <select
                               value={item.status}
                               onChange={e => handleStatusQuickChange(item, e.target.value as any)}
@@ -835,46 +882,42 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
                               <option value="보류">보류</option>
                             </select>
                           </td>
-                          <td className="py-3 px-3 max-w-[220px]">
-                            {latestComment ? (
-                              <div>
-                                <div className="text-slate-800 font-medium truncate" title={latestComment.content}>
-                                  💬 {latestComment.content}
-                                </div>
-                                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                  {latestComment.writer} · {latestComment.createdAt.substring(5, 16)}
-                                </div>
-                              </div>
-                            ) : item.processResult ? (
-                              <div className="truncate text-slate-700" title={item.processResult}>
-                                {item.processResult}
-                              </div>
-                            ) : (
-                              <span className="text-slate-300 italic text-[11px]">기록 없음</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 whitespace-nowrap text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                onClick={() => handleOpenEditForm(item)}
-                                className="px-2 py-1 bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 rounded-md font-bold text-[11px] transition-colors flex items-center gap-1 cursor-pointer"
-                                title="상세 및 코멘트 달기"
-                              >
-                                <Edit3 size={13} />
-                                <span>상세/코멘트</span>
-                                {commentCount > 0 && (
-                                  <span className="px-1.5 py-0.2 bg-blue-600 text-white text-[10px] font-black rounded-full">
-                                    {commentCount}
+                          <td
+                            className="py-3 px-3 whitespace-nowrap"
+                            onClick={e => {
+                              e.stopPropagation();
+                              setCommentViewItem(item);
+                            }}
+                          >
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-blue-50 border border-slate-200/80 hover:border-blue-300 transition-all cursor-pointer group/cmt w-full min-w-[300px] max-w-[580px]">
+                              {commentCount > 0 ? (
+                                <span className="px-1.5 py-0.5 bg-blue-600 text-white text-[10px] font-black rounded-full shrink-0 flex items-center gap-0.5 shadow-2xs">
+                                  <MessageSquare size={10} />
+                                  {commentCount}
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 bg-slate-200 text-slate-600 text-[10px] font-bold rounded shrink-0">
+                                  0
+                                </span>
+                              )}
+                              {latestComment ? (
+                                <div className="flex items-center gap-1.5 text-xs truncate flex-1 min-w-0">
+                                  <span className="text-slate-800 font-medium truncate group-hover/cmt:text-blue-700" title={latestComment.content}>
+                                    💬 {latestComment.content}
                                   </span>
-                                )}
-                              </button>
-                              <button
-                                onClick={() => handleDelete(item.id)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                                title="삭제"
-                              >
-                                <Trash2 size={15} />
-                              </button>
+                                  <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                                    ({latestComment.writer} · {latestComment.createdAt.substring(5, 16)})
+                                  </span>
+                                </div>
+                              ) : item.processResult ? (
+                                <div className="truncate text-slate-700 text-xs font-medium group-hover/cmt:text-blue-700 flex-1 min-w-0" title={item.processResult}>
+                                  {item.processResult}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-[11px] group-hover/cmt:text-blue-600 flex items-center gap-1">
+                                  <Plus size={12} /> 코멘트 작성
+                                </span>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -896,7 +939,7 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh]"
+              className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl overflow-hidden flex flex-col max-h-[94vh]"
             >
               {/* Form Modal Header */}
               <div className="bg-slate-900 text-white px-6 py-3.5 flex items-center justify-between shrink-0">
@@ -915,9 +958,8 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
                   <div className="flex items-center justify-between">
                     <label className="font-bold text-blue-900 flex items-center gap-1.5 text-xs">
                       <Search size={14} className="text-blue-600" />
-                      회원 검색 (상품/렌탈계약번호 기준 중복제거 유일 노출)
+                      회원 검색
                     </label>
-                    <span className="text-[11px] text-blue-600 font-semibold">이름, 연락처, 계약일자, 렌탈계약번호, 본부명, 지사명, 영업자명 표기</span>
                   </div>
 
                   <div className="relative">
@@ -939,7 +981,7 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
                           setSearchMemberQuery('');
                           setShowMemberDropdown(false);
                         }}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                       >
                         <X size={14} />
                       </button>
@@ -969,55 +1011,78 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
                     )}
                   </div>
 
-                  {/* 11가지 상세 정보 시원하고 깔끔한 그리드 카드 UI */}
+                  {/* 상세 회원 정보 아코디언 카드 (열고 닫기) */}
                   {(formCustomerName || formPhone || formRentalNo) && (
-                    <div className="bg-white p-3.5 rounded-xl border border-blue-200/90 shadow-2xs space-y-2">
-                      <div className="flex items-center justify-between pb-2 border-b border-blue-100">
-                        <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
-                          <CheckCircle2 size={15} className="text-blue-600" />
-                          선택 회원의 상세 연동 결과
-                        </span>
-                        <span className="text-[11px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-md">
-                          가입상태: {formStatusB || '확인됨'}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-                        <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                          <span className="text-slate-400 font-medium block text-[10px]">1. 회원명 / 2. 연락처</span>
-                          <strong className="text-slate-800 text-xs">{formCustomerName}</strong> <span className="text-slate-500 font-mono text-[11px]">({formPhone})</span>
+                    <div className="bg-white rounded-xl border border-blue-200/90 shadow-2xs overflow-hidden transition-all">
+                      <button
+                        type="button"
+                        onClick={() => setIsMemberDetailExpanded(prev => !prev)}
+                        className="w-full flex items-center justify-between p-3.5 bg-blue-50/50 hover:bg-blue-100/60 transition-colors cursor-pointer text-left select-none"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                            <CheckCircle2 size={15} className="text-blue-600" />
+                            상세 회원 정보
+                          </span>
+                          {formCustomerName && (
+                            <span className="text-xs text-slate-700 font-semibold">
+                              {formCustomerName} {formPhone && `(${formPhone})`}
+                            </span>
+                          )}
+                          {formRentalNo && (
+                            <span className="text-xs text-blue-600 font-mono font-bold">
+                              | 렌탈번호: {formRentalNo}
+                            </span>
+                          )}
+                          {formStatusB && (
+                            <span className="text-[10px] text-blue-700 font-bold bg-blue-100 px-2 py-0.5 rounded-md border border-blue-200">
+                              가입상태: {formStatusB}
+                            </span>
+                          )}
                         </div>
-
-                        <div className="p-2 bg-slate-50 rounded-lg border border-slate-100 col-span-2">
-                          <span className="text-slate-400 font-medium block text-[10px]">3. 보유 회원번호 전체 목록</span>
-                          <strong className="text-blue-700 font-mono text-xs">{formAllMemNos || formMemNo || '-'}</strong>
+                        <div className="flex items-center gap-1 text-blue-600 text-xs font-bold shrink-0 ml-2">
+                          <span>{isMemberDetailExpanded ? '닫기' : '열기 (펼치기)'}</span>
+                          {isMemberDetailExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                         </div>
+                      </button>
 
-                        <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                          <span className="text-slate-400 font-medium block text-[10px]">4. 선택 렌탈계약번호</span>
-                          <strong className="text-blue-600 font-mono text-xs">{formRentalNo || '-'}</strong>
-                        </div>
+                      {isMemberDetailExpanded && (
+                        <div className="p-3.5 pt-2 border-t border-blue-100 space-y-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                            <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                              <span className="text-slate-400 font-medium block text-[10px]">1. 회원명 / 2. 연락처</span>
+                              <strong className="text-slate-800 text-xs">{formCustomerName}</strong> <span className="text-slate-500 font-mono text-[11px]">({formPhone})</span>
+                            </div>
 
-                        <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                          <span className="text-slate-400 font-medium block text-[10px]">5. 렌탈 상품명</span>
-                          <strong className="text-slate-800 text-xs truncate block" title={formRentalProd}>{formRentalProd || '-'}</strong>
-                        </div>
+                            <div className="p-2 bg-slate-50 rounded-lg border border-slate-100 col-span-2">
+                              <span className="text-slate-400 font-medium block text-[10px]">3. 보유 회원번호 전체 목록</span>
+                              <strong className="text-blue-700 font-mono text-xs">{formAllMemNos || formMemNo || '-'}</strong>
+                            </div>
 
-                        <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                          <span className="text-slate-400 font-medium block text-[10px]">6. 계약일자 / 7. 가입상태</span>
-                          <strong className="text-slate-800 font-mono text-xs">{formContractDate || '-'}</strong> <span className="text-emerald-600 font-bold">({formStatusB || '-'})</span>
-                        </div>
+                            <div className="p-2 bg-slate-50 rounded-lg border border-slate-100 col-span-2">
+                              <span className="text-slate-400 font-medium block text-[10px]">렌탈 상품명</span>
+                              <strong className="text-slate-800 text-xs break-words leading-relaxed block" title={formRentalProd}>
+                                {formRentalProd || '-'}
+                              </strong>
+                            </div>
 
-                        <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                          <span className="text-slate-400 font-medium block text-[10px]">8. 본부명 / 9. 지사명</span>
-                          <strong className="text-slate-800 text-xs">{formHqName || '-'}</strong> <span className="text-slate-500">/ {formBranchName || '-'}</span>
-                        </div>
+                            <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                              <span className="text-slate-400 font-medium block text-[10px]">계약일자 / 가입상태</span>
+                              <strong className="text-slate-800 font-mono text-xs">{formContractDate || '-'}</strong> <span className="text-emerald-600 font-bold">({formStatusB || '-'})</span>
+                            </div>
 
-                        <div className="p-2 bg-slate-50 rounded-lg border border-slate-100 col-span-2">
-                          <span className="text-slate-400 font-medium block text-[10px]">10. 영업사원 / 11. 영업사원 연락처 (사원리스트 L열)</span>
-                          <strong className="text-slate-800 text-xs">{formEmpName || '-'}</strong> {formEmpPhone ? <span className="text-blue-600 font-mono text-[11px] ml-1 font-bold">📞 {formEmpPhone}</span> : <span className="text-slate-400 ml-1">(연락처 없음)</span>}
+                            <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                              <span className="text-slate-400 font-medium block text-[10px]">8. 본부명 / 9. 지사명</span>
+                              <strong className="text-slate-800 text-xs">{formHqName || '-'}</strong> <span className="text-slate-500">/ {formBranchName || '-'}</span>
+                            </div>
+
+                            <div className="p-2 bg-slate-50 rounded-lg border border-slate-100 col-span-2">
+                              <span className="text-slate-400 font-medium block text-[10px]">10. 영업사원 / 11. 영업사원 연락처 (사원리스트 L열)</span>
+                              <strong className="text-slate-800 text-xs">{formEmpName || '-'}</strong> {formEmpPhone ? <span className="text-blue-600 font-mono text-[11px] ml-1 font-bold">📞 {formEmpPhone}</span> : <span className="text-slate-400 ml-1">(연락처 없음)</span>}
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1082,11 +1147,11 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
                   <div>
                     <label className="block font-bold text-slate-700 mb-1">상세 내용 (접수 내용)</label>
                     <textarea
-                      rows={3}
+                      rows={6}
                       value={formContent}
                       onChange={e => setFormContent(e.target.value)}
                       placeholder="고객이 제기한 VOC 상세내용을 입력하세요."
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-hidden focus:border-blue-500 resize-none"
+                      className="w-full min-h-[140px] px-3 py-2.5 border border-slate-200 rounded-lg text-xs leading-relaxed focus:outline-hidden focus:border-blue-500 resize-y"
                     />
                   </div>
 
@@ -1157,7 +1222,7 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
                   </div>
 
                   {/* 코멘트 목록 타임라인 */}
-                  <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                     {comments.length === 0 ? (
                       <div className="py-6 text-center text-slate-400 italic text-[11px] bg-slate-50 rounded-lg border border-dashed border-slate-200">
                         아직 추가된 코멘트 경과가 없습니다. 위 입력창에서 코멘트를 등록해 보세요.
@@ -1193,8 +1258,23 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
 
               {/* Form Modal Footer */}
               <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-                <div className="text-[11px] text-slate-500 font-medium">
-                  * 저장 버튼을 누르면 모든 VOC 상세정보 및 누적 코멘트가 구글 시트에 실시간 반영됩니다.
+                <div className="flex items-center gap-3">
+                  {editingId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleDelete(editingId);
+                        setIsFormOpen(false);
+                      }}
+                      className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold rounded-lg transition-colors cursor-pointer text-xs flex items-center gap-1.5 shadow-2xs"
+                    >
+                      <Trash2 size={14} />
+                      <span>VOC 건 삭제</span>
+                    </button>
+                  )}
+                  <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
+                    * 저장 버튼을 누르면 모든 VOC 상세정보 및 누적 코멘트가 구글 시트에 실시간 반영됩니다.
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1214,6 +1294,180 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
                     <span>{editingId ? '전체 VOC & 코멘트 저장' : 'VOC 신규 등록 저장'}</span>
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 코멘트 열람 및 간이 등록 전용 모달 */}
+      <AnimatePresence>
+        {commentViewItem && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/75 p-3 sm:p-4 backdrop-blur-2xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-blue-600 rounded-lg text-white">
+                    <MessageSquare size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold flex items-center gap-2">
+                      <span>처리내용 & 코멘트 내역</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/80 text-blue-200 border border-blue-700 font-mono">
+                        {commentViewItem.customerName}
+                        {commentViewItem.rentalNo ? ` (${commentViewItem.rentalNo})` : ''}
+                      </span>
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setCommentViewItem(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+                {/* VOC 요약 정보 */}
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800 text-sm">{commentViewItem.title}</span>
+                    <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${
+                      commentViewItem.status === '접수' ? 'bg-blue-100 text-blue-700' :
+                      commentViewItem.status === '처리중' ? 'bg-purple-100 text-purple-700' :
+                      commentViewItem.status === '완료' ? 'bg-emerald-100 text-emerald-700' :
+                      'bg-slate-200 text-slate-700'
+                    }`}>
+                      {commentViewItem.status}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-500 text-[11px]">
+                    {commentViewItem.rentalProd && <div><span className="font-semibold text-slate-700">상품:</span> {commentViewItem.rentalProd}</div>}
+                    <div><span className="font-semibold text-slate-700">접수일자:</span> {commentViewItem.regDate}</div>
+                    {commentViewItem.hqName && <div><span className="font-semibold text-slate-700">본부/지사:</span> {commentViewItem.hqName} {commentViewItem.branchName && `/ ${commentViewItem.branchName}`}</div>}
+                    {commentViewItem.empName && <div><span className="font-semibold text-slate-700">영업사원:</span> {commentViewItem.empName}</div>}
+                  </div>
+                </div>
+
+                {/* 기본 처리내용 / 결과 (있을 경우) */}
+                {commentViewItem.processResult && (
+                  <div className="p-3.5 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-1">
+                    <p className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
+                      <CheckCircle2 size={14} className="text-emerald-600" /> 기본 처리내용 / 결과
+                    </p>
+                    <p className="text-xs text-slate-800 leading-relaxed font-medium pl-1 whitespace-pre-wrap">
+                      {commentViewItem.processResult}
+                    </p>
+                  </div>
+                )}
+
+                {/* 코멘트 목록 타임라인 */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                      <MessageSquare size={14} className="text-blue-600" />
+                      등록된 코멘트 ({commentViewItem.comments?.length || 0}건)
+                    </h4>
+                  </div>
+
+                  {(!commentViewItem.comments || commentViewItem.comments.length === 0) ? (
+                    <div className="py-8 text-center text-slate-400 italic text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                      등록된 코멘트가 없습니다. 아래 입력창에서 새로운 코멘트를 작성해보세요.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {commentViewItem.comments.map((cmt, idx) => (
+                        <div key={cmt.id || idx} className="p-3 bg-white border border-slate-200 rounded-xl shadow-2xs flex flex-col gap-1">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                                👤 {cmt.writer}
+                              </span>
+                              <span className="text-slate-400 font-mono">{cmt.createdAt}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteQuickComment(cmt.id)}
+                              className="text-slate-300 hover:text-rose-600 transition-colors p-1 cursor-pointer"
+                              title="코멘트 삭제"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                          <p className="text-xs text-slate-800 leading-relaxed font-medium pl-1 pt-0.5 whitespace-pre-wrap">
+                            {cmt.content}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 간이 새 코멘트 작성 폼 */}
+                <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-200/80 space-y-2">
+                  <p className="font-bold text-blue-900 text-xs flex items-center gap-1">
+                    <Plus size={13} className="text-blue-600" /> 새 코멘트 등록
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={quickCommentWriter}
+                      onChange={e => setQuickCommentWriter(e.target.value)}
+                      placeholder="작성자"
+                      className="w-24 px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-xs font-medium focus:outline-hidden focus:border-blue-500"
+                    />
+                    <input
+                      type="text"
+                      value={quickCommentText}
+                      onChange={e => setQuickCommentText(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleAddQuickComment();
+                        }
+                      }}
+                      placeholder="처리내용 또는 코멘트를 입력하세요 (Enter)"
+                      className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-md text-xs focus:outline-hidden focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddQuickComment}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer shrink-0 shadow-xs"
+                    >
+                      <Send size={12} /> 등록
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const item = commentViewItem;
+                    setCommentViewItem(null);
+                    handleOpenEditForm(item);
+                  }}
+                  className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold rounded-lg transition-colors cursor-pointer text-xs flex items-center gap-1.5 shadow-2xs"
+                >
+                  <Edit3 size={13} /> VOC 전체 상세정보 열기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCommentViewItem(null)}
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg transition-colors cursor-pointer text-xs"
+                >
+                  닫기
+                </button>
               </div>
             </motion.div>
           </div>

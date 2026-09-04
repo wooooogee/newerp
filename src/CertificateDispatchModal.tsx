@@ -122,11 +122,11 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
   // Combine data
   const combinedData = useMemo(() => {
-    // 관리대장 데이터(data)를 회원번호 기준으로 가입상태 맵 생성 (대소문자 무시)
-    const maintenanceStatusMap = new Map<string, string>();
+    // 관리대장 데이터(data)를 회원번호 기준으로 맵 생성 (대소문자 무시)
+    const maintenanceMap = new Map<string, any>();
     data.forEach(item => {
       if (item.memNo) {
-        maintenanceStatusMap.set(String(item.memNo).trim().toUpperCase(), String(item.status || '').trim());
+        maintenanceMap.set(String(item.memNo).trim().toUpperCase(), item);
       }
     });
 
@@ -134,12 +134,14 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       .map((raw, idx) => {
         const memNo = String(raw[1] || '').trim();
         const memNoKey = memNo.toUpperCase();
+        const maintenanceItem = maintenanceMap.get(memNoKey);
         // 관리대장 시트의 가입상태를 가져오고, 없으면 '' 처리 (시트1의 기존 값 raw[8]은 무시하여 엄격 매칭)
-        const status = maintenanceStatusMap.get(memNoKey) || '';
+        const status = String(maintenanceItem?.status || '').trim();
 
         const hq = String(raw[38] || '');         // AM(38): 본부명
-        const empCode = String(raw[27] || raw[39] || '');    // AB(27) / AN(39): 사원코드
-        const empName = String(raw[10] || '');    // K(10): 사원명
+        // 시트1에서 39번 인덱스(AN열)가 사원코드 (27번 인덱스는 회원의 핸드폰 번호이므로 제외)
+        const empCode = String(raw[39] || maintenanceItem?.empCode || '').trim();
+        const empName = String(raw[10] || maintenanceItem?.empName || '').trim(); // K(10): 사원명
         const contractDate = String(raw[2] || ''); // C(2): 계약일자
         const memName = String(raw[5] || '');     // F(5): 회원명
         const resNo = String(raw[7] || '');       // H(7): 주민등록번호
@@ -157,12 +159,15 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           zipCode = zipCode.replace(/-/g, '');
         }
 
-        // 사원연락처 (사원리스트 B열(1) === AN열 사원코드 일 때 L열(11) 추출)
+        // 사원연락처 (사원리스트 B열(1) === AN열(39) 사원코드 매칭, 실패 시 사원명 F열(5) 매칭 -> L열(11) 휴대폰번호 추출)
         let empPhone = '';
-        if (empCode && empList.length > 0) {
-          const emp = empList.find(e => e[1] === empCode);
+        if (empList.length > 0) {
+          let emp = empCode ? empList.find(e => String(e[1] || '').trim() === empCode) : null;
+          if (!emp && empName) {
+            emp = empList.find(e => String(e[5] || '').trim() === empName);
+          }
           if (emp) {
-            empPhone = String(emp[11] || '');
+            empPhone = String(emp[11] || '').trim();
           }
         }
 

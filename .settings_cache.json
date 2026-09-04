@@ -2133,10 +2133,11 @@
       "deliveryState": "배송완료"
     },
     "12327856": {
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "배송중"
+      "orderDate": "",
+      "deliveryDate": "2026-08-28",
+      "courier": "CJ대한통운",
+      "trackingNo": "699866958625",
+      "deliveryState": "배송완료"
     },
     "12329532": {
       "deliveryDate": "",
@@ -2172,52 +2173,52 @@
     },
     "12331355": {
       "orderDate": "2026-09-03",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-04",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송중"
     },
     "12332288": {
       "orderDate": "2026-09-03",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-04",
       "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "trackingNo": "9월4일 예쩡",
+      "deliveryState": "배송중"
     },
     "12333173": {
       "orderDate": "2026-09-03",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-02",
+      "courier": "CJ대한통운",
+      "trackingNo": "600082938074",
+      "deliveryState": "배송완료"
     },
     "12333656": {
       "orderDate": "2026-09-03",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-04",
       "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "trackingNo": "9월3일",
+      "deliveryState": "배송중"
     },
     "12334800": {
       "orderDate": "2026-09-03",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-02",
+      "courier": "CJ대한통운",
+      "trackingNo": "600082938085",
+      "deliveryState": "배송완료"
     },
     "12334806": {
       "orderDate": "2026-09-03",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-04",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송중"
     },
     "12335108": {
       "orderDate": "2026-09-03",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-04",
+      "courier": "CJ대한통운",
+      "trackingNo": "600129310893",
+      "deliveryState": "배송중"
     }
   },
   "reportSettings": {
