@@ -464,6 +464,7 @@ const ERP_Dashboard = () => {
   const [productFilter, setProductFilter] = useState<string[]>([]);
   const [hqFilter, setHqFilter] = useState<string[]>([]);
   const [branchFilter, setBranchFilter] = useState<string[]>([]);
+  const [empNameFilter, setEmpNameFilter] = useState<string[]>([]);
   const [deliveryFilter, setDeliveryFilter] = useState('전체');
   const [statusFilter, setStatusFilter] = useState('전체');
   const [payDateFilter, setPayDateFilter] = React.useState('');
@@ -2348,11 +2349,14 @@ const ERP_Dashboard = () => {
         const matchesSearch =
           (item.memName || '').includes(searchTerm) ||
           (item.memNo || '').includes(searchTerm) ||
-          (item.rentalNo || '').includes(searchTerm);
+          (item.rentalNo || '').includes(searchTerm) ||
+          (item.empName || '').includes(searchTerm) ||
+          (item.salesperson || '').includes(searchTerm);
 
         const matchesProduct = productFilter.length === 0 || productFilter.includes(item.prodName);
         const matchesHq = hqFilter.length === 0 || hqFilter.includes(item.hq);
         const matchesBranch = branchFilter.length === 0 || branchFilter.includes(item.branch);
+        const matchesEmpName = empNameFilter.length === 0 || empNameFilter.includes(item.empName || item.salesperson || '');
         const matchesDelivery = deliveryFilter === '전체' || item.deliveryStatus === deliveryFilter;
 
         const isPaid = item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료'));
@@ -2426,7 +2430,7 @@ const ERP_Dashboard = () => {
           if (is25thPay) return false;
         }
 
-        return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesDelivery && matchesPayDate && matchesPaymentStatus && matchesStatus;
+        return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesEmpName && matchesDelivery && matchesPayDate && matchesPaymentStatus && matchesStatus;
       })
       .sort((a, b) => {
         const parseDate = (d: string) => {
@@ -2450,12 +2454,12 @@ const ERP_Dashboard = () => {
     }
 
     return result;
-  }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter, sortOrder, tableDisplayMode, isHQStaff]);
+  }, [data, searchTerm, productFilter, hqFilter, branchFilter, empNameFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter, sortOrder, tableDisplayMode, isHQStaff]);
 
   // 필터 변경 시 페이지 리셋
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter]);
+  }, [searchTerm, productFilter, hqFilter, branchFilter, empNameFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter]);
 
   const calculateMaintenancePayouts = React.useCallback((items: ERPDataItem[]) => {
     const payouts: any[] = [];
@@ -4693,6 +4697,18 @@ const ERP_Dashboard = () => {
     return ['전체', ...Array.from(new Set(filteredByHq.map(item => item.branch).filter(Boolean)))];
   }, [data, hqFilter]);
 
+  const uniqueEmpNames = React.useMemo(() => {
+    let filtered = data;
+    if (hqFilter.length > 0 && !hqFilter.includes('전체')) {
+      filtered = filtered.filter(item => hqFilter.includes(item.hq));
+    }
+    if (branchFilter.length > 0 && !branchFilter.includes('전체')) {
+      filtered = filtered.filter(item => branchFilter.includes(item.branch));
+    }
+    const names = Array.from(new Set(filtered.map(item => String(item.empName || item.salesperson || '')).filter(Boolean))).sort();
+    return ['전체', ...names];
+  }, [data, hqFilter, branchFilter]);
+
   const uniqueDeliveryStatus = React.useMemo(() =>
     Array.from(new Set(data.map(item => item.deliveryStatus).filter(Boolean))),
     [data]
@@ -4744,6 +4760,7 @@ const ERP_Dashboard = () => {
     setProductFilter([]);
     setHqFilter([]);
     setBranchFilter([]);
+    setEmpNameFilter([]);
     setDeliveryFilter('전체');
     setPayDateFilter('');
     setPaymentStatusFilter('전체');
@@ -5489,7 +5506,7 @@ const ERP_Dashboard = () => {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                   <input
                     type="text" 
-                    placeholder="회원명, 회원번호, 렌탈번호 검색..." 
+                    placeholder="회원명, 회원번호, 렌탈번호, 영업사원명 검색..." 
                     value={topSearchQuery}
                     onChange={(e) => setTopSearchQuery(e.target.value)}
                     onKeyDown={(e) => {
@@ -6048,12 +6065,12 @@ const ERP_Dashboard = () => {
             )}
 
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/90 flex flex-col gap-4">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-3.5 border-b border-slate-100">
-                <div className="flex flex-wrap items-center gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-100">
+                <div className="flex flex-wrap items-center gap-3">
                   {/* 가입상태 필터 */}
-                  <div className="flex items-center gap-2.5 min-w-max">
+                  <div className="flex items-center gap-2 shrink-0">
                     <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider select-none">가입상태</span>
-                    <div className="flex flex-wrap gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
+                    <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
                       {['전체', '가입', '취소 및 해약'].map(status => (
                         <button
                           key={status}
@@ -6070,9 +6087,9 @@ const ERP_Dashboard = () => {
                   </div>
 
                   {/* 배송현황 필터 */}
-                  <div className="flex items-center gap-2.5 min-w-max">
+                  <div className="flex items-center gap-2 shrink-0">
                     <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider select-none">배송현황</span>
-                    <div className="flex flex-wrap gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
+                    <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
                       {['전체', ...uniqueDeliveryStatus].map(status => (
                         <button
                           key={status}
@@ -6090,7 +6107,7 @@ const ERP_Dashboard = () => {
 
                   {/* 지급상태 필터 */}
                   {showCommissionInfo && (
-                    <div className="flex items-center gap-2.5 min-w-max">
+                    <div className="flex items-center gap-2 shrink-0">
                       <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider select-none">지급상태</span>
                       <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 gap-1">
                         {['전체', '지급완료', '지급예정'].map(status => (
@@ -6110,47 +6127,25 @@ const ERP_Dashboard = () => {
                   )}
                 </div>
 
-                <div className="md:ml-auto flex flex-col md:flex-row md:items-center gap-3">
-                  <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 w-full sm:w-auto shadow-2xs">
-                    <button
-                      onClick={() => setTableDisplayMode('구좌수')}
-                      className={`flex-1 sm:flex-none px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${tableDisplayMode === '구좌수' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
-                    >
-                      구좌수 기준
-                    </button>
-                    <button
-                      onClick={() => setTableDisplayMode('상품개수')}
-                      className={`flex-1 sm:flex-none px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${tableDisplayMode === '상품개수' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
-                    >
-                      상품개수 기준
-                    </button>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <MultiSelectDropdown 
-                      label="상품" 
-                      options={uniqueProducts.filter(p => p !== '전체')} 
-                      selectedOptions={productFilter} 
-                      onChange={setProductFilter} 
-                    />
-                    <MultiSelectDropdown 
-                      label="본부" 
-                      options={uniqueHqs.filter(h => h !== '전체')} 
-                      selectedOptions={hqFilter} 
-                      onChange={setHqFilter} 
-                    />
-                    <MultiSelectDropdown 
-                      label="지사" 
-                      options={uniqueBranches.filter(b => b !== '전체')} 
-                      selectedOptions={branchFilter} 
-                      onChange={setBranchFilter} 
-                    />
-                  </div>
+                {/* 구좌수 / 상품개수 기준 토글 (제일 우측) */}
+                <div className="sm:ml-auto flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 shadow-2xs shrink-0">
+                  <button
+                    onClick={() => setTableDisplayMode('구좌수')}
+                    className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${tableDisplayMode === '구좌수' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    구좌수 기준
+                  </button>
+                  <button
+                    onClick={() => setTableDisplayMode('상품개수')}
+                    className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${tableDisplayMode === '상품개수' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    상품개수 기준
+                  </button>
                 </div>
               </div>
 
-              <div id="data-filter-area" className="flex flex-col md:flex-row md:items-center gap-4">
-                <div className="flex items-center gap-2">
+              <div id="data-filter-area" className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm">
                     <span className="text-[11px] font-bold text-slate-400">정렬</span>
                     <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as any)} className="bg-transparent text-[12px] font-bold text-slate-700 outline-none">
@@ -6187,11 +6182,36 @@ const ERP_Dashboard = () => {
                   </button>
                 </div>
 
-                <div className="md:ml-auto relative flex-1 max-w-md flex items-center gap-2">
-                  <div className="relative flex-1">
+                <div className="lg:ml-auto flex flex-wrap items-center gap-2">
+                  <MultiSelectDropdown 
+                    label="상품" 
+                    options={uniqueProducts.filter(p => p !== '전체')} 
+                    selectedOptions={productFilter} 
+                    onChange={setProductFilter} 
+                  />
+                  <MultiSelectDropdown 
+                    label="본부" 
+                    options={uniqueHqs.filter(h => h !== '전체')} 
+                    selectedOptions={hqFilter} 
+                    onChange={setHqFilter} 
+                  />
+                  <MultiSelectDropdown 
+                    label="지사" 
+                    options={uniqueBranches.filter(b => b !== '전체')} 
+                    selectedOptions={branchFilter} 
+                    onChange={setBranchFilter} 
+                  />
+                  <MultiSelectDropdown 
+                    label="영업사원" 
+                    options={uniqueEmpNames.filter(e => e !== '전체')} 
+                    selectedOptions={empNameFilter} 
+                    onChange={setEmpNameFilter} 
+                  />
+
+                  <div className="relative min-w-[220px] sm:min-w-[260px] flex-1 max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                     <input
-                      type="text" placeholder="회원명, 회원번호, 렌탈번호 검색..." value={searchTerm}
+                      type="text" placeholder="회원명, 회원번호, 렌탈번호, 영업사원명 검색..." value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
                     />

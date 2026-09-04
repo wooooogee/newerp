@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Download, Calendar, Search, AlertCircle, CheckCircle2, Filter, Clock, ShieldCheck, Layers } from 'lucide-react';
+import { X, Download, Calendar, Search, AlertCircle, CheckCircle2, Filter, Clock, ShieldCheck, Layers, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { HealthcareReconModal } from './HealthcareReconModal';
 
 interface ERPDataItem {
   memNo: string;
@@ -16,6 +17,7 @@ interface HealthcareMonthlyModalProps {
   onClose: () => void;
   data: ERPDataItem[];
   onRowClick?: (item: ERPDataItem) => void;
+  onOpenReconModal?: () => void;
 }
 
 const mapProductCode = (rawProdName: string) => {
@@ -85,11 +87,13 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
   isOpen,
   onClose,
   data,
-  onRowClick
+  onRowClick,
+  onOpenReconModal
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [tabFilter, setTabFilter] = useState<'all' | '580' | '3years' | 'overdue'>('all');
   const [productFilter, setProductFilter] = useState<string>('all');
+  const [isReconModalOpen, setIsReconModalOpen] = useState(false);
 
   // 오늘 날짜 기준 (3년 경과 여부 판단용)
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -180,6 +184,23 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
         };
       });
   }, [data, todayStr]);
+
+  // 월납 대사 작업용 마스터 데이터 (실제 월납 대상자: 더좋은헬스케어580 및 3년 경과 월납 대상자만 필터링)
+  const reconMasterData = useMemo(() => {
+    return allHealthcareList
+      .filter(item => item.monthlyCategory === '월납' || item.monthlyCategory === '3년경과월납' || item.is580 || item.is3YearsPassed)
+      .map(item => ({
+        memNo: item.memNo,
+        memName: item.insuredName || item.rawItem?.memName || '',
+        prodName: item.prodName || '',
+        hq: item.rawItem?.hq || '',
+        hcRegDate: (item.serviceStart && item.serviceStart !== '-') ? item.serviceStart : (item.rawItem?.hcRegDate || ''),
+        overdueCount: item.overdueCount,
+        overdueRaw: item.overdueRaw,
+        lastPaymentDate: item.lastPaymentDate,
+        raw: item.rawItem?.raw || []
+      }));
+  }, [allHealthcareList]);
 
   // 통계 계산
   const totalCount = allHealthcareList.length;
@@ -296,13 +317,21 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
               </div>
             </div>
 
-            <button
-              onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-              title="닫기"
-            >
-              <X size={22} />
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsReconModalOpen(true)}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-200 flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw size={14} /> 헬스케어 월납 명단 대사작업 ({reconMasterData.length}명)
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                title="닫기"
+              >
+                <X size={22} />
+              </button>
+            </div>
           </div>
 
           {/* 서브 바: 탭 필터, 상품 선택, 검색창, 엑셀 다운로드 */}
@@ -575,6 +604,16 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
           </div>
         </motion.div>
       </div>
+
+      {/* 헬스케어 월납 명단 대사작업 모달 (월 제한 없이 현재 화면에 첨부된 월납 명단 605명 전체 1:1 대사 매칭) */}
+      <HealthcareReconModal
+        isOpen={isReconModalOpen}
+        onClose={() => setIsReconModalOpen(false)}
+        masterData={reconMasterData}
+        initialMonth=""
+        title="헬스케어 월납 명단 대사작업"
+        defaultSheetName="KB헬스케어월납"
+      />
     </AnimatePresence>
   );
 };

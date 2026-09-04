@@ -1864,13 +1864,22 @@ app.get('/api/sheets/kb-healthcare-data', async (req, res) => {
 
     console.log("[Google Sheets All Titles]", allSheetTitles);
 
-    const reqTabName = req.query.tabName ? String(req.query.tabName) : '';
+    const reqTabName = req.query.tabName ? String(req.query.tabName).trim() : '';
 
     let targetSheetTitle = reqTabName;
-    if (!targetSheetTitle) {
+    if (reqTabName) {
+      const normReq = reqTabName.replace(/\s+/g, '');
+      const matched = sheetsList.find(s => {
+        const title = (s.properties?.title || '').trim();
+        return title === reqTabName || title.replace(/\s+/g, '') === normReq;
+      });
+      if (matched?.properties?.title) {
+        targetSheetTitle = matched.properties.title;
+      }
+    } else {
       const foundSheet = sheetsList.find(s => {
         const title = (s.properties?.title || '').replace(/\s+/g, '');
-        return title.includes('KB헬스케어') || title.includes('KB') || title.includes('헬스케어');
+        return title.includes('KB헬스케어대상자') || title.includes('KB헬스케어') || title.includes('헬스케어');
       });
       targetSheetTitle = foundSheet?.properties?.title || 'KB헬스케어대상자';
     }
@@ -1879,7 +1888,7 @@ app.get('/api/sheets/kb-healthcare-data', async (req, res) => {
 
     let rows: any[][] = [];
     try {
-      const range = `${targetSheetTitle}!A:ZZ`;
+      const range = `'${targetSheetTitle}'!A:ZZ`;
       console.log(`[KB Healthcare Fetching Range]: ${range}`);
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: sheetId,
@@ -1888,18 +1897,24 @@ app.get('/api/sheets/kb-healthcare-data', async (req, res) => {
       rows = response.data.values || [];
     } catch (e1: any) {
       console.warn("[KB Healthcare Fetch Range Error]", e1?.message);
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: sheetId,
-        range: 'KB헬스케어대상자!A:ZZ',
-      });
-      rows = response.data.values || [];
+      try {
+        const fallbackRange = `${targetSheetTitle}!A:ZZ`;
+        const respFallback = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: fallbackRange,
+        });
+        rows = respFallback.data.values || [];
+      } catch (e2: any) {
+        console.warn("[KB Healthcare Fallback Error]", e2?.message);
+        rows = [];
+      }
     }
 
     console.log(`[KB Healthcare Loaded Rows Count]: ${rows.length}`);
     return res.json({ success: true, sheetTitle: targetSheetTitle, allSheetTitles, rows });
   } catch (error: any) {
     console.error("[KB Healthcare Load Error]", error?.message || error);
-    return res.json({ success: false, sheetTitle: 'KB헬스케어대상자', allSheetTitles: [], rows: [] });
+    return res.json({ success: false, sheetTitle: req.query.tabName || 'KB헬스케어대상자', allSheetTitles: [], rows: [] });
   }
 });
 

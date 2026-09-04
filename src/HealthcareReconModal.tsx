@@ -19,6 +19,8 @@ interface HealthcareReconModalProps {
   onClose: () => void;
   masterData: ERPDataItem[];
   initialMonth?: string; // 예: '2026-08'
+  title?: string;
+  defaultSheetName?: string;
 }
 
 export type ReconStatus = 'MATCH' | 'DATE_MISMATCH' | 'MISSING_IN_MASTER' | 'NOT_IN_KB';
@@ -33,6 +35,8 @@ export interface ReconRow {
   status: ReconStatus;
   statusText: string;
   diffDays?: number;
+  overdueCount?: number;
+  lastPaymentDate?: string;
   kbRowRaw?: any[];
   masterRaw?: any;
 }
@@ -41,32 +45,38 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
   isOpen,
   onClose,
   masterData,
-  initialMonth = '2026-08'
+  initialMonth = '',
+  title = '헬스케어 명단 대사작업',
+  defaultSheetName = 'KB헬스케어대상자'
 }) => {
   const [loading, setLoading] = useState(false);
   const [kbRows, setKbRows] = useState<any[][]>([]);
-  const [sheetTitle, setSheetTitle] = useState('KB헬스케어대상자');
+  const [sheetTitle, setSheetTitle] = useState(defaultSheetName);
   const [allSheetTitles, setAllSheetTitles] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'ALL' | 'ISSUES' | 'DATE_MISMATCH' | 'MISSING_IN_MASTER' | 'NOT_IN_KB'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  const [targetMonth, setTargetMonth] = useState<string>(initialMonth || '2026-08');
+  const [targetMonth, setTargetMonth] = useState<string>(initialMonth || '');
 
   useEffect(() => {
-    if (initialMonth) {
-      setTargetMonth(initialMonth);
-    }
+    setTargetMonth(initialMonth || '');
   }, [initialMonth, isOpen]);
 
-  // 1. 구글 시트 KB헬스케어대상자 데이터 로드
+  useEffect(() => {
+    if (defaultSheetName) {
+      setSheetTitle(defaultSheetName);
+    }
+  }, [defaultSheetName, isOpen]);
+
+  // 1. 구글 시트 KB헬스케어 데이터 로드
   const fetchKbData = async (overrideTabName?: string) => {
     setLoading(true);
     try {
-      const targetTab = overrideTabName || sheetTitle || '';
+      const targetTab = overrideTabName || sheetTitle || defaultSheetName || '';
       const url = targetTab ? `/api/sheets/kb-healthcare-data?tabName=${encodeURIComponent(targetTab)}` : '/api/sheets/kb-healthcare-data';
       const res = await fetch(url);
       if (res.ok) {
         const json = await res.json();
-        setSheetTitle(json.sheetTitle || 'KB헬스케어대상자');
+        setSheetTitle(json.sheetTitle || defaultSheetName);
         setAllSheetTitles(json.allSheetTitles || []);
         setKbRows(json.rows || []);
       }
@@ -79,9 +89,9 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      fetchKbData();
+      fetchKbData(defaultSheetName);
     }
-  }, [isOpen]);
+  }, [isOpen, defaultSheetName]);
 
   // 날짜 정규화 헬퍼 (YYYY-MM-DD 또는 YYYY.MM.DD -> YYYY-MM-DD)
   const normalizeDateStr = (dateStr: any): string => {
@@ -152,6 +162,21 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
       return dStr.startsWith(targetMonth);
     };
 
+    const getOverdue = (item: any) => {
+      if (!item) return { overdueCount: 0, lastPaymentDate: '' };
+      if (typeof item.overdueCount === 'number') {
+        return {
+          overdueCount: item.overdueCount,
+          lastPaymentDate: item.lastPaymentDate || String(item.raw?.[22] || '').trim()
+        };
+      }
+      const uCol = String(item.raw?.[20] || item.overdueRaw || '').trim();
+      const num = parseInt(uCol.replace(/[^0-9]/g, ''), 10);
+      const overdueCount = isNaN(num) ? 0 : num;
+      const lastPaymentDate = String(item.raw?.[22] || item.lastPaymentDate || '').trim();
+      return { overdueCount, lastPaymentDate };
+    };
+
     // 관리대장 시트 순회 (지정된 월의 헬스케어 등록일이 있거나 KB시트 대상건)
     masterData.forEach((item) => {
       const contractNo = String(item.memNo || item.raw?.[2] || '').trim().toUpperCase();
@@ -167,6 +192,8 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
 
       if (!isMasterInMonth && !isKbInMonth) return;
 
+      const { overdueCount, lastPaymentDate } = getOverdue(item);
+
       if (kbMatch) {
         matchedKbContractNos.add(contractNo);
 
@@ -180,6 +207,8 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
             kbServiceDate: kbDate,
             status: 'MATCH',
             statusText: '✅ 정상 (일치)',
+            overdueCount,
+            lastPaymentDate,
             masterRaw: item,
             kbRowRaw: kbMatch.raw
           });
@@ -193,6 +222,8 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
             kbServiceDate: kbDate || '미기입',
             status: 'DATE_MISMATCH',
             statusText: '⚠️ 날짜 불일치',
+            overdueCount,
+            lastPaymentDate,
             masterRaw: item,
             kbRowRaw: kbMatch.raw
           });
@@ -208,6 +239,8 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
           kbServiceDate: 'KB시트 미등록',
           status: 'NOT_IN_KB',
           statusText: '❓ KB시트 미등록',
+          overdueCount,
+          lastPaymentDate,
           masterRaw: item
         });
       }
@@ -279,13 +312,16 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
       가입상품명: item.prodName,
       본부명: item.hqName,
       '관리대장 등록일(S열)': item.masterHcRegDate,
-      'KB시트 서비스제공일(F열)': item.kbServiceDate
+      'KB시트 서비스제공일(F열)': item.kbServiceDate,
+      '연체수': (item.overdueCount && item.overdueCount > 0) ? `${item.overdueCount}회 연체` : '정상(0)',
+      '최종 납입일': item.lastPaymentDate || '-'
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '헬스케어_대사결과');
-    XLSX.writeFile(wb, `헬스케어_대사결과_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const cleanTitle = (title || '헬스케어_대사결과').replace(/\s+/g, '_');
+    XLSX.utils.book_append_sheet(wb, ws, cleanTitle.slice(0, 30));
+    XLSX.writeFile(wb, `${cleanTitle}_${targetMonth || '전체'}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   if (!isOpen) return null;
@@ -314,25 +350,61 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
                 <RefreshCw size={22} className={loading ? 'animate-spin' : ''} />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white tracking-tight">
-                  헬스케어 명단 대사작업
+                <h3 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                  {title}
+                  {!title.includes('월납') && !defaultSheetName.includes('월납') && (
+                    <span className="text-xs font-semibold px-2 py-0.5 bg-blue-500/25 text-blue-300 rounded-md border border-blue-400/30">
+                      시트: {sheetTitle}
+                    </span>
+                  )}
                 </h3>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700">
-                <span className="text-sm">📅</span>
-                <input
-                  type="month"
-                  value={targetMonth}
-                  onChange={(e) => setTargetMonth(e.target.value)}
-                  className="bg-slate-900 text-amber-400 border border-slate-600 px-2.5 py-1 rounded-lg text-xs font-black font-mono outline-none focus:border-amber-400 cursor-pointer shadow-xs"
-                />
-              </div>
+              {!title.includes('월납') && !defaultSheetName.includes('월납') && allSheetTitles.length > 0 && (
+                <div className="flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700 text-xs">
+                  <span className="text-slate-400 font-bold">시트:</span>
+                  <select
+                    value={sheetTitle}
+                    onChange={(e) => {
+                      const newTab = e.target.value;
+                      setSheetTitle(newTab);
+                      fetchKbData(newTab);
+                    }}
+                    className="bg-slate-900 text-cyan-300 font-bold px-2 py-1 rounded-lg border border-slate-600 outline-none cursor-pointer"
+                  >
+                    {allSheetTitles.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {!title.includes('월납') && !defaultSheetName.includes('월납') && (
+                <div className="flex items-center gap-1.5 bg-slate-800 px-2.5 py-1.5 rounded-xl border border-slate-700">
+                  <span className="text-sm">📅</span>
+                  <button
+                    onClick={() => setTargetMonth('')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                      !targetMonth
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-white bg-slate-700/50'
+                    }`}
+                    title="월 제한 없이 전체 대사"
+                  >
+                    전체
+                  </button>
+                  <input
+                    type="month"
+                    value={targetMonth}
+                    onChange={(e) => setTargetMonth(e.target.value)}
+                    className="bg-slate-900 text-amber-400 border border-slate-600 px-2 py-0.5 rounded-lg text-xs font-black font-mono outline-none focus:border-amber-400 cursor-pointer shadow-xs"
+                  />
+                </div>
+              )}
               <button
                 onClick={onClose}
-                className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white"
+                className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white cursor-pointer"
               >
                 <X size={22} />
               </button>
@@ -480,6 +552,9 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
                       <th className="p-3 bg-slate-800 text-blue-300 font-bold border-l border-slate-700">
                         KB시트 F열 (서비스제공일)
                       </th>
+                      <th className="p-3 bg-slate-800 text-rose-300 font-bold border-l border-slate-700 text-center w-32">
+                        연체 현황
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
@@ -518,13 +593,39 @@ export const HealthcareReconModal: React.FC<HealthcareReconModalProps> = ({
                             <td className="p-3 font-mono font-bold text-slate-800 bg-blue-50/30 border-l border-slate-100">
                               {item.kbServiceDate}
                             </td>
+                            <td className="p-3 text-center font-mono border-l border-slate-100 whitespace-nowrap">
+                              {(item.overdueCount && item.overdueCount > 0) ? (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-700 border border-rose-300 shadow-2xs">
+                                    <AlertCircle size={12} className="text-rose-600" />
+                                    {item.overdueCount}회 연체
+                                  </span>
+                                  {item.lastPaymentDate && (
+                                    <span className="text-[10px] text-slate-400 font-medium">
+                                      (납입: {item.lastPaymentDate})
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    정상 (0)
+                                  </span>
+                                  {item.lastPaymentDate && (
+                                    <span className="text-[10px] text-slate-400 font-medium">
+                                      (납입: {item.lastPaymentDate})
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
                           </tr>
                         );
                       })
                     ) : (
                       <tr>
-                        <td colSpan={8} className="py-16 text-center text-slate-400 font-bold">
-                          {loading ? '구글 시트 KB헬스케어대상자 데이터를 불러오는 중입니다...' : '대사 결과가 없습니다.'}
+                        <td colSpan={9} className="py-16 text-center text-slate-400 font-bold">
+                          {loading ? `구글 시트 [${sheetTitle}] 데이터를 불러오는 중입니다...` : '대사 결과가 없습니다.'}
                         </td>
                       </tr>
                     )}

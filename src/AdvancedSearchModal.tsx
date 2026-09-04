@@ -494,7 +494,11 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                 </div>
               </div>
 
-              {/* 2. 요약 통계 집계 카드 */}
+              {/* 2. 요약 통계 집계 카드 헤더 */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-slate-800">■ 검색 및 통계 결과 요약</span>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
                   <span className="text-xs font-bold text-slate-500">총 조회 결과</span>
@@ -690,12 +694,20 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
           <div className="text-xs text-slate-500 font-medium">
             💡 상단 탭(조건 설정 / 상세 계약 목록 페이지)을 클릭하여 화면을 자유롭게 전환할 수 있습니다.
           </div>
-          <button
-            onClick={onClose}
-            className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-          >
-            닫기
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportToExcel}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold transition-all shadow-md shadow-emerald-200 flex items-center gap-1.5 cursor-pointer animate-pulse ring-2 ring-emerald-400 ring-offset-2"
+            >
+              <Download size={14} className="animate-bounce" /> 엑셀 다운로드 ({filteredResults.length.toLocaleString()}건)
+            </button>
+            <button
+              onClick={onClose}
+              className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+            >
+              닫기
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>
