@@ -2447,14 +2447,17 @@ const ERP_Dashboard = () => {
   };
 
   const filteredData = React.useMemo(() => {
+    const cleanSearchTerm = searchTerm.trim().toLowerCase();
+    const hasSearch = cleanSearchTerm.length > 0;
+
     const result = data
       .filter(item => {
-        const matchesSearch =
-          (item.memName || '').includes(searchTerm) ||
-          (item.memNo || '').includes(searchTerm) ||
-          (item.rentalNo || '').includes(searchTerm) ||
-          (item.empName || '').includes(searchTerm) ||
-          (item.salesperson || '').includes(searchTerm);
+        const matchesSearch = !hasSearch ||
+          (item.memName || '').toLowerCase().includes(cleanSearchTerm) ||
+          (item.memNo || '').toLowerCase().includes(cleanSearchTerm) ||
+          (item.rentalNo || '').toLowerCase().includes(cleanSearchTerm) ||
+          (item.empName || '').toLowerCase().includes(cleanSearchTerm) ||
+          (item.salesperson || '').toLowerCase().includes(cleanSearchTerm);
 
         const matchesProduct = productFilter.length === 0 || productFilter.includes(item.prodName);
         const matchesHq = hqFilter.length === 0 || hqFilter.includes(item.hq);
@@ -2468,9 +2471,9 @@ const ERP_Dashboard = () => {
           (paymentStatusFilter === '지급완료' && isPaid) ||
           (paymentStatusFilter === '지급예정' && !isPaid);
 
-        // 지급일자 필터
-        let matchesPayDate = !payDateFilter;
-        if (payDateFilter) {
+        // 지급일자 필터 (검색어가 입력된 경우 지급일 정산 필터와 상관없이 전체에서 검색)
+        let matchesPayDate = !payDateFilter || hasSearch;
+        if (payDateFilter && !hasSearch) {
           const displayPayDate = getDisplayPayDate(item);
           const targetDateClean = payDateFilter.replace(/[-./]/g, '');
           const itemPayDateClean = (displayPayDate || '').replace(/[-./]/g, '');
