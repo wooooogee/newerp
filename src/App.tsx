@@ -285,6 +285,13 @@ const MASTER_HQ_DATA: Partial<HQSetting>[] = [
       { productName: '더좋은하이브리드698', totalAmount: 665000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
     ]
   },
+  {
+    hqName: '언바운드컴퍼니', bankName: '국민은행', accountNumber: '79400104179154', accountHolder: '주식회사 언바운드컴퍼니', productRules: [
+      { productName: '더좋은하이브리드698', totalAmount: 720000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은프리미엄540', totalAmount: 720000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은프리미엄540플러스', totalAmount: 710000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+    ]
+  },
 ];
 
 
