@@ -22,9 +22,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [isConsolidated, setIsConsolidated] = useState<boolean>(true);
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
-  const [certFilterType, setCertFilterType] = useState<'notSent' | 'sent' | 'all'>('notSent');
-  const [filterWorkAddressMobile, setFilterWorkAddressMobile] = useState<boolean>(false);
-  const [filterPostNotSent, setFilterPostNotSent] = useState<boolean>(false);
+  const [receiveTypeFilter, setReceiveTypeFilter] = useState<'post' | 'all' | 'mobile'>('post');
+  const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'sent' | 'all'>('notSent');
   const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
 
   // Fetch '사원리스트', '월불입금', '증서발송리스트' data when modal opens
@@ -120,8 +119,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  // Combine data
-  const combinedData = useMemo(() => {
+  // 1. 기초 데이터 파싱 및 동일회원 통합(consolidatedData)
+  const consolidatedData = useMemo(() => {
     // 관리대장 데이터(data)를 회원번호 기준으로 맵 생성 (대소문자 무시)
     const maintenanceMap = new Map<string, any>();
     data.forEach(item => {
@@ -135,11 +134,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         const memNo = String(raw[1] || '').trim();
         const memNoKey = memNo.toUpperCase();
         const maintenanceItem = maintenanceMap.get(memNoKey);
-        // 관리대장 시트의 가입상태를 가져오고, 없으면 '' 처리 (시트1의 기존 값 raw[8]은 무시하여 엄격 매칭)
+        // 관리대장 시트의 가입상태를 가져오고, 없으면 '' 처리
         const status = String(maintenanceItem?.status || '').trim();
 
         const hq = String(raw[38] || '');         // AM(38): 본부명
-        // 시트1에서 39번 인덱스(AN열)가 사원코드 (27번 인덱스는 회원의 핸드폰 번호이므로 제외)
         const empCode = String(raw[39] || maintenanceItem?.empCode || '').trim();
         const empName = String(raw[10] || maintenanceItem?.empName || '').trim(); // K(10): 사원명
         const contractDate = String(raw[2] || ''); // C(2): 계약일자
@@ -159,7 +157,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           zipCode = zipCode.replace(/-/g, '');
         }
 
-        // 사원연락처 (사원리스트 B열(1) === AN열(39) 사원코드 매칭, 실패 시 사원명 F열(5) 매칭 -> L열(11) 휴대폰번호 추출)
+        // 사원연락처
         let empPhone = '';
         if (empList.length > 0) {
           let emp = empCode ? empList.find(e => String(e[1] || '').trim() === empCode) : null;
@@ -171,7 +169,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           }
         }
 
-        // 월불입금1, 월불입금2 (월불입금 A열(0) === L열(11) 상품명 일 때 E열(4), F열(5) 추출)
+        // 월불입금1, 월불입금2
         let monthlyPay1 = '';
         let monthlyPay2 = '';
         if (prodName && paymentList.length > 0) {
@@ -182,7 +180,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           }
         }
 
-        // 생년월일 추출 로직 (주민등록번호 앞 6자리 활용)
+        // 생년월일 추출 로직
         let birthDate = '';
         if (resNo && resNo.length >= 6) {
           const cleanResNo = resNo.replace(/[^0-9]/g, '');
@@ -197,37 +195,62 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           extracted: {
             status, contractDate, memNo, memName, resNo, prodName, firstPayDate,
             hq, empCode, empName, zipCode, address, workAddress, cert, deliveryType, rentalNo,
-            empPhone, monthlyPay1, monthlyPay2, birthDate, phone
+            empPhone, monthlyPay1, monthlyPay2, birthDate, phone,
+            rentalNo2: '', rentalNo3: '', rentalNo4: '',
+            allMemNos: [memNo].filter(Boolean)
           }
         };
       })
       .filter(item => item.extracted.status === '가입');
 
-    // 동일 회원통합 기준으로 하나라도 '우편'으로 설정되어 있으면 그룹 전체의 workAddress를 '우편'으로 설정
-    const groupPostMap = new Map<string, boolean>();
-    items.forEach(item => {
-      const ext = item.extracted;
-      const key = `${ext.memName}_${ext.phone}_${ext.prodName}`;
-      if (String(ext.workAddress || '').trim() === '우편') {
-        groupPostMap.set(key, true);
-      }
-    });
+    if (isConsolidated) {
+      const groups = new Map<string, typeof items>();
+      items.forEach(item => {
+        const ext = item.extracted;
+        const key = `${ext.memName}_${ext.phone}_${ext.prodName}`;
+        if (!groups.has(key)) {
+          groups.set(key, []);
+        }
+        groups.get(key)!.push(item);
+      });
 
-    items.forEach(item => {
-      const ext = item.extracted;
-      const key = `${ext.memName}_${ext.phone}_${ext.prodName}`;
-      if (groupPostMap.get(key)) {
-        ext.workAddress = '우편';
-      }
-    });
+      return Array.from(groups.values()).map((group, gIdx) => {
+        const base = { ...group[0] };
+        base.id = gIdx;
+        base.extracted = { ...base.extracted };
 
-    return items;
-  }, [sheet1List, empList, paymentList, data]);
+        // 그룹 내 하나라도 우편이면 우편 희망자로 통일
+        const hasPost = group.some(it => String(it.extracted.workAddress || '').trim() === '우편');
+        if (hasPost) {
+          base.extracted.workAddress = '우편';
+        }
+
+        // 구좌 번호 묶기
+        const uniqueNos = Array.from(new Set(group.map(it => it.extracted.memNo).filter(Boolean)));
+        base.extracted.memNo = uniqueNos[0] || '';
+        base.extracted.rentalNo2 = uniqueNos[1] || '';
+        base.extracted.rentalNo3 = uniqueNos[2] || '';
+        base.extracted.rentalNo4 = uniqueNos[3] || '';
+        base.extracted.allMemNos = uniqueNos;
+
+        return base;
+      });
+    }
+
+    return items.map((item, i) => ({
+      ...item,
+      id: i,
+      extracted: {
+        ...item.extracted,
+        allMemNos: [item.extracted.memNo].filter(Boolean)
+      }
+    }));
+  }, [sheet1List, empList, paymentList, data, isConsolidated]);
 
   // 계약일자 월 목록 추출 (YYYY-MM)
   const availableMonths = useMemo(() => {
     const months = new Set<string>();
-    combinedData.forEach(item => {
+    consolidatedData.forEach(item => {
       const cDate = item.extracted.contractDate;
       if (cDate) {
         const m = cDate.match(/^(\d{4})[-./]?(\d{2})/);
@@ -235,22 +258,24 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       }
     });
     return Array.from(months).sort().reverse();
-  }, [combinedData]);
+  }, [consolidatedData]);
 
   // 가입상품 목록 추출
   const uniqueProducts = useMemo(() => {
     const products = new Set<string>();
-    combinedData.forEach(item => {
+    consolidatedData.forEach(item => {
       if (item.extracted.prodName) {
         products.add(item.extracted.prodName);
       }
     });
     return Array.from(products).sort();
-  }, [combinedData]);
+  }, [consolidatedData]);
 
-  const filteredData = useMemo(() => {
-    let result = combinedData;
+  // 필터링 및 정렬된 최종 데이터
+  const processedData = useMemo(() => {
+    let result = consolidatedData;
 
+    // 1. 계약월 필터
     if (selectedMonth !== 'all') {
       result = result.filter(item => {
         const cDate = item.extracted.contractDate;
@@ -260,10 +285,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
     }
 
+    // 2. 가입상품 필터
     if (selectedProducts.length > 0) {
       result = result.filter(item => selectedProducts.includes(item.extracted.prodName));
     }
 
+    // 3. 초회납 미납 필터
     if (filterFirstPayNotDate) {
       result = result.filter(item => {
         const val = String(item.extracted.firstPayDate || '').trim();
@@ -278,87 +305,43 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
     }
 
-    // 1. "우편 미발송만" 필터 활성화 시 (최우선 강제 조건)
-    if (filterPostNotSent) {
-      result = result.filter(item => {
-        const isPost = String(item.extracted.workAddress || '').trim() === '우편';
-        const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3, item.extracted.rentalNo4];
-        const isSavedInHistory = nosToCheck.some(no => {
-          const cleanNo = String(no || '').trim().toUpperCase();
-          return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
-        });
-        return isPost && !isSavedInHistory;
-      });
-    } else {
-      // 2. 증서 구분 (미발송 / 발송완료 / 전체) 필터링
-      result = result.filter(item => {
-        const isPost = String(item.extracted.workAddress || '').trim() === '우편';
-        const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3, item.extracted.rentalNo4];
-        const isSavedInHistory = nosToCheck.some(no => {
-          const cleanNo = String(no || '').trim().toUpperCase();
-          return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
-        });
-        const certVal = String(item.extracted.cert || '').trim();
-        // 우편발송저장 이력이 있거나, 증서(cert)에 발송완료가 기록되어 있으면 발송완료로 판정
-        const isDispatched = isSavedInHistory || (certVal !== '미발송' && certVal !== '');
-
-        if (certFilterType === 'notSent') {
-          return !isDispatched;
-        } else if (certFilterType === 'sent') {
-          return isDispatched;
-        } else {
-          return true;
-        }
-      });
-
-      // 모바일 필터 (체크 시 우편이 아닌 값들만 표시)
-      if (filterWorkAddressMobile) {
-        result = result.filter(item => String(item.extracted.workAddress || '').trim() !== '우편');
-      }
+    // 4. 수령방식 필터 (전체 / 우편 / 모바일)
+    if (receiveTypeFilter === 'post') {
+      result = result.filter(item => String(item.extracted.workAddress || '').trim() === '우편');
+    } else if (receiveTypeFilter === 'mobile') {
+      result = result.filter(item => String(item.extracted.workAddress || '').trim() !== '우편');
     }
 
-    if (!searchTerm) return result;
-    const term = searchTerm.toLowerCase();
-    return result.filter(item => {
-      const ext = item.extracted;
-      const searchString = `${ext.memName} ${ext.memNo} ${ext.empName} ${ext.rentalNo}`.toLowerCase();
-      return searchString.includes(term);
-    });
-  }, [combinedData, selectedMonth, selectedProducts, filterFirstPayNotDate, certFilterType, filterWorkAddressMobile, filterPostNotSent, searchTerm]);
+    // 5. 우편발송상태 필터 (전체 / 미발송 / 발송완료)
+    if (dispatchStatusFilter === 'notSent') {
+      result = result.filter(item => {
+        const isSavedInHistory = item.extracted.allMemNos.some((no: string) => {
+          const cleanNo = String(no || '').trim().toUpperCase();
+          return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
+        });
+        return !isSavedInHistory;
+      });
+    } else if (dispatchStatusFilter === 'sent') {
+      result = result.filter(item => {
+        const isSavedInHistory = item.extracted.allMemNos.some((no: string) => {
+          const cleanNo = String(no || '').trim().toUpperCase();
+          return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
+        });
+        return isSavedInHistory;
+      });
+    }
 
-  const processedData = useMemo(() => {
-    let result = filteredData;
-
-    if (isConsolidated) {
-      const groups = new Map<string, typeof filteredData>();
-      result.forEach(item => {
+    // 6. 검색어 필터
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      result = result.filter(item => {
         const ext = item.extracted;
-        const key = `${ext.memName}_${ext.phone}_${ext.prodName}`;
-        if (!groups.has(key)) {
-          groups.set(key, []);
-        }
-        groups.get(key)!.push(item);
-      });
-
-      result = Array.from(groups.values()).map(group => {
-        const base = { ...group[0] };
-        base.extracted = { ...base.extracted };
-        const uniqueNos = Array.from(new Set(group.map(item => item.extracted.memNo).filter(Boolean)));
-        base.extracted.memNo = uniqueNos[0] || '';
-        base.extracted.rentalNo2 = uniqueNos[1] || '';
-        base.extracted.rentalNo3 = uniqueNos[2] || '';
-        base.extracted.rentalNo4 = uniqueNos[3] || '';
-        return base;
-      });
-    } else {
-      result = result.map(item => {
-        const base = { ...item };
-        base.extracted = { ...base.extracted, rentalNo2: '', rentalNo3: '', rentalNo4: '' };
-        return base;
+        const searchString = `${ext.memName} ${ext.memNo} ${ext.rentalNo2} ${ext.rentalNo3} ${ext.rentalNo4} ${ext.empName} ${ext.rentalNo}`.toLowerCase();
+        return searchString.includes(term);
       });
     }
 
-    // 가입상품 정렬 및 회원번호 개수 정렬 (4개 -> 3개 -> 2개 -> 1개 순)
+    // 7. 정렬 (상품명 가나다순 -> 구좌 수 많은 순)
     return [...result].sort((a, b) => {
       const prodA = a.extracted.prodName || '';
       const prodB = b.extracted.prodName || '';
@@ -373,14 +356,14 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       };
       return getScore(b) - getScore(a);
     });
-  }, [filteredData, isConsolidated]);
+  }, [consolidatedData, selectedMonth, selectedProducts, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter, searchTerm, dispatchedHistoryNos]);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   // 필터나 검색어가 바뀔 때 선택 초기화
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [searchTerm, selectedMonth, selectedProducts, isConsolidated, filterFirstPayNotDate, certFilterType, filterWorkAddressMobile, filterPostNotSent]);
+  }, [searchTerm, selectedMonth, selectedProducts, isConsolidated, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter]);
 
   const handleToggleSelect = (id: number) => {
     setSelectedIds(prev => {
@@ -416,8 +399,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const pendingPostItems = useMemo(() => {
     return processedData.filter(item => {
       const isPost = String(item.extracted.workAddress || '').trim() === '우편';
-      const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3, item.extracted.rentalNo4];
-      const isSavedInHistory = nosToCheck.some(no => {
+      const isSavedInHistory = item.extracted.allMemNos?.some((no: string) => {
         const cleanNo = String(no || '').trim().toUpperCase();
         return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
       });
@@ -830,9 +812,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 sm:gap-3">
-                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700">
-                  <span className="text-slate-400 font-medium">시작 위치:</span>
+              <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-1.5 rounded-lg text-xs font-semibold text-slate-700 whitespace-nowrap shrink-0">
+                  <span className="text-slate-400 font-medium">라벨시작:</span>
                   <select
                     value={labelStartPos}
                     onChange={(e) => setLabelStartPos(Number(e.target.value))}
@@ -848,54 +830,54 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
                 <button
                   onClick={handleSelectPendingPost}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-bold transition-all border shadow-sm ${
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-[13px] font-bold transition-all border shadow-sm whitespace-nowrap shrink-0 ${
                     pendingPostItems.length > 0 && pendingPostItems.every(item => selectedIds.has(item.id))
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'
                   }`}
                   title="현재 목록 중 아직 우편 발송되지 않은 우편 희망자들을 일괄 선택/해제합니다."
                 >
-                  <Mail size={16} />
+                  <Mail size={15} />
                   우편 미발송 선택 ({pendingPostItems.length})
                 </button>
 
                 <button
                   onClick={handlePrintCertificates}
                   disabled={selectedIds.size === 0}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-bold transition-all ${
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-[13px] font-bold transition-all whitespace-nowrap shrink-0 ${
                     selectedIds.size === 0 
                       ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200' 
                       : 'bg-amber-600 text-white hover:bg-amber-500 shadow-md shadow-amber-600/20'
                   }`}
                 >
-                  <Printer size={16} />
-                  우편증서 PDF 출력 ({selectedIds.size}건)
+                  <Printer size={15} />
+                  증서 출력 ({selectedIds.size}건)
                 </button>
                 <button
                   onClick={handlePrintLabels}
                   disabled={selectedIds.size === 0}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-bold transition-colors ${
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-[13px] font-bold transition-colors whitespace-nowrap shrink-0 ${
                     selectedIds.size === 0 
                       ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200' 
                       : 'bg-blue-600 text-white hover:bg-blue-500 shadow-md shadow-blue-500/10'
                   }`}
                 >
-                  <FileText size={16} />
+                  <FileText size={15} />
                   라벨 인쇄 ({selectedIds.size}건)
                 </button>
                 <button
                   onClick={handleSaveDispatch}
                   disabled={saving || selectedIds.size === 0}
-                  className="hidden sm:flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-[13px] font-bold transition-colors border border-indigo-200"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-indigo-200 whitespace-nowrap shrink-0"
                 >
-                  <Save size={16} />
+                  <Save size={15} />
                   {saving ? '저장 중...' : `우편발송저장 (${selectedIds.size}건)`}
                 </button>
                 <button
                   onClick={handleExportExcel}
-                  className="hidden sm:flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-[13px] font-bold transition-colors border border-emerald-200"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-emerald-200 whitespace-nowrap shrink-0"
                 >
-                  <Download size={16} />
+                  <Download size={15} />
                   엑셀 다운로드
                 </button>
                 <button
@@ -968,41 +950,29 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       초회납 미납
                     </label>
                   </div>
-                  <div className="flex items-center gap-2 px-3">
-                    <span className="text-[13px] font-medium text-slate-700 select-none whitespace-nowrap">증서 구분:</span>
+                  <div className="flex items-center gap-1.5 px-3 border-l border-slate-200 pl-4">
+                    <span className="text-[13px] font-bold text-slate-700 select-none whitespace-nowrap">수령구분:</span>
                     <select
-                      value={certFilterType}
-                      onChange={(e) => setCertFilterType(e.target.value as any)}
-                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-[13px] font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-sm"
+                      value={receiveTypeFilter}
+                      onChange={(e) => setReceiveTypeFilter(e.target.value as any)}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[13px] font-bold text-blue-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-sm"
+                    >
+                      <option value="post">우편</option>
+                      <option value="all">전체</option>
+                      <option value="mobile">모바일</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-3 border-l border-slate-200 pl-4">
+                    <span className="text-[13px] font-bold text-slate-700 select-none whitespace-nowrap">우편 발송:</span>
+                    <select
+                      value={dispatchStatusFilter}
+                      onChange={(e) => setDispatchStatusFilter(e.target.value as any)}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[13px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-sm"
                     >
                       <option value="notSent">미발송</option>
                       <option value="sent">발송완료</option>
                       <option value="all">전체</option>
                     </select>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 border-l border-slate-200 pl-4">
-                    <input
-                      type="checkbox"
-                      id="workaddress-mobile-check"
-                      checked={filterWorkAddressMobile}
-                      onChange={(e) => setFilterWorkAddressMobile(e.target.checked)}
-                      className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                    />
-                    <label htmlFor="workaddress-mobile-check" className="text-[13px] font-medium text-slate-700 cursor-pointer select-none whitespace-nowrap">
-                      모바일
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 border-l border-slate-200 pl-4">
-                    <input
-                      type="checkbox"
-                      id="post-notsent-check"
-                      checked={filterPostNotSent}
-                      onChange={(e) => setFilterPostNotSent(e.target.checked)}
-                      className="w-4 h-4 text-rose-600 border-slate-300 rounded focus:ring-rose-500 cursor-pointer"
-                    />
-                    <label htmlFor="post-notsent-check" className="text-[13px] font-bold text-rose-600 cursor-pointer select-none whitespace-nowrap">
-                      우편 미발송만
-                    </label>
                   </div>
                 </div>
               </div>
@@ -1060,8 +1030,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                           {processedData.slice(0, 100).map((item, idx) => {
                             const ext = item.extracted;
                             const isPost = String(ext.workAddress || '').trim() === '우편';
-                            const nosToCheck = [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4];
-                            const isSavedInHistory = nosToCheck.some(no => {
+                            const isSavedInHistory = ext.allMemNos?.some((no: string) => {
                               const cleanNo = String(no || '').trim().toUpperCase();
                               return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
                             });
@@ -1092,8 +1061,16 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                     ) : (
                                       <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">모바일</span>
                                     )}
-                                    {isSavedInHistory && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap">우편발송됨</span>
+                                    {isPost ? (
+                                      isSavedInHistory ? (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap">우편발송완료</span>
+                                      ) : (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200 whitespace-nowrap">미발송</span>
+                                      )
+                                    ) : (
+                                      isSavedInHistory && (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap">우편발송완료</span>
+                                      )
                                     )}
                                   </div>
                                 </td>
