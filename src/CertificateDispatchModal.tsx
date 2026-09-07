@@ -22,7 +22,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [isConsolidated, setIsConsolidated] = useState<boolean>(true);
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
-  const [receiveTypeFilter, setReceiveTypeFilter] = useState<'post' | 'all' | 'mobile'>('post');
+  const [receiveTypeFilter, setReceiveTypeFilter] = useState<'all' | 'post'>('all');
   const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'sent' | 'all'>('notSent');
   const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
 
@@ -305,29 +305,45 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
     }
 
-    // 4. 수령방식 필터 (전체 / 우편 / 모바일)
+    // 4. 수령방식 필터 (전체 / 우편)
     if (receiveTypeFilter === 'post') {
       result = result.filter(item => String(item.extracted.workAddress || '').trim() === '우편');
-    } else if (receiveTypeFilter === 'mobile') {
-      result = result.filter(item => String(item.extracted.workAddress || '').trim() !== '우편');
     }
 
-    // 5. 우편발송상태 필터 (전체 / 미발송 / 발송완료)
+    // 5. 발송구분 필터 (전체 / 미발송 / 발송완료)
     if (dispatchStatusFilter === 'notSent') {
       result = result.filter(item => {
+        const isPost = String(item.extracted.workAddress || '').trim() === '우편';
         const isSavedInHistory = item.extracted.allMemNos.some((no: string) => {
           const cleanNo = String(no || '').trim().toUpperCase();
           return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
         });
-        return !isSavedInHistory;
+        const certVal = String(item.extracted.cert || '').trim();
+        const isCertDispatched = certVal !== '미발송' && certVal !== '';
+
+        // 수령구분이 우편이거나 해당 회원이 우편 대상인 경우:
+        // 모바일 발송 여부와 무관하게 구글 시트 우편발송저장이 되어 있지 않으면 미발송!
+        if (receiveTypeFilter === 'post' || isPost) {
+          return !isSavedInHistory;
+        }
+
+        // 모바일 회원인 경우: 모바일 발송도 안 되었고 우편발송저장도 안 된 건
+        return !isCertDispatched && !isSavedInHistory;
       });
     } else if (dispatchStatusFilter === 'sent') {
       result = result.filter(item => {
+        const isPost = String(item.extracted.workAddress || '').trim() === '우편';
         const isSavedInHistory = item.extracted.allMemNos.some((no: string) => {
           const cleanNo = String(no || '').trim().toUpperCase();
           return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
         });
-        return isSavedInHistory;
+        const certVal = String(item.extracted.cert || '').trim();
+        const isCertDispatched = certVal !== '미발송' && certVal !== '';
+
+        if (receiveTypeFilter === 'post' || isPost) {
+          return isSavedInHistory;
+        }
+        return isCertDispatched || isSavedInHistory;
       });
     }
 
@@ -957,13 +973,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       onChange={(e) => setReceiveTypeFilter(e.target.value as any)}
                       className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[13px] font-bold text-blue-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-sm"
                     >
-                      <option value="post">우편</option>
                       <option value="all">전체</option>
-                      <option value="mobile">모바일</option>
+                      <option value="post">우편</option>
                     </select>
                   </div>
                   <div className="flex items-center gap-1.5 px-3 border-l border-slate-200 pl-4">
-                    <span className="text-[13px] font-bold text-slate-700 select-none whitespace-nowrap">우편 발송:</span>
+                    <span className="text-[13px] font-bold text-slate-700 select-none whitespace-nowrap">발송구분:</span>
                     <select
                       value={dispatchStatusFilter}
                       onChange={(e) => setDispatchStatusFilter(e.target.value as any)}
@@ -1065,11 +1080,15 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                       isSavedInHistory ? (
                                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap">우편발송완료</span>
                                       ) : (
-                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200 whitespace-nowrap">미발송</span>
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-50 text-rose-600 border border-rose-200 whitespace-nowrap">우편 미발송</span>
                                       )
                                     ) : (
-                                      isSavedInHistory && (
+                                      isSavedInHistory ? (
                                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap">우편발송완료</span>
+                                      ) : isDispatched ? (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-300 whitespace-nowrap">모바일완료</span>
+                                      ) : (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200 whitespace-nowrap">미발송</span>
                                       )
                                     )}
                                   </div>
