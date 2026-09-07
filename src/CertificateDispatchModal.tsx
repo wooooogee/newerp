@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Calendar, Download, Search, FileText, Save, Printer } from 'lucide-react';
+import { X, Calendar, Download, Search, FileText, Save, Printer, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { printCertificatesPdf, CertPrintItem } from './certificatePdfPrinter';
@@ -299,7 +299,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
         });
         const certVal = String(item.extracted.cert || '').trim();
-        const isDispatched = isPost ? isSavedInHistory : (certVal !== '미발송' && certVal !== '');
+        // 우편발송저장 이력이 있거나, 증서(cert)에 발송완료가 기록되어 있으면 발송완료로 판정
+        const isDispatched = isSavedInHistory || (certVal !== '미발송' && certVal !== '');
 
         if (certFilterType === 'notSent') {
           return !isDispatched;
@@ -393,22 +394,50 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     });
   };
 
-  const postItemsInProcessed = useMemo(() => {
-    return processedData.filter(item => String(item.extracted.workAddress || '').trim() === '우편');
-  }, [processedData]);
-
+  // 전체 선택 여부 (현재 화면의 processedData 기준)
   const isAllSelected = useMemo(() => {
-    if (postItemsInProcessed.length === 0) return false;
-    return postItemsInProcessed.every(item => selectedIds.has(item.id));
-  }, [postItemsInProcessed, selectedIds]);
+    if (processedData.length === 0) return false;
+    return processedData.every(item => selectedIds.has(item.id));
+  }, [processedData, selectedIds]);
 
   const handleToggleSelectAll = () => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (isAllSelected) {
-        postItemsInProcessed.forEach(item => next.delete(item.id));
+        processedData.forEach(item => next.delete(item.id));
       } else {
-        postItemsInProcessed.forEach(item => next.add(item.id));
+        processedData.forEach(item => next.add(item.id));
+      }
+      return next;
+    });
+  };
+
+  // 우편 미발송 건수 계산 (현재 목록 기준)
+  const pendingPostItems = useMemo(() => {
+    return processedData.filter(item => {
+      const isPost = String(item.extracted.workAddress || '').trim() === '우편';
+      const nosToCheck = [item.extracted.memNo, item.extracted.rentalNo2, item.extracted.rentalNo3, item.extracted.rentalNo4];
+      const isSavedInHistory = nosToCheck.some(no => {
+        const cleanNo = String(no || '').trim().toUpperCase();
+        return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
+      });
+      return isPost && !isSavedInHistory;
+    });
+  }, [processedData, dispatchedHistoryNos]);
+
+  // 우편 미발송 대상만 원클릭 선택 토글
+  const handleSelectPendingPost = () => {
+    if (pendingPostItems.length === 0) {
+      alert('현재 목록에 우편 미발송 대상이 없습니다.');
+      return;
+    }
+    const allPendingSelected = pendingPostItems.every(item => selectedIds.has(item.id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allPendingSelected) {
+        pendingPostItems.forEach(item => next.delete(item.id));
+      } else {
+        pendingPostItems.forEach(item => next.add(item.id));
       }
       return next;
     });
@@ -666,17 +695,15 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [saving, setSaving] = useState(false);
 
   const handleSaveDispatch = async () => {
-    // 체크박스로 선택된 데이터 중 "우편" 발송 건만 필터링하여 저장
-    const targetData = processedData.filter(item => 
-      selectedIds.has(item.id) && String(item.extracted.workAddress || '').trim() === '우편'
-    );
+    // 체크박스로 선택된 대상 저장 (우편 희망 여부 무관하게 선택된 모든 건을 우편 발송 저장)
+    const targetData = processedData.filter(item => selectedIds.has(item.id));
 
     if (targetData.length === 0) {
-      await (window as any).customAlert('선택된 우편 발송 대상이 없습니다. 수령지가 우편인 대상을 선택해 주세요.', '알림');
+      await (window as any).customAlert('선택된 대상이 없습니다. 우편 발송 저장할 대상을 선택해 주세요.', '알림');
       return;
     }
 
-    if (!await (window as any).customConfirm(`현재 선택된 우편 발송 대상 ${targetData.length}건의 데이터를 구글 시트 '증서발송리스트'에 우편발송 저장하시겠습니까?`, '우편 발송 저장')) {
+    if (!await (window as any).customConfirm(`현재 선택된 ${targetData.length}건의 데이터를 구글 시트 '증서발송리스트'에 우편발송 저장하시겠습니까?`, '우편 발송 저장')) {
       return;
     }
 
@@ -820,6 +847,19 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                 </div>
 
                 <button
+                  onClick={handleSelectPendingPost}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-bold transition-all border shadow-sm ${
+                    pendingPostItems.length > 0 && pendingPostItems.every(item => selectedIds.has(item.id))
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'
+                  }`}
+                  title="현재 목록 중 아직 우편 발송되지 않은 우편 희망자들을 일괄 선택/해제합니다."
+                >
+                  <Mail size={16} />
+                  우편 미발송 선택 ({pendingPostItems.length})
+                </button>
+
+                <button
                   onClick={handlePrintCertificates}
                   disabled={selectedIds.size === 0}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-bold transition-all ${
@@ -846,10 +886,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                 <button
                   onClick={handleSaveDispatch}
                   disabled={saving || selectedIds.size === 0}
-                  className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-[13px] font-bold transition-colors border border-blue-200"
+                  className="hidden sm:flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-[13px] font-bold transition-colors border border-indigo-200"
                 >
                   <Save size={16} />
-                  {saving ? '저장 중...' : '우편발송저장'}
+                  {saving ? '저장 중...' : `우편발송저장 (${selectedIds.size}건)`}
                 </button>
                 <button
                   onClick={handleExportExcel}
@@ -985,15 +1025,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                         <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                           <tr className="bg-slate-50 border-b border-slate-200">
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap w-[40px] text-center">
-                              {postItemsInProcessed.length > 0 && (
+                              {processedData.length > 0 && (
                                 <input
                                   type="checkbox"
                                   checked={isAllSelected}
                                   onChange={handleToggleSelectAll}
                                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 align-middle"
+                                  title={isAllSelected ? "전체 선택 해제" : "전체 선택"}
                                 />
                               )}
                             </th>
+                            <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap text-center">수령구분</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">회원명</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">공란</th>
                             <th className="p-3 text-[11px] font-bold text-slate-500 whitespace-nowrap">휴대폰번호</th>
@@ -1025,12 +1067,14 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                             });
                             const certVal = String(ext.cert || '').trim();
 
-                            // 우편인 건은 구글시트 발송이력에 있는 경우, 일반 건은 AX열(cert)에 발송처리가 기록된 경우 발송 완료로 판단 (공백 제외)
-                            const isDispatched = isPost ? isSavedInHistory : (certVal !== '미발송' && certVal !== '');
+                            // 우편인 건은 구글시트 발송이력에 있는 경우, 일반 건은 AX열(cert)에 발송처리가 기록되었거나 발송이력에 있는 경우 완료로 판단
+                            const isDispatched = isSavedInHistory || (certVal !== '미발송' && certVal !== '');
                             return (
                               <tr key={idx} className={`border-b border-slate-100 transition-colors ${
-                                isDispatched 
-                                  ? 'bg-amber-50/60 hover:bg-amber-100/60' 
+                                isSavedInHistory 
+                                  ? 'bg-amber-50/70 hover:bg-amber-100/70' 
+                                  : isDispatched
+                                  ? 'bg-emerald-50/40 hover:bg-emerald-100/40'
                                   : 'hover:bg-slate-50/50'
                               }`}>
                                 <td className="p-3 text-center whitespace-nowrap w-[40px]">
@@ -1040,6 +1084,18 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                     onChange={() => handleToggleSelect(item.id)}
                                     className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 align-middle"
                                   />
+                                </td>
+                                <td className="p-3 text-center whitespace-nowrap">
+                                  <div className="flex items-center justify-center gap-1">
+                                    {isPost ? (
+                                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-700 border border-blue-200">우편</span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">모바일</span>
+                                    )}
+                                    {isSavedInHistory && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap">우편발송됨</span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="p-3 text-[12px] font-bold text-slate-800 whitespace-nowrap">{ext.memName}</td>
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap"></td>
