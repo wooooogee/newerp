@@ -1564,11 +1564,84 @@ app.post('/api/sheets/maintenance/sync', async (req, res) => {
   }
 });
 
+// 취소/해약 로그를 '취소해약내역' 시트에 기록하는 헬퍼 함수
+async function logStatusChangesToCancelSheet(
+  sheets: any,
+  sheetId: string,
+  items: { rowIdx: number; newStatus: string; memo?: string }[],
+  operatorName: string
+) {
+  try {
+    const cancelTargets = items.filter(
+      item => item.newStatus && (item.newStatus.includes('취소') || item.newStatus.includes('해약'))
+    );
+    if (cancelTargets.length === 0) return;
+
+    // 한국 시간 기준 YYYY-MM-DD HH:mm
+    const now = new Date();
+    const kstDate = new Intl.DateTimeFormat('ko-KR', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(now);
+    const formattedDate = kstDate.replace(/\.\s*/g, (m, offset) => offset < 10 ? '-' : ' ').trim();
+
+    // 관리대장에서 해당 행 데이터 가져오기
+    const ranges = cancelTargets.map(t => `관리대장!A${t.rowIdx}:O${t.rowIdx}`);
+    const batchRes = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: sheetId,
+      ranges
+    });
+
+    const logRows: any[][] = [];
+    (batchRes.data.valueRanges || []).forEach((vr: any, idx: number) => {
+      const r = vr.values?.[0] || [];
+      const target = cancelTargets[idx];
+      logRows.push([
+        formattedDate,              // 변경일시
+        target.newStatus,           // 구분 (취소 / 해약)
+        r[2] || '',                 // 회원번호
+        r[3] || '',                 // 고객명
+        r[5] || '',                 // 핸드폰
+        r[6] || '',                 // 상품명
+        r[7] || '',                 // 본부명
+        r[8] || '',                 // 지사명
+        r[9] || '',                 // 사원명
+        r[10] || '',                // 렌탈계약번호
+        r[0] || '',                 // 계약일자
+        r[13] || '',                // 배송일자
+        r[14] || '',                // 수수료지급일자
+        operatorName || '관리자',   // 처리자
+        target.memo || '계약상태관리 변경' // 비고
+      ]);
+    });
+
+    if (logRows.length > 0) {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '취소해약내역!A:O',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: {
+          values: logRows
+        }
+      });
+      console.log(`[취소해약내역] ${logRows.length}건 상태 변경 로그 기록 완료`);
+    }
+  } catch (err: any) {
+    console.error('[취소해약내역 로그 기록 오류]:', err.message || err);
+  }
+}
+
 app.post('/api/sheets/update', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
 
-  const { rowIdx, colIdx, newValue } = req.body;
+  const { rowIdx, colIdx, newValue, operator } = req.body;
   let sheetId = process.env.GOOGLE_SHEET_ID;
   if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
 
@@ -1609,6 +1682,12 @@ app.post('/api/sheets/update', async (req, res) => {
       }
     });
 
+    // 계약상태(colIdx === 1)가 취소 또는 해약으로 변경된 경우 취소해약내역 시트에 로그 자동 기록
+    if (colIdx === 1 && (sheetName === '관리대장' || sheetName.includes('회원현황'))) {
+      const opName = operator || '관리자';
+      logStatusChangesToCancelSheet(sheets, sheetId, [{ rowIdx, newStatus: newValue }], opName).catch(e => console.error(e));
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     return handleGoogleError(error, res);
@@ -1619,7 +1698,7 @@ app.post('/api/sheets/batch-update', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
 
-  const { updates } = req.body as { updates: { rowIdx: number, colIdx: number, newValue: string }[] };
+  const { updates, operator } = req.body as { updates: { rowIdx: number, colIdx: number, newValue: string }[]; operator?: string };
   if (!updates || !Array.isArray(updates)) return res.status(400).json({ error: 'Invalid updates' });
 
   let sheetId = process.env.GOOGLE_SHEET_ID;
@@ -1670,9 +1749,57 @@ app.post('/api/sheets/batch-update', async (req, res) => {
       });
     }
 
+    // 계약상태(colIdx === 1)가 취소 또는 해약으로 변경된 항목들 취소해약내역 시트에 일괄 로그 기록
+    if (sheetName === '관리대장' || sheetName.includes('회원현황')) {
+      const statusUpdates = updates
+        .filter(u => u.colIdx === 1)
+        .map(u => ({ rowIdx: u.rowIdx, newStatus: u.newValue }));
+      if (statusUpdates.length > 0) {
+        const opName = operator || '관리자';
+        logStatusChangesToCancelSheet(sheets, sheetId, statusUpdates, opName).catch(e => console.error(e));
+      }
+    }
+
     res.json({ success: true, updatedCount: updates.length });
   } catch (error: any) {
     console.error('[batch-update] Error:', error);
+    return handleGoogleError(error, res);
+  }
+});
+
+// 취소해약내역 조회 API
+app.get('/api/sheets/cancel-log', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID;
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+  if (sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '취소해약내역!A1:O2000'
+    });
+    const rows = response.data.values || [];
+    if (rows.length < 2) return res.json({ success: true, logs: [] });
+
+    const headers = rows[0];
+    const logs = rows.slice(1).map(r => {
+      const obj: any = {};
+      headers.forEach((h: string, i: number) => {
+        obj[h] = r[i] || '';
+      });
+      return obj;
+    });
+
+    res.json({ success: true, logs });
+  } catch (error: any) {
+    console.error('[취소해약내역 조회 에러]:', error);
     return handleGoogleError(error, res);
   }
 });

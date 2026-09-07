@@ -822,7 +822,7 @@ const ERP_Dashboard = () => {
       const res = await fetch('/api/sheets/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rowIdx, colIdx, newValue })
+        body: JSON.stringify({ rowIdx, colIdx, newValue, operator: currentUser?.username || '관리자' })
       });
 
       if (!res.ok) {
@@ -956,7 +956,7 @@ const ERP_Dashboard = () => {
       const res = await fetch('/api/sheets/batch-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates })
+        body: JSON.stringify({ updates, operator: currentUser?.username || '관리자' })
       });
 
       if (!res.ok) {
