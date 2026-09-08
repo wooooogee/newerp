@@ -1630,6 +1630,16 @@ const ERP_Dashboard = () => {
           const usernameClean = currentUser.username.trim().toUpperCase();
           const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
 
+          // 사원/지사장 본인 계약건 여부 검사 헬퍼
+          const isEmpSelfMatch = (item: ERPDataItem, targetOrgName: string) => {
+            const itemEmpNameNorm = normOrg(item.empName);
+            const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
+            if (itemEmpCodeClean && itemEmpCodeClean === usernameClean) return true;
+            if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
+            if (itemEmpNameNorm && targetOrgName && (targetOrgName === itemEmpNameNorm || targetOrgName.includes(itemEmpNameNorm) || itemEmpNameNorm.includes(targetOrgName))) return true;
+            return false;
+          };
+
           if (currentUser.orgs && currentUser.orgs.length > 0) {
             finalData = initialData.filter(item => {
               return currentUser.orgs!.some(org => {
@@ -1640,7 +1650,9 @@ const ERP_Dashboard = () => {
                   return itemHqNorm === normOrgName || (normOrgName !== '' && itemHqNorm.includes(normOrgName)) || (itemHqNorm !== '' && normOrgName.includes(itemHqNorm));
                 } else if (org.role === '지사' || org.role === '지점' || org.role === '지사모바일') {
                   const itemBranchNorm = normOrg(item.branch);
-                  return itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
+                  const isBranchMatch = itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
+                  const isSelfMatch = isEmpSelfMatch(item, normOrgName);
+                  return isBranchMatch || isSelfMatch;
                 } else {
                   return (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
                          (!item.empCode && normOrg(item.empName) === normOrgName);
@@ -1658,7 +1670,9 @@ const ERP_Dashboard = () => {
             } else if (currentUser.role === '지사' || currentUser.role === '지점' || currentUser.role === '지사모바일') {
               finalData = initialData.filter(item => {
                 const itemBranchNorm = normOrg(item.branch);
-                return itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
+                const isBranchMatch = itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
+                const isSelfMatch = isEmpSelfMatch(item, normOrgName);
+                return isBranchMatch || isSelfMatch;
               });
             } else {
               finalData = initialData.filter(item =>
@@ -1749,6 +1763,16 @@ const ERP_Dashboard = () => {
         const usernameClean = currentUser.username.trim().toUpperCase();
         const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
 
+        // 사원/지사장 본인 계약건 여부 검사 헬퍼
+        const isEmpSelfMatch = (item: ERPDataItem, targetOrgName: string) => {
+          const itemEmpNameNorm = normOrg(item.empName);
+          const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
+          if (itemEmpCodeClean && itemEmpCodeClean === usernameClean) return true;
+          if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
+          if (itemEmpNameNorm && targetOrgName && (targetOrgName === itemEmpNameNorm || targetOrgName.includes(itemEmpNameNorm) || itemEmpNameNorm.includes(targetOrgName))) return true;
+          return false;
+        };
+
         if (currentUser.orgs && currentUser.orgs.length > 0) {
           finalData = formatted.filter(item => {
             return currentUser.orgs!.some(org => {
@@ -1759,7 +1783,9 @@ const ERP_Dashboard = () => {
                 return itemHqNorm === normOrgName || (normOrgName !== '' && itemHqNorm.includes(normOrgName)) || (itemHqNorm !== '' && normOrgName.includes(itemHqNorm));
               } else if (org.role === '지사' || org.role === '지점' || org.role === '지사모바일') {
                 const itemBranchNorm = normOrg(item.branch);
-                return itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
+                const isBranchMatch = itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
+                const isSelfMatch = isEmpSelfMatch(item, normOrgName);
+                return isBranchMatch || isSelfMatch;
               } else {
                 return (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
                        (!item.empCode && normOrg(item.empName) === normOrgName);
@@ -1777,7 +1803,9 @@ const ERP_Dashboard = () => {
           } else if (currentUser.role === '지사' || currentUser.role === '지점' || currentUser.role === '지사모바일') {
             finalData = formatted.filter(item => {
               const itemBranchNorm = normOrg(item.branch);
-              return itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
+              const isBranchMatch = itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
+              const isSelfMatch = isEmpSelfMatch(item, normOrgName);
+              return isBranchMatch || isSelfMatch;
             });
           } else {
             finalData = formatted.filter(item =>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ArrowUp, KeyRound, CreditCard, Hash, Phone } from 'lucide-react';
+import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ArrowUp, KeyRound, CreditCard, Hash, Phone, Building } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
@@ -73,13 +73,16 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   const [branchFilter, setBranchFilter] = useState('전체');
   const [empFilter, setEmpFilter] = useState('전체');
 
+  // 지사모바일 전용: 지사 전체 실적 vs 내 영업 실적만 토글 ('all' | 'self')
+  const [branchViewScope, setBranchViewScope] = useState<'all' | 'self'>('all');
+
   // 상세 계약 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1);
 
   // 검색어나 필터 조건 변경 시 페이지 번호를 1페이지로 리셋
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, monthFilter, statusFilter, deliveryFilter, hqFilter, branchFilter, empFilter, displayMode, isUnpaidRental, isUnpaidMutualAid]);
+  }, [searchTerm, monthFilter, statusFilter, deliveryFilter, hqFilter, branchFilter, empFilter, displayMode, isUnpaidRental, isUnpaidMutualAid, branchViewScope]);
 
   // 스크롤 탑 이동을 위한 스크롤 컨테이너 Ref
   const containerRef = useRef<HTMLDivElement>(null);
@@ -331,26 +334,60 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     return Array.from(uniqueMap.values());
   }, [deliveryCompletedMonthData, displayMode]);
 
-  // 3. 선택된 본부(hqFilter) 필터가 반영된 데이터 (대시보드 상단 통계, 목록, 보고서의 공통 모수)
+  // 3. 선택된 본부(hqFilter) 및 지사 실적범위(branchViewScope) 필터가 반영된 데이터 (대시보드 상단 통계, 목록, 보고서의 공통 모수)
   const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
 
+  // 지사장 본인 직접 계약건 여부 판별 헬퍼
+  const isMyContract = (item: any) => {
+    const itemEmpNameNorm = normOrg(item.empName);
+    const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
+    const usernameClean = (currentUser.username || '').trim().toUpperCase();
+    const orgNameNorm = normOrg(currentUser.orgName);
+
+    if (itemEmpCodeClean && itemEmpCodeClean === usernameClean) return true;
+    if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
+    if (itemEmpNameNorm && orgNameNorm && (orgNameNorm === itemEmpNameNorm || orgNameNorm.includes(itemEmpNameNorm) || itemEmpNameNorm.includes(orgNameNorm))) return true;
+    if (currentUser.orgs && currentUser.orgs.length > 0) {
+      return currentUser.orgs.some(o => {
+        const oNorm = normOrg(o.orgName);
+        return oNorm && (oNorm === itemEmpNameNorm || oNorm.includes(itemEmpNameNorm) || itemEmpNameNorm.includes(oNorm));
+      });
+    }
+    return false;
+  };
+
+  // 지사모바일에서 '내 영업 실적만' 선택 시 본인 계약건만 선별
+  const scopeContractData = useMemo(() => {
+    if (isBranchMobile && branchViewScope === 'self') {
+      return contractModeProcessedData.filter(item => isMyContract(item));
+    }
+    return contractModeProcessedData;
+  }, [contractModeProcessedData, isBranchMobile, branchViewScope, currentUser]);
+
+  const scopeDeliveryData = useMemo(() => {
+    if (isBranchMobile && branchViewScope === 'self') {
+      return deliveryModeProcessedData.filter(item => isMyContract(item));
+    }
+    return deliveryModeProcessedData;
+  }, [deliveryModeProcessedData, isBranchMobile, branchViewScope, currentUser]);
+
   const hqFilteredContractData = useMemo(() => {
-    if (hqFilter === '전체') return contractModeProcessedData;
+    if (hqFilter === '전체') return scopeContractData;
     const filterNorm = normOrg(hqFilter);
-    return contractModeProcessedData.filter(item => {
+    return scopeContractData.filter(item => {
       const itemHqNorm = normOrg(item.hq);
       return itemHqNorm === filterNorm || (filterNorm !== '' && itemHqNorm.includes(filterNorm)) || (itemHqNorm !== '' && filterNorm.includes(itemHqNorm));
     });
-  }, [contractModeProcessedData, hqFilter]);
+  }, [scopeContractData, hqFilter]);
 
   const hqFilteredDeliveryData = useMemo(() => {
-    if (hqFilter === '전체') return deliveryModeProcessedData;
+    if (hqFilter === '전체') return scopeDeliveryData;
     const filterNorm = normOrg(hqFilter);
-    return deliveryModeProcessedData.filter(item => {
+    return scopeDeliveryData.filter(item => {
       const itemHqNorm = normOrg(item.hq);
       return itemHqNorm === filterNorm || (filterNorm !== '' && itemHqNorm.includes(filterNorm)) || (itemHqNorm !== '' && filterNorm.includes(itemHqNorm));
     });
-  }, [deliveryModeProcessedData, hqFilter]);
+  }, [scopeDeliveryData, hqFilter]);
 
   // 4. 요약 통계 계산 (계약일자 기준 계약/가입/해약/취소/배송대기 + N열 배송일자 기준 해당월 배송완료)
   const summary = useMemo(() => {
@@ -660,6 +697,34 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             상품건수로 보기
           </button>
         </div>
+
+        {/* 지사 권한일 때: [지사 전체 실적] vs [내 영업 실적만] 스위치 */}
+        {isBranchMobile && (
+          <div className="flex bg-indigo-50/80 p-1.5 rounded-2xl border border-indigo-200/80 shadow-sm">
+            <button
+              onClick={() => setBranchViewScope('all')}
+              className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+                branchViewScope === 'all' 
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' 
+                  : 'text-indigo-700 hover:text-indigo-950'
+              }`}
+            >
+              <Building size={13} />
+              <span>지사 전체 실적</span>
+            </button>
+            <button
+              onClick={() => setBranchViewScope('self')}
+              className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+                branchViewScope === 'self' 
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' 
+                  : 'text-indigo-700 hover:text-indigo-950'
+              }`}
+            >
+              <User size={13} />
+              <span>내 영업 실적만</span>
+            </button>
+          </div>
+        )}
 
         {/* Dashboard Count Cards (3 Columns) & Accordion Switch */}
         <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm space-y-2 relative">
