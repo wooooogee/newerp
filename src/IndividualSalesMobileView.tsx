@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ArrowUp, KeyRound, CreditCard, Hash } from 'lucide-react';
+import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ArrowUp, KeyRound, CreditCard, Hash, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
@@ -30,16 +30,14 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
   const [statusFilter, setStatusFilter] = useState('전체'); // 전체, 가입, 해약, 취소
   const [deliveryFilter, setDeliveryFilter] = useState('전체'); // 전체, 배송대기, 배송완료
-  const [monthFilter, setMonthFilter] = useState(() => {
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    return `${yyyy}-${mm}`;
-  }); // 기본값: 현재 월 (YYYY-MM)
+  const [monthFilter, setMonthFilter] = useState('전체'); // 기본값: 전체
   const [displayMode, setDisplayMode] = useState<'구좌수' | '상품건수'>('구좌수'); // 구좌수, 상품건수
   const [editingRowIdx, setEditingRowIdx] = useState<number | null>(null);
   const [editMemoValue, setEditMemoValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // 사원리스트 데이터 및 연락처 매핑 상태
+  const [empList, setEmpList] = useState<any[]>([]);
 
   // 탭 상태 (상세 계약 vs 요약 보고서)
   const [activeTab, setActiveTab] = useState<'detail' | 'report'>('detail');
@@ -191,12 +189,90 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     return Array.from(months).sort((a, b) => b.localeCompare(a)); // 최신 월 순 정렬
   }, [data]);
 
-  // data 내 존재하는 계약월 목록에 현재 monthFilter가 없으면 최신월로 자동 지정
+  // 사원리스트 데이터 로딩 (영업자 연락처 매핑용)
   useEffect(() => {
-    if (uniqueMonths.length > 0 && !uniqueMonths.includes(monthFilter)) {
-      setMonthFilter(uniqueMonths[0]);
+    const fetchEmpList = async () => {
+      try {
+        const res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('사원리스트')}&t=${Date.now()}`);
+        if (res.ok) {
+          const data = await res.json();
+          const rows = Array.isArray(data) ? data : (data.rows || []);
+          setEmpList(rows);
+        }
+      } catch (e) {
+        console.error('[IndividualSalesMobileView] 사원리스트 로딩 실패:', e);
+      }
+    };
+    fetchEmpList();
+  }, []);
+
+  // 사원리스트(empList) 기반 스마트 매칭 맵 구축 (사원코드/사원명 -> 연락처)
+  const { empCodePhoneMap, empNamePhoneMap } = useMemo(() => {
+    const codeMap = new Map<string, string>();
+    const nameMap = new Map<string, string>();
+
+    empList.forEach(empRow => {
+      if (!Array.isArray(empRow)) return;
+
+      let rowPhone = '';
+      const phoneRegex = /01[016789]-?\d{3,4}-?\d{4}/;
+
+      for (let i = 0; i < empRow.length; i++) {
+        const cellVal = String(empRow[i] || '').trim();
+        const match = cellVal.match(phoneRegex);
+        if (match) {
+          rowPhone = match[0].replace(/[^0-9]/g, '').replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3');
+          break;
+        }
+      }
+
+      if (rowPhone) {
+        empRow.forEach(cell => {
+          const val = String(cell || '').trim();
+          if (!val || val === '-' || val.includes('010') || val.length > 25) return;
+
+          const cleanKey = val.replace(/\s+/g, '').toUpperCase();
+          if (cleanKey.length >= 2) {
+            nameMap.set(cleanKey, rowPhone);
+            if (/^[A-Z0-9]+$/.test(cleanKey)) {
+              codeMap.set(cleanKey, rowPhone);
+            }
+          }
+        });
+      }
+    });
+
+    return { empCodePhoneMap: codeMap, empNamePhoneMap: nameMap };
+  }, [empList]);
+
+  // 영업자 연락처 정밀 추출 헬퍼 함수
+  const getEmpPhone = (item: any) => {
+    const cleanCode = String(item.empCode || '').trim().toUpperCase();
+    const cleanName = String(item.empName || '').replace(/\s+/g, '').toUpperCase();
+    if (cleanCode && empCodePhoneMap.has(cleanCode)) return empCodePhoneMap.get(cleanCode)!;
+    if (cleanName && empNamePhoneMap.has(cleanName)) return empNamePhoneMap.get(cleanName)!;
+    // fallback: item.raw에서 휴대폰 번호 검색 (고객 번호 제외)
+    if (Array.isArray(item.raw)) {
+      const cleanCustomerPhone = String(item.phone || '').replace(/[^0-9]/g, '');
+      const phoneRegex = /01[016789]-?\d{3,4}-?\d{4}/g;
+      const rawJoined = item.raw.join(' ');
+      const matches = rawJoined.match(phoneRegex) || [];
+      for (const p of matches) {
+        const cleanP = p.replace(/[^0-9]/g, '');
+        if (cleanP && cleanP !== cleanCustomerPhone) {
+          return cleanP.replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3');
+        }
+      }
     }
-  }, [uniqueMonths]);
+    return '-';
+  };
+
+  // monthFilter가 '전체'가 아닌 특정 월일 때, 데이터 내 존재하는 계약월 목록에 없으면 '전체'로 재설정
+  useEffect(() => {
+    if (monthFilter !== '전체' && uniqueMonths.length > 0 && !uniqueMonths.includes(monthFilter)) {
+      setMonthFilter('전체');
+    }
+  }, [uniqueMonths, monthFilter]);
 
   // 1-1. 계약월 필터가 반영된 1차 가공 데이터 (계약일자 기준)
   const contractMonthFilteredData = useMemo(() => {
@@ -875,6 +951,8 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                   paginatedData.map((item) => {
                     const mutualAidPayVal = (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '-';
                     const rentalPayVal = (item.raw && item.raw[26]) ? String(item.raw[26]).trim() : '-';
+                    const expectedDeliveryVal = (item.expectedDeliveryDate || (item.raw && item.raw[28]) || '').trim() || '-';
+                    const empPhoneVal = getEmpPhone(item);
 
                     return (
                       <motion.div
@@ -886,15 +964,20 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                         transition={{ duration: 0.2 }}
                         className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-2.5"
                       >
-                        {/* Card Title Line */}
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
+                        {/* Card Title Line: 고객명 / 가입상태 / 렌탈번호 / 배송상태 */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                             <span className="text-sm font-bold text-slate-900">{item.memName || '-'}</span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${getStatusBadgeClass(item.status)}`}>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold border shrink-0 ${getStatusBadgeClass(item.status)}`}>
                               {item.status || '가입'}
                             </span>
+                            {item.rentalNo ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0" title="렌탈번호">
+                                {item.rentalNo}
+                              </span>
+                            ) : null}
                           </div>
-                          <span className={`text-[10px] px-2.5 py-0.5 rounded font-semibold border ${getDeliveryBadgeClass(item.deliveryStatus)}`}>
+                          <span className={`text-[10px] px-2.5 py-0.5 rounded font-semibold border shrink-0 ${getDeliveryBadgeClass(item.deliveryStatus)}`}>
                             {item.deliveryStatus || '배송대기'}
                           </span>
                         </div>
@@ -918,15 +1001,15 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               </div>
                             </div>
 
-                            {/* 오른쪽: 배송 및 렌탈 정보 */}
+                            {/* 오른쪽: 배송 및 배송예정일/렌탈출금일 정보 */}
                             <div className="space-y-1.5 min-w-0">
                               <div className="flex items-center gap-1.5 text-slate-500">
                                 <Truck size={12} className="text-blue-500 shrink-0" />
                                 <span className="truncate">배송일자: <strong className="text-blue-700 font-semibold">{item.deliveryDate || '-'}</strong></span>
                               </div>
                               <div className="flex items-center gap-1.5 text-slate-500">
-                                <Hash size={12} className="text-indigo-400 shrink-0" />
-                                <span className="truncate">렌탈번호: <strong className="font-mono text-indigo-600 font-semibold">{item.rentalNo || '-'}</strong></span>
+                                <Calendar size={12} className="text-blue-500 shrink-0" />
+                                <span className="truncate">배송예정일: <strong className="text-blue-700 font-semibold">{expectedDeliveryVal}</strong></span>
                               </div>
                               <div className="flex items-center gap-1.5 text-slate-500">
                                 <CreditCard size={12} className="text-indigo-400 shrink-0" />
@@ -935,7 +1018,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                             </div>
                           </div>
 
-                          {/* 렌탈상품 단독 Full-Width 행 (상조출금일 & 렌탈출금일 바로 아래에 전체 상품명 100% 노출) */}
+                          {/* 렌탈상품 단독 Full-Width 행 */}
                           <div className="flex items-start gap-1.5 text-slate-500 bg-slate-50/80 p-2 rounded-xl border border-slate-100/80 mt-1">
                             <Package size={13} className="text-indigo-500 shrink-0 mt-0.5" />
                             <div className="flex-1 text-[11px] leading-tight">
@@ -945,25 +1028,64 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                           </div>
                         </div>
 
-                        {/* Delivery Memo Area */}
-                        <div className="bg-slate-50 border border-slate-200 px-2.5 py-2 rounded-xl space-y-1">
-                          <div className="flex items-center justify-between">
+                        {/* 영업자 정보 & 배송관련 메모 (2열 그리드로 메모 칸 축소 및 영업자/연락처 추가) */}
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          {/* 영업자 / 영업자 연락처 카드 */}
+                          <div className="bg-slate-50 border border-slate-200 px-2.5 py-2 rounded-xl space-y-1 min-w-0 flex flex-col justify-center">
                             <div className="flex items-center gap-1 text-[9.5px] text-slate-500 font-bold uppercase tracking-wider">
-                              <FileText size={11} className="text-slate-400" />
-                              <span>배송관련 메모</span>
+                              <User size={11} className="text-slate-400 shrink-0" />
+                              <span>영업자 정보</span>
                             </div>
-                            {editingRowIdx !== item.originalRowIdx && (
-                              <button
-                                onClick={() => handleStartEdit(item.originalRowIdx, item.deliveryMemo || '')}
-                                className="p-0.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-200 transition-colors"
-                              >
-                                <Edit2 size={11} />
-                              </button>
-                            )}
+                            <div className="space-y-0.5 text-[11px] min-w-0">
+                              <div className="truncate text-slate-600">
+                                영업자: <strong className="text-slate-900 font-semibold">{item.empName || '-'}</strong>
+                              </div>
+                              <div className="truncate text-slate-600 flex items-center gap-1">
+                                <Phone size={10} className="text-slate-400 shrink-0" />
+                                {empPhoneVal && empPhoneVal !== '-' ? (
+                                  <a href={`tel:${empPhoneVal}`} className="text-blue-600 font-mono font-semibold hover:underline">
+                                    {empPhoneVal}
+                                  </a>
+                                ) : (
+                                  <span className="text-slate-400 font-mono">-</span>
+                                )}
+                              </div>
+                            </div>
                           </div>
 
-                          {editingRowIdx === item.originalRowIdx ? (
-                            <div className="space-y-1.5 pt-0.5">
+                          {/* 배송관련 메모 카드 (보기 모드) */}
+                          {editingRowIdx !== item.originalRowIdx ? (
+                            <div className="bg-slate-50 border border-slate-200 px-2.5 py-2 rounded-xl space-y-1 min-w-0 flex flex-col justify-between">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1 text-[9.5px] text-slate-500 font-bold uppercase tracking-wider truncate">
+                                  <FileText size={11} className="text-slate-400 shrink-0" />
+                                  <span>배송관련 메모</span>
+                                </div>
+                                <button
+                                  onClick={() => handleStartEdit(item.originalRowIdx, item.deliveryMemo || '')}
+                                  className="p-0.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-200 transition-colors shrink-0"
+                                  title="메모 수정"
+                                >
+                                  <Edit2 size={11} />
+                                </button>
+                              </div>
+                              <p className="text-[10.5px] text-slate-700 line-clamp-2 leading-tight break-all">
+                                {item.deliveryMemo ? item.deliveryMemo : (
+                                  <span className="text-slate-400 italic text-[10px]">등록된 메모 없음</span>
+                                )}
+                              </p>
+                            </div>
+                          ) : null}
+
+                          {/* 배송관련 메모 수정 (편집 모드 시 2행 전체 확장) */}
+                          {editingRowIdx === item.originalRowIdx && (
+                            <div className="col-span-2 bg-slate-50 border border-slate-200 px-2.5 py-2 rounded-xl space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1 text-[9.5px] text-slate-500 font-bold uppercase tracking-wider">
+                                  <FileText size={11} className="text-slate-400" />
+                                  <span>배송관련 메모 수정</span>
+                                </div>
+                              </div>
                               <textarea
                                 rows={2}
                                 value={editMemoValue}
@@ -995,12 +1117,6 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                 </button>
                               </div>
                             </div>
-                          ) : (
-                            <p className="text-[11px] text-slate-700 whitespace-pre-wrap leading-tight">
-                              {item.deliveryMemo ? item.deliveryMemo : (
-                                <span className="text-slate-400 italic text-[10px]">등록된 메모가 없습니다.</span>
-                              )}
-                            </p>
                           )}
                         </div>
                       </motion.div>
