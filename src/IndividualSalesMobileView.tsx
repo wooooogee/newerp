@@ -1115,7 +1115,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               </div>
                               <div className="flex items-center gap-1.5 text-slate-500">
                                 <Package size={12} className="text-slate-400 shrink-0" />
-                                <span className="truncate">상 조: <strong className="text-slate-800" title={item.prodName}>{item.prodName || '-'}</strong></span>
+                                <span className="truncate">상 품: <strong className="text-slate-800" title={item.prodName}>{item.prodName || '-'}</strong></span>
                               </div>
                               <div className="flex items-center gap-1.5 text-slate-500">
                                 <CreditCard size={12} className="text-slate-400 shrink-0" />
