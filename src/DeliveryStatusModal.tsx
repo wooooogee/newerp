@@ -13,6 +13,30 @@ interface DeliveryStatusModalProps {
   onBatchUpdateDeliveryMemos?: (updates: { rowIdx: number, val: string }[]) => void;
 }
 
+// 날짜 표시 통일 헬퍼 (YYYY-MM-DD 형식으로 포맷팅)
+const formatDate = (val: any): string => {
+  if (!val) return '-';
+  const s = String(val).trim();
+  if (!s || s === '-' || s === 'null' || s === 'undefined') return '-';
+
+  // YYYY. MM. DD, YYYY.MM.DD, YYYY/MM/DD, YYYY-MM-DD 등 다양한 구분자 매칭
+  const m = s.match(/(\d{4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})/);
+  if (m) {
+    const year = m[1];
+    const month = m[2].padStart(2, '0');
+    const day = m[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // 8자리 연속 숫자 (예: 20260819)
+  const mDigits = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (mDigits) {
+    return `${mDigits[1]}-${mDigits[2]}-${mDigits[3]}`;
+  }
+
+  return s;
+};
+
 export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({ 
   isOpen, 
   onClose, 
@@ -175,7 +199,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
 
   const handleExport = () => {
     const exportData = filteredData.map(item => ({
-      '계약일자': item.contractDate,
+      '계약일자': formatDate(item.contractDate),
       '상품명': item.prodName,
       '회원명': item.memName,
       '렌탈번호': item.rentalNo,
@@ -184,9 +208,10 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
       '본부명': item.hq,
       '지사명': item.branch || '',
       '사원명': item.empName,
-      '상조출금일': (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '-',
-      '렌탈출금일': (item.raw && item.raw[26]) ? String(item.raw[26]).trim() : '-',
-      '배송완료일': item.deliveryDate || (item.raw && item.raw[13] ? String(item.raw[13]).trim() : '-'),
+      '상조출금일': formatDate(item.raw && item.raw[21]),
+      '렌탈출금일': formatDate(item.raw && item.raw[26]),
+      '배송예정일': formatDate(item.expectedDeliveryDate || (item.raw && item.raw[28])),
+      '배송완료일': formatDate(item.deliveryDate || (item.raw && item.raw[13])),
       '배송관련 메모': item.deliveryMemo || ''
     }));
 
@@ -205,6 +230,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
       { wch: 16 }, // 사원명
       { wch: 18 }, // 상조출금일
       { wch: 18 }, // 렌탈출금일
+      { wch: 18 }, // 배송예정일
       { wch: 18 }, // 배송완료일
       { wch: 35 }  // 배송관련 메모
     ];
@@ -371,54 +397,56 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
 
             {/* List */}
             <div className="flex-1 overflow-auto bg-slate-50 p-6">
-              <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-500 whitespace-nowrap">
                       <th 
-                        className="p-2.5 font-bold cursor-pointer hover:text-blue-600 transition-colors"
+                        className="px-2.5 py-2.5 font-bold cursor-pointer hover:text-blue-600 transition-colors whitespace-nowrap"
                         onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
                       >
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 whitespace-nowrap">
                           계약일자 {sortOrder === 'desc' ? <ArrowDown size={14} /> : <ArrowUp size={14} />}
                         </div>
                       </th>
-                      <th className="p-2.5 font-bold">상품명</th>
-                      <th className="p-2.5 font-bold">회원명</th>
-                      <th className="p-2.5 font-bold">렌탈번호</th>
-                      <th className="p-2.5 font-bold">렌탈상품명</th>
-                      <th className="p-2.5 font-bold">배송현황</th>
-                      <th className="p-2.5 font-bold">본부명</th>
-                      <th className="p-2.5 font-bold">지사명</th>
-                      <th className="p-2.5 font-bold">사원명</th>
-                      <th className="p-2.5 font-bold text-center">상조출금일</th>
-                      <th className="p-2.5 font-bold text-center">렌탈출금일</th>
-                      <th className="p-2.5 font-bold text-center">배송완료일</th>
-                      <th className="p-2.5 font-bold">배송관련 메모</th>
-                      <th className="p-2.5 font-bold text-center">저장</th>
+                      <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">상품명</th>
+                      <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">회원명</th>
+                      <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">렌탈번호</th>
+                      <th className="px-2.5 py-2.5 font-bold whitespace-nowrap min-w-[140px] max-w-[200px]">렌탈상품명</th>
+                      <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">배송현황</th>
+                      <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">본부명</th>
+                      <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">지사명</th>
+                      <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">사원명</th>
+                      <th className="px-2.5 py-2.5 font-bold text-center whitespace-nowrap">상조출금일</th>
+                      <th className="px-2.5 py-2.5 font-bold text-center whitespace-nowrap">렌탈출금일</th>
+                      <th className="px-2.5 py-2.5 font-bold text-center whitespace-nowrap">배송예정일</th>
+                      <th className="px-2.5 py-2.5 font-bold text-center whitespace-nowrap">배송완료일</th>
+                      <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">배송관련 메모</th>
+                      <th className="px-2.5 py-2.5 font-bold text-center whitespace-nowrap">저장</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-[11px] whitespace-nowrap">
                     {paginatedData.length === 0 ? (
                       <tr>
-                        <td colSpan={14} className="p-8 text-center text-slate-400">조회된 데이터가 없습니다.</td>
+                        <td colSpan={15} className="p-8 text-center text-slate-400">조회된 데이터가 없습니다.</td>
                       </tr>
                     ) : (
                       paginatedData.map((item, idx) => {
                         const isOverdue = parseInt(item.memo || '0', 10) >= 1;
-                        const mutualAidPayVal = item.raw && item.raw[21] ? String(item.raw[21]).trim() : '-';
-                        const rentalPayVal = item.raw && item.raw[26] ? String(item.raw[26]).trim() : '-';
-                        const deliveryDateVal = item.deliveryDate || (item.raw && item.raw[13] ? String(item.raw[13]).trim() : '-');
+                        const mutualAidPayVal = formatDate(item.raw && item.raw[21]);
+                        const rentalPayVal = formatDate(item.raw && item.raw[26]);
+                        const expectedDeliveryDateVal = formatDate(item.expectedDeliveryDate || (item.raw && item.raw[28]));
+                        const deliveryDateVal = formatDate(item.deliveryDate || (item.raw && item.raw[13]));
 
                         return (
                         <tr key={item.uniqueKey} className={`transition-colors ${isOverdue ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-slate-50'}`}>
-                          <td className={`p-2.5 font-mono ${isOverdue ? 'text-red-700 font-bold' : 'text-slate-600'}`}>{item.contractDate}</td>
-                          <td className="p-2.5 font-bold text-slate-800">{item.prodName}</td>
-                          <td className="p-2.5 font-medium text-slate-700">{item.memName}</td>
-                          <td className="p-2.5 font-mono text-blue-600 font-bold">{item.rentalNo}</td>
-                          <td className="p-2.5 font-medium text-slate-800 max-w-[220px] truncate" title={item.rentalProd}>{item.rentalProd}</td>
-                          <td className="p-2.5">
-                            <span className={`px-2 py-0.5 font-bold rounded border text-[11px] ${
+                          <td className={`px-2.5 py-2 font-mono whitespace-nowrap ${isOverdue ? 'text-red-700 font-bold' : 'text-slate-600'}`}>{formatDate(item.contractDate)}</td>
+                          <td className="px-2.5 py-2 font-bold text-slate-800 whitespace-nowrap">{item.prodName}</td>
+                          <td className="px-2.5 py-2 font-medium text-slate-700 whitespace-nowrap">{item.memName}</td>
+                          <td className="px-2.5 py-2 font-mono text-blue-600 font-bold whitespace-nowrap">{item.rentalNo}</td>
+                          <td className="px-2.5 py-2 font-medium text-slate-800 max-w-[200px] truncate whitespace-nowrap" title={item.rentalProd}>{item.rentalProd}</td>
+                          <td className="px-2.5 py-2 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 font-bold rounded border text-[11px] whitespace-nowrap ${
                               item.deliveryStatus === '배송완료' 
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
                                 : 'bg-orange-50 text-orange-600 border-orange-100'
@@ -426,13 +454,14 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
                               {item.deliveryStatus}
                             </span>
                           </td>
-                          <td className="p-2.5 text-slate-600">{item.hq}</td>
-                          <td className="p-2.5 text-slate-600">{item.branch || '-'}</td>
-                          <td className="p-2.5 text-slate-600">{item.empName}</td>
-                          <td className="p-2.5 text-center font-mono text-slate-700">{mutualAidPayVal}</td>
-                          <td className="p-2.5 text-center font-mono text-slate-700">{rentalPayVal}</td>
-                          <td className="p-2.5 text-center font-mono text-emerald-700 font-medium">{deliveryDateVal}</td>
-                          <td className="p-2 min-w-[140px]">
+                          <td className="px-2.5 py-2 text-slate-600 whitespace-nowrap">{item.hq}</td>
+                          <td className="px-2.5 py-2 text-slate-600 whitespace-nowrap">{item.branch || '-'}</td>
+                          <td className="px-2.5 py-2 text-slate-600 whitespace-nowrap">{item.empName}</td>
+                          <td className="px-2.5 py-2 text-center font-mono text-slate-700 whitespace-nowrap">{mutualAidPayVal}</td>
+                          <td className="px-2.5 py-2 text-center font-mono text-slate-700 whitespace-nowrap">{rentalPayVal}</td>
+                          <td className="px-2.5 py-2 text-center font-mono text-blue-700 font-semibold whitespace-nowrap">{expectedDeliveryDateVal}</td>
+                          <td className="px-2.5 py-2 text-center font-mono text-emerald-700 font-medium whitespace-nowrap">{deliveryDateVal}</td>
+                          <td className="px-2 py-1.5 min-w-[130px] whitespace-nowrap">
                             {(() => {
                               const itemKey = item.uniqueKey;
                               const currentMemoVal = memoDrafts[itemKey] !== undefined ? memoDrafts[itemKey] : (item.deliveryMemo || '');
@@ -455,14 +484,14 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
                               );
                             })()}
                           </td>
-                          <td className="p-2 text-center">
+                          <td className="px-2 py-1.5 text-center whitespace-nowrap">
                             <button
                               onClick={() => {
                                 const itemKey = item.uniqueKey;
                                 const finalVal = memoDrafts[itemKey] !== undefined ? memoDrafts[itemKey] : (item.deliveryMemo || '');
                                 onUpdateDeliveryMemo(item.originalRowIdx, finalVal);
                               }}
-                              className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded font-bold text-[11px] transition-colors cursor-pointer"
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded font-bold text-[11px] transition-colors cursor-pointer whitespace-nowrap"
                             >
                               저장
                             </button>

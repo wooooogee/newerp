@@ -52,6 +52,7 @@ interface ERPDataItem {
   memo: string;           // U(20)?
   deliveryMemo: string;   // Y(24)
   cancelDate?: string;    // W(22)
+  expectedDeliveryDate?: string; // AC(28) 배송예정일
   raw: any[];
   hcPaidCount?: number;
 }
@@ -1737,6 +1738,7 @@ const ERP_Dashboard = () => {
             memo: String(row[20] || ''),            // U(20)
             deliveryMemo: String(row[24] || ''),    // Y(24)
             cancelDate: String(row[25] || '').trim(),     // Z(25) 해지일
+            expectedDeliveryDate: String(row[28] || '').trim(), // AC(28) 배송예정일
             raw: row.length < 30 ? [...row, ...new Array(30 - row.length).fill('')] : row,
           };
         }).filter((item: ERPDataItem) => item.contractDate);
