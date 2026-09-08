@@ -17,6 +17,30 @@ interface IndividualSalesMobileViewProps {
   onRefresh: () => void;
 }
 
+// 날짜 포맷 통일 헬퍼 (YYYY-MM-DD 형식으로 변환, 유효하지 않거나 빈값은 '-')
+const formatDate = (val: any): string => {
+  if (!val) return '-';
+  const s = String(val).trim();
+  if (!s || s === '-' || s === '- -' || s.replace(/[\s-]/g, '') === '' || s === 'null' || s === 'undefined' || !/\d/.test(s)) return '-';
+
+  // YYYY. MM. DD, YYYY.MM.DD, YYYY/MM/DD, YYYY-MM-DD 등 매칭
+  const m = s.match(/(\d{4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})/);
+  if (m) {
+    const year = m[1];
+    const month = m[2].padStart(2, '0');
+    const day = m[3].padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // 8자리 연속 숫자 (예: 20260819)
+  const mDigits = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (mDigits) {
+    return `${mDigits[1]}-${mDigits[2]}-${mDigits[3]}`;
+  }
+
+  return s;
+};
+
 export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps> = ({
   currentUser,
   data,
@@ -486,27 +510,60 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   }, [filteredData, currentPage]);
 
   // 6. 요약 보고서 전용 집계 데이터
-  // 6-1. 본부별 집계 (sales: 계약월 기준, deliveryCompleted: N열 배송일자 기준)
-  const hqReportData = useMemo(() => {
-    const map = new Map<string, { hq: string; sales: number; deliveryCompleted: number }>();
+  // 6-0. 사용자 권한에 따른 조직 분류 체계 (관리자: 본부별, 본부: 지사별, 지사/영업사원: 사원별)
+  const reportCategory = useMemo(() => {
+    if (isAdminMobile) {
+      return {
+        type: 'hq' as const,
+        title: '본부별 실적',
+        colHeader: '본부명',
+        emptyMsg: '집계할 본부 데이터가 없습니다.',
+        hideZeroLabel: '0건 본부 숨기기',
+        getKey: (item: any) => item.hq || '미지정본부'
+      };
+    } else if (isHqMobile) {
+      return {
+        type: 'branch' as const,
+        title: '지사별 실적',
+        colHeader: '지사명',
+        emptyMsg: '집계할 지사 데이터가 없습니다.',
+        hideZeroLabel: '0건 지사 숨기기',
+        getKey: (item: any) => item.branch || '미지정지사'
+      };
+    } else {
+      // 지사모바일, 영업사원 등
+      return {
+        type: 'emp' as const,
+        title: '사원별 실적',
+        colHeader: '사원명',
+        emptyMsg: '집계할 사원 데이터가 없습니다.',
+        hideZeroLabel: '0건 사원 숨기기',
+        getKey: (item: any) => item.empName || '미지정사원'
+      };
+    }
+  }, [isAdminMobile, isHqMobile, isBranchMobile]);
+
+  // 6-1. 권한별 조직 실적 집계 (관리자: 본부별, 본부: 지사별, 지사: 사원별)
+  const orgReportData = useMemo(() => {
+    const map = new Map<string, { name: string; sales: number; deliveryCompleted: number }>();
 
     hqFilteredContractData.forEach(item => {
-      const hq = item.hq || '미지정본부';
-      if (!map.has(hq)) {
-        map.set(hq, { hq, sales: 0, deliveryCompleted: 0 });
+      const name = reportCategory.getKey(item);
+      if (!map.has(name)) {
+        map.set(name, { name, sales: 0, deliveryCompleted: 0 });
       }
-      const entry = map.get(hq)!;
+      const entry = map.get(name)!;
       if ((item.status || '').trim() === '가입') {
         entry.sales += 1;
       }
     });
 
     hqFilteredDeliveryData.forEach(item => {
-      const hq = item.hq || '미지정본부';
-      if (!map.has(hq)) {
-        map.set(hq, { hq, sales: 0, deliveryCompleted: 0 });
+      const name = reportCategory.getKey(item);
+      if (!map.has(name)) {
+        map.set(name, { name, sales: 0, deliveryCompleted: 0 });
       }
-      const entry = map.get(hq)!;
+      const entry = map.get(name)!;
       if ((item.status || '').trim() === '가입') {
         entry.deliveryCompleted += 1;
       }
@@ -517,7 +574,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       list = list.filter(item => item.sales > 0 || item.deliveryCompleted > 0);
     }
     return list.sort((a, b) => b.sales - a.sales);
-  }, [hqFilteredContractData, hqFilteredDeliveryData, hideZeroHq]);
+  }, [hqFilteredContractData, hqFilteredDeliveryData, hideZeroHq, reportCategory]);
 
   // 6-2. 상품별 집계 (sales: 계약월 기준, deliveryCompleted: N열 배송일자 기준)
   const prodReportData = useMemo(() => {
@@ -964,7 +1021,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             </div>
             
             <div className="flex flex-col items-end gap-1.5 pt-4">
-              <span className="text-[10px] text-slate-500 font-bold">0건 본부 숨기기</span>
+              <span className="text-[10px] text-slate-500 font-bold">{reportCategory.hideZeroLabel}</span>
               <button
                 type="button"
                 onClick={() => setHideZeroHq(!hideZeroHq)}
@@ -1014,9 +1071,9 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
               <AnimatePresence mode="popLayout">
                 {paginatedData.length > 0 ? (
                   paginatedData.map((item) => {
-                    const mutualAidPayVal = (item.raw && item.raw[21]) ? String(item.raw[21]).trim() : '-';
-                    const rentalPayVal = (item.raw && item.raw[26]) ? String(item.raw[26]).trim() : '-';
-                    const expectedDeliveryVal = (item.expectedDeliveryDate || (item.raw && item.raw[28]) || '').trim() || '-';
+                    const mutualAidPayVal = formatDate(item.raw && item.raw[21]);
+                    const rentalPayVal = formatDate(item.raw && item.raw[26]);
+                    const expectedDeliveryVal = formatDate(item.expectedDeliveryDate || (item.raw && item.raw[28]));
                     const empPhoneVal = getEmpPhone(item);
 
                     return (
@@ -1054,7 +1111,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                             <div className="space-y-1.5 min-w-0">
                               <div className="flex items-center gap-1.5 text-slate-500">
                                 <Calendar size={12} className="text-slate-400 shrink-0" />
-                                <span className="truncate">계약일자: <strong className="text-slate-800">{item.contractDate || '-'}</strong></span>
+                                <span className="truncate">계약일자: <strong className="text-slate-800">{formatDate(item.contractDate)}</strong></span>
                               </div>
                               <div className="flex items-center gap-1.5 text-slate-500">
                                 <Package size={12} className="text-slate-400 shrink-0" />
@@ -1062,7 +1119,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               </div>
                               <div className="flex items-center gap-1.5 text-slate-500">
                                 <CreditCard size={12} className="text-slate-400 shrink-0" />
-                                <span className="truncate">상조출금일: <strong className="text-slate-800">{mutualAidPayVal}</strong></span>
+                                <span className="truncate">상조출금일: <strong className="text-slate-800 font-mono font-semibold">{mutualAidPayVal}</strong></span>
                               </div>
                             </div>
 
@@ -1070,7 +1127,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                             <div className="space-y-1.5 min-w-0">
                               <div className="flex items-center gap-1.5 text-slate-500">
                                 <Truck size={12} className="text-blue-500 shrink-0" />
-                                <span className="truncate">배송일자: <strong className="text-blue-700 font-semibold">{item.deliveryDate || '-'}</strong></span>
+                                <span className="truncate">배송일자: <strong className="text-blue-700 font-semibold">{formatDate(item.deliveryDate)}</strong></span>
                               </div>
                               <div className="flex items-center gap-1.5 text-slate-500">
                                 <Calendar size={12} className="text-blue-500 shrink-0" />
@@ -1078,7 +1135,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               </div>
                               <div className="flex items-center gap-1.5 text-slate-500">
                                 <CreditCard size={12} className="text-indigo-400 shrink-0" />
-                                <span className="truncate">렌탈출금일: <strong className="text-slate-800">{rentalPayVal}</strong></span>
+                                <span className="truncate">렌탈출금일: <strong className="text-slate-800 font-mono">{rentalPayVal}</strong></span>
                               </div>
                             </div>
                           </div>
@@ -1226,30 +1283,30 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         ) : (
           /* 요약 보고서 (대표님 보고서) 전용 뷰 */
           <div className="space-y-4">
-            {/* 본부별 실적 표 */}
+            {/* 권한별 조직 실적 표 (관리자: 본부별, 본부: 지사별, 지사/사원: 사원별) */}
             <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-100 pb-2">본부별 실적</p>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-100 pb-2">{reportCategory.title}</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left text-slate-700">
                   <thead>
                     <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-100 font-bold bg-slate-50">
-                      <th className="py-2.5 px-2">본부명</th>
+                      <th className="py-2.5 px-2">{reportCategory.colHeader}</th>
                       <th className="py-2.5 px-2 text-right">판매건수 ({displayMode})</th>
                       <th className="py-2.5 px-2 text-right">배송완료건수</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {hqReportData.length > 0 ? (
-                      hqReportData.map((s, idx) => (
+                    {orgReportData.length > 0 ? (
+                      orgReportData.map((s, idx) => (
                         <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                          <td className="py-2.5 px-2 font-bold text-slate-900">{s.hq}</td>
+                          <td className="py-2.5 px-2 font-bold text-slate-900">{s.name}</td>
                           <td className="py-2.5 px-2 text-right font-semibold text-blue-600">{s.sales}</td>
                           <td className="py-2.5 px-2 text-right font-semibold text-emerald-600">{s.deliveryCompleted}</td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={3} className="py-8 text-center text-slate-400 italic">집계할 본부 데이터가 없습니다.</td>
+                        <td colSpan={3} className="py-8 text-center text-slate-400 italic">{reportCategory.emptyMsg}</td>
                       </tr>
                     )}
                   </tbody>
