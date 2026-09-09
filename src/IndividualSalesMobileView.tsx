@@ -65,6 +65,8 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
   // 요약 보고서 계약월별 상세 펼침 상태
   const [expandedReportMonth, setExpandedReportMonth] = useState<string | null>(null);
+  // 요약 보고서 계약월별 상세 탭 상태 ('completed': 배송완료, 'waiting': 미배송)
+  const [reportDetailTab, setReportDetailTab] = useState<'completed' | 'waiting'>('completed');
 
   // 사원리스트 데이터 및 연락처 매핑 상태
   const [empList, setEmpList] = useState<any[]>([]);
@@ -647,7 +649,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       if (isCompleted) {
         entry.completed += 1;
         entry.completedItems.push(item);
-      } else if (item.deliveryStatus === '배송대기') {
+      } else {
         entry.waiting += 1;
         entry.waitingItems.push(item);
       }
@@ -1484,46 +1486,98 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               </td>
                             </tr>
 
-                            {/* 아코디언 펼침: 해당 계약월의 배송완료 목록 */}
+                            {/* 아코디언 펼침: 해당 계약월의 상세 목록 (배송완료 / 미배송 전환) */}
                             {isExpanded && (
                               <tr>
-                                <td colSpan={4} className="bg-slate-50/80 p-2.5 border-y border-slate-200/60">
+                                <td colSpan={4} className="bg-slate-50/80 p-2 border-y border-slate-200/60">
                                   <div className="space-y-1.5">
-                                    <div className="flex items-center justify-between text-[10.5px] font-bold text-slate-600">
-                                      <span>[{mStat.month}] 배송완료 상세 ({mStat.completedItems.length}건)</span>
-                                      <span className="text-[10px] text-slate-400">항목 터치 시 전체정보</span>
+                                    {/* 탭 헤더 및 건수 안내 */}
+                                    <div className="flex items-center justify-between gap-1">
+                                      <div className="flex items-center bg-slate-200/70 p-0.5 rounded-lg text-[10.5px]">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setReportDetailTab('completed');
+                                          }}
+                                          className={`px-2 py-0.5 rounded-md font-bold transition-all ${
+                                            reportDetailTab === 'completed'
+                                              ? 'bg-white text-emerald-700 shadow-xs'
+                                              : 'text-slate-500 hover:text-slate-800'
+                                          }`}
+                                        >
+                                          배송완료 ({mStat.completedItems.length})
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setReportDetailTab('waiting');
+                                          }}
+                                          className={`px-2 py-0.5 rounded-md font-bold transition-all ${
+                                            reportDetailTab === 'waiting'
+                                              ? 'bg-white text-amber-700 shadow-xs'
+                                              : 'text-slate-500 hover:text-slate-800'
+                                          }`}
+                                        >
+                                          미배송 ({mStat.waitingItems.length})
+                                        </button>
+                                      </div>
+                                      <span className="text-[9.5px] text-slate-400">클릭 시 전체상세</span>
                                     </div>
-                                    {mStat.completedItems.length > 0 ? (
-                                      <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
-                                        {mStat.completedItems.map((item, cIdx) => (
-                                          <div
-                                            key={item.uniqueKey || cIdx}
-                                            onClick={() => setSelectedDetailItem(item)}
-                                            className="bg-white p-2 rounded-xl border border-slate-200/80 hover:border-emerald-300 transition-all cursor-pointer text-xs flex items-center justify-between gap-2 shadow-2xs active:scale-[0.99]"
-                                          >
-                                            <div className="min-w-0 flex-1">
-                                              <div className="flex items-center gap-1.5">
-                                                <strong className="text-slate-900">{item.memName || '-'}</strong>
-                                                <span className="text-[10px] text-slate-500 font-mono truncate max-w-[100px]">{item.rentalNo || ''}</span>
-                                              </div>
-                                              <div className="text-[10.5px] text-slate-500 truncate mt-0.5">
-                                                {item.rentalProd || item.prodName || '-'}
-                                              </div>
-                                            </div>
-                                            <div className="text-right shrink-0">
-                                              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 block">
-                                                {formatDate(item.deliveryDate || (item.raw && item.raw[13]))} 완료
-                                              </span>
-                                              <span className="text-[9.5px] text-slate-400 mt-0.5 block">{item.empName || ''}</span>
-                                            </div>
+
+                                    {/* 상세 리스트: 간소화된 1줄 형태 (이름, 렌탈계약번호, 배송완료일/상태) */}
+                                    {(() => {
+                                      const currentList = reportDetailTab === 'completed' ? mStat.completedItems : mStat.waitingItems;
+                                      if (currentList.length === 0) {
+                                        return (
+                                          <div className="py-2.5 text-center text-[10.5px] text-slate-400 italic bg-white/60 rounded-lg border border-dashed border-slate-200">
+                                            {reportDetailTab === 'completed' ? '배송완료된 건이 없습니다.' : '미배송된 건이 없습니다.'}
                                           </div>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <div className="py-3 text-center text-[11px] text-slate-400 italic">
-                                        배송완료된 계약건이 없습니다.
-                                      </div>
-                                    )}
+                                        );
+                                      }
+
+                                      return (
+                                        <div className="space-y-1 max-h-44 overflow-y-auto custom-scrollbar pr-0.5">
+                                          {currentList.map((item, cIdx) => {
+                                            const deliveryDateStr = formatDate(item.deliveryDate || (item.raw && item.raw[13]));
+                                            return (
+                                              <div
+                                                key={item.uniqueKey || cIdx}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setSelectedDetailItem(item);
+                                                }}
+                                                className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/90 hover:border-emerald-300 transition-all cursor-pointer text-xs flex items-center justify-between gap-2 shadow-2xs active:scale-[0.99]"
+                                              >
+                                                {/* 좌측: 고객명 및 렌탈계약번호 */}
+                                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                  <span className="font-bold text-slate-900 truncate text-[11.5px] max-w-[70px]">
+                                                    {item.memName || '-'}
+                                                  </span>
+                                                  <span className="text-[10px] text-slate-500 font-mono truncate">
+                                                    {item.rentalNo || '-'}
+                                                  </span>
+                                                </div>
+
+                                                {/* 우측: 배송완료일 또는 미배송 상태 */}
+                                                <div className="shrink-0 text-right">
+                                                  {reportDetailTab === 'completed' ? (
+                                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-mono">
+                                                      {deliveryDateStr !== '-' ? deliveryDateStr : '완료'}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                                      {item.deliveryStatus || '배송대기'}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 </td>
                               </tr>
