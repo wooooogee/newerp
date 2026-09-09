@@ -1550,12 +1550,15 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                                 }}
                                                 className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/90 hover:border-emerald-300 transition-all cursor-pointer text-xs flex items-center justify-between gap-2 shadow-2xs active:scale-[0.99]"
                                               >
-                                                {/* 좌측: 고객명 및 렌탈계약번호 */}
+                                                {/* 좌측: 계약일자, 고객명 및 렌탈계약번호 */}
                                                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                                  <span className="font-bold text-slate-900 truncate text-[11.5px] max-w-[70px]">
+                                                  <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                                                    {formatDate(item.contractDate)}
+                                                  </span>
+                                                  <span className="font-bold text-slate-900 truncate text-[11.5px] max-w-[65px]">
                                                     {item.memName || '-'}
                                                   </span>
-                                                  <span className="text-[10px] text-slate-500 font-mono truncate">
+                                                  <span className="text-[10px] text-slate-400 font-mono truncate">
                                                     {item.rentalNo || '-'}
                                                   </span>
                                                 </div>
