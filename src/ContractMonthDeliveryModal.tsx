@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { X, Calendar, Download, Search, Truck, CheckCircle2, Clock, BarChart3, ChevronRight, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -180,13 +180,13 @@ export const ContractMonthDeliveryModal: React.FC<ContractMonthDeliveryModalProp
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
       <motion.div
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.96 }}
         transition={{ duration: 0.18 }}
-        className="w-full max-w-7xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-slate-200 h-[92vh]"
+        className="w-full max-w-[96vw] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-slate-200 h-[94vh]"
       >
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-emerald-50/70 via-teal-50/40 to-slate-50 shrink-0">
@@ -306,42 +306,42 @@ export const ContractMonthDeliveryModal: React.FC<ContractMonthDeliveryModalProp
         {/* Filter Toolbar */}
         <div className="px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-white shrink-0">
           <div className="flex flex-wrap items-center gap-2">
-            {/* 상태 필터 세그먼트 (배송완료 / 전체 / 배송대기) */}
+            {/* 상태 필터 세그먼트 (전체 / 배송완료 / 배송대기) */}
             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
               <button
                 type="button"
+                onClick={() => setViewFilter('all')}
+                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  viewFilter === 'all'
+                    ? 'bg-slate-800 text-white font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                전체
+              </button>
+              <button
+                type="button"
                 onClick={() => setViewFilter('completed')}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                   viewFilter === 'completed'
                     ? 'bg-emerald-600 text-white font-bold shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <CheckCircle2 size={13} />
-                <span>배송완료 건만 보기</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewFilter('all')}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                  viewFilter === 'all'
-                    ? 'bg-slate-800 text-white font-bold shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                전체 (대기+완료)
+                <span>배송완료</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewFilter('waiting')}
-                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
                   viewFilter === 'waiting'
                     ? 'bg-amber-600 text-white font-bold shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Clock size={13} />
-                <span>배송대기만</span>
+                <span>배송대기</span>
               </button>
             </div>
 
@@ -377,20 +377,19 @@ export const ContractMonthDeliveryModal: React.FC<ContractMonthDeliveryModalProp
 
         {/* Table Content Area */}
         <div className="flex-1 overflow-auto custom-scrollbar">
-          <table className="w-full text-xs text-left border-collapse">
+          <table className="w-full text-xs text-left border-collapse whitespace-nowrap">
             <thead className="bg-slate-100/80 sticky top-0 z-20 text-slate-600 font-bold border-b border-slate-200 shadow-2xs backdrop-blur-xs">
               <tr>
-                <th className="py-3 px-3 text-center w-14">No</th>
-                <th className="py-3 px-3 text-center w-24">계약월</th>
-                <th className="py-3 px-3 text-center w-28">계약일자</th>
-                <th className="py-3 px-3 text-center w-28">계약번호</th>
-                <th className="py-3 px-3 w-28">고객명</th>
-                <th className="py-3 px-3 w-48">가입상품명</th>
-                <th className="py-3 px-3 min-w-[200px]">렌탈상품 (배송제품)</th>
-                <th className="py-3 px-3 w-28">본부 / 지사</th>
-                <th className="py-3 px-3 w-24">영업사원</th>
-                <th className="py-3 px-3 text-center w-24">배송상태</th>
-                <th className="py-3 px-3 text-center w-28 bg-emerald-50/60 text-emerald-900 border-l border-emerald-100">
+                <th className="py-3 px-3 text-center w-12 shrink-0">No</th>
+                <th className="py-3 px-3 text-center w-28 shrink-0">계약일자</th>
+                <th className="py-3 px-3 text-center w-28 shrink-0">계약번호</th>
+                <th className="py-3 px-3 w-28 shrink-0">고객명</th>
+                <th className="py-3 px-3 min-w-[180px] max-w-[280px]">가입상품명</th>
+                <th className="py-3 px-3 min-w-[240px]">렌탈상품 (배송제품)</th>
+                <th className="py-3 px-3 w-32 shrink-0">본부 / 지사</th>
+                <th className="py-3 px-3 w-24 shrink-0">영업사원</th>
+                <th className="py-3 px-3 text-center w-24 shrink-0">배송상태</th>
+                <th className="py-3 px-3 text-center w-28 shrink-0 bg-emerald-50/60 text-emerald-900 border-l border-emerald-100">
                   배송완료일
                 </th>
               </tr>
@@ -398,19 +397,12 @@ export const ContractMonthDeliveryModal: React.FC<ContractMonthDeliveryModalProp
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredList.length > 0 ? (
                 filteredList.map((item, index) => {
-                  const m = item.contractDate?.match(/^(\d{4})[-./]?(\d{2})/);
-                  const contractMonth = m ? `${m[1]}-${m[2]}` : '-';
                   const deliveryDateStr = formatDate(item.deliveryDate || (item.raw && item.raw[13]));
                   const isCompleted = item.deliveryStatus === '배송완료' || (item.deliveryStatus && item.deliveryStatus.includes('배송완료'));
 
                   return (
                     <tr key={item.uniqueKey || index} className="hover:bg-emerald-50/30 transition-colors">
                       <td className="py-2.5 px-3 text-center font-mono text-slate-400">{index + 1}</td>
-                      <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-700">
-                        <span className="px-2 py-0.5 bg-slate-100 rounded-md border border-slate-200/80">
-                          {contractMonth}
-                        </span>
-                      </td>
                       <td className="py-2.5 px-3 text-center font-mono text-slate-600">
                         {formatDate(item.contractDate)}
                       </td>
@@ -434,18 +426,20 @@ export const ContractMonthDeliveryModal: React.FC<ContractMonthDeliveryModalProp
                         )}
                       </td>
                       <td className="py-2.5 px-3 font-bold text-slate-900">{item.memName || '-'}</td>
-                      <td className="py-2.5 px-3 text-slate-700 truncate max-w-[180px]" title={item.prodName}>
+                      <td className="py-2.5 px-3 text-slate-700 truncate max-w-[280px]" title={item.prodName}>
                         {item.prodName || '-'}
                       </td>
-                      <td className="py-2.5 px-3 text-slate-900 font-medium break-words">
+                      <td className="py-2.5 px-3 text-slate-900 font-medium whitespace-nowrap" title={item.rentalProd}>
                         {item.rentalProd || '-'}
                       </td>
-                      <td className="py-2.5 px-3 text-slate-600">
-                        <div className="font-semibold text-slate-800">{item.hq || '-'}</div>
-                        <div className="text-[11px] text-slate-400">{item.branch || ''}</div>
+                      <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                        <span className="font-semibold text-slate-800">{item.hq || '-'}</span>
+                        {item.branch && (
+                          <span className="text-[11px] text-slate-400 ml-1.5">({item.branch})</span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 text-slate-700">{item.empName || '-'}</td>
-                      <td className="py-2.5 px-3 text-center">
+                      <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">{item.empName || '-'}</td>
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         <span
                           className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold border ${
                             isCompleted
@@ -456,7 +450,7 @@ export const ContractMonthDeliveryModal: React.FC<ContractMonthDeliveryModalProp
                           {item.deliveryStatus || '배송대기'}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-700 bg-emerald-50/20 border-l border-emerald-100">
+                      <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-700 bg-emerald-50/20 border-l border-emerald-100 whitespace-nowrap">
                         {isCompleted ? deliveryDateStr : '-'}
                       </td>
                     </tr>
@@ -464,7 +458,7 @@ export const ContractMonthDeliveryModal: React.FC<ContractMonthDeliveryModalProp
                 })
               ) : (
                 <tr>
-                  <td colSpan={11} className="py-16 text-center text-slate-400 italic">
+                  <td colSpan={10} className="py-16 text-center text-slate-400 italic">
                     선택한 조건에 부합하는 배송 데이터가 없습니다.
                   </td>
                 </tr>
