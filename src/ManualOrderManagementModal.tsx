@@ -535,14 +535,16 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   // 요청일자 필터 1차 적용 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
   const ordersFilteredByReqDate = useMemo(() => {
     return extractedOrders.filter((order) => {
+      const currentState = getRowDeliveryState(order);
       if (requestDateFilter === 'has_value') {
         if (!order.requestDate || !order.requestDate.trim()) return false;
       } else if (requestDateFilter === 'no_value') {
         if (order.requestDate && order.requestDate.trim()) return false;
+        if (currentState === '배송완료') return false;
       }
       return true;
     });
-  }, [extractedOrders, requestDateFilter]);
+  }, [extractedOrders, requestDateFilter, editedStates]);
 
   // 검색 및 요청일(O열 탭), 상품명 다중선택, 상태 필터링
   const filteredOrders = useMemo(() => {
@@ -554,6 +556,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         if (!order.requestDate || !order.requestDate.trim()) return false;
       } else if (requestDateFilter === 'no_value') {
         if (order.requestDate && order.requestDate.trim()) return false;
+        if (currentState === '배송완료') return false;
       }
 
       // 배송상태 탭 필터
@@ -1072,7 +1075,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     requestDateFilter === 'no_value' ? 'bg-slate-700 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  요청일자 없음 ({extractedOrders.filter((o) => !o.requestDate?.trim()).length})
+                  요청일자 없음 ({extractedOrders.filter((o) => !o.requestDate?.trim() && getRowDeliveryState(o) !== '배송완료').length})
                 </button>
               </div>
 
