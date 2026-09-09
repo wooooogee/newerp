@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ArrowUp, KeyRound, CreditCard, Hash, Phone, Building } from 'lucide-react';
+import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ChevronUp, ArrowUp, KeyRound, CreditCard, Hash, Phone, Building, Maximize2, Eye, Copy, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
@@ -59,6 +59,9 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   const [editingRowIdx, setEditingRowIdx] = useState<number | null>(null);
   const [editMemoValue, setEditMemoValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // 모바일 계약 상세 전체보기 모달 상태
+  const [selectedDetailItem, setSelectedDetailItem] = useState<any | null>(null);
 
   // 사원리스트 데이터 및 연락처 매핑 상태
   const [empList, setEmpList] = useState<any[]>([]);
@@ -1064,6 +1067,10 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             {/* List Header */}
             <div className="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
               <span>검색 결과: <strong className="text-slate-900 font-semibold">{filteredData.length}</strong>건</span>
+              <span className="text-[10.5px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium border border-blue-200/60 flex items-center gap-1 shadow-xs">
+                <Info size={11} className="text-blue-500" />
+                항목 클릭 시 전체보기
+              </span>
             </div>
 
             {/* Card List */}
@@ -1087,7 +1094,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                         className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-2.5"
                       >
                         {/* Card Title Line: 고객명 / 가입상태 / 렌탈번호 / 배송상태 */}
-                        <div className="flex items-center justify-between gap-2">
+                        <div 
+                          onClick={() => setSelectedDetailItem(item)}
+                          className="flex items-center justify-between gap-2 cursor-pointer select-none active:opacity-80 transition-opacity"
+                          title="클릭하여 전체보기 상태창 열기"
+                        >
                           <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                             <span className="text-sm font-bold text-slate-900">{item.memName || '-'}</span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold border shrink-0 ${getStatusBadgeClass(item.status)}`}>
@@ -1099,61 +1110,136 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               </span>
                             ) : null}
                           </div>
+
                           <span className={`text-[10px] px-2.5 py-0.5 rounded font-semibold border shrink-0 ${getDeliveryBadgeClass(item.deliveryStatus)}`}>
                             {item.deliveryStatus || '배송대기'}
                           </span>
                         </div>
 
-                        {/* Card Body Details */}
+                        {/* Card Body Details: 각 항목 클릭 시 전체보기 상태창 열림 */}
                         <div className="border-t border-slate-100 pt-2.5 space-y-2 text-[11px]">
-                          <div className="grid grid-cols-2 gap-x-3">
+                          <div className="grid grid-cols-2 gap-2">
                             {/* 왼쪽: 계약 및 상조 정보 */}
                             <div className="space-y-1.5 min-w-0">
-                              <div className="flex items-center gap-1.5 text-slate-500">
-                                <Calendar size={12} className="text-slate-400 shrink-0" />
-                                <span className="truncate">계약일자: <strong className="text-slate-800">{formatDate(item.contractDate)}</strong></span>
+                              {/* 계약일자 */}
+                              <div
+                                onClick={() => setSelectedDetailItem(item)}
+                                className="cursor-pointer transition-all rounded-lg p-1.5 select-none active:scale-[0.98] bg-slate-50/70 border border-slate-100 hover:bg-slate-100/80 hover:border-slate-200 text-slate-700"
+                                title="클릭하여 전체보기 상태창 열기"
+                              >
+                                <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                  <Calendar size={11} className="text-slate-400 shrink-0" />
+                                  <span>계약일자</span>
+                                </div>
+                                <div className="mt-0.5 font-semibold truncate text-[11px] font-mono text-slate-800">
+                                  {formatDate(item.contractDate)}
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1.5 text-slate-500">
-                                <Package size={12} className="text-slate-400 shrink-0" />
-                                <span className="truncate">상 품: <strong className="text-slate-800" title={item.prodName}>{item.prodName || '-'}</strong></span>
+
+                              {/* 상 품 */}
+                              <div
+                                onClick={() => setSelectedDetailItem(item)}
+                                className="cursor-pointer transition-all rounded-lg p-1.5 select-none active:scale-[0.98] bg-slate-50/70 border border-slate-100 hover:bg-slate-100/80 hover:border-slate-200 text-slate-700"
+                                title="클릭하여 전체보기 상태창 열기"
+                              >
+                                <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                  <Package size={11} className="text-slate-400 shrink-0" />
+                                  <span>상 품</span>
+                                </div>
+                                <div className="mt-0.5 font-semibold truncate text-[11px] text-slate-800">
+                                  {item.prodName || '-'}
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1.5 text-slate-500">
-                                <CreditCard size={12} className="text-slate-400 shrink-0" />
-                                <span className="truncate">상조출금일: <strong className="text-slate-800 font-mono font-semibold">{mutualAidPayVal}</strong></span>
+
+                              {/* 상조출금일 */}
+                              <div
+                                onClick={() => setSelectedDetailItem(item)}
+                                className="cursor-pointer transition-all rounded-lg p-1.5 select-none active:scale-[0.98] bg-slate-50/70 border border-slate-100 hover:bg-slate-100/80 hover:border-slate-200 text-slate-700"
+                                title="클릭하여 전체보기 상태창 열기"
+                              >
+                                <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                  <CreditCard size={11} className="text-slate-400 shrink-0" />
+                                  <span>상조출금일</span>
+                                </div>
+                                <div className="mt-0.5 font-semibold truncate text-[11px] font-mono text-slate-800">
+                                  {mutualAidPayVal}
+                                </div>
                               </div>
                             </div>
 
                             {/* 오른쪽: 배송 및 배송예정일/렌탈출금일 정보 */}
                             <div className="space-y-1.5 min-w-0">
-                              <div className="flex items-center gap-1.5 text-slate-500">
-                                <Truck size={12} className="text-blue-500 shrink-0" />
-                                <span className="truncate">배송일자: <strong className="text-blue-700 font-semibold">{formatDate(item.deliveryDate)}</strong></span>
+                              {/* 배송일자 */}
+                              <div
+                                onClick={() => setSelectedDetailItem(item)}
+                                className="cursor-pointer transition-all rounded-lg p-1.5 select-none active:scale-[0.98] bg-slate-50/70 border border-slate-100 hover:bg-slate-100/80 hover:border-slate-200 text-slate-700"
+                                title="클릭하여 전체보기 상태창 열기"
+                              >
+                                <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                  <Truck size={11} className="text-blue-500 shrink-0" />
+                                  <span>배송일자</span>
+                                </div>
+                                <div className="mt-0.5 font-semibold truncate text-[11px] font-mono text-blue-700">
+                                  {formatDate(item.deliveryDate)}
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1.5 text-slate-500">
-                                <Calendar size={12} className="text-blue-500 shrink-0" />
-                                <span className="truncate">배송예정일: <strong className="text-blue-700 font-semibold">{expectedDeliveryVal}</strong></span>
+
+                              {/* 배송예정일 */}
+                              <div
+                                onClick={() => setSelectedDetailItem(item)}
+                                className="cursor-pointer transition-all rounded-lg p-1.5 select-none active:scale-[0.98] bg-slate-50/70 border border-slate-100 hover:bg-slate-100/80 hover:border-slate-200 text-slate-700"
+                                title="클릭하여 전체보기 상태창 열기"
+                              >
+                                <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                  <Calendar size={11} className="text-blue-500 shrink-0" />
+                                  <span>배송예정일</span>
+                                </div>
+                                <div className="mt-0.5 font-semibold truncate text-[11px] font-mono text-blue-700">
+                                  {expectedDeliveryVal}
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1.5 text-slate-500">
-                                <CreditCard size={12} className="text-indigo-400 shrink-0" />
-                                <span className="truncate">렌탈출금일: <strong className="text-slate-800 font-mono">{rentalPayVal}</strong></span>
+
+                              {/* 렌탈출금일 */}
+                              <div
+                                onClick={() => setSelectedDetailItem(item)}
+                                className="cursor-pointer transition-all rounded-lg p-1.5 select-none active:scale-[0.98] bg-slate-50/70 border border-slate-100 hover:bg-slate-100/80 hover:border-slate-200 text-slate-700"
+                                title="클릭하여 전체보기 상태창 열기"
+                              >
+                                <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                  <CreditCard size={11} className="text-indigo-400 shrink-0" />
+                                  <span>렌탈출금일</span>
+                                </div>
+                                <div className="mt-0.5 font-semibold truncate text-[11px] font-mono text-slate-800">
+                                  {rentalPayVal}
+                                </div>
                               </div>
                             </div>
                           </div>
 
                           {/* 렌탈상품 단독 Full-Width 행 */}
-                          <div className="flex items-start gap-1.5 text-slate-500 bg-slate-50/80 p-2 rounded-xl border border-slate-100/80 mt-1">
+                          <div 
+                            onClick={() => setSelectedDetailItem(item)}
+                            className="flex items-start gap-1.5 p-2 rounded-xl border border-slate-100/80 bg-slate-50/80 hover:bg-slate-100/70 hover:border-slate-200 transition-all cursor-pointer select-none active:scale-[0.99] mt-1"
+                            title="클릭하여 전체보기 상태창 열기"
+                          >
                             <Package size={13} className="text-indigo-500 shrink-0 mt-0.5" />
                             <div className="flex-1 text-[11px] leading-tight">
                               <span className="font-medium text-slate-500">렌탈상품: </span>
-                              <strong className="text-slate-900 font-bold break-all">{item.rentalProd || '-'}</strong>
+                              <strong className="text-slate-900 font-bold break-all mt-0.5 block">
+                                {item.rentalProd || '-'}
+                              </strong>
                             </div>
                           </div>
                         </div>
 
-                        {/* 영업자 정보 & 배송관련 메모 (2열 그리드로 메모 칸 축소 및 영업자/연락처 추가) */}
+                        {/* 영업자 정보 & 배송관련 메모 (2열 그리드) */}
                         <div className="grid grid-cols-2 gap-2 pt-1">
                           {/* 영업자 / 영업자 연락처 카드 */}
-                          <div className="bg-slate-50 border border-slate-200 px-2.5 py-2 rounded-xl space-y-1 min-w-0 flex flex-col justify-center">
+                          <div 
+                            onClick={() => setSelectedDetailItem(item)}
+                            className="border border-slate-200 bg-slate-50 hover:bg-slate-100/60 px-2.5 py-2 rounded-xl space-y-1 min-w-0 flex flex-col justify-center cursor-pointer transition-all select-none active:scale-[0.98]"
+                            title="클릭하여 전체보기 상태창 열기"
+                          >
                             <div className="flex items-center gap-1 text-[9.5px] text-slate-500 font-bold uppercase tracking-wider">
                               <User size={11} className="text-slate-400 shrink-0" />
                               <span>영업자 정보</span>
@@ -1165,7 +1251,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               <div className="truncate text-slate-600 flex items-center gap-1">
                                 <Phone size={10} className="text-slate-400 shrink-0" />
                                 {empPhoneVal && empPhoneVal !== '-' ? (
-                                  <a href={`tel:${empPhoneVal}`} className="text-blue-600 font-mono font-semibold hover:underline">
+                                  <a 
+                                    href={`tel:${empPhoneVal}`} 
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-blue-600 font-mono font-semibold hover:underline"
+                                  >
                                     {empPhoneVal}
                                   </a>
                                 ) : (
@@ -1177,21 +1267,28 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
                           {/* 배송관련 메모 카드 (보기 모드) */}
                           {editingRowIdx !== item.originalRowIdx ? (
-                            <div className="bg-slate-50 border border-slate-200 px-2.5 py-2 rounded-xl space-y-1 min-w-0 flex flex-col justify-between">
+                            <div 
+                              onClick={() => setSelectedDetailItem(item)}
+                              className="border border-slate-200 bg-slate-50 hover:bg-slate-100/60 px-2.5 py-2 rounded-xl space-y-1 min-w-0 flex flex-col justify-between cursor-pointer transition-all select-none active:scale-[0.98]"
+                              title="클릭하여 전체보기 상태창 열기"
+                            >
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-1 text-[9.5px] text-slate-500 font-bold uppercase tracking-wider truncate">
                                   <FileText size={11} className="text-slate-400 shrink-0" />
                                   <span>배송관련 메모</span>
                                 </div>
                                 <button
-                                  onClick={() => handleStartEdit(item.originalRowIdx, item.deliveryMemo || '')}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleStartEdit(item.originalRowIdx, item.deliveryMemo || '');
+                                  }}
                                   className="p-0.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-200 transition-colors shrink-0"
                                   title="메모 수정"
                                 >
                                   <Edit2 size={11} />
                                 </button>
                               </div>
-                              <p className="text-[10.5px] text-slate-700 line-clamp-2 leading-tight break-all">
+                              <p className="text-[10.5px] text-slate-700 leading-tight break-all line-clamp-2">
                                 {item.deliveryMemo ? item.deliveryMemo : (
                                   <span className="text-slate-400 italic text-[10px]">등록된 메모 없음</span>
                                 )}
@@ -1395,6 +1492,143 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         onClose={() => setIsChangePasswordOpen(false)}
         username={currentUser.username}
       />
+
+      {/* 모바일 계약 상세 정보 모달 */}
+      <AnimatePresence>
+        {selectedDetailItem && (
+          <div 
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4"
+            onClick={() => setSelectedDetailItem(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[88vh] flex flex-col border border-slate-200"
+            >
+              {/* Modal Header */}
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
+                    <FileText size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      {selectedDetailItem.memName || '고객 정보'}
+                      <span className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${getStatusBadgeClass(selectedDetailItem.status)}`}>
+                        {selectedDetailItem.status || '가입'}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-500 font-mono">
+                      렌탈번호: {selectedDetailItem.rentalNo || '-'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedDetailItem(null)}
+                  className="w-8 h-8 rounded-full bg-slate-200/70 hover:bg-slate-300 text-slate-600 flex items-center justify-center transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-4 overflow-y-auto space-y-3.5 text-xs">
+                {/* 주요 일정 및 출금 현황 */}
+                <div className="bg-blue-50/60 p-3.5 rounded-2xl border border-blue-100 space-y-2">
+                  <div className="text-[11px] font-bold text-blue-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <Calendar size={13} className="text-blue-600" />
+                    <span>주요 일정 및 출금 현황</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5 pt-1 text-slate-700">
+                    <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
+                      <span className="text-[10px] text-slate-400 font-medium block">계약일자</span>
+                      <strong className="text-slate-900 font-mono text-xs">{formatDate(selectedDetailItem.contractDate)}</strong>
+                    </div>
+                    <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
+                      <span className="text-[10px] text-slate-400 font-medium block">배송상태</span>
+                      <strong className="text-blue-700 font-bold text-xs">{selectedDetailItem.deliveryStatus || '배송대기'}</strong>
+                    </div>
+                    <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
+                      <span className="text-[10px] text-slate-400 font-medium block">상조출금일</span>
+                      <strong className="text-slate-900 font-mono text-xs">{formatDate(selectedDetailItem.raw && selectedDetailItem.raw[21])}</strong>
+                    </div>
+                    <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
+                      <span className="text-[10px] text-slate-400 font-medium block">렌탈출금일</span>
+                      <strong className="text-slate-900 font-mono text-xs">{formatDate(selectedDetailItem.raw && selectedDetailItem.raw[26])}</strong>
+                    </div>
+                    <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
+                      <span className="text-[10px] text-slate-400 font-medium block">배송일자</span>
+                      <strong className="text-blue-700 font-mono text-xs">{formatDate(selectedDetailItem.deliveryDate)}</strong>
+                    </div>
+                    <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
+                      <span className="text-[10px] text-slate-400 font-medium block">배송예정일</span>
+                      <strong className="text-blue-700 font-mono text-xs">{formatDate(selectedDetailItem.expectedDeliveryDate || (selectedDetailItem.raw && selectedDetailItem.raw[28]))}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 상품 정보 */}
+                <div className="space-y-2.5 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">가입 상품명</span>
+                    <div className="text-xs font-bold text-slate-900 break-words whitespace-normal bg-white p-2.5 rounded-xl border border-slate-200 leading-relaxed shadow-xs">
+                      {selectedDetailItem.prodName || '-'}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">렌탈상품 (배송제품)</span>
+                    <div className="text-xs font-bold text-indigo-950 break-words whitespace-normal bg-white p-2.5 rounded-xl border border-slate-200 leading-relaxed shadow-xs">
+                      {selectedDetailItem.rentalProd || '-'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 담당 영업자 */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">담당 영업자 및 조직</span>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-bold text-slate-900">{selectedDetailItem.empName || '-'} 사원</p>
+                      <p className="text-[11px] text-slate-500">{selectedDetailItem.hqName || ''} {selectedDetailItem.branchName || ''}</p>
+                    </div>
+                    {getEmpPhone(selectedDetailItem) && getEmpPhone(selectedDetailItem) !== '-' && (
+                      <a
+                        href={`tel:${getEmpPhone(selectedDetailItem)}`}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95"
+                      >
+                        <Phone size={12} />
+                        <span>전화걸기</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {/* 배송관련 메모 */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">배송관련 메모</span>
+                  <div className="text-xs text-slate-800 break-words whitespace-pre-wrap bg-white p-2.5 rounded-xl border border-slate-200 min-h-[50px] leading-relaxed shadow-xs">
+                    {selectedDetailItem.deliveryMemo ? selectedDetailItem.deliveryMemo : <span className="text-slate-400 italic">등록된 메모 없음</span>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+                <button
+                  onClick={() => setSelectedDetailItem(null)}
+                  className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs transition-colors"
+                >
+                  닫기
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
