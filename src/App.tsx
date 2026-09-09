@@ -7,6 +7,7 @@ import { HealthcareMonthlyModal } from './HealthcareMonthlyModal';
 import { HealthcareReconModal } from './HealthcareReconModal';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { DeliveryStatusModal } from './DeliveryStatusModal';
+import { ContractMonthDeliveryModal } from './ContractMonthDeliveryModal';
 import { DeliveryDashboardModal } from './DeliveryDashboardModal';
 import { DashboardDetailModal } from './DashboardDetailModal';
 import { CertificateDispatchModal } from './CertificateDispatchModal';
@@ -501,6 +502,7 @@ const ERP_Dashboard = () => {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
   const [isDeliveryStatusModalOpen, setIsDeliveryStatusModalOpen] = useState(false);
+  const [isContractMonthDeliveryModalOpen, setIsContractMonthDeliveryModalOpen] = useState(false);
   const [isDashboardDetailModalOpen, setIsDashboardDetailModalOpen] = useState(false);
   const [dashboardDetailType, setDashboardDetailType] = useState<'delivery' | 'cancel' | null>(null);
   const [isDeliveryDashboardOpen, setIsDeliveryDashboardOpen] = useState(false);
@@ -5327,6 +5329,7 @@ const ERP_Dashboard = () => {
                   <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
                     {[
                       { dot: 'bg-blue-500', label: '배송현황', action: () => setIsDeliveryStatusModalOpen(true) },
+                      { dot: 'bg-emerald-500', label: '계약월별 배송완료', action: () => setIsContractMonthDeliveryModalOpen(true) },
                       { dot: 'bg-indigo-500', label: '배송 대시보드', action: () => setIsDeliveryDashboardOpen(true) },
                     ].map((item, idx) => (
                       <motion.button
@@ -9413,6 +9416,11 @@ const ERP_Dashboard = () => {
               }));
               batchUpdateCells(formattedUpdates);
             }}
+          />
+          <ContractMonthDeliveryModal
+            isOpen={isContractMonthDeliveryModalOpen}
+            onClose={() => setIsContractMonthDeliveryModalOpen(false)}
+            data={data}
           />
           <DashboardDetailModal
             isOpen={isDashboardDetailModalOpen}

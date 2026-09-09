@@ -63,6 +63,9 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   // 모바일 계약 상세 전체보기 모달 상태
   const [selectedDetailItem, setSelectedDetailItem] = useState<any | null>(null);
 
+  // 요약 보고서 계약월별 상세 펼침 상태
+  const [expandedReportMonth, setExpandedReportMonth] = useState<string | null>(null);
+
   // 사원리스트 데이터 및 연락처 매핑 상태
   const [empList, setEmpList] = useState<any[]>([]);
 
@@ -607,6 +610,56 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
     return Array.from(map.values()).sort((a, b) => b.sales - a.sales);
   }, [hqFilteredContractData, hqFilteredDeliveryData]);
+
+  // 6-3. 계약월별 코호트 배송완료 집계 (계약월 기준 총 계약건 중 배송완료 건수 및 상세목록)
+  const contractMonthDeliveryReport = useMemo(() => {
+    const validContracts = scopeContractData.filter(item => (item.status || '').trim() === '가입' && item.contractDate);
+
+    const monthMap = new Map<string, {
+      month: string;
+      total: number;
+      completed: number;
+      waiting: number;
+      completedItems: any[];
+      waitingItems: any[];
+    }>();
+
+    validContracts.forEach(item => {
+      const m = item.contractDate?.match(/^(\d{4})[-./]?(\d{2})/);
+      if (!m) return;
+      const month = `${m[1]}-${m[2]}`;
+
+      if (!monthMap.has(month)) {
+        monthMap.set(month, {
+          month,
+          total: 0,
+          completed: 0,
+          waiting: 0,
+          completedItems: [],
+          waitingItems: [],
+        });
+      }
+
+      const entry = monthMap.get(month)!;
+      entry.total += 1;
+
+      const isCompleted = item.deliveryStatus === '배송완료' || (item.deliveryStatus && item.deliveryStatus.includes('배송완료'));
+      if (isCompleted) {
+        entry.completed += 1;
+        entry.completedItems.push(item);
+      } else if (item.deliveryStatus === '배송대기') {
+        entry.waiting += 1;
+        entry.waitingItems.push(item);
+      }
+    });
+
+    const list = Array.from(monthMap.values()).map(item => ({
+      ...item,
+      rate: item.total > 0 ? parseFloat(((item.completed / item.total) * 100).toFixed(1)) : 0
+    }));
+
+    return list.sort((a, b) => b.month.localeCompare(a.month));
+  }, [scopeContractData]);
 
   // 메모 편집 시작
   const handleStartEdit = (rowIdx: number, currentMemo: string) => {
@@ -1380,6 +1433,116 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         ) : (
           /* 요약 보고서 (대표님 보고서) 전용 뷰 */
           <div className="space-y-4">
+            {/* 계약월별 배송완료 코호트 실적 표 */}
+            <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div>
+                  <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest flex items-center gap-1.5">
+                    <Truck size={12} className="text-emerald-600" />
+                    계약월별 배송완료 현황
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">계약월 기준 누적 배송완료율 추적 (터치 시 상세)</p>
+                </div>
+                <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                  코호트 집계
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-slate-700">
+                  <thead>
+                    <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-100 font-bold bg-emerald-50/50">
+                      <th className="py-2 px-2">계약월</th>
+                      <th className="py-2 px-2 text-right">계약건수</th>
+                      <th className="py-2 px-2 text-right text-emerald-700">배송완료</th>
+                      <th className="py-2 px-2 text-right">완료율</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {contractMonthDeliveryReport.length > 0 ? (
+                      contractMonthDeliveryReport.map((mStat) => {
+                        const isExpanded = expandedReportMonth === mStat.month;
+                        return (
+                          <React.Fragment key={mStat.month}>
+                            <tr
+                              onClick={() => setExpandedReportMonth(isExpanded ? null : mStat.month)}
+                              className="hover:bg-slate-50 cursor-pointer transition-colors active:bg-slate-100 select-none"
+                            >
+                              <td className="py-2.5 px-2 font-bold text-slate-900 flex items-center gap-1">
+                                <span>{mStat.month}</span>
+                                <ChevronDown
+                                  size={12}
+                                  className={`text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180 text-emerald-600' : ''}`}
+                                />
+                              </td>
+                              <td className="py-2.5 px-2 text-right font-semibold text-slate-700 font-mono">{mStat.total}건</td>
+                              <td className="py-2.5 px-2 text-right font-bold text-emerald-600 font-mono">{mStat.completed}건</td>
+                              <td className="py-2.5 px-2 text-right font-bold font-mono">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] ${mStat.rate >= 80 ? 'bg-emerald-100 text-emerald-800' : mStat.rate >= 50 ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                                  {mStat.rate}%
+                                </span>
+                              </td>
+                            </tr>
+
+                            {/* 아코디언 펼침: 해당 계약월의 배송완료 목록 */}
+                            {isExpanded && (
+                              <tr>
+                                <td colSpan={4} className="bg-slate-50/80 p-2.5 border-y border-slate-200/60">
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between text-[10.5px] font-bold text-slate-600">
+                                      <span>[{mStat.month}] 배송완료 상세 ({mStat.completedItems.length}건)</span>
+                                      <span className="text-[10px] text-slate-400">항목 터치 시 전체정보</span>
+                                    </div>
+                                    {mStat.completedItems.length > 0 ? (
+                                      <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
+                                        {mStat.completedItems.map((item, cIdx) => (
+                                          <div
+                                            key={item.uniqueKey || cIdx}
+                                            onClick={() => setSelectedDetailItem(item)}
+                                            className="bg-white p-2 rounded-xl border border-slate-200/80 hover:border-emerald-300 transition-all cursor-pointer text-xs flex items-center justify-between gap-2 shadow-2xs active:scale-[0.99]"
+                                          >
+                                            <div className="min-w-0 flex-1">
+                                              <div className="flex items-center gap-1.5">
+                                                <strong className="text-slate-900">{item.memName || '-'}</strong>
+                                                <span className="text-[10px] text-slate-500 font-mono truncate max-w-[100px]">{item.rentalNo || ''}</span>
+                                              </div>
+                                              <div className="text-[10.5px] text-slate-500 truncate mt-0.5">
+                                                {item.rentalProd || item.prodName || '-'}
+                                              </div>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 block">
+                                                {formatDate(item.deliveryDate || (item.raw && item.raw[13]))} 완료
+                                              </span>
+                                              <span className="text-[9.5px] text-slate-400 mt-0.5 block">{item.empName || ''}</span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div className="py-3 text-center text-[11px] text-slate-400 italic">
+                                        배송완료된 계약건이 없습니다.
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={4} className="py-6 text-center text-slate-400 italic">
+                          집계할 계약 데이터가 없습니다.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             {/* 권한별 조직 실적 표 (관리자: 본부별, 본부: 지사별, 지사/사원: 사원별) */}
             <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3">
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-100 pb-2">{reportCategory.title}</p>
