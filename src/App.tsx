@@ -708,7 +708,7 @@ const ERP_Dashboard = () => {
   const [expandedHqs, setExpandedHqs] = useState<Record<string, boolean>>({});
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
-  const [contractMonthFilter, setContractMonthFilter] = useState<string>(new Date().toISOString().substring(0, 7));
+  const [contractMonthFilter, setContractMonthFilter] = useState<string>('전체');
   const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('상품개수');
   const [tableDisplayMode, setTableDisplayMode] = useState<'구좌수' | '상품개수'>('구좌수');
   const [pcViewMode, setPcViewMode] = useState<'contracts' | 'settlement'>('contracts');
@@ -4934,7 +4934,7 @@ const ERP_Dashboard = () => {
     setDeliveryFilter('전체');
     setPayDateFilter('');
     setPaymentStatusFilter('전체');
-    setContractMonthFilter(new Date().toISOString().substring(0, 7));
+    setContractMonthFilter('전체');
     setTopDashboardMonth(new Date().toISOString().substring(0, 7));
     setCurrentPage(1);
   };
@@ -5827,7 +5827,7 @@ const ERP_Dashboard = () => {
                     <h3 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2.5">
                       월별 계약 현황
                       <span className="text-xs font-bold px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md">
-                        {contractMonthFilter === '전체' ? '전체 기간 누적' : `${contractMonthFilter} 기준`}
+                        {topDashboardMonth} 기준
                       </span>
                     </h3>
                     <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">선택하신 월의 상품별·본부별·지사별 계약 실적 및 배송/취소 현황입니다.</p>
@@ -5849,32 +5849,15 @@ const ERP_Dashboard = () => {
                     </button>
                   </div>
                   <div className="flex items-center gap-1.5 w-full sm:w-auto">
-                    <select
-                      value={contractMonthFilter}
+                    <input
+                      type="month"
+                      value={topDashboardMonth}
                       onChange={(e) => {
                         const val = e.target.value;
-                        setContractMonthFilter(val);
-                        if (val !== '전체') setTopDashboardMonth(val);
+                        if (val) setTopDashboardMonth(val);
                       }}
-                      className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs cursor-pointer"
-                    >
-                      <option value="전체">전체 월 (누적)</option>
-                      {uniqueContractMonths.filter(m => m !== '전체').map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                    {contractMonthFilter !== '전체' && (
-                      <input
-                        type="month"
-                        value={contractMonthFilter}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setContractMonthFilter(val);
-                          setTopDashboardMonth(val);
-                        }}
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs cursor-pointer"
-                      />
-                    )}
+                      className="px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs cursor-pointer"
+                    />
                   </div>
                 </div>
               </div>
@@ -5890,7 +5873,7 @@ const ERP_Dashboard = () => {
                 const cancelSeenRentalNos = new Set<string>();
                 const deliveryCompleteSeenRentalNos = new Set<string>();
 
-                const targetMonth = contractMonthFilter === '전체' ? '' : contractMonthFilter;
+                const targetMonth = topDashboardMonth;
 
                 data.forEach(d => {
                   const contractDateStr = d.contractDate ? d.contractDate.replace(/\./g, '-').substring(0, 7) : '';
@@ -6430,9 +6413,7 @@ const ERP_Dashboard = () => {
                       <select
                         value={contractMonthFilter}
                         onChange={(e) => {
-                          const val = e.target.value;
-                          setContractMonthFilter(val);
-                          if (val !== '전체') setTopDashboardMonth(val);
+                          setContractMonthFilter(e.target.value);
                         }}
                         className="bg-transparent text-[12px] font-black text-blue-700 outline-none cursor-pointer"
                       >
