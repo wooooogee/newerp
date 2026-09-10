@@ -423,12 +423,30 @@ const ERP_Dashboard = () => {
     (currentUser?.orgs && currentUser.orgs.some(o => o.role === '총무' || o.role === '본부'))
   );
 
+  const isBranchStaff = !isManager && !isHQStaff && (
+    currentUser?.role === '지사' ||
+    currentUser?.role === '지점' ||
+    (currentUser?.orgs && currentUser.orgs.some(o => o.role === '지사' || o.role === '지점'))
+  );
+
   const userHqNames = React.useMemo(() => {
     if (!currentUser) return [];
     if (currentUser.orgs && currentUser.orgs.length > 0) {
-      return currentUser.orgs.map(o => (o.orgName || '').replace(/[\s()본부]/g, ''));
+      return currentUser.orgs
+        .filter(o => o.role === '총무' || o.role === '본부')
+        .map(o => (o.orgName || '').replace(/[\s()본부]/g, ''));
     }
     return [(currentUser.orgName || '').replace(/[\s()본부]/g, '')];
+  }, [currentUser]);
+
+  const userBranchNames = React.useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.orgs && currentUser.orgs.length > 0) {
+      return currentUser.orgs
+        .filter(o => o.role === '지사' || o.role === '지점' || o.role === '지사모바일')
+        .map(o => (o.orgName || '').replace(/[\s()지사지점]/g, ''));
+    }
+    return [(currentUser.orgName || '').replace(/[\s()지사지점]/g, '')];
   }, [currentUser]);
 
   // 모바일 전용 뷰 분기 판별
@@ -4857,11 +4875,22 @@ const ERP_Dashboard = () => {
   }, [data, isHQStaff, userHqNames]);
 
   const uniqueBranches = React.useMemo(() => {
-    const filteredByHq = hqFilter.length === 0 || hqFilter.includes('전체')
+    let filtered = hqFilter.length === 0 || hqFilter.includes('전체')
       ? data
       : data.filter(item => hqFilter.includes(item.hq));
-    return ['전체', ...Array.from(new Set(filteredByHq.map(item => item.branch).filter(Boolean)))];
-  }, [data, hqFilter]);
+    
+    const rawBranches = Array.from(new Set(filtered.map(item => item.branch).filter(Boolean)));
+    if (isBranchStaff && userBranchNames.length > 0) {
+      const normalize = (s: string) => (s || '').replace(/[\s()지사지점]/g, '');
+      const matched = rawBranches.filter(b => userBranchNames.includes(normalize(String(b))));
+      return ['전체', ...matched];
+    }
+    return ['전체', ...rawBranches];
+  }, [data, hqFilter, isBranchStaff, userBranchNames]);
+
+  const allBranches = React.useMemo(() => {
+    return Array.from(new Set(data.map(item => item.branch).filter(Boolean))).sort();
+  }, [data]);
 
   const uniqueEmpNames = React.useMemo(() => {
     let filtered = data;
@@ -9819,7 +9848,7 @@ const ERP_Dashboard = () => {
                 return await saveMembersToCloud(updatedMembers);
               }}
               availableHqs={uniqueHqs}
-              availableBranches={uniqueBranches}
+              availableBranches={allBranches}
               currentUser={currentUser}
             />
           )}
