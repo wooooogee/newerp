@@ -85,6 +85,10 @@ export function AccountManagementModal({
   // 계정 자동 생성 모달 상태
   const [isAutoGeneratorOpen, setIsAutoGeneratorOpen] = useState(false);
 
+  // 테이블 페이지네이션 상태 (대용량 1,000건 렌더링 성능 최적화)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 자동 생성된 계정 목록 병합 처리
@@ -197,6 +201,18 @@ export function AccountManagementModal({
       return true;
     });
   }, [groupedAccounts, selectedRoleFilter, searchTerm]);
+
+  // 검색어/권한 필터/페이지 크기 변경 시 1페이지로 리셋
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedRoleFilter, pageSize]);
+
+  // 페이지네이션된 목록 슬라이스 (성능 극대화)
+  const totalPages = Math.ceil(filteredGroupedAccounts.length / pageSize) || 1;
+  const paginatedAccounts = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredGroupedAccounts.slice(startIndex, startIndex + pageSize);
+  }, [filteredGroupedAccounts, currentPage, pageSize]);
 
   // 계정 등록 처리
   const handleAddMember = () => {
@@ -769,8 +785,12 @@ export function AccountManagementModal({
                 <div className="relative flex items-center">
                   <input
                     type={showNewPassword ? 'text' : 'password'}
-                    name="erp_new_account_pwd"
+                    name="erp_new_account_pwd_field"
                     autoComplete="new-password"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-form-type="other"
+                    spellCheck={false}
                     placeholder="비밀번호 입력"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
@@ -869,10 +889,11 @@ export function AccountManagementModal({
                       </td>
                     </tr>
                   ) : (
-                    filteredGroupedAccounts.map((acc, seq) => {
+                    paginatedAccounts.map((acc, seq) => {
                       const isPwdVisible = !!visiblePasswords[acc.username];
                       const isCurrentUser = acc.username === currentUser?.username;
                       const hasMultiple = acc.orgEntries.length > 1;
+                      const rowNumber = (currentPage - 1) * pageSize + seq + 1;
 
                       return (
                         <tr 
@@ -881,7 +902,7 @@ export function AccountManagementModal({
                         >
                           {/* 번호 */}
                           <td className="px-4 py-3 text-center text-slate-400 font-mono text-[11px] whitespace-nowrap">
-                            {seq + 1}
+                            {rowNumber}
                           </td>
 
                           {/* 대표 권한 뱃지 */}
@@ -1024,13 +1045,109 @@ export function AccountManagementModal({
               </table>
             </div>
 
-            {/* 테이블 하단 푸터 */}
-            <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
+            {/* 페이지네이션 및 통계 바 (대규모 계정 최적화) */}
+            <div className="px-4 py-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 text-slate-500 font-medium">
+                <span>
+                  전체 <b>{filteredGroupedAccounts.length.toLocaleString()}</b>개 계정 중{' '}
+                  <b className="text-slate-800">{filteredGroupedAccounts.length > 0 ? (currentPage - 1) * pageSize + 1 : 0}</b> -{' '}
+                  <b className="text-slate-800">{Math.min(currentPage * pageSize, filteredGroupedAccounts.length)}</b>번째 표시
+                </span>
+                <span className="text-slate-300">|</span>
+                <span className="font-bold text-indigo-600">
+                  {currentPage} / {totalPages} 페이지
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-slate-100 rounded-lg font-black text-slate-700 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  title="첫 페이지"
+                >
+                  &laquo;
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-slate-100 rounded-lg font-bold text-slate-700 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  title="이전 페이지"
+                >
+                  이전
+                </button>
+
+                {/* 페이지 번호 버튼 목록 */}
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(page => {
+                      if (totalPages <= 7) return true;
+                      return Math.abs(page - currentPage) <= 2 || page === 1 || page === totalPages;
+                    })
+                    .map((page, idx, arr) => {
+                      const prevPage = arr[idx - 1];
+                      const hasGap = prevPage && page - prevPage > 1;
+                      return (
+                        <React.Fragment key={page}>
+                          {hasGap && <span className="px-1 text-slate-400 font-mono">...</span>}
+                          <button
+                            type="button"
+                            onClick={() => setCurrentPage(page)}
+                            className={`min-w-[28px] h-7 px-2 rounded-lg font-black transition-all cursor-pointer text-xs ${
+                              currentPage === page
+                                ? 'bg-indigo-600 text-white shadow-2xs'
+                                : 'bg-slate-50 text-slate-600 hover:bg-slate-200 border border-slate-200'
+                            }`}
+                          >
+                            {page}
+                          </button>
+                        </React.Fragment>
+                      );
+                    })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-slate-100 rounded-lg font-bold text-slate-700 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  title="다음 페이지"
+                >
+                  다음
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:hover:bg-slate-100 rounded-lg font-black text-slate-700 transition-all cursor-pointer disabled:cursor-not-allowed"
+                  title="마지막 페이지"
+                >
+                  &raquo;
+                </button>
+
+                {/* 페이지당 표시 개수 */}
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="ml-2 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg font-black text-slate-700 text-xs outline-none cursor-pointer"
+                >
+                  <option value={30}>30개씩</option>
+                  <option value={50}>50개씩</option>
+                  <option value={100}>100개씩</option>
+                  <option value={200}>200개씩</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 테이블 하단 푸터 안내 */}
+            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
               <div>
-                계정 수: <span className="font-bold text-slate-800">{filteredGroupedAccounts.length}</span>개 (시트 저장 행 수: {members.length}건)
+                총 계정: <span className="font-bold text-slate-800">{filteredGroupedAccounts.length}</span>개 (시트 행 수: {members.length}건)
               </div>
               <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                <span>💡 [다중설정] 버튼을 클릭하면 체크박스로 원하는 여러 본부와 지사를 한 번에 선택할 수 있습니다.</span>
+                <span>💡 [다중설정] 버튼을 클릭하면 체크박스로 여러 본부/지사를 한 번에 설정할 수 있습니다.</span>
               </div>
             </div>
 
