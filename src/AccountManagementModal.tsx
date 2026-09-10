@@ -2,9 +2,10 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   X, UserCheck, Plus, Search, Trash2, Edit3, Eye, EyeOff, 
   Download, Upload, CheckCircle, AlertTriangle, RefreshCw, 
-  Building2, User, FileSpreadsheet, Check, ChevronDown, Layers
+  Building2, User, FileSpreadsheet, Check, ChevronDown, Layers, Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { AutoAccountGeneratorModal } from './AutoAccountGeneratorModal';
 
 const XLSX = (window as any).XLSX;
 
@@ -81,7 +82,31 @@ export function AccountManagementModal({
   // 비밀번호 표시 여부 맵 (username -> boolean)
   const [visiblePasswords, setVisiblePasswords] = useState<{ [username: string]: boolean }>({});
 
+  // 계정 자동 생성 모달 상태
+  const [isAutoGeneratorOpen, setIsAutoGeneratorOpen] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 자동 생성된 계정 목록 병합 처리
+  const handleBatchGeneratedAccounts = (newAccounts: MemberAccount[]) => {
+    setMembers(prev => {
+      const updated = [...prev];
+      newAccounts.forEach(newAcc => {
+        const existIdx = updated.findIndex(m => 
+          m.username.trim().toUpperCase() === newAcc.username.trim().toUpperCase() && 
+          m.role === newAcc.role && 
+          m.orgName === newAcc.orgName
+        );
+        if (existIdx >= 0) {
+          updated[existIdx] = { ...updated[existIdx], ...newAcc };
+        } else {
+          updated.push(newAcc);
+        }
+      });
+      return updated;
+    });
+    setHasChanges(true);
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -513,6 +538,16 @@ export function AccountManagementModal({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* 계정 자동 생성 마법사 버튼 */}
+            <button
+              onClick={() => setIsAutoGeneratorOpen(true)}
+              className="px-3 py-1.5 text-xs font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs hover:scale-102"
+              title="사원리스트 시트 기반 본부/지사/사원 계정 일괄 생성 마법사"
+            >
+              <Sparkles size={14} className="text-indigo-600" />
+              <span>계정 자동생성</span>
+            </button>
+
             {/* 엑셀 관련 액션 버튼 */}
             <div className="hidden sm:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
               <button
@@ -1271,6 +1306,18 @@ export function AccountManagementModal({
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* 사원리스트 기반 계정 자동생성 모달 */}
+      <AnimatePresence>
+        {isAutoGeneratorOpen && (
+          <AutoAccountGeneratorModal
+            isOpen={isAutoGeneratorOpen}
+            onClose={() => setIsAutoGeneratorOpen(false)}
+            onGenerate={handleBatchGeneratedAccounts}
+            existingAccounts={members}
+          />
         )}
       </AnimatePresence>
     </div>
