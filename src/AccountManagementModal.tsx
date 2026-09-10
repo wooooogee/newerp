@@ -76,6 +76,7 @@ export function AccountManagementModal({
   const [assignModalAccount, setAssignModalAccount] = useState<GroupedAccount | null>(null);
   const [assignSearch, setAssignSearch] = useState('');
   const [assignHqStatusFilter, setAssignHqStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [branchHqScope, setBranchHqScope] = useState<string>('AUTO'); // 'AUTO' | 'ALL' | 특정 본부명
 
   // 단일 계정 수정 모달 상태
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -92,7 +93,58 @@ export function AccountManagementModal({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
 
+  // 사원리스트 시트 기반 52개 본부 목록 및 본부별 소속 지사 매핑 데이터
+  const [empSheetHqs, setEmpSheetHqs] = useState<string[]>([]);
+  const [empSheetHqToBranches, setEmpSheetHqToBranches] = useState<Record<string, string[]>>({});
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 사원리스트 시트 데이터 로딩 (본부 52개 목록 및 본부별 지사 매핑)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let isMounted = true;
+    const fetchEmpSheet = async () => {
+      try {
+        const res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('사원리스트')}&t=${Date.now()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const rows = Array.isArray(data) ? data : (data.rows || []);
+
+        const hqBranchesMap: Record<string, Set<string>> = {};
+        const orderedHqs: string[] = [];
+
+        rows.slice(1).forEach((r: any[]) => {
+          const hq = String(r[2] || '').trim();
+          const branch = String(r[3] || '').trim();
+          if (!hq || hq === '-' || hq === '본부') return;
+
+          if (!hqBranchesMap[hq]) {
+            hqBranchesMap[hq] = new Set();
+            orderedHqs.push(hq);
+          }
+          if (branch && branch !== '-' && branch !== '지사') {
+            hqBranchesMap[hq].add(branch);
+          }
+        });
+
+        if (isMounted) {
+          const sortedHqs = Array.from(new Set(orderedHqs)).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+          const finalMap: Record<string, string[]> = {};
+          Object.keys(hqBranchesMap).forEach(h => {
+            finalMap[h] = Array.from(hqBranchesMap[h]).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+          });
+          setEmpSheetHqs(sortedHqs);
+          setEmpSheetHqToBranches(finalMap);
+        }
+      } catch (err) {
+        console.error('사원리스트 데이터 로딩 실패:', err);
+      }
+    };
+
+    fetchEmpSheet();
+    return () => { isMounted = false; };
+  }, [isOpen]);
 
   // 자동 생성된 계정 목록 병합 처리
   const handleBatchGeneratedAccounts = (newAccounts: MemberAccount[]) => {
@@ -145,26 +197,30 @@ export function AccountManagementModal({
     return true; // 기본값은 운영중
   };
 
-  // 등록된 모든 본부 목록 (설정 + 계약데이터 + 기존 계정 소속 본부 통합)
+  // 등록된 모든 본부 목록 (사원리스트 52개 본부 최우선 반영 + 정산설정 + 계약데이터 + 기존 계정 소속)
   const cleanHqs = useMemo(() => {
     const set = new Set<string>();
-    (hqSettings || []).forEach(h => {
-      if (h.hqName && h.hqName.trim()) set.add(h.hqName.trim());
-    });
-    availableHqs.forEach(h => {
-      if (h && h !== '전체' && h.trim()) set.add(h.trim());
-    });
+    // 1. 사원리스트 시트의 52개 본부 최우선 반영
+    empSheetHqs.forEach(h => { if (h && h.trim()) set.add(h.trim()); });
+    // 2. hqSettings에 등록된 본부
+    (hqSettings || []).forEach(h => { if (h.hqName && h.hqName.trim()) set.add(h.hqName.trim()); });
+    // 3. availableHqs
+    availableHqs.forEach(h => { if (h && h !== '전체' && h.trim()) set.add(h.trim()); });
+    // 4. members에 이미 할당된 본부
     members.forEach(m => {
       if ((m.role === '본부' || m.role === '본부모바일') && m.orgName && m.orgName.trim()) {
         set.add(m.orgName.trim());
       }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko-KR'));
-  }, [hqSettings, availableHqs, members]);
+  }, [empSheetHqs, hqSettings, availableHqs, members]);
 
-  // 지사 목록 정제
+  // 지사 목록 정제 (사원리스트의 전체 지사 + availableBranches + members)
   const cleanBranches = useMemo(() => {
     const set = new Set<string>();
+    Object.values(empSheetHqToBranches).forEach(brs => {
+      brs.forEach(b => { if (b && b.trim()) set.add(b.trim()); });
+    });
     availableBranches.forEach(b => {
       if (b && b !== '전체' && b.trim()) set.add(b.trim());
     });
@@ -174,7 +230,7 @@ export function AccountManagementModal({
       }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko-KR'));
-  }, [availableBranches, members]);
+  }, [empSheetHqToBranches, availableBranches, members]);
 
   // 운영중 / 미운영 본부 개수 통계
   const activeHqCount = useMemo(() => cleanHqs.filter(h => isHqActive(h)).length, [cleanHqs, hqStatusMap]);
@@ -192,6 +248,56 @@ export function AccountManagementModal({
       return true;
     });
   }, [cleanHqs, assignSearch, assignHqStatusFilter, hqStatusMap]);
+
+  // 다중 할당 모달 대상 계정이 현재 할당받은 본부 목록
+  const modalAssignedHqs = useMemo(() => {
+    if (!assignModalAccount) return [];
+    return members
+      .filter(m => m.username.toLowerCase() === assignModalAccount.username.toLowerCase() && (m.role === '본부' || m.role === '본부모바일'))
+      .map(m => m.orgName);
+  }, [assignModalAccount, members]);
+
+  // 특정 지사의 소속 본부명 찾기
+  const getBranchHqName = (branchName: string): string => {
+    for (const [hq, branches] of Object.entries(empSheetHqToBranches)) {
+      if (branches.includes(branchName)) return hq;
+    }
+    return '';
+  };
+
+  // 다중 할당 모달에서 표시할 지사 후보 목록 (선택한 본부의 해당 지사값만 표시)
+  const candidateBranches = useMemo(() => {
+    if (!assignModalAccount) return [];
+
+    let targetHqs: string[] = [];
+    if (branchHqScope === 'AUTO') {
+      targetHqs = modalAssignedHqs;
+    } else if (branchHqScope === 'ALL') {
+      return cleanBranches;
+    } else {
+      targetHqs = [branchHqScope];
+    }
+
+    const branchSet = new Set<string>();
+    targetHqs.forEach(hq => {
+      const brs = empSheetHqToBranches[hq] || [];
+      brs.forEach(b => branchSet.add(b));
+    });
+
+    // 이 계정에 이미 할당되어 있는 지사도 화면에 노출하여 체크 해제/확인이 가능하도록 포함
+    const currentlyAssignedBranches = members
+      .filter(m => m.username.toLowerCase() === assignModalAccount.username.toLowerCase() && (m.role === '지사' || m.role === '지사모바일' || m.role === '지점'))
+      .map(m => m.orgName);
+    currentlyAssignedBranches.forEach(b => branchSet.add(b));
+
+    // 검색어 필터
+    let list = Array.from(branchSet);
+    if (assignSearch) {
+      list = list.filter(b => b.toLowerCase().includes(assignSearch.toLowerCase()));
+    }
+
+    return list.sort((a, b) => a.localeCompare(b, 'ko-KR'));
+  }, [assignModalAccount, branchHqScope, modalAssignedHqs, empSheetHqToBranches, cleanBranches, members, assignSearch]);
 
   // 아이디(username)별로 묶은 GroupedAccount 목록
   const groupedAccounts = useMemo(() => {
@@ -1055,6 +1161,7 @@ export function AccountManagementModal({
                                   setAssignModalAccount(acc);
                                   setAssignSearch('');
                                   setAssignHqStatusFilter('all');
+                                  setBranchHqScope('AUTO');
                                 }}
                                 className="inline-flex items-center gap-1 px-2 py-0.8 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-black transition-all cursor-pointer shadow-2xs"
                                 title="본부/지사 권한 추가 및 제거"
@@ -1074,6 +1181,7 @@ export function AccountManagementModal({
                                   setAssignModalAccount(acc);
                                   setAssignSearch('');
                                   setAssignHqStatusFilter('all');
+                                  setBranchHqScope('AUTO');
                                 }}
                                 className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-bold shadow-2xs flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap shrink-0"
                                 title="본부/지사 다중 권한 설정"
@@ -1241,7 +1349,7 @@ export function AccountManagementModal({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden z-10"
+              className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-[96vw] max-w-5xl max-h-[92vh] flex flex-col overflow-hidden z-10"
             >
               {/* 모달 헤더 */}
               <div className="px-6 py-4 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
@@ -1339,13 +1447,14 @@ export function AccountManagementModal({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-[260px] overflow-y-auto custom-scrollbar p-1">
                     {filteredHqs.map(hq => {
                       const isChecked = members.some(
                         m => m.username.toLowerCase() === assignModalAccount.username.toLowerCase() &&
                              m.orgName.toLowerCase() === hq.toLowerCase()
                       );
                       const active = isHqActive(hq);
+                      const branchCount = (empSheetHqToBranches[hq] || []).length;
 
                       return (
                         <div
@@ -1370,6 +1479,11 @@ export function AccountManagementModal({
                                 미운영
                               </span>
                             )}
+                            {branchCount > 0 && (
+                              <span className="shrink-0 text-[9px] text-slate-400 font-normal">
+                                {branchCount}지사
+                              </span>
+                            )}
                           </div>
                           <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 transition-colors ${
                             isChecked ? 'bg-blue-600 text-white' : 'border border-slate-300 bg-white'
@@ -1388,46 +1502,116 @@ export function AccountManagementModal({
                   </div>
                 </div>
 
-                {/* 2. 지사 목록 */}
+                {/* 2. 지사 목록 (선택한 본부의 해당 지사값만 표시) */}
                 <div>
-                  <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-100">
-                    <h4 className="text-xs font-black text-slate-700 flex items-center gap-1.5">
-                      <Building2 size={14} className="text-emerald-600" />
-                      지사 권한 선택 ({cleanBranches.length}개)
-                    </h4>
-                    <span className="text-[11px] text-slate-400">
-                      선택 시 해당 지사의 계약 데이터만 집중 조회됩니다.
+                  <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100 flex-wrap gap-2">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                        <Building2 size={15} className="text-emerald-600" />
+                        지사 권한 선택 ({candidateBranches.length}개)
+                      </h4>
+
+                      {/* 본부 선택 필터 컨트롤 */}
+                      <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px] font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setBranchHqScope('AUTO')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            branchHqScope === 'AUTO'
+                              ? 'bg-emerald-600 text-white shadow-2xs font-black'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          선택된 본부 지사 ({modalAssignedHqs.length > 0 ? `${modalAssignedHqs.length}개 본부` : '미선택'})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBranchHqScope('ALL')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            branchHqScope === 'ALL'
+                              ? 'bg-slate-800 text-white shadow-2xs font-black'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          전체 지사 보기
+                        </button>
+                      </div>
+
+                      {/* 특정 본부 직접 지정 드롭다운 */}
+                      <div className="flex items-center gap-1">
+                        <select
+                          value={branchHqScope !== 'AUTO' && branchHqScope !== 'ALL' ? branchHqScope : ''}
+                          onChange={(e) => {
+                            if (e.target.value) setBranchHqScope(e.target.value);
+                          }}
+                          className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-1 focus:ring-emerald-400 cursor-pointer"
+                        >
+                          <option value="">본부 직접 지정 ({cleanHqs.length}개)...</option>
+                          {cleanHqs.map(hq => {
+                            const count = (empSheetHqToBranches[hq] || []).length;
+                            return (
+                              <option key={hq} value={hq}>
+                                {hq} {count > 0 ? `(${count}개 지사)` : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    </div>
+
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      {branchHqScope === 'ALL'
+                        ? '전체 지사가 표시 중입니다.'
+                        : branchHqScope !== 'AUTO'
+                          ? `📌 [${branchHqScope}] 소속 지사만 표시 중입니다.`
+                          : modalAssignedHqs.length > 0
+                            ? `📌 [${modalAssignedHqs.join(', ')}] 산하 지사만 표시 중입니다.`
+                            : '💡 상단에서 본부를 선택하거나, 위 드롭다운에서 본부를 지정하시면 해당 지사만 표시됩니다.'}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {cleanBranches
-                      .filter(b => !assignSearch || b.toLowerCase().includes(assignSearch.toLowerCase()))
-                      .map(branch => {
-                        const isChecked = members.some(
-                          m => m.username.toLowerCase() === assignModalAccount.username.toLowerCase() &&
-                               m.orgName.toLowerCase() === branch.toLowerCase()
-                        );
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-[260px] overflow-y-auto custom-scrollbar p-1">
+                    {candidateBranches.map(branch => {
+                      const isChecked = members.some(
+                        m => m.username.toLowerCase() === assignModalAccount.username.toLowerCase() &&
+                             m.orgName.toLowerCase() === branch.toLowerCase()
+                      );
+                      const parentHq = getBranchHqName(branch);
 
-                        return (
-                          <div
-                            key={branch}
-                            onClick={() => handleToggleOrgAssignment(assignModalAccount, branch, '지사')}
-                            className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer select-none ${
-                              isChecked
-                                ? 'bg-emerald-50 border-emerald-300 text-emerald-900 shadow-2xs ring-1 ring-emerald-300'
-                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span className="truncate mr-1">{branch}</span>
-                            <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 transition-colors ${
-                              isChecked ? 'bg-emerald-600 text-white' : 'border border-slate-300 bg-white'
-                            }`}>
-                              {isChecked && <Check size={11} strokeWidth={3} />}
-                            </div>
+                      return (
+                        <div
+                          key={branch}
+                          onClick={() => handleToggleOrgAssignment(assignModalAccount, branch, '지사')}
+                          className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer select-none ${
+                            isChecked
+                              ? 'bg-emerald-50 border-emerald-400 text-emerald-900 shadow-2xs ring-1 ring-emerald-300'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex flex-col min-w-0 mr-1.5">
+                            <span className="truncate">{branch}</span>
+                            {parentHq && (
+                              <span className="text-[10px] text-slate-400 font-semibold truncate">
+                                소속: {parentHq}
+                              </span>
+                            )}
                           </div>
-                        );
-                      })}
+                          <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 transition-colors ${
+                            isChecked ? 'bg-emerald-600 text-white' : 'border border-slate-300 bg-white'
+                          }`}>
+                            {isChecked && <Check size={11} strokeWidth={3} />}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {candidateBranches.length === 0 && (
+                      <div className="col-span-full py-8 text-center text-xs text-slate-400 font-bold bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                        {modalAssignedHqs.length === 0 && branchHqScope === 'AUTO'
+                          ? '상단 본부 권한을 체크하시거나, 위 드롭다운에서 본부를 선택하시면 해당 본부의 지사가 표시됩니다.'
+                          : '조건에 일치하는 지사가 없습니다.'}
+                      </div>
+                    )}
                   </div>
                 </div>
 

@@ -322,7 +322,7 @@ export function AutoAccountGeneratorModal({
         initial={{ opacity: 0, scale: 0.96, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 15 }}
-        className="relative bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 w-[96vw] max-w-5xl max-h-[94vh] flex flex-col overflow-hidden z-10"
+        className="relative bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 w-[98vw] max-w-[1580px] h-[96vh] max-h-[96vh] flex flex-col overflow-hidden z-10"
       >
         {/* 모달 상단 헤더 */}
         <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs">
@@ -333,17 +333,18 @@ export function AutoAccountGeneratorModal({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-black text-slate-900 tracking-tight">조직 계정 원클릭 대량 자동 생성기</h2>
-                <span className="text-[11px] font-bold px-2.5 py-0.5 bg-indigo-100 text-indigo-800 rounded-full border border-indigo-200">
+                <span className="text-xs px-2.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-bold">
                   다중 본부 일괄 지원
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">
+              <p className="text-xs text-slate-500 mt-0.5 font-medium">
                 사원리스트 시트의 본부/지사/사원 정보를 조회하여 표준 아이디와 비밀번호로 신규 계정만 일괄 생성합니다.
               </p>
             </div>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
           >
@@ -351,12 +352,12 @@ export function AutoAccountGeneratorModal({
           </button>
         </div>
 
-        {/* 바디 컨텐츠 (스크롤) */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+        {/* 모달 본문 (스크롤) */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 custom-scrollbar">
           {isLoading ? (
-            <div className="py-24 flex flex-col items-center justify-center gap-3 text-slate-400">
-              <RefreshCw size={32} className="animate-spin text-indigo-500" />
-              <p className="text-sm font-bold text-slate-600">사원리스트 시트 데이터를 분석하는 중입니다...</p>
+            <div className="py-24 flex flex-col items-center justify-center gap-3 text-slate-500">
+              <RefreshCw size={28} className="animate-spin text-indigo-600" />
+              <span className="text-sm font-bold">구글 시트 [사원리스트] 데이터를 실시간 조회 중입니다...</span>
             </div>
           ) : loadError ? (
             <div className="p-5 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-3 text-rose-700 text-xs font-bold">
@@ -402,7 +403,7 @@ export function AutoAccountGeneratorModal({
                 </div>
 
                 {/* 본부 칩/태그 다중 선택 그리드 */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-[140px] overflow-y-auto custom-scrollbar p-1">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 max-h-[220px] overflow-y-auto custom-scrollbar p-1">
                   {filteredHqStatsList.map(({ hq, branchCount, empCount }) => {
                     const isChecked = selectedHqs.includes(hq);
                     return (
