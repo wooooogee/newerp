@@ -59,8 +59,6 @@ export function AccountManagementModal({
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // 상단 탭: '계정 관리' vs '다중 조직 권한 관리'
-  const [activeTab, setActiveTab] = useState<'list' | 'multi'>('list');
 
   // 신규 등록 폼 상태
   const [newRole, setNewRole] = useState('본부');
@@ -488,7 +486,7 @@ export function AccountManagementModal({
         initial={{ opacity: 0, scale: 0.96, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 15 }}
-        className="relative bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden z-10"
+        className="relative bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 w-[96vw] max-w-7xl max-h-[92vh] flex flex-col overflow-hidden z-10"
       >
         {/* 모달 상단 헤더 */}
         <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs">
@@ -577,34 +575,6 @@ export function AccountManagementModal({
           </div>
         </div>
 
-        {/* 탭 바: 계정 목록 & 다중 조직 할당 안내 */}
-        <div className="px-6 pt-3 pb-0 bg-white border-b border-slate-200 flex items-center gap-3">
-          <button
-            onClick={() => setActiveTab('list')}
-            className={`pb-2.5 text-xs font-black flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-              activeTab === 'list'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <User size={15} />
-            <span>통합 계정 목록 및 단일 등록 ({groupedAccounts.length})</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('multi')}
-            className={`pb-2.5 text-xs font-black flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-              activeTab === 'multi'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Layers size={15} />
-            <span>다중 본부/지사 권한 일괄 설정</span>
-            <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.2 rounded-full">
-              권한 다중 지정
-            </span>
-          </button>
-        </div>
 
         {/* 바디 컨텐츠 영역 (스크롤) */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
@@ -849,12 +819,12 @@ export function AccountManagementModal({
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-100/80 text-slate-600 font-black sticky top-0 z-10 border-b border-slate-200 select-none">
                   <tr>
-                    <th className="px-4 py-3 text-center w-12">No</th>
-                    <th className="px-4 py-3 text-center w-28">대표 권한</th>
-                    <th className="px-4 py-3">로그인 아이디</th>
-                    <th className="px-4 py-3">비밀번호</th>
-                    <th className="px-4 py-3">관리 권한 (소속 본부 / 지사 목록)</th>
-                    <th className="px-4 py-3 text-center w-36">관리 및 권한 설정</th>
+                    <th className="px-4 py-3 text-center w-12 whitespace-nowrap">No</th>
+                    <th className="px-4 py-3 text-center w-28 whitespace-nowrap">대표 권한</th>
+                    <th className="px-4 py-3 min-w-[160px] whitespace-nowrap">로그인 아이디</th>
+                    <th className="px-4 py-3 min-w-[130px] whitespace-nowrap">비밀번호</th>
+                    <th className="px-4 py-3 min-w-[320px]">관리 권한 (소속 본부 / 지사 목록)</th>
+                    <th className="px-4 py-3 text-center w-48 min-w-[180px] whitespace-nowrap">관리 및 권한 설정</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
@@ -895,12 +865,12 @@ export function AccountManagementModal({
                           </td>
 
                           {/* 아이디 */}
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1.5">
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5 whitespace-nowrap">
                               <User size={13} className="text-blue-500 shrink-0" />
-                              <span className="font-mono font-black text-blue-600 text-sm">{acc.username}</span>
+                              <span className="font-mono font-black text-blue-600 text-sm whitespace-nowrap">{acc.username}</span>
                               {isCurrentUser && (
-                                <span className="text-[10px] bg-blue-600 text-white font-bold px-1.5 py-0.2 rounded-full">
+                                <span className="text-[10px] bg-blue-600 text-white font-bold px-1.5 py-0.2 rounded-full whitespace-nowrap shrink-0">
                                   내 계정
                                 </span>
                               )}
@@ -908,8 +878,8 @@ export function AccountManagementModal({
                           </td>
 
                           {/* 비밀번호 */}
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="flex items-center gap-2 whitespace-nowrap">
                               <span className="font-mono text-slate-700 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200 min-w-[70px] text-center">
                                 {isPwdVisible ? acc.password : '••••••••'}
                               </span>
@@ -921,7 +891,7 @@ export function AccountManagementModal({
                                     [acc.username]: !prev[acc.username]
                                   }));
                                 }}
-                                className="text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-200/50 cursor-pointer"
+                                className="text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
                                 title={isPwdVisible ? '비밀번호 가리기' : '비밀번호 확인'}
                               >
                                 {isPwdVisible ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -973,25 +943,25 @@ export function AccountManagementModal({
                           </td>
 
                           {/* 관리 액션 */}
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex items-center justify-center gap-1">
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
                               {/* 다중 권한 설정 버튼 */}
                               <button
                                 onClick={() => {
                                   setAssignModalAccount(acc);
                                   setAssignSearch('');
                                 }}
-                                className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-bold shadow-2xs flex items-center gap-1 transition-all cursor-pointer"
+                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-bold shadow-2xs flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap shrink-0"
                                 title="본부/지사 다중 권한 설정"
                               >
-                                <Layers size={12} />
-                                <span>다중설정</span>
+                                <Layers size={12} className="shrink-0" />
+                                <span className="whitespace-nowrap">다중설정</span>
                               </button>
 
                               {/* 비밀번호/아이디 수정 */}
                               <button
                                 onClick={() => startEditing(acc.originalIndices[0])}
-                                className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all cursor-pointer"
+                                className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all cursor-pointer shrink-0"
                                 title="계정 비밀번호 및 기본정보 수정"
                               >
                                 <Edit3 size={14} />
@@ -1001,7 +971,7 @@ export function AccountManagementModal({
                               <button
                                 onClick={() => handleDeleteGroupedAccount(acc.username)}
                                 disabled={isCurrentUser}
-                                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                className={`p-1.5 rounded-lg transition-all cursor-pointer shrink-0 ${
                                   isCurrentUser 
                                     ? 'text-slate-300 cursor-not-allowed' 
                                     : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
