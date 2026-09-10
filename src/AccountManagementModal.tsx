@@ -89,23 +89,22 @@ export function AccountManagementModal({
 
   // 자동 생성된 계정 목록 병합 처리
   const handleBatchGeneratedAccounts = (newAccounts: MemberAccount[]) => {
+    if (newAccounts.length === 0) return;
+
     setMembers(prev => {
-      const updated = [...prev];
-      newAccounts.forEach(newAcc => {
-        const existIdx = updated.findIndex(m => 
-          m.username.trim().toUpperCase() === newAcc.username.trim().toUpperCase() && 
-          m.role === newAcc.role && 
-          m.orgName === newAcc.orgName
-        );
-        if (existIdx >= 0) {
-          updated[existIdx] = { ...updated[existIdx], ...newAcc };
-        } else {
-          updated.push(newAcc);
-        }
-      });
-      return updated;
+      const existingKeySet = new Set(
+        prev.map(m => `${m.username.trim().toUpperCase()}|${m.role}|${m.orgName}`)
+      );
+      const trulyNew = newAccounts.filter(
+        a => !existingKeySet.has(`${a.username.trim().toUpperCase()}|${a.role}|${a.orgName}`)
+      );
+      return [...trulyNew, ...prev];
     });
+
     setHasChanges(true);
+    setSelectedRoleFilter('전체');
+    setSearchTerm('');
+    alert(`총 ${newAccounts.length}개의 신규 계정이 목록에 즉시 추가되었습니다!\n상단 [시트에 최종 저장] 버튼을 눌러 구글 시트에 반영해 주세요.`);
   };
 
   useEffect(() => {
@@ -511,22 +510,22 @@ export function AccountManagementModal({
         initial={{ opacity: 0, scale: 0.96, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 15 }}
-        className="relative bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 w-[96vw] max-w-7xl max-h-[92vh] flex flex-col overflow-hidden z-10"
+        className="relative bg-slate-50 rounded-2xl shadow-2xl border border-slate-200 w-[98vw] max-w-[1580px] max-h-[94vh] flex flex-col overflow-hidden z-10"
       >
         {/* 모달 상단 헤더 */}
-        <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl border border-blue-100 shadow-2xs">
+        <div className="px-6 py-3.5 bg-white border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0 shadow-2xs">
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl border border-blue-100 shadow-2xs shrink-0">
               <UserCheck size={22} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-black text-slate-900 tracking-tight">ERP 조직 계정 관리</h2>
-                <span className="text-xs font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full border border-blue-200">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-black text-slate-900 tracking-tight whitespace-nowrap">ERP 조직 계정 관리</h2>
+                <span className="text-xs font-bold px-2.5 py-0.5 bg-blue-100 text-blue-800 rounded-full border border-blue-200 whitespace-nowrap">
                   {groupedAccounts.length}개 계정 ({members.length}개 소속 설정)
                 </span>
                 {hasChanges && (
-                  <span className="text-xs font-bold px-2.5 py-0.5 bg-amber-100 text-amber-800 rounded-full border border-amber-300 animate-pulse flex items-center gap-1">
+                  <span className="text-xs font-bold px-2.5 py-0.5 bg-amber-100 text-amber-800 rounded-full border border-amber-300 animate-pulse flex items-center gap-1 whitespace-nowrap">
                     <AlertTriangle size={12} /> 저장되지 않은 변경사항 있음
                   </span>
                 )}
@@ -537,34 +536,34 @@ export function AccountManagementModal({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0 whitespace-nowrap overflow-x-auto pb-1 md:pb-0">
             {/* 계정 자동 생성 마법사 버튼 */}
             <button
               onClick={() => setIsAutoGeneratorOpen(true)}
-              className="px-3 py-1.5 text-xs font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs hover:scale-102"
+              className="px-3.5 py-2 text-xs font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs hover:scale-102 whitespace-nowrap shrink-0"
               title="사원리스트 시트 기반 본부/지사/사원 계정 일괄 생성 마법사"
             >
               <Sparkles size={14} className="text-indigo-600" />
-              <span>계정 자동생성</span>
+              <span className="whitespace-nowrap">계정 자동생성</span>
             </button>
 
             {/* 엑셀 관련 액션 버튼 */}
-            <div className="hidden sm:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0 whitespace-nowrap">
               <button
                 onClick={handleDownloadTemplate}
-                className="px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:text-blue-600 hover:bg-white rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:text-blue-600 hover:bg-white rounded-lg transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                 title="일괄 등록용 엑셀 양식 다운로드"
               >
-                <Download size={13} />
-                양식 받기
+                <Download size={13} className="shrink-0" />
+                <span className="whitespace-nowrap">양식 받기</span>
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:text-emerald-600 hover:bg-white rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:text-emerald-600 hover:bg-white rounded-lg transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                 title="엑셀 파일로 대량 계정 일괄 등록/갱신"
               >
-                <Upload size={13} />
-                엑셀 일괄등록
+                <Upload size={13} className="shrink-0" />
+                <span className="whitespace-nowrap">엑셀 일괄등록</span>
               </button>
               <input
                 ref={fileInputRef}
@@ -575,11 +574,11 @@ export function AccountManagementModal({
               />
               <button
                 onClick={handleExportExcel}
-                className="px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:text-indigo-600 hover:bg-white rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:text-indigo-600 hover:bg-white rounded-lg transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                 title="현재 계정 목록 엑셀 백업"
               >
-                <FileSpreadsheet size={13} />
-                백업 다운로드
+                <FileSpreadsheet size={13} className="shrink-0" />
+                <span className="whitespace-nowrap">백업 다운로드</span>
               </button>
             </div>
 
@@ -587,14 +586,14 @@ export function AccountManagementModal({
             <button
               onClick={handleSaveToSheet}
               disabled={isSaving}
-              className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition-all cursor-pointer ${
+              className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 hasChanges 
                   ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200 scale-102 ring-2 ring-emerald-400' 
                   : 'bg-slate-800 hover:bg-slate-900 text-white'
               }`}
             >
-              {isSaving ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-              {isSaving ? '시트 저장 중...' : '시트에 최종 저장'}
+              {isSaving ? <RefreshCw size={14} className="animate-spin shrink-0" /> : <CheckCircle size={14} className="shrink-0" />}
+              <span className="whitespace-nowrap">{isSaving ? '시트 저장 중...' : '시트에 최종 저장'}</span>
             </button>
 
             {/* 닫기 버튼 */}
@@ -603,7 +602,7 @@ export function AccountManagementModal({
                 if (hasChanges && !confirm('저장되지 않은 변경 사항이 있습니다. 닫으시겠습니까?')) return;
                 onClose();
               }}
-              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer ml-1"
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer shrink-0 ml-1"
             >
               <X size={20} />
             </button>
@@ -857,7 +856,7 @@ export function AccountManagementModal({
                     <th className="px-4 py-3 text-center w-12 whitespace-nowrap">No</th>
                     <th className="px-4 py-3 text-center min-w-[120px] whitespace-nowrap">대표 권한</th>
                     <th className="px-4 py-3 min-w-[160px] whitespace-nowrap">로그인 아이디</th>
-                    <th className="px-4 py-3 min-w-[130px] whitespace-nowrap">비밀번호</th>
+                    <th className="px-4 py-3 min-w-[170px] whitespace-nowrap">비밀번호</th>
                     <th className="px-4 py-3 min-w-[320px]">관리 권한 (소속 본부 / 지사 목록)</th>
                     <th className="px-4 py-3 text-center w-48 min-w-[180px] whitespace-nowrap">관리 및 권한 설정</th>
                   </tr>
@@ -913,9 +912,9 @@ export function AccountManagementModal({
                           </td>
 
                           {/* 비밀번호 */}
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-4 py-3 whitespace-nowrap min-w-[170px]">
                             <div className="flex items-center gap-2 whitespace-nowrap">
-                              <span className="font-mono text-slate-700 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200 min-w-[70px] text-center">
+                              <span className="font-mono text-slate-700 font-bold bg-slate-100 px-3 py-1 rounded border border-slate-200 min-w-[110px] text-center text-xs tracking-wider">
                                 {isPwdVisible ? acc.password : '••••••••'}
                               </span>
                               <button
@@ -926,10 +925,10 @@ export function AccountManagementModal({
                                     [acc.username]: !prev[acc.username]
                                   }));
                                 }}
-                                className="text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
+                                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 cursor-pointer shrink-0"
                                 title={isPwdVisible ? '비밀번호 가리기' : '비밀번호 확인'}
                               >
-                                {isPwdVisible ? <EyeOff size={13} /> : <Eye size={13} />}
+                                {isPwdVisible ? <EyeOff size={14} /> : <Eye size={14} />}
                               </button>
                             </div>
                           </td>
