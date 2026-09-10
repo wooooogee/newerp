@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, Component, ReactNode } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare, Copy, Check } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare, Copy, Check, UserCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -23,6 +23,7 @@ import { AdvancedSearchModal } from './AdvancedSearchModal';
 import { CommissionNotesModal } from './CommissionNotesModal';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { VocManagementModal } from './VocManagementModal';
+import { AccountManagementModal } from './AccountManagementModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -498,6 +499,7 @@ const ERP_Dashboard = () => {
   const [isCommissionNotesModalOpen, setIsCommissionNotesModalOpen] = useState(false);
   const [isPresidentReportModalOpen, setIsPresidentReportModalOpen] = useState(false);
   const [isBranchNoteModalOpen, setIsBranchNoteModalOpen] = useState(false);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
@@ -1088,20 +1090,27 @@ const ERP_Dashboard = () => {
     }
   };
 
-  const saveMembersToCloud = async () => {
+  const saveMembersToCloud = async (customMembers?: any[]): Promise<boolean> => {
     setLoadingMembers(true);
+    const targetMembers = customMembers !== undefined ? customMembers : members;
     try {
       const res = await fetch('/api/sheets/members/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ members })
+        body: JSON.stringify({ members: targetMembers })
       });
       const data = await res.json();
-      if (data.success) alert('회원 정보가 구글 시트에 저장되었습니다.');
-      else alert('저장 실패: ' + data.error);
+      if (data.success) {
+        setMembers(targetMembers);
+        return true;
+      } else {
+        alert('저장 실패: ' + data.error);
+        return false;
+      }
     } catch (err) {
       console.error(err);
       alert('저장 중 오류가 발생했습니다.');
+      return false;
     } finally {
       setLoadingMembers(false);
     }
@@ -5801,6 +5810,19 @@ const ERP_Dashboard = () => {
                           <Users size={13} />
                           <span className="hidden sm:inline">영업조직 관리</span>
                         </button>
+                        <button
+                          onClick={() => {
+                            if (members.length === 0) {
+                              loadMembersFromCloud();
+                            }
+                            setIsAccountModalOpen(true);
+                          }}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
+                          title="시스템 로그인 및 본부/지사 계정 관리"
+                        >
+                          <UserCheck size={13} />
+                          <span className="hidden sm:inline">계정 관리</span>
+                        </button>
                       </div>
                     )}
                     <button
@@ -9786,6 +9808,19 @@ const ERP_Dashboard = () => {
               isOpen={isBranchNoteModalOpen}
               onClose={() => setIsBranchNoteModalOpen(false)}
               hqs={uniqueHqs.filter(h => h !== '전체')}
+            />
+          )}
+          {isAccountModalOpen && (
+            <AccountManagementModal
+              isOpen={isAccountModalOpen}
+              onClose={() => setIsAccountModalOpen(false)}
+              members={members}
+              onSaveMembers={async (updatedMembers) => {
+                return await saveMembersToCloud(updatedMembers);
+              }}
+              availableHqs={uniqueHqs}
+              availableBranches={uniqueBranches}
+              currentUser={currentUser}
             />
           )}
         </AnimatePresence>
