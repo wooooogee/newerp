@@ -174,6 +174,17 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   // 등록 제출 (일괄 업데이트)
   const handleSubmit = async () => {
     if (selectedContracts.length === 0) return;
+
+    // 변경 대상자 목록 상세 확인창
+    const memberSummary = selectedContracts.map(c => `• ${c.memName} (회원번호: ${c.memNo}, 렌탈: ${c.rentalNo || '-'}, 상품: ${c.prodName})`).join('\n');
+    const confirmMsg = `[주의] 총 ${selectedContracts.length}건의 계약 상태를 '${newStatus}'(으)로 일괄 변경하시겠습니까?\n\n<변경 대상 회원 목록>\n${memberSummary}\n\n* 의도하지 않은 다른 회원이 포함되어 있지 않은지 확인해 주세요.`;
+
+    const isConfirmed = (window as any).customConfirm
+      ? await (window as any).customConfirm(confirmMsg, '취소/해약 일괄 등록 확인')
+      : window.confirm(confirmMsg);
+
+    if (!isConfirmed) return;
+
     setIsSubmitting(true);
     try {
       // 구글시트 B열 (status, 인덱스 1) 일괄 업데이트 데이터 생성
@@ -470,6 +481,27 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                     className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
                   />
                 </div>
+
+                {/* 이전에 선택된 회원이 남아있는 경우 눈에 띄는 안내 배너 */}
+                {selectedContracts.length > 0 && (
+                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-amber-900 font-medium">
+                      <AlertCircle size={16} className="text-amber-600 shrink-0" />
+                      <span>
+                        현재 <strong className="font-black text-rose-600 underline">{selectedContracts.length}건</strong>의 계약이 등록 대기 목록에 선택되어 있습니다. (이전 검색 대상 포함)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedContracts([])}
+                        className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-600 font-bold rounded-lg border border-rose-200 text-[11px] transition-colors shadow-2xs"
+                      >
+                        선택 비우기 (초기화)
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 하단 좌우 배치 영역 */}
@@ -549,21 +581,22 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                           </div>
                           
                           {/* 칩 리스트 */}
-                          <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto pr-1 custom-scrollbar">
+                          <div className="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto pr-1 custom-scrollbar">
                             {selectedContracts.map(c => (
                               <div
                                 key={c.uniqueKey}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-100 rounded text-[10px] font-medium"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-rose-50 text-rose-800 border border-rose-200 rounded-lg text-[11px] font-semibold shadow-2xs"
                               >
-                                <span>{c.memName}({c.memNo.substring(c.memNo.length - 6)})</span>
+                                <span>{c.memName} <span className="text-[10px] font-mono text-rose-500 font-normal">({c.memNo}{c.rentalNo ? ` / ${c.rentalNo}` : ''})</span></span>
                                 <button 
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     toggleSelectContract(c);
                                   }}
-                                  className="text-rose-400 hover:text-rose-600 p-0.5"
+                                  className="text-rose-400 hover:text-rose-700 p-0.5 rounded-full hover:bg-rose-100 transition-colors"
+                                  title="선택 해제"
                                 >
-                                  <X size={10} />
+                                  <X size={12} />
                                 </button>
                               </div>
                             ))}
@@ -694,7 +727,11 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                   {/* 취소/해약인 경우 관리자(isAdmin)에게만 등록하기 버튼 노출 */}
                   {!isDelivery && isAdmin && (
                     <button
-                      onClick={() => setIsRegisterMode(true)}
+                      onClick={() => {
+                        setSelectedContracts([]);
+                        setSearchQuery('');
+                        setIsRegisterMode(true);
+                      }}
                       className="flex items-center gap-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors shrink-0"
                     >
                       <Plus size={15} />

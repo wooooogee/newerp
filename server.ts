@@ -1577,7 +1577,7 @@ async function logStatusChangesToCancelSheet(
     );
     if (cancelTargets.length === 0) return;
 
-    // 한국 시간 기준 YYYY-MM-DD HH:mm
+    // 한국 시간 기준 YYYY-MM-DD HH:mm:ss
     const now = new Date();
     const kstDate = new Intl.DateTimeFormat('ko-KR', {
       timeZone: 'Asia/Seoul',
@@ -1586,6 +1586,7 @@ async function logStatusChangesToCancelSheet(
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
+      second: '2-digit',
       hour12: false
     }).format(now);
     const formattedDate = kstDate.replace(/\.\s*/g, (m, offset) => offset < 10 ? '-' : ' ').trim();
@@ -1653,13 +1654,16 @@ app.post('/api/sheets/update', async (req, res) => {
   try {
     const sheets = google.sheets({ version: 'v4', auth: client });
     
-    // Get sheet name
-    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
-    const sheetsList = spreadsheet.data.sheets || [];
-    const targetSheet = sheetsList.find(s => s.properties?.title === '관리대장') || 
-                        sheetsList.find(s => s.properties?.title?.includes('회원현황')) ||
-                        sheetsList[0];
-    const sheetName = targetSheet?.properties?.title || 'Sheet1';
+    // 시트 이름 확인
+    let sheetName = (req.body as any).sheetName;
+    if (!sheetName) {
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+      const sheetsList = spreadsheet.data.sheets || [];
+      const targetSheet = sheetsList.find(s => s.properties?.title === '관리대장') || 
+                          sheetsList.find(s => s.properties?.title?.includes('회원현황')) ||
+                          sheetsList[0];
+      sheetName = targetSheet?.properties?.title || 'Sheet1';
+    }
 
     // colIdx to letter (0 -> A, 1 -> B, ...)
     const getColLetter = (n: number) => {
@@ -1684,7 +1688,13 @@ app.post('/api/sheets/update', async (req, res) => {
 
     // 계약상태(colIdx === 1)가 취소 또는 해약으로 변경된 경우 취소해약내역 시트에 로그 자동 기록
     if (colIdx === 1 && (sheetName === '관리대장' || sheetName.includes('회원현황'))) {
-      const opName = operator || '관리자';
+      let opName = operator;
+      if (!opName && (req as any).signedCookies?.user_auth) {
+        try {
+          opName = JSON.parse((req as any).signedCookies.user_auth).username;
+        } catch (e) {}
+      }
+      if (!opName) opName = '관리자';
       logStatusChangesToCancelSheet(sheets, sheetId, [{ rowIdx, newStatus: newValue }], opName).catch(e => console.error(e));
     }
 
@@ -1755,7 +1765,13 @@ app.post('/api/sheets/batch-update', async (req, res) => {
         .filter(u => u.colIdx === 1)
         .map(u => ({ rowIdx: u.rowIdx, newStatus: u.newValue }));
       if (statusUpdates.length > 0) {
-        const opName = operator || '관리자';
+        let opName = operator;
+        if (!opName && (req as any).signedCookies?.user_auth) {
+          try {
+            opName = JSON.parse((req as any).signedCookies.user_auth).username;
+          } catch (e) {}
+        }
+        if (!opName) opName = '관리자';
         logStatusChangesToCancelSheet(sheets, sheetId, statusUpdates, opName).catch(e => console.error(e));
       }
     }

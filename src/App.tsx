@@ -708,8 +708,10 @@ const ERP_Dashboard = () => {
   const [expandedHqs, setExpandedHqs] = useState<Record<string, boolean>>({});
   const [calendarViewDate, setCalendarViewDate] = useState(new Date());
   const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
+  const [contractMonthFilter, setContractMonthFilter] = useState<string>(new Date().toISOString().substring(0, 7));
   const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('상품개수');
   const [tableDisplayMode, setTableDisplayMode] = useState<'구좌수' | '상품개수'>('구좌수');
+  const [pcViewMode, setPcViewMode] = useState<'contracts' | 'settlement'>('contracts');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [pendingExportDate, setPendingExportDate] = useState<string | null>(null);
@@ -1857,7 +1859,7 @@ const ERP_Dashboard = () => {
       const res = await fetch('/api/sheets/batch-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates })
+        body: JSON.stringify({ updates, operator: currentUser?.username || '관리자' })
       });
 
       if (!res.ok) {
@@ -2504,25 +2506,27 @@ const ERP_Dashboard = () => {
         const matchesEmpName = empNameFilter.length === 0 || empNameFilter.includes(item.empName || item.salesperson || '');
         const matchesDelivery = deliveryFilter === '전체' || item.deliveryStatus === deliveryFilter;
 
+        const effectivePaymentStatusFilter = pcViewMode === 'settlement' ? paymentStatusFilter : '전체';
         const isPaid = item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료'));
         const matchesPaymentStatus =
-          paymentStatusFilter === '전체' ||
-          (paymentStatusFilter === '지급완료' && isPaid) ||
-          (paymentStatusFilter === '지급예정' && !isPaid);
+          effectivePaymentStatusFilter === '전체' ||
+          (effectivePaymentStatusFilter === '지급완료' && isPaid) ||
+          (effectivePaymentStatusFilter === '지급예정' && !isPaid);
 
-        // 지급일자 필터 (검색어가 입력된 경우 지급일 정산 필터와 상관없이 전체에서 검색)
-        let matchesPayDate = !payDateFilter || hasSearch;
-        if (payDateFilter && !hasSearch) {
+        // 지급일자 필터 (정산 뷰에서만 적용, 검색어가 입력된 경우 지급일 정산 필터와 상관없이 전체에서 검색)
+        const effectivePayFilter = pcViewMode === 'settlement' ? payDateFilter : '';
+        let matchesPayDate = !effectivePayFilter || hasSearch;
+        if (effectivePayFilter && !hasSearch) {
           const displayPayDate = getDisplayPayDate(item);
-          const targetDateClean = payDateFilter.replace(/[-./]/g, '');
+          const targetDateClean = effectivePayFilter.replace(/[-./]/g, '');
           const itemPayDateClean = (displayPayDate || '').replace(/[-./]/g, '');
-          let normalizedPayFilter = payDateFilter.replace(/[-./]/g, '');
+          let normalizedPayFilter = effectivePayFilter.replace(/[-./]/g, '');
 
           if (/^\d{6}$/.test(normalizedPayFilter)) {
             const fullYearFilter = `20${normalizedPayFilter}`;
             matchesPayDate = itemPayDateClean === fullYearFilter || itemPayDateClean.includes(fullYearFilter);
           } else {
-            matchesPayDate = itemPayDateClean.includes(normalizedPayFilter) || displayPayDate.includes(payDateFilter);
+            matchesPayDate = itemPayDateClean.includes(normalizedPayFilter) || displayPayDate.includes(effectivePayFilter);
           }
           
           const isSpecialTarget = 
@@ -2569,6 +2573,13 @@ const ERP_Dashboard = () => {
               item.status?.includes('반품') ||
               item.status?.includes('철회')));
 
+        // 계약월 필터 (계약관리 화면에서 특정 월 선택 시 해당 계약월 데이터만 필터링, 검색어가 입력된 경우 전체에서 검색)
+        let matchesContractMonth = true;
+        if (pcViewMode === 'contracts' && contractMonthFilter && contractMonthFilter !== '전체' && !hasSearch) {
+          const itemContractDate = item.contractDate ? item.contractDate.replace(/\./g, '-').substring(0, 7) : '';
+          matchesContractMonth = itemContractDate === contractMonthFilter;
+        }
+
         // 본부총무 계정인 경우 25일 지급 내역 필터링
         if (isHQStaff) {
           const displayPayDate = getDisplayPayDate(item);
@@ -2576,7 +2587,7 @@ const ERP_Dashboard = () => {
           if (is25thPay) return false;
         }
 
-        return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesEmpName && matchesDelivery && matchesPayDate && matchesPaymentStatus && matchesStatus;
+        return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesEmpName && matchesDelivery && matchesPayDate && matchesPaymentStatus && matchesStatus && matchesContractMonth;
       })
       .sort((a, b) => {
         const parseDate = (d: string) => {
@@ -2600,12 +2611,12 @@ const ERP_Dashboard = () => {
     }
 
     return result;
-  }, [data, searchTerm, productFilter, hqFilter, branchFilter, empNameFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter, sortOrder, tableDisplayMode, isHQStaff]);
+  }, [data, searchTerm, productFilter, hqFilter, branchFilter, empNameFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter, sortOrder, tableDisplayMode, isHQStaff, pcViewMode, contractMonthFilter]);
 
   // 필터 변경 시 페이지 리셋
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, productFilter, hqFilter, branchFilter, empNameFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter]);
+  }, [searchTerm, productFilter, hqFilter, branchFilter, empNameFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter, contractMonthFilter]);
 
   const calculateMaintenancePayouts = React.useCallback((items: ERPDataItem[]) => {
     const payouts: any[] = [];
@@ -4860,6 +4871,19 @@ const ERP_Dashboard = () => {
     [data]
   );
 
+  const uniqueContractMonths = React.useMemo(() => {
+    const months = new Set<string>();
+    data.forEach(item => {
+      if (item.contractDate) {
+        const clean = item.contractDate.replace(/\./g, '-').substring(0, 7);
+        if (/^\d{4}-\d{2}$/.test(clean)) {
+          months.add(clean);
+        }
+      }
+    });
+    return ['전체', ...Array.from(months).sort().reverse()];
+  }, [data]);
+
   const uniqueHcRegDates = React.useMemo(() =>
     Array.from(new Set<string>(data.map(item => String(item.hcRegDate || '')).filter(d => d && d.length >= 8))).sort((a: any, b: any) => String(a).localeCompare(String(b))).reverse(),
     [data]
@@ -4910,6 +4934,8 @@ const ERP_Dashboard = () => {
     setDeliveryFilter('전체');
     setPayDateFilter('');
     setPaymentStatusFilter('전체');
+    setContractMonthFilter(new Date().toISOString().substring(0, 7));
+    setTopDashboardMonth(new Date().toISOString().substring(0, 7));
     setCurrentPage(1);
   };
   // ================= 수동 수수료 정산 기능 =================
@@ -5245,23 +5271,60 @@ const ERP_Dashboard = () => {
             </motion.button>
           </section>
 
+          {/* 계약 관리 (기본 첫화면: 계약건수 중심) */}
+          <section className="mt-1">
+            <button
+              type="button"
+              onClick={() => setPcViewMode('contracts')}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all font-bold shadow-2xs group cursor-pointer ${
+                pcViewMode === 'contracts'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  : 'bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 text-slate-800'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className={`p-1 rounded-lg group-hover:scale-105 transition-transform ${
+                  pcViewMode === 'contracts' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-600'
+                }`}>
+                  <FileSpreadsheet size={18} />
+                </div>
+                <span className="text-sm font-bold tracking-tight">계약 관리 (계약건수)</span>
+              </div>
+            </button>
+          </section>
+
           {/* 정산 및 리포트 */}
-          {isSuperAdmin && (
+          {showCommissionInfo && (
             <section className="mt-1">
               <button
                 type="button"
-                onClick={() => toggleSection('settlement')}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
+                onClick={() => {
+                  setPcViewMode('settlement');
+                  setOpenSections(prev => ({ ...prev, settlement: true }));
+                }}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all font-bold shadow-2xs group cursor-pointer ${
+                  pcViewMode === 'settlement'
+                    ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20 border border-amber-600'
+                    : 'bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 text-slate-800'
+                }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <div className="p-1 bg-amber-100 text-amber-600 rounded-lg group-hover:scale-105 transition-transform">
+                  <div className={`p-1 rounded-lg group-hover:scale-105 transition-transform ${
+                    pcViewMode === 'settlement' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-600'
+                  }`}>
                     <TrendingUp size={18} />
                   </div>
-                  <span className="text-sm font-bold text-slate-800 tracking-tight">정산 및 리포트</span>
+                  <span className="text-sm font-bold tracking-tight">정산 및 리포트</span>
                 </div>
                 <ChevronDown
                   size={18}
-                  className={`text-slate-400 transition-transform duration-200 ${openSections.settlement ? 'rotate-180 text-slate-700' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleSection('settlement');
+                  }}
+                  className={`transition-transform duration-200 ${
+                    pcViewMode === 'settlement' ? 'text-white' : 'text-slate-400'
+                  } ${openSections.settlement ? 'rotate-180' : ''}`}
                 />
               </button>
               <AnimatePresence initial={false}>
@@ -5636,16 +5699,48 @@ const ERP_Dashboard = () => {
         <main className="flex-1 p-6 overflow-auto bg-[#f8fafc]">
           <div className="flex flex-col gap-5 mb-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <h2 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
-                  관리대장 현황
-                  {payDateFilter && (
-                    <span className="text-[12px] font-bold px-3 py-1 bg-blue-600 text-white rounded-full flex items-center gap-1.5 shadow-sm">
-                      <Calendar size={13} />
-                      {payDateFilter} 지급예정
-                    </span>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1.5 bg-slate-200/80 p-1 rounded-xl shadow-2xs border border-slate-200">
+                  <button
+                    onClick={() => setPcViewMode('contracts')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                      pcViewMode === 'contracts'
+                        ? 'bg-white text-blue-600 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <FileSpreadsheet size={14} />
+                    계약 관리 (계약건수)
+                  </button>
+                  {showCommissionInfo && (
+                    <button
+                      onClick={() => {
+                        setPcViewMode('settlement');
+                        setOpenSections(prev => ({ ...prev, settlement: true }));
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        pcViewMode === 'settlement'
+                          ? 'bg-amber-500 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <TrendingUp size={14} />
+                      정산 및 리포트
+                    </button>
                   )}
-                </h2>
+                </div>
+                {pcViewMode === 'contracts' && (
+                  <span className="text-[12px] font-bold px-3 py-1 bg-blue-600 text-white rounded-full flex items-center gap-1.5 shadow-sm">
+                    <Calendar size={13} />
+                    {contractMonthFilter === '전체' ? '전체 계약' : `${contractMonthFilter} 계약`}
+                  </span>
+                )}
+                {pcViewMode === 'settlement' && payDateFilter && (
+                  <span className="text-[12px] font-bold px-3 py-1 bg-amber-600 text-white rounded-full flex items-center gap-1.5 shadow-sm">
+                    <Calendar size={13} />
+                    {payDateFilter} 지급예정
+                  </span>
+                )}
               </div>
               
               <div className="flex-1 max-w-4xl md:ml-auto flex items-center justify-end gap-1.5 w-full pr-2">
@@ -5720,8 +5815,9 @@ const ERP_Dashboard = () => {
               </div>
             </div>
 
-            {/* 구좌 현황 대시보드 (수수료 대시보드 위) */}
-            <div className="mb-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-200/90">
+            {/* 구좌 현황 대시보드 (기본 첫화면에서 계약건수 중심 노출) */}
+            {pcViewMode === 'contracts' && (
+              <div className="mb-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-200/90">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-5 pb-4 border-b border-slate-100 gap-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-blue-50 rounded-xl text-blue-600 border border-blue-100 shadow-2xs">
@@ -5730,8 +5826,8 @@ const ERP_Dashboard = () => {
                   <div>
                     <h3 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2.5">
                       월별 계약 현황
-                      <span className="text-xs font-bold px-2.5 py-0.5 bg-slate-100 text-slate-600 rounded-md">
-                        {topDashboardMonth} 기준
+                      <span className="text-xs font-bold px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md">
+                        {contractMonthFilter === '전체' ? '전체 기간 누적' : `${contractMonthFilter} 기준`}
                       </span>
                     </h3>
                     <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">선택하신 월의 상품별·본부별·지사별 계약 실적 및 배송/취소 현황입니다.</p>
@@ -5752,12 +5848,34 @@ const ERP_Dashboard = () => {
                       상품개수 기준
                     </button>
                   </div>
-                  <input
-                    type="month"
-                    value={topDashboardMonth}
-                    onChange={(e) => setTopDashboardMonth(e.target.value)}
-                    className="px-3.5 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs w-full sm:w-auto cursor-pointer"
-                  />
+                  <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                    <select
+                      value={contractMonthFilter}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setContractMonthFilter(val);
+                        if (val !== '전체') setTopDashboardMonth(val);
+                      }}
+                      className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs cursor-pointer"
+                    >
+                      <option value="전체">전체 월 (누적)</option>
+                      {uniqueContractMonths.filter(m => m !== '전체').map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                    {contractMonthFilter !== '전체' && (
+                      <input
+                        type="month"
+                        value={contractMonthFilter}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setContractMonthFilter(val);
+                          setTopDashboardMonth(val);
+                        }}
+                        className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs cursor-pointer"
+                      />
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -5772,13 +5890,18 @@ const ERP_Dashboard = () => {
                 const cancelSeenRentalNos = new Set<string>();
                 const deliveryCompleteSeenRentalNos = new Set<string>();
 
+                const targetMonth = contractMonthFilter === '전체' ? '' : contractMonthFilter;
+
                 data.forEach(d => {
                   const contractDateStr = d.contractDate ? d.contractDate.replace(/\./g, '-').substring(0, 7) : '';
                   const deliveryDateStr = d.deliveryDate ? d.deliveryDate.replace(/\./g, '-').substring(0, 7) : '';
 
                   const isDeliveryComplete = d.deliveryStatus === '배송완료';
 
-                  if (isDeliveryComplete && deliveryDateStr === topDashboardMonth) {
+                  const matchesDeliveryMonth = !targetMonth || deliveryDateStr === targetMonth;
+                  const matchesMonth = !targetMonth || contractDateStr === targetMonth;
+
+                  if (isDeliveryComplete && matchesDeliveryMonth) {
                     if (topDashboardMode === '상품개수' && d.rentalNo) {
                       if (!deliveryCompleteSeenRentalNos.has(d.rentalNo)) {
                         deliveryCompleteSeenRentalNos.add(d.rentalNo);
@@ -5789,7 +5912,7 @@ const ERP_Dashboard = () => {
                     }
                   }
 
-                  if (contractDateStr === topDashboardMonth) {
+                  if (matchesMonth) {
                     const isCancelled = d.status.includes('취소') || d.status.includes('해약') || d.deliveryStatus.includes('취소') || d.deliveryStatus.includes('반품');
 
                     if (topDashboardMode === '상품개수' && d.rentalNo) {
@@ -5987,10 +6110,10 @@ const ERP_Dashboard = () => {
                 );
               })()}
             </div>
+            )}
 
-
-            {/* 정산 요약 대시보드 */}
-            {showCommissionInfo && (payDateFilter || filteredData.length > 0) && (
+            {/* 정산 요약 대시보드 (정산 및 리포트 화면에서 최상단 노출) */}
+            {pcViewMode === 'settlement' && showCommissionInfo && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -6253,7 +6376,7 @@ const ERP_Dashboard = () => {
                   </div>
 
                   {/* 지급상태 필터 */}
-                  {showCommissionInfo && (
+                  {pcViewMode === 'settlement' && showCommissionInfo && (
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider select-none">지급상태</span>
                       <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 gap-1">
@@ -6300,30 +6423,63 @@ const ERP_Dashboard = () => {
                       <option value="asc">오래순</option>
                     </select>
                   </div>
-                  <button
-                    onClick={() => setIsCalendarModalOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 transition-all group"
-                    title="전체 지급일 달력 보기"
-                  >
-                    <Calendar size={13} className="text-slate-400 group-hover:text-blue-600" />
-                    <span className="bg-slate-100 text-[10px] font-black text-blue-600 rounded px-1.5 py-0.5 group-hover:bg-blue-600 group-hover:text-white transition-colors">지급일</span>
-                  </button>
-                  <div className="relative flex items-center">
-                    <span className="absolute -top-6 left-0 bg-rose-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-md animate-bounce flex items-center gap-1">
-                      <span className="w-1 h-1 rounded-full bg-white animate-ping"></span>
-                      1순위 필수 설정
-                    </span>
-                    <div className="flex items-center gap-1 px-3 py-1.5 bg-rose-50/50 border-2 border-rose-500 rounded-lg shadow-md hover:border-rose-600 transition-colors">
-                      <span className="text-[10px] font-black text-rose-600 uppercase">지급일 정산:</span>
+                  {pcViewMode === 'contracts' && (
+                    <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50/50 border-2 border-blue-500 rounded-lg shadow-md hover:border-blue-600 transition-colors">
+                      <Calendar size={13} className="text-blue-600" />
+                      <span className="text-[10px] font-black text-blue-600 uppercase">계약월:</span>
                       <select
-                        value={payDateFilter}
-                        onChange={(e) => setPayDateFilter(e.target.value === '전체' ? '' : e.target.value)}
-                        className="bg-transparent text-[12px] font-black text-rose-700 outline-none cursor-pointer"
+                        value={contractMonthFilter}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setContractMonthFilter(val);
+                          if (val !== '전체') setTopDashboardMonth(val);
+                        }}
+                        className="bg-transparent text-[12px] font-black text-blue-700 outline-none cursor-pointer"
                       >
-                        {uniquePayDates.map(date => <option key={date} value={date}>{date}</option>)}
+                        <option value="전체">전체 월</option>
+                        {uniqueContractMonths.filter(m => m !== '전체').map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
                       </select>
+                      {contractMonthFilter !== '전체' && (
+                        <button
+                          onClick={() => setContractMonthFilter('전체')}
+                          className="text-[10px] font-bold text-slate-400 hover:text-slate-600 bg-white px-1 rounded ml-0.5 border border-slate-200 cursor-pointer"
+                          title="전체 월 보기"
+                        >
+                          전체
+                        </button>
+                      )}
                     </div>
-                  </div>
+                  )}
+                  {pcViewMode === 'settlement' && showCommissionInfo && (
+                    <>
+                      <button
+                        onClick={() => setIsCalendarModalOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 transition-all group"
+                        title="전체 지급일 달력 보기"
+                      >
+                        <Calendar size={13} className="text-slate-400 group-hover:text-blue-600" />
+                        <span className="bg-slate-100 text-[10px] font-black text-blue-600 rounded px-1.5 py-0.5 group-hover:bg-blue-600 group-hover:text-white transition-colors">지급일</span>
+                      </button>
+                      <div className="relative flex items-center">
+                        <span className="absolute -top-6 left-0 bg-rose-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-md animate-bounce flex items-center gap-1">
+                          <span className="w-1 h-1 rounded-full bg-white animate-ping"></span>
+                          1순위 필수 설정
+                        </span>
+                        <div className="flex items-center gap-1 px-3 py-1.5 bg-rose-50/50 border-2 border-rose-500 rounded-lg shadow-md hover:border-rose-600 transition-colors">
+                          <span className="text-[10px] font-black text-rose-600 uppercase">지급일 정산:</span>
+                          <select
+                            value={payDateFilter}
+                            onChange={(e) => setPayDateFilter(e.target.value === '전체' ? '' : e.target.value)}
+                            className="bg-transparent text-[12px] font-black text-rose-700 outline-none cursor-pointer"
+                          >
+                            {uniquePayDates.map(date => <option key={date} value={date}>{date}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    </>
+                  )}
                   <button onClick={resetFilters} className="p-2 border border-slate-200 rounded-lg text-slate-400 hover:text-blue-600 bg-white transition-all shadow-sm">
                     <RefreshCw size={14} />
                   </button>
@@ -6363,7 +6519,7 @@ const ERP_Dashboard = () => {
                       className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
                     />
                   </div>
-                  {showCommissionInfo && selectedTableKeys.size > 0 && (
+                  {pcViewMode === 'settlement' && showCommissionInfo && selectedTableKeys.size > 0 && (
                     <button
                       onClick={() => {
                         setBatchPayDateInput('');
@@ -6376,7 +6532,7 @@ const ERP_Dashboard = () => {
                       수수료 지급일자 일괄 변경 ({selectedTableKeys.size}건)
                     </button>
                   )}
-                  {showCommissionInfo && filteredData.length > 0 && (
+                  {pcViewMode === 'settlement' && showCommissionInfo && filteredData.length > 0 && (
                     <button
                       onClick={async () => {
                         if (await (window as any).customConfirm(`현재 필터링된 ${filteredData.length}건을 모두 '지급완료' 처리하시겠습니까?\n\n(참고: 취소된 건은 제외됩니다)`, '일괄 지급완료')) {
@@ -6429,7 +6585,7 @@ const ERP_Dashboard = () => {
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원명</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">상품명</th>
-                    {showCommissionInfo && (
+                    {pcViewMode === 'settlement' && showCommissionInfo && (
                       <th className="px-3 py-3 font-bold text-center border-r border-slate-700 leading-tight whitespace-nowrap">
                         전체수수료<br/>
                         <span className="text-[10px] text-slate-400 font-normal">(본부설정기준)</span>
@@ -6438,7 +6594,7 @@ const ERP_Dashboard = () => {
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">렌탈번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송현황</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">배송일자</th>
-                    {showCommissionInfo && (
+                    {pcViewMode === 'settlement' && showCommissionInfo && (
                       <>
                         <th className="px-3 py-3 font-bold text-center border-r border-slate-700 text-blue-300">지급일자</th>
                         <th className="px-3 py-3 font-bold text-center border-r border-slate-700">지급상태</th>
@@ -6524,7 +6680,7 @@ const ERP_Dashboard = () => {
                           </td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-black text-slate-900">{item.memName}</td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-bold text-slate-600 truncate max-w-[150px]" title={item.prodName}>{item.prodName}</td>
-                          {showCommissionInfo && (
+                          {pcViewMode === 'settlement' && showCommissionInfo && (
                             <td className="px-3 py-3.5 border-r border-slate-50 text-right font-black text-slate-700 bg-amber-50/10 whitespace-nowrap">{Math.floor(totalCommission).toLocaleString()}원</td>
                           )}
                           <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-500">{item.rentalNo}</td>
@@ -6536,7 +6692,7 @@ const ERP_Dashboard = () => {
                           </span>
                         </td>
                         <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-400 whitespace-nowrap">{item.deliveryDate || '-'}</td>
-                        {showCommissionInfo && (
+                        {pcViewMode === 'settlement' && showCommissionInfo && (
                           <>
                             <td className="px-3 py-3.5 border-r border-slate-50 text-center font-black text-indigo-600 bg-indigo-50/20 whitespace-nowrap">
                               {item.payDate || '-'}
@@ -6658,7 +6814,7 @@ const ERP_Dashboard = () => {
 
                 <div className="flex-1 overflow-auto p-6 space-y-8">
                   {/* 정산 요약 - 실시간 계산 결과 */}
-                  {detailSource !== 'healthcare' && showCommissionInfo && (
+                  {detailSource !== 'healthcare' && pcViewMode === 'settlement' && showCommissionInfo && (
                   <section className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
                     <h4 className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
                       <TrendingUp size={14} /> 실시간 정산 분석 (본부 설정 기준)
@@ -6791,7 +6947,9 @@ const ERP_Dashboard = () => {
                                     const selectEl = document.getElementById('batchContractStatusSelect') as HTMLSelectElement;
                                     const val = selectEl?.value;
                                     if (!val) return;
-                                    if (await (window as any).customConfirm(`관련 회원 ${relatedMembers.length}건의 계약 상태를 모두 '${val}'(으)로 일괄 변경하시겠습니까?`)) {
+                                    const memberNames = relatedMembers.map(m => `${m.memName || selectedItem.memName}(${m.memNo})`).join(', ');
+                                    const confirmMsg = `관련 회원 총 ${relatedMembers.length}건의 계약 상태를 모두 '${val}'(으)로 일괄 변경하시겠습니까?\n\n[대상자]: ${memberNames}\n(동일 렌탈번호: ${selectedItem.rentalNo || '단독건'})`;
+                                    if (await (window as any).customConfirm(confirmMsg, '계약 상태 일괄 변경 확인')) {
                                       await handleBatchStatusUpdate(relatedMembers, val);
                                     }
                                   }}
@@ -6808,8 +6966,11 @@ const ERP_Dashboard = () => {
                             {relatedMembers.map((m, mIdx) => (
                               <div key={m.uniqueKey || mIdx} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                 <div className="flex flex-col gap-0.5">
-                                  <span className="text-[10px] font-bold text-slate-400">회원번호</span>
-                                  <span className="text-[13px] font-black text-slate-800">{m.memNo}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[13px] font-black text-slate-800">{m.memName || selectedItem.memName}</span>
+                                    <span className="text-[11px] font-medium text-slate-500 font-mono">({m.memNo})</span>
+                                  </div>
+                                  <span className="text-[10px] text-slate-400 truncate max-w-[200px]">{m.prodName || selectedItem.prodName}</span>
                                 </div>
                                 <div className="flex items-center gap-4">
                                   <div className="flex flex-col gap-0.5 min-w-[70px]">
@@ -6840,7 +7001,8 @@ const ERP_Dashboard = () => {
                                         onClick={async () => {
                                           const selectEl = document.getElementById(`editStatus-${m.originalRowIdx}`) as HTMLSelectElement;
                                           const val = selectEl.value;
-                                          if (await (window as any).customConfirm(`회원번호 ${m.memNo}의 상태를 '${val}'(으)로 변경하시겠습니까?`)) {
+                                          const confirmMsg = `${m.memName || selectedItem.memName}님 (${m.memNo})의 계약 상태를 '${val}'(으)로 변경하시겠습니까?`;
+                                          if (await (window as any).customConfirm(confirmMsg, '계약 상태 개별 변경')) {
                                             await updateCell(m.originalRowIdx, 1, val);
                                           }
                                         }}
@@ -6876,7 +7038,7 @@ const ERP_Dashboard = () => {
                   </section>
 
                   {/* 수수료정보 및 메모 */}
-                  {showCommissionInfo && (
+                  {pcViewMode === 'settlement' && showCommissionInfo && (
                     <section>
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                         <div className="w-1 h-3 bg-orange-500 rounded-full" />
@@ -7022,7 +7184,7 @@ const ERP_Dashboard = () => {
 
                 <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
                   <div>
-                    {showCommissionInfo && (selectedItem.paymentStatus === '지급완료' || (selectedItem.hc && selectedItem.hc.includes('지급완료'))) && (
+                    {pcViewMode === 'settlement' && showCommissionInfo && (selectedItem.paymentStatus === '지급완료' || (selectedItem.hc && selectedItem.hc.includes('지급완료'))) && (
                       <button
                         onClick={async () => {
                           if (await (window as any).customConfirm('해당 건의 지급 완료 처리를 취소하시겠습니까?')) {
