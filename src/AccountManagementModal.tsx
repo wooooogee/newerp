@@ -91,6 +91,8 @@ export function AccountManagementModal({
       setHasChanges(false);
       setSearchTerm('');
       setSelectedRoleFilter('전체');
+      setNewUsername('');
+      setNewPassword('');
     }
   }, [isOpen, initialMembers]);
 
@@ -742,16 +744,13 @@ export function AccountManagementModal({
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="예: hq_gangnam"
+                    name="erp_new_account_id"
+                    autoComplete="off"
+                    placeholder="아이디 입력"
                     value={newUsername}
                     onChange={(e) => {
                       const u = e.target.value.trim();
                       setNewUsername(u);
-                      // 기존 아이디가 존재하면 해당 계정의 비밀번호 자동 채움 안내
-                      const matched = members.find(m => m.username.toLowerCase() === u.toLowerCase());
-                      if (matched && !newPassword) {
-                        setNewPassword(matched.password);
-                      }
                     }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none placeholder:font-normal placeholder:text-slate-400"
                   />
@@ -766,7 +765,9 @@ export function AccountManagementModal({
                 <div className="relative flex items-center">
                   <input
                     type={showNewPassword ? 'text' : 'password'}
-                    placeholder="비밀번호"
+                    name="erp_new_account_pwd"
+                    autoComplete="new-password"
+                    placeholder="비밀번호 입력"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none"
