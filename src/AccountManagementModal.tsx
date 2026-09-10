@@ -820,7 +820,7 @@ export function AccountManagementModal({
                 <thead className="bg-slate-100/80 text-slate-600 font-black sticky top-0 z-10 border-b border-slate-200 select-none">
                   <tr>
                     <th className="px-4 py-3 text-center w-12 whitespace-nowrap">No</th>
-                    <th className="px-4 py-3 text-center w-28 whitespace-nowrap">대표 권한</th>
+                    <th className="px-4 py-3 text-center min-w-[120px] whitespace-nowrap">대표 권한</th>
                     <th className="px-4 py-3 min-w-[160px] whitespace-nowrap">로그인 아이디</th>
                     <th className="px-4 py-3 min-w-[130px] whitespace-nowrap">비밀번호</th>
                     <th className="px-4 py-3 min-w-[320px]">관리 권한 (소속 본부 / 지사 목록)</th>
@@ -846,13 +846,13 @@ export function AccountManagementModal({
                           className={`hover:bg-slate-50/80 transition-colors ${isCurrentUser ? 'bg-blue-50/40' : ''}`}
                         >
                           {/* 번호 */}
-                          <td className="px-4 py-3 text-center text-slate-400 font-mono text-[11px]">
+                          <td className="px-4 py-3 text-center text-slate-400 font-mono text-[11px] whitespace-nowrap">
                             {seq + 1}
                           </td>
 
                           {/* 대표 권한 뱃지 */}
-                          <td className="px-4 py-3 text-center">
-                            <span className={`inline-block px-2.5 py-0.5 rounded-md text-[11px] font-black ${
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            <span className={`inline-block px-2.5 py-0.5 rounded-md text-[11px] font-black whitespace-nowrap shrink-0 ${
                               acc.primaryRole.includes('관리자') ? 'bg-rose-100 text-rose-700 border border-rose-200' :
                               acc.primaryRole.includes('총무') ? 'bg-purple-100 text-purple-700 border border-purple-200' :
                               acc.primaryRole.includes('본부') ? 'bg-blue-100 text-blue-700 border border-blue-200' :
@@ -905,11 +905,11 @@ export function AccountManagementModal({
                               {acc.orgEntries.map((entry, eIdx) => (
                                 <span
                                   key={`${entry.role}-${entry.orgName}-${eIdx}`}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg shadow-2xs text-xs font-bold text-slate-700 group hover:border-slate-300"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg shadow-2xs text-xs font-bold text-slate-700 group hover:border-slate-300 whitespace-nowrap shrink-0"
                                 >
-                                  <Building2 size={11} className="text-slate-400" />
-                                  <span className="text-[10px] text-blue-600 font-black">[{entry.role}]</span>
-                                  <span>{entry.orgName}</span>
+                                  <Building2 size={11} className="text-slate-400 shrink-0" />
+                                  <span className="text-[10px] text-blue-600 font-black whitespace-nowrap shrink-0">[{entry.role}]</span>
+                                  <span className="whitespace-nowrap">{entry.orgName}</span>
                                   {acc.orgEntries.length > 1 && (
                                     <button
                                       type="button"

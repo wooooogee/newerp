@@ -1671,6 +1671,23 @@ const ERP_Dashboard = () => {
             return false;
           };
 
+          // 영업사원 계약 매칭 헬퍼 (로그인 아이디, 관리권한에 입력한 사원코드/회원번호/사원명)
+          const isSalesPersonMatch = (item: ERPDataItem, targetOrgName: string) => {
+            const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
+            const itemMemNoClean = String(item.memNo || '').trim().toUpperCase();
+            const orgNameClean = String(targetOrgName || '').trim().toUpperCase();
+            const itemEmpNameNorm = normOrg(item.empName);
+            const targetOrgNorm = normOrg(targetOrgName);
+
+            if (itemEmpCodeClean && orgNameClean && itemEmpCodeClean === orgNameClean) return true;
+            if (itemMemNoClean && orgNameClean && itemMemNoClean === orgNameClean) return true;
+            if (itemEmpNameNorm && targetOrgNorm && (itemEmpNameNorm === targetOrgNorm || itemEmpNameNorm.includes(targetOrgNorm) || targetOrgNorm.includes(itemEmpNameNorm))) return true;
+            if (itemEmpCodeClean && itemEmpCodeClean === usernameClean) return true;
+            if (itemMemNoClean && itemMemNoClean === usernameClean) return true;
+            if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
+            return false;
+          };
+
           if (currentUser.orgs && currentUser.orgs.length > 0) {
             finalData = initialData.filter(item => {
               return currentUser.orgs!.some(org => {
@@ -1685,8 +1702,7 @@ const ERP_Dashboard = () => {
                   const isSelfMatch = isEmpSelfMatch(item, normOrgName);
                   return isBranchMatch || isSelfMatch;
                 } else {
-                  return (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
-                         (!item.empCode && normOrg(item.empName) === normOrgName);
+                  return isSalesPersonMatch(item, org.orgName || '');
                 }
               });
             });
@@ -1706,10 +1722,7 @@ const ERP_Dashboard = () => {
                 return isBranchMatch || isSelfMatch;
               });
             } else {
-              finalData = initialData.filter(item =>
-                (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
-                (!item.empCode && normOrg(item.empName) === normOrgName)
-              );
+              finalData = initialData.filter(item => isSalesPersonMatch(item, currentUser.orgName || ''));
             }
           }
         }
@@ -1804,6 +1817,23 @@ const ERP_Dashboard = () => {
           return false;
         };
 
+        // 영업사원 계약 매칭 헬퍼 (로그인 아이디, 관리권한에 입력한 사원코드/회원번호/사원명)
+        const isSalesPersonMatch = (item: ERPDataItem, targetOrgName: string) => {
+          const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
+          const itemMemNoClean = String(item.memNo || '').trim().toUpperCase();
+          const orgNameClean = String(targetOrgName || '').trim().toUpperCase();
+          const itemEmpNameNorm = normOrg(item.empName);
+          const targetOrgNorm = normOrg(targetOrgName);
+
+          if (itemEmpCodeClean && orgNameClean && itemEmpCodeClean === orgNameClean) return true;
+          if (itemMemNoClean && orgNameClean && itemMemNoClean === orgNameClean) return true;
+          if (itemEmpNameNorm && targetOrgNorm && (itemEmpNameNorm === targetOrgNorm || itemEmpNameNorm.includes(targetOrgNorm) || targetOrgNorm.includes(itemEmpNameNorm))) return true;
+          if (itemEmpCodeClean && itemEmpCodeClean === usernameClean) return true;
+          if (itemMemNoClean && itemMemNoClean === usernameClean) return true;
+          if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
+          return false;
+        };
+
         if (currentUser.orgs && currentUser.orgs.length > 0) {
           finalData = formatted.filter(item => {
             return currentUser.orgs!.some(org => {
@@ -1818,8 +1848,7 @@ const ERP_Dashboard = () => {
                 const isSelfMatch = isEmpSelfMatch(item, normOrgName);
                 return isBranchMatch || isSelfMatch;
               } else {
-                return (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
-                       (!item.empCode && normOrg(item.empName) === normOrgName);
+                return isSalesPersonMatch(item, org.orgName || '');
               }
             });
           });
@@ -1839,10 +1868,7 @@ const ERP_Dashboard = () => {
               return isBranchMatch || isSelfMatch;
             });
           } else {
-            finalData = formatted.filter(item =>
-              (item.empCode && String(item.empCode).trim().toUpperCase() === usernameClean) ||
-              (!item.empCode && normOrg(item.empName) === normOrgName)
-            );
+            finalData = formatted.filter(item => isSalesPersonMatch(item, currentUser.orgName || ''));
           }
         }
       }

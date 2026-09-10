@@ -373,15 +373,21 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
   const isMyContract = (item: any) => {
     const itemEmpNameNorm = normOrg(item.empName);
     const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
+    const itemMemNoClean = String(item.memNo || '').trim().toUpperCase();
     const usernameClean = (currentUser.username || '').trim().toUpperCase();
     const orgNameNorm = normOrg(currentUser.orgName);
+    const orgNameClean = String(currentUser.orgName || '').trim().toUpperCase();
 
-    if (itemEmpCodeClean && itemEmpCodeClean === usernameClean) return true;
+    if (itemEmpCodeClean && (itemEmpCodeClean === usernameClean || itemEmpCodeClean === orgNameClean)) return true;
+    if (itemMemNoClean && (itemMemNoClean === usernameClean || itemMemNoClean === orgNameClean)) return true;
     if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
     if (itemEmpNameNorm && orgNameNorm && (orgNameNorm === itemEmpNameNorm || orgNameNorm.includes(itemEmpNameNorm) || itemEmpNameNorm.includes(orgNameNorm))) return true;
     if (currentUser.orgs && currentUser.orgs.length > 0) {
       return currentUser.orgs.some(o => {
         const oNorm = normOrg(o.orgName);
+        const oClean = String(o.orgName || '').trim().toUpperCase();
+        if (itemEmpCodeClean && oClean && itemEmpCodeClean === oClean) return true;
+        if (itemMemNoClean && oClean && itemMemNoClean === oClean) return true;
         return oNorm && (oNorm === itemEmpNameNorm || oNorm.includes(itemEmpNameNorm) || itemEmpNameNorm.includes(oNorm));
       });
     }
