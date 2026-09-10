@@ -97,6 +97,7 @@ interface HQSetting {
   accountNumber: string;
   accountHolder: string;
   paymentMethod: string;
+  isActive?: boolean;
 
   // 오버라이딩 활성화 여부 및 상세 설정
   enableOverriding: boolean;
@@ -9876,6 +9877,7 @@ const ERP_Dashboard = () => {
               availableHqs={uniqueHqs}
               availableBranches={allBranches}
               currentUser={currentUser}
+              hqSettings={hqSettings}
             />
           )}
         </AnimatePresence>

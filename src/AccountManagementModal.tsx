@@ -33,6 +33,7 @@ interface AccountManagementModalProps {
   availableHqs: string[];
   availableBranches?: string[];
   currentUser: { username: string; role: string; orgName: string } | null;
+  hqSettings?: { hqName: string; isActive?: boolean }[];
 }
 
 const PRESET_ROLES = [
@@ -52,7 +53,8 @@ export function AccountManagementModal({
   onSaveMembers,
   availableHqs,
   availableBranches = [],
-  currentUser
+  currentUser,
+  hqSettings = []
 }: AccountManagementModalProps) {
   const [members, setMembers] = useState<MemberAccount[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -73,6 +75,7 @@ export function AccountManagementModal({
   // 다중 조직 할당 모달 상태
   const [assignModalAccount, setAssignModalAccount] = useState<GroupedAccount | null>(null);
   const [assignSearch, setAssignSearch] = useState('');
+  const [assignHqStatusFilter, setAssignHqStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   // 단일 계정 수정 모달 상태
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -122,14 +125,73 @@ export function AccountManagementModal({
     }
   }, [isOpen, initialMembers]);
 
-  // 본부 및 지사 목록 정제
-  const cleanHqs = useMemo(() => {
-    return Array.from(new Set(availableHqs.filter(h => h && h !== '전체'))).sort();
-  }, [availableHqs]);
+  // 본부 상태 맵 (운영 여부 확인용: isActive === false인 경우만 미운영, 그 외는 운영중)
+  const hqStatusMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    (hqSettings || []).forEach(h => {
+      if (h.hqName) {
+        map.set(h.hqName.trim().toLowerCase(), h.isActive !== false);
+      }
+    });
+    return map;
+  }, [hqSettings]);
 
+  // 특정 본부가 운영중인지 여부 판단
+  const isHqActive = (hqName: string): boolean => {
+    const norm = (hqName || '').trim().toLowerCase();
+    if (hqStatusMap.has(norm)) {
+      return hqStatusMap.get(norm)!;
+    }
+    return true; // 기본값은 운영중
+  };
+
+  // 등록된 모든 본부 목록 (설정 + 계약데이터 + 기존 계정 소속 본부 통합)
+  const cleanHqs = useMemo(() => {
+    const set = new Set<string>();
+    (hqSettings || []).forEach(h => {
+      if (h.hqName && h.hqName.trim()) set.add(h.hqName.trim());
+    });
+    availableHqs.forEach(h => {
+      if (h && h !== '전체' && h.trim()) set.add(h.trim());
+    });
+    members.forEach(m => {
+      if ((m.role === '본부' || m.role === '본부모바일') && m.orgName && m.orgName.trim()) {
+        set.add(m.orgName.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+  }, [hqSettings, availableHqs, members]);
+
+  // 지사 목록 정제
   const cleanBranches = useMemo(() => {
-    return Array.from(new Set(availableBranches.filter(b => b && b !== '전체'))).sort();
-  }, [availableBranches]);
+    const set = new Set<string>();
+    availableBranches.forEach(b => {
+      if (b && b !== '전체' && b.trim()) set.add(b.trim());
+    });
+    members.forEach(m => {
+      if ((m.role === '지사' || m.role === '지사모바일' || m.role === '지점') && m.orgName && m.orgName.trim()) {
+        set.add(m.orgName.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+  }, [availableBranches, members]);
+
+  // 운영중 / 미운영 본부 개수 통계
+  const activeHqCount = useMemo(() => cleanHqs.filter(h => isHqActive(h)).length, [cleanHqs, hqStatusMap]);
+  const inactiveHqCount = useMemo(() => cleanHqs.filter(h => !isHqActive(h)).length, [cleanHqs, hqStatusMap]);
+
+  // 다중 할당 모달 내 본부 필터링 결과
+  const filteredHqs = useMemo(() => {
+    return cleanHqs.filter(h => {
+      if (assignSearch && !h.toLowerCase().includes(assignSearch.toLowerCase())) {
+        return false;
+      }
+      const active = isHqActive(h);
+      if (assignHqStatusFilter === 'active' && !active) return false;
+      if (assignHqStatusFilter === 'inactive' && active) return false;
+      return true;
+    });
+  }, [cleanHqs, assignSearch, assignHqStatusFilter, hqStatusMap]);
 
   // 아이디(username)별로 묶은 GroupedAccount 목록
   const groupedAccounts = useMemo(() => {
@@ -730,9 +792,14 @@ export function AccountManagementModal({
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none"
                   >
                     <option value="">본부 선택...</option>
-                    {cleanHqs.map(hq => (
-                      <option key={hq} value={hq}>{hq}</option>
-                    ))}
+                    {cleanHqs.map(hq => {
+                      const active = isHqActive(hq);
+                      return (
+                        <option key={hq} value={hq}>
+                          {hq} {active ? '(운영)' : '(미운영)'}
+                        </option>
+                      );
+                    })}
                   </select>
                 ) : newOrgType === 'branch' ? (
                   <select
@@ -987,6 +1054,7 @@ export function AccountManagementModal({
                                 onClick={() => {
                                   setAssignModalAccount(acc);
                                   setAssignSearch('');
+                                  setAssignHqStatusFilter('all');
                                 }}
                                 className="inline-flex items-center gap-1 px-2 py-0.8 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-black transition-all cursor-pointer shadow-2xs"
                                 title="본부/지사 권한 추가 및 제거"
@@ -1005,6 +1073,7 @@ export function AccountManagementModal({
                                 onClick={() => {
                                   setAssignModalAccount(acc);
                                   setAssignSearch('');
+                                  setAssignHqStatusFilter('all');
                                 }}
                                 className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-bold shadow-2xs flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap shrink-0"
                                 title="본부/지사 다중 권한 설정"
@@ -1172,7 +1241,7 @@ export function AccountManagementModal({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden z-10"
+              className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden z-10"
             >
               {/* 모달 헤더 */}
               <div className="px-6 py-4 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
@@ -1219,44 +1288,103 @@ export function AccountManagementModal({
                 
                 {/* 1. 본부 목록 */}
                 <div>
-                  <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-100">
-                    <h4 className="text-xs font-black text-slate-700 flex items-center gap-1.5">
-                      <Building2 size={14} className="text-blue-600" />
-                      본부 권한 선택 ({cleanHqs.length}개)
-                    </h4>
-                    <span className="text-[11px] text-slate-400">
-                      선택 시 해당 본부 전체 및 산하 지사 데이터가 조회됩니다.
+                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100 flex-wrap gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                        <Building2 size={15} className="text-blue-600" />
+                        본부 권한 선택
+                      </h4>
+                      {/* 운영 / 미운영 구분 필터 탭 */}
+                      <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px] font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setAssignHqStatusFilter('all')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            assignHqStatusFilter === 'all'
+                              ? 'bg-white text-slate-900 shadow-2xs font-black'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          전체 ({cleanHqs.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAssignHqStatusFilter('active')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                            assignHqStatusFilter === 'active'
+                              ? 'bg-emerald-600 text-white shadow-2xs font-black'
+                              : 'text-emerald-700 hover:text-emerald-900'
+                          }`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                          운영중 ({activeHqCount})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAssignHqStatusFilter('inactive')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                            assignHqStatusFilter === 'inactive'
+                              ? 'bg-rose-500 text-white shadow-2xs font-black'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                          미운영 ({inactiveHqCount})
+                        </button>
+                      </div>
+                    </div>
+
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      💡 본부 선택 시 <b>해당 본부 전체 및 산하 지사</b> 데이터가 자동 조회됩니다.
                     </span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {cleanHqs
-                      .filter(h => !assignSearch || h.toLowerCase().includes(assignSearch.toLowerCase()))
-                      .map(hq => {
-                        const isChecked = members.some(
-                          m => m.username.toLowerCase() === assignModalAccount.username.toLowerCase() &&
-                               m.orgName.toLowerCase() === hq.toLowerCase()
-                        );
+                    {filteredHqs.map(hq => {
+                      const isChecked = members.some(
+                        m => m.username.toLowerCase() === assignModalAccount.username.toLowerCase() &&
+                             m.orgName.toLowerCase() === hq.toLowerCase()
+                      );
+                      const active = isHqActive(hq);
 
-                        return (
-                          <div
-                            key={hq}
-                            onClick={() => handleToggleOrgAssignment(assignModalAccount, hq, '본부')}
-                            className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer select-none ${
-                              isChecked
-                                ? 'bg-blue-50 border-blue-300 text-blue-900 shadow-2xs ring-1 ring-blue-300'
-                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span className="truncate mr-1">{hq}</span>
-                            <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 transition-colors ${
-                              isChecked ? 'bg-blue-600 text-white' : 'border border-slate-300 bg-white'
-                            }`}>
-                              {isChecked && <Check size={11} strokeWidth={3} />}
-                            </div>
+                      return (
+                        <div
+                          key={hq}
+                          onClick={() => handleToggleOrgAssignment(assignModalAccount, hq, '본부')}
+                          className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer select-none ${
+                            isChecked
+                              ? 'bg-blue-50 border-blue-400 text-blue-900 shadow-2xs ring-1 ring-blue-300'
+                              : active
+                                ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                                : 'bg-slate-50/70 border-slate-200 text-slate-500 hover:bg-slate-100/80'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 truncate mr-1.5">
+                            <span className="truncate">{hq}</span>
+                            {active ? (
+                              <span className="shrink-0 text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200">
+                                운영중
+                              </span>
+                            ) : (
+                              <span className="shrink-0 text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-rose-50 text-rose-500 border border-rose-200">
+                                미운영
+                              </span>
+                            )}
                           </div>
-                        );
-                      })}
+                          <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 transition-colors ${
+                            isChecked ? 'bg-blue-600 text-white' : 'border border-slate-300 bg-white'
+                          }`}>
+                            {isChecked && <Check size={11} strokeWidth={3} />}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {filteredHqs.length === 0 && (
+                      <div className="col-span-full py-8 text-center text-xs text-slate-400 font-bold bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                        선택한 조건에 일치하는 본부가 없습니다.
+                      </div>
+                    )}
                   </div>
                 </div>
 
