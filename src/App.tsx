@@ -1661,14 +1661,16 @@ const ERP_Dashboard = () => {
         if (currentUser && !isManager) {
           const usernameClean = currentUser.username.trim().toUpperCase();
           const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
+          const normName = (s: string) => (s || '').replace(/\s/g, '').toLowerCase();
+          const baseName = (s: string) => normName(s).replace(/\(\d+\)/g, '');
 
           // 사원/지사장 본인 계약건 여부 검사 헬퍼
           const isEmpSelfMatch = (item: ERPDataItem, targetOrgName: string) => {
-            const itemEmpNameNorm = normOrg(item.empName);
+            const itemEmpBaseName = baseName(item.empName);
             const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
             if (itemEmpCodeClean && itemEmpCodeClean === usernameClean) return true;
-            if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
-            if (itemEmpNameNorm && targetOrgName && (targetOrgName === itemEmpNameNorm || targetOrgName.includes(itemEmpNameNorm) || itemEmpNameNorm.includes(targetOrgName))) return true;
+            if (itemEmpBaseName && (itemEmpBaseName === normName(usernameClean) || usernameClean.toLowerCase().includes(itemEmpBaseName))) return true;
+            if (itemEmpBaseName && targetOrgName && (targetOrgName === itemEmpBaseName || targetOrgName.includes(itemEmpBaseName) || itemEmpBaseName.includes(targetOrgName))) return true;
             return false;
           };
 
@@ -1677,15 +1679,15 @@ const ERP_Dashboard = () => {
             const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
             const itemMemNoClean = String(item.memNo || '').trim().toUpperCase();
             const orgNameClean = String(targetOrgName || '').trim().toUpperCase();
-            const itemEmpNameNorm = normOrg(item.empName);
+            const itemEmpBaseName = baseName(item.empName);
             const targetOrgNorm = normOrg(targetOrgName);
 
             if (itemEmpCodeClean && orgNameClean && itemEmpCodeClean === orgNameClean) return true;
             if (itemMemNoClean && orgNameClean && itemMemNoClean === orgNameClean) return true;
-            if (itemEmpNameNorm && targetOrgNorm && (itemEmpNameNorm === targetOrgNorm || itemEmpNameNorm.includes(targetOrgNorm) || targetOrgNorm.includes(itemEmpNameNorm))) return true;
+            if (itemEmpBaseName && targetOrgNorm && (itemEmpBaseName === targetOrgNorm || itemEmpBaseName.includes(targetOrgNorm) || targetOrgNorm.includes(itemEmpBaseName))) return true;
             if (itemEmpCodeClean && itemEmpCodeClean === usernameClean) return true;
             if (itemMemNoClean && itemMemNoClean === usernameClean) return true;
-            if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
+            if (itemEmpBaseName && (itemEmpBaseName === normName(usernameClean) || usernameClean.toLowerCase().includes(itemEmpBaseName))) return true;
             return false;
           };
 
@@ -1733,7 +1735,10 @@ const ERP_Dashboard = () => {
         return;
       }
 
-      const res = await fetch('/api/sheets/data');
+      const [res, empRes] = await Promise.all([
+        fetch('/api/sheets/data'),
+        fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('사원리스트')}&t=${Date.now()}`).catch(() => null)
+      ]);
       if (!res.ok) {
         const errorData = await res.json();
         if (res.status === 401) {
@@ -1744,6 +1749,18 @@ const ERP_Dashboard = () => {
       const sheetData = await res.json();
       const sheetHeaders = sheetData[0] || [];
       setHeaders(sheetHeaders);
+
+      let empRows: any[][] = [];
+      if (empRes && empRes.ok) {
+        try {
+          const empJson = await empRes.json();
+          if (Array.isArray(empJson)) {
+            empRows = empJson;
+          }
+        } catch (e) {
+          console.warn('사원리스트 파싱 실패:', e);
+        }
+      }
 
       const formatted: ERPDataItem[] = sheetData.slice(1)
         .map((row: any[], idx: number) => ({ row, idx: idx + 1 })) // 원래 인덱스 유지 (헤더 제외하므로 +1)
@@ -1807,31 +1824,129 @@ const ERP_Dashboard = () => {
       if (currentUser && !isManager) {
         const usernameClean = currentUser.username.trim().toUpperCase();
         const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
+        const normName = (s: string) => (s || '').replace(/\s/g, '').toLowerCase();
+        const baseName = (s: string) => normName(s).replace(/\(\d+\)/g, '');
+
+        // 사원리스트 매핑 맵 구축
+        const codeToEmpMap = new Map<string, { code: string; hq: string; branch: string; name: string; phone: string; cleanPhone: string }>();
+        const phoneToEmpMap = new Map<string, { code: string; hq: string; branch: string; name: string; phone: string; cleanPhone: string }>();
+        const nameToEmpsMap = new Map<string, Array<{ code: string; hq: string; branch: string; name: string; phone: string; cleanPhone: string }>>();
+        const baseNameToEmpsMap = new Map<string, Array<{ code: string; hq: string; branch: string; name: string; phone: string; cleanPhone: string }>>();
+
+        if (empRows.length > 1) {
+          empRows.slice(1).forEach(r => {
+            const code = String(r[1] || '').trim();
+            const hq = String(r[2] || '').trim();
+            const branch = String(r[3] || '').trim();
+            const name = String(r[5] || '').trim();
+            const phone = String(r[11] || '').trim();
+            const cleanPhone = phone.replace(/\D/g, '');
+
+            const empObj = { code, hq, branch, name, phone, cleanPhone };
+            if (code) codeToEmpMap.set(code.toUpperCase(), empObj);
+            if (cleanPhone && cleanPhone.length >= 10) phoneToEmpMap.set(cleanPhone, empObj);
+            if (name) {
+              if (!nameToEmpsMap.has(name)) nameToEmpsMap.set(name, []);
+              nameToEmpsMap.get(name)!.push(empObj);
+              const bName = baseName(name);
+              if (!baseNameToEmpsMap.has(bName)) baseNameToEmpsMap.set(bName, []);
+              baseNameToEmpsMap.get(bName)!.push(empObj);
+            }
+          });
+        }
+
+        // 로그인 사용자 및 대상 조직명 기반 사원 정보 식별 헬퍼
+        const resolveEmpForTarget = (targetOrgName: string) => {
+          const codeCandidate = String(targetOrgName || '').trim().toUpperCase();
+          if (codeCandidate && codeToEmpMap.has(codeCandidate)) return codeToEmpMap.get(codeCandidate)!;
+
+          const nameCandidate = String(targetOrgName || '').trim();
+          if (nameCandidate && nameToEmpsMap.has(nameCandidate)) {
+            const list = nameToEmpsMap.get(nameCandidate)!;
+            if (list.length === 1) return list[0];
+            const hqMatch = list.find(e => currentUser.orgs?.some(o => normOrg(o.orgName) === normOrg(e.hq)));
+            if (hqMatch) return hqMatch;
+            return list[0];
+          }
+
+          const cleanUserPhone = currentUser.username.replace(/^a/i, '').replace(/\D/g, '');
+          if (cleanUserPhone.length >= 10 && phoneToEmpMap.has(cleanUserPhone)) {
+            return phoneToEmpMap.get(cleanUserPhone)!;
+          }
+
+          const userCode = currentUser.username.trim().toUpperCase();
+          if (codeToEmpMap.has(userCode)) return codeToEmpMap.get(userCode)!;
+
+          return null;
+        };
 
         // 사원/지사장 본인 계약건 여부 검사 헬퍼
         const isEmpSelfMatch = (item: ERPDataItem, targetOrgName: string) => {
-          const itemEmpNameNorm = normOrg(item.empName);
+          const itemRawName = String(item.empName || '').trim();
+          const itemEmpBaseName = baseName(itemRawName);
           const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
+
+          const emp = resolveEmpForTarget(targetOrgName);
+          if (emp) {
+            const empBaseName = baseName(emp.name);
+            if (itemEmpBaseName) {
+              return itemEmpBaseName === empBaseName;
+            }
+          }
+
           if (itemEmpCodeClean && itemEmpCodeClean === usernameClean) return true;
-          if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
-          if (itemEmpNameNorm && targetOrgName && (targetOrgName === itemEmpNameNorm || targetOrgName.includes(itemEmpNameNorm) || itemEmpNameNorm.includes(targetOrgName))) return true;
+          if (itemEmpBaseName && (itemEmpBaseName === normName(usernameClean) || usernameClean.toLowerCase().includes(itemEmpBaseName))) return true;
+          if (itemEmpBaseName && targetOrgName && (targetOrgName === itemEmpBaseName || targetOrgName.includes(itemEmpBaseName) || itemEmpBaseName.includes(targetOrgName))) return true;
           return false;
         };
 
-        // 영업사원 계약 매칭 헬퍼 (로그인 아이디, 관리권한에 입력한 사원코드/회원번호/사원명)
+        // 영업사원 계약 매칭 헬퍼 (사원명 및 본부 교차 검증으로 AB열 사원코드 오기입 등으로 인한 타인 계약 유출 완벽 차단)
         const isSalesPersonMatch = (item: ERPDataItem, targetOrgName: string) => {
           const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
           const itemMemNoClean = String(item.memNo || '').trim().toUpperCase();
           const orgNameClean = String(targetOrgName || '').trim().toUpperCase();
-          const itemEmpNameNorm = normOrg(item.empName);
+          const itemRawName = String(item.empName || '').trim();
+          const itemEmpBaseName = baseName(itemRawName);
+          const itemHqNorm = normOrg(item.hq);
           const targetOrgNorm = normOrg(targetOrgName);
 
+          const emp = resolveEmpForTarget(targetOrgName);
+          if (emp) {
+            const empBaseName = baseName(emp.name);
+            const empHqNorm = normOrg(emp.hq);
+            const empCodeClean = String(emp.code || '').trim().toUpperCase();
+
+            if (itemEmpBaseName) {
+              // 1. 사원명이 다르면 타인의 계약건이므로 무조건 제외 (AB열 오기입으로 인한 타인 계약 노출 차단)
+              if (itemEmpBaseName !== empBaseName) {
+                return false;
+              }
+
+              // 2. 사원명이 일치하는 경우: 본부 일치, 코드 일치, 또는 전체에서 유일한 이름인 경우 본인 계약으로 인정
+              const isHqMatch = empHqNorm && itemHqNorm && (itemHqNorm === empHqNorm || itemHqNorm.includes(empHqNorm) || empHqNorm.includes(itemHqNorm));
+              const isCodeMatch = empCodeClean && itemEmpCodeClean && itemEmpCodeClean === empCodeClean;
+              const isUniqueName = (baseNameToEmpsMap.get(empBaseName)?.length || 0) <= 1;
+
+              if (isHqMatch || isCodeMatch || isUniqueName) {
+                return true;
+              }
+              return false;
+            } else {
+              // 사원명이 공란인 경우: 사원코드로 확인
+              if (empCodeClean && itemEmpCodeClean && itemEmpCodeClean === empCodeClean) {
+                return true;
+              }
+              return false;
+            }
+          }
+
+          // 사원리스트 매칭 불가 시 기존 호환 폴백
           if (itemEmpCodeClean && orgNameClean && itemEmpCodeClean === orgNameClean) return true;
           if (itemMemNoClean && orgNameClean && itemMemNoClean === orgNameClean) return true;
-          if (itemEmpNameNorm && targetOrgNorm && (itemEmpNameNorm === targetOrgNorm || itemEmpNameNorm.includes(targetOrgNorm) || targetOrgNorm.includes(itemEmpNameNorm))) return true;
+          if (itemEmpBaseName && targetOrgNorm && (itemEmpBaseName === targetOrgNorm || itemEmpBaseName.includes(targetOrgNorm) || targetOrgNorm.includes(itemEmpBaseName))) return true;
           if (itemEmpCodeClean && itemEmpCodeClean === usernameClean) return true;
           if (itemMemNoClean && itemMemNoClean === usernameClean) return true;
-          if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
+          if (itemEmpBaseName && (itemEmpBaseName === normName(usernameClean) || usernameClean.toLowerCase().includes(itemEmpBaseName))) return true;
           return false;
         };
 

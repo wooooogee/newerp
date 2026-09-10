@@ -280,6 +280,40 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     return { empCodePhoneMap: codeMap, empNamePhoneMap: nameMap };
   }, [empList]);
 
+  // 사원리스트 기반 정밀 사원 매핑 맵
+  const { codeToEmpMap, phoneToEmpMap, nameToEmpsMap, baseNameToEmpsMap } = useMemo(() => {
+    const codeMap = new Map<string, any>();
+    const phoneMap = new Map<string, any>();
+    const nameMap = new Map<string, any[]>();
+    const baseMap = new Map<string, any[]>();
+
+    const normName = (s: string) => (s || '').replace(/\s/g, '').toLowerCase();
+    const baseName = (s: string) => normName(s).replace(/\(\d+\)/g, '');
+
+    empList.forEach(r => {
+      if (!Array.isArray(r)) return;
+      const code = String(r[1] || '').trim();
+      const hq = String(r[2] || '').trim();
+      const branch = String(r[3] || '').trim();
+      const name = String(r[5] || '').trim();
+      const phone = String(r[11] || '').trim();
+      const cleanPhone = phone.replace(/\D/g, '');
+
+      const empObj = { code, hq, branch, name, phone, cleanPhone };
+      if (code) codeMap.set(code.toUpperCase(), empObj);
+      if (cleanPhone.length >= 10) phoneMap.set(cleanPhone, empObj);
+      if (name) {
+        if (!nameMap.has(name)) nameMap.set(name, []);
+        nameMap.get(name)!.push(empObj);
+        const bName = baseName(name);
+        if (!baseMap.has(bName)) baseMap.set(bName, []);
+        baseMap.get(bName)!.push(empObj);
+      }
+    });
+
+    return { codeToEmpMap: codeMap, phoneToEmpMap: phoneMap, nameToEmpsMap: nameMap, baseNameToEmpsMap: baseMap };
+  }, [empList]);
+
   // 영업자 연락처 정밀 추출 헬퍼 함수
   const getEmpPhone = (item: any) => {
     const cleanCode = String(item.empCode || '').trim().toUpperCase();
@@ -368,27 +402,66 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
   // 3. 선택된 본부(hqFilter) 및 지사 실적범위(branchViewScope) 필터가 반영된 데이터 (대시보드 상단 통계, 목록, 보고서의 공통 모수)
   const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
+  const normName = (s: string) => (s || '').replace(/\s/g, '').toLowerCase();
+  const baseName = (s: string) => normName(s).replace(/\(\d+\)/g, '');
 
-  // 지사장 본인 직접 계약건 여부 판별 헬퍼
+  // 지사장 본인 직접 계약건 여부 판별 헬퍼 (사원명 및 본부 교차 검증 적용)
   const isMyContract = (item: any) => {
-    const itemEmpNameNorm = normOrg(item.empName);
+    const itemRawName = String(item.empName || '').trim();
+    const itemEmpBaseName = baseName(itemRawName);
+    const itemHqNorm = normOrg(item.hq);
     const itemEmpCodeClean = String(item.empCode || '').trim().toUpperCase();
-    const itemMemNoClean = String(item.memNo || '').trim().toUpperCase();
+
+    // 현재 사용자 사원 식별
+    const resolveUserEmp = () => {
+      const orgCode = String(currentUser.orgName || '').trim().toUpperCase();
+      if (codeToEmpMap.has(orgCode)) return codeToEmpMap.get(orgCode);
+      const userCode = String(currentUser.username || '').trim().toUpperCase();
+      if (codeToEmpMap.has(userCode)) return codeToEmpMap.get(userCode);
+      const cleanPhone = userCode.replace(/^a/i, '').replace(/\D/g, '');
+      if (cleanPhone.length >= 10 && phoneToEmpMap.has(cleanPhone)) return phoneToEmpMap.get(cleanPhone);
+      const orgName = String(currentUser.orgName || '').trim();
+      if (nameToEmpsMap.has(orgName)) {
+        const list = nameToEmpsMap.get(orgName)!;
+        if (list.length === 1) return list[0];
+      }
+      return null;
+    };
+
+    const userEmp = resolveUserEmp();
+    if (userEmp) {
+      const empBaseName = baseName(userEmp.name);
+      const empHqNorm = normOrg(userEmp.hq);
+      const empCodeClean = String(userEmp.code || '').trim().toUpperCase();
+
+      if (itemEmpBaseName) {
+        if (itemEmpBaseName !== empBaseName) return false;
+        const isHqMatch = empHqNorm && itemHqNorm && (itemHqNorm === empHqNorm || itemHqNorm.includes(empHqNorm) || empHqNorm.includes(itemHqNorm));
+        const isCodeMatch = empCodeClean && itemEmpCodeClean && itemEmpCodeClean === empCodeClean;
+        const isUniqueName = (baseNameToEmpsMap.get(empBaseName)?.length || 0) <= 1;
+        return isHqMatch || isCodeMatch || isUniqueName;
+      } else {
+        return Boolean(empCodeClean && itemEmpCodeClean && itemEmpCodeClean === empCodeClean);
+      }
+    }
+
+    // fallback
     const usernameClean = (currentUser.username || '').trim().toUpperCase();
     const orgNameNorm = normOrg(currentUser.orgName);
     const orgNameClean = String(currentUser.orgName || '').trim().toUpperCase();
+    const itemMemNoClean = String(item.memNo || '').trim().toUpperCase();
 
     if (itemEmpCodeClean && (itemEmpCodeClean === usernameClean || itemEmpCodeClean === orgNameClean)) return true;
     if (itemMemNoClean && (itemMemNoClean === usernameClean || itemMemNoClean === orgNameClean)) return true;
-    if (itemEmpNameNorm && (itemEmpNameNorm === usernameClean.toLowerCase() || usernameClean.toLowerCase().includes(itemEmpNameNorm))) return true;
-    if (itemEmpNameNorm && orgNameNorm && (orgNameNorm === itemEmpNameNorm || orgNameNorm.includes(itemEmpNameNorm) || itemEmpNameNorm.includes(orgNameNorm))) return true;
+    if (itemEmpBaseName && (itemEmpBaseName === normName(usernameClean) || usernameClean.toLowerCase().includes(itemEmpBaseName))) return true;
+    if (itemEmpBaseName && orgNameNorm && (orgNameNorm === itemEmpBaseName || orgNameNorm.includes(itemEmpBaseName) || itemEmpBaseName.includes(orgNameNorm))) return true;
     if (currentUser.orgs && currentUser.orgs.length > 0) {
       return currentUser.orgs.some(o => {
         const oNorm = normOrg(o.orgName);
         const oClean = String(o.orgName || '').trim().toUpperCase();
         if (itemEmpCodeClean && oClean && itemEmpCodeClean === oClean) return true;
         if (itemMemNoClean && oClean && itemMemNoClean === oClean) return true;
-        return oNorm && (oNorm === itemEmpNameNorm || oNorm.includes(itemEmpNameNorm) || itemEmpNameNorm.includes(oNorm));
+        return oNorm && (oNorm === itemEmpBaseName || oNorm.includes(itemEmpBaseName) || itemEmpBaseName.includes(oNorm));
       });
     }
     return false;
