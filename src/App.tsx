@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, Component, ReactNode } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare, Copy, Check, UserCheck, Sparkles } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, Minus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare, Copy, Check, UserCheck, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -702,6 +702,7 @@ const ERP_Dashboard = () => {
   const [copySourceHqId, setCopySourceHqId] = useState<string>('NONE');
   const [targetDivisionIdForNewHqs, setTargetDivisionIdForNewHqs] = useState<string>('NONE');
   const [copyBankInfoForNewHqs, setCopyBankInfoForNewHqs] = useState<boolean>(true);
+  const [collapsedDivisions, setCollapsedDivisions] = useState<Record<string, boolean>>({});
   
   // 수수료 일괄/동일 렌탈번호 변경 및 이력 관련 state
   const [selectedTableKeys, setSelectedTableKeys] = useState<Set<string>>(new Set());
@@ -3821,11 +3822,25 @@ const ERP_Dashboard = () => {
         ...specialEntries.map(([name]) => name)
       ]));
 
-      // 1. 본부별 지급 계좌
-      reportRows.push(['1. 본부별 지급 계좌']);
-      reportRows.push(['본부명', '정산유형', '실지급액', '지급계좌', '예금주명']);
+      // 1. 사업단 및 본부별 지급 계좌
+      reportRows.push(['1. 사업단 및 본부별 지급 계좌']);
+      reportRows.push(['구분 / 본부명', '정산유형', '실지급액', '지급계좌', '예금주명']);
       
       let accountTotalPay = 0;
+
+      // 각 본부별 실지급액 및 계좌정보를 먼저 산출
+      interface HqPayInfo {
+        hqName: string;
+        settlementType: string;
+        net: number;
+        fullAcctStr: string;
+        holderStr: string;
+        bankName: string;
+        acctNumber: string;
+      }
+
+      const hqPayInfoMap = new Map<string, HqPayInfo>();
+
       allHqNames.forEach(hqName => {
         const setting = hqSettings.find(h => h.hqName === hqName);
         const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨' || hqName === '다이렉트';
@@ -3843,7 +3858,6 @@ const ERP_Dashboard = () => {
 
         const fullAcctStr = (bankName !== '-' || acctNumber !== '-') ? `${bankName} ${acctNumber}` : '-';
 
-        // 해당 본부/대상자의 총 실지급액 계산
         const items = settlementStats.hqGroups[hqName] || [];
         const maintenanceSum = maintenancePayouts.filter(m => m.hq === hqName).reduce((sum, m) => sum + m.amount, 0);
         let generalSum = 0;
@@ -3857,18 +3871,72 @@ const ERP_Dashboard = () => {
         const net = totalGross - tax;
         accountTotalPay += net;
 
-        reportRows.push([
+        hqPayInfoMap.set(hqName, {
           hqName,
-          setting?.settlementType || (isIndiv ? '개인' : '법인'),
-          { v: net, t: 'n', z: '#,##0' },
+          settlementType: setting?.settlementType || (isIndiv ? '개인' : '사업자'),
+          net,
           fullAcctStr,
-          holderStr
-        ]);
+          holderStr,
+          bankName,
+          acctNumber
+        });
       });
+
+      // 사업단별 출력
+      const processedPayHqs = new Set<string>();
+
+      (divisionSettings || []).forEach(div => {
+        const memberHqNames = (div.hqNames || []).filter(name => hqPayInfoMap.has(name));
+        if (memberHqNames.length === 0) return;
+
+        const divTotalNet = memberHqNames.reduce((sum, name) => sum + (hqPayInfoMap.get(name)?.net || 0), 0);
+        const divBankStr = (div.bankName && div.accountNumber) ? `${div.bankName} ${div.accountNumber}` : (hqPayInfoMap.get(memberHqNames[0])?.fullAcctStr || '-');
+        const divHolderStr = div.accountHolder || hqPayInfoMap.get(memberHqNames[0])?.holderStr || '-';
+
+        // 사업단 소계 행
+        reportRows.push([
+          `[사업단] ${div.name} (소계)`,
+          div.settlementType || '사업자',
+          { v: divTotalNet, t: 'n', z: '#,##0' },
+          divBankStr,
+          divHolderStr
+        ]);
+
+        // 사업단 소속 개별 본부 행
+        memberHqNames.forEach(hqName => {
+          processedPayHqs.add(hqName);
+          const info = hqPayInfoMap.get(hqName)!;
+          reportRows.push([
+            `  ↳ ${info.hqName}`,
+            info.settlementType,
+            { v: info.net, t: 'n', z: '#,##0' },
+            info.fullAcctStr,
+            info.holderStr
+          ]);
+        });
+      });
+
+      // 독립 본부 (사업단 미소속 본부) 출력
+      const independentPayHqs = allHqNames.filter(name => !processedPayHqs.has(name));
+      if (independentPayHqs.length > 0) {
+        if (divisionSettings && divisionSettings.length > 0 && processedPayHqs.size > 0) {
+          reportRows.push(['[독립 본부 (사업단 미소속)]', '', '', '', '']);
+        }
+        independentPayHqs.forEach(hqName => {
+          const info = hqPayInfoMap.get(hqName)!;
+          reportRows.push([
+            info.hqName,
+            info.settlementType,
+            { v: info.net, t: 'n', z: '#,##0' },
+            info.fullAcctStr,
+            info.holderStr
+          ]);
+        });
+      }
 
       // 1. 본부별 지급 계좌 합계 행
       reportRows.push([
-        '합계',
+        '총합계',
         '',
         { v: accountTotalPay, t: 'n', z: '#,##0' },
         '',
@@ -3889,10 +3957,27 @@ const ERP_Dashboard = () => {
 
       reportRows.push([]);
 
-      // 3. 본부별 정산 현황
+      // 3. 본부별 정산 현황 (사업단 묶음 및 소계 적용)
       if (generalHqs.length > 0) {
-        reportRows.push(['3. 본부별 정산 현황']);
-        reportRows.push(['본부명', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액']);
+        reportRows.push(['3. 사업단 및 본부별 정산 현황']);
+        reportRows.push(['구분 / 본부명', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액']);
+
+        interface HqStatInfo {
+          hqName: string;
+          totalCountVal: number;
+          hqGross: number;
+          supply: number;
+          tax: number;
+          net: number;
+          isIndiv: boolean;
+        }
+
+        const hqStatMap = new Map<string, HqStatInfo>();
+        let overallCount = 0;
+        let overallGross = 0;
+        let overallSupply = 0;
+        let overallTax = 0;
+        let overallNet = 0;
 
         generalHqs.forEach(hqName => {
           const items = settlementStats.hqGroups[hqName] || [];
@@ -3914,15 +3999,98 @@ const ERP_Dashboard = () => {
           const maintCount = maintenancePayouts.filter(m => m.hq === hqName).length;
           const totalCountVal = items.length + maintCount;
 
-          reportRows.push([
+          overallCount += totalCountVal;
+          overallGross += hqGross;
+          overallSupply += supply;
+          overallTax += (isIndiv ? -tax : tax);
+          overallNet += net;
+
+          hqStatMap.set(hqName, {
             hqName,
             totalCountVal,
-            { v: hqGross, t: 'n', z: '#,##0' },
-            { v: supply, t: 'n', z: '#,##0' },
-            { v: isIndiv ? -tax : tax, t: 'n', z: '#,##0' },
-            { v: net, t: 'n', z: '#,##0' }
-          ]);
+            hqGross,
+            supply,
+            tax: isIndiv ? -tax : tax,
+            net,
+            isIndiv
+          });
         });
+
+        const processedStatHqs = new Set<string>();
+
+        // 사업단별 그룹 및 소계 출력
+        (divisionSettings || []).forEach(div => {
+          const memberHqs = (div.hqNames || []).filter(name => hqStatMap.has(name));
+          if (memberHqs.length === 0) return;
+
+          let divCount = 0;
+          let divGross = 0;
+          let divSupply = 0;
+          let divTax = 0;
+          let divNet = 0;
+
+          memberHqs.forEach(name => {
+            const s = hqStatMap.get(name)!;
+            divCount += s.totalCountVal;
+            divGross += s.hqGross;
+            divSupply += s.supply;
+            divTax += s.tax;
+            divNet += s.net;
+          });
+
+          // 사업단 소계 행
+          reportRows.push([
+            `[사업단] ${div.name} (소계)`,
+            divCount,
+            { v: divGross, t: 'n', z: '#,##0' },
+            { v: divSupply, t: 'n', z: '#,##0' },
+            { v: divTax, t: 'n', z: '#,##0' },
+            { v: divNet, t: 'n', z: '#,##0' }
+          ]);
+
+          // 소속 개별 본부 행들
+          memberHqs.forEach(name => {
+            processedStatHqs.add(name);
+            const s = hqStatMap.get(name)!;
+            reportRows.push([
+              `  ↳ ${s.hqName}`,
+              s.totalCountVal,
+              { v: s.hqGross, t: 'n', z: '#,##0' },
+              { v: s.supply, t: 'n', z: '#,##0' },
+              { v: s.tax, t: 'n', z: '#,##0' },
+              { v: s.net, t: 'n', z: '#,##0' }
+            ]);
+          });
+        });
+
+        // 독립 본부 (사업단 미소속 본부) 출력
+        const indepStatHqs = generalHqs.filter(name => !processedStatHqs.has(name));
+        if (indepStatHqs.length > 0) {
+          if (divisionSettings && divisionSettings.length > 0 && processedStatHqs.size > 0) {
+            reportRows.push(['[독립 본부 (사업단 미소속)]', '', '', '', '', '']);
+          }
+          indepStatHqs.forEach(name => {
+            const s = hqStatMap.get(name)!;
+            reportRows.push([
+              s.hqName,
+              s.totalCountVal,
+              { v: s.hqGross, t: 'n', z: '#,##0' },
+              { v: s.supply, t: 'n', z: '#,##0' },
+              { v: s.tax, t: 'n', z: '#,##0' },
+              { v: s.net, t: 'n', z: '#,##0' }
+            ]);
+          });
+        }
+
+        // 3. 본부별 정산 현황 총합계 행
+        reportRows.push([
+          '총합계',
+          overallCount,
+          { v: overallGross, t: 'n', z: '#,##0' },
+          { v: overallSupply, t: 'n', z: '#,##0' },
+          { v: overallTax, t: 'n', z: '#,##0' },
+          { v: overallNet, t: 'n', z: '#,##0' }
+        ]);
       }
 
       reportRows.push([]);
@@ -12344,50 +12512,211 @@ const ERP_Dashboard = () => {
                               </tr>
                             </thead>
                             <tbody>
-                              {targetSummaries.map((s) => {
-                                const isExpanded = !!expandedHqs[s.hqName];
-                                return (
-                                  <React.Fragment key={s.hqName}>
-                                    {/* 요약 행 */}
-                                    <tr className={`hover:bg-slate-50 font-medium ${isExpanded ? 'bg-blue-50/20' : ''}`}>
-                                      <td className="border border-slate-300 p-2">
-                                        <button
-                                          onClick={() => setExpandedHqs(prev => ({ ...prev, [s.hqName]: !prev[s.hqName] }))}
-                                          className="p-1 hover:bg-slate-200 rounded-md transition-colors text-slate-600 flex items-center justify-center w-full"
-                                          title="상세 정산 내역 토글"
-                                        >
-                                          {isExpanded ? (
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-minus"><path d="M5 12h14"/></svg>
-                                          ) : (
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-plus"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-                                          )}
-                                        </button>
-                                      </td>
-                                      <td className="border border-slate-300 p-2 font-mono text-xs">{s.payDateDisplay}</td>
-                                      <td className="border border-slate-300 p-2 text-left font-bold text-slate-800">{s.hqName}</td>
-                                      <td className="border border-slate-300 p-2 text-xs">{s.bankName}</td>
-                                      <td className="border border-slate-300 p-2 font-mono text-xs">{s.accountNumber}</td>
-                                      <td className="border border-slate-300 p-2 text-xs">{s.accountHolder}</td>
-                                      <td className="border border-slate-300 p-2 text-xs">
-                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.settlementType.includes('개인') ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'}`}>
-                                          {s.settlementType}
-                                        </span>
-                                      </td>
-                                      <td className="border border-slate-300 p-2 text-right font-mono font-bold text-slate-700">{s.totalSum.toLocaleString()}원</td>
-                                      <td className="border border-slate-300 p-2 text-right font-mono font-bold text-blue-700 bg-blue-50/30">{s.finalPayable.toLocaleString()}원</td>
-                                    </tr>
+                              {(() => {
+                                // 사업단별 소속 본부 분류 (전사 통합 미리보기 시)
+                                const isAllPreview = previewTarget === 'ALL';
+                                const processedHqNames = new Set<string>();
+                                const divisionGroups: Array<{
+                                  division: DivisionSetting;
+                                  members: any[];
+                                  totalGross: number;
+                                  totalPayable: number;
+                                  totalCount: number;
+                                }> = [];
 
-                                    {/* 상세 아코디언 펼침 행 */}
-                                    {isExpanded && (
-                                      <tr>
-                                        <td colSpan={9} className="border border-slate-300 p-4 bg-slate-50/50">
-                                          {renderHqDetailCard(s)}
-                                        </td>
-                                      </tr>
+                                if (isAllPreview && divisionSettings && divisionSettings.length > 0) {
+                                  divisionSettings.forEach(div => {
+                                    const members = targetSummaries.filter(s => (div.hqNames || []).includes(s.hqName));
+                                    if (members.length > 0) {
+                                      members.forEach(m => processedHqNames.add(m.hqName));
+                                      const totalGross = members.reduce((sum, m) => sum + (m.totalSum || 0), 0);
+                                      const isPersonal = div.settlementType?.includes('개인');
+                                      const totalPayable = isPersonal ? (totalGross - Math.floor(totalGross * 0.033)) : members.reduce((sum, m) => sum + (m.finalPayable || 0), 0);
+                                      const totalCount = members.reduce((sum, m) => sum + (m.items?.length || 0) + (m.hqMaintenancePayouts?.length || 0), 0);
+                                      divisionGroups.push({
+                                        division: div,
+                                        members,
+                                        totalGross,
+                                        totalPayable,
+                                        totalCount
+                                      });
+                                    }
+                                  });
+                                }
+
+                                const independentSummaries = isAllPreview
+                                  ? targetSummaries.filter(s => !processedHqNames.has(s.hqName))
+                                  : targetSummaries;
+                                const hasDivisions = divisionGroups.length > 0;
+
+                                return (
+                                  <>
+                                    {/* 1. 사업단별 그룹 출력 */}
+                                    {divisionGroups.map(({ division, members, totalGross, totalPayable, totalCount }) => {
+                                      const isDivCollapsed = !!collapsedDivisions[division.id];
+                                      const divBankStr = (division.bankName && division.accountNumber) ? division.bankName : (members[0]?.bankName || '-');
+                                      const divAcctStr = division.accountNumber || (members[0]?.accountNumber || '-');
+                                      const divHolderStr = division.accountHolder || (members[0]?.accountHolder || '-');
+
+                                      return (
+                                        <React.Fragment key={division.id}>
+                                          {/* 사업단 총괄 요약 행 (헤더 행) */}
+                                          <tr className="bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-900 text-white font-bold border-y-2 border-indigo-500 shadow-sm">
+                                            <td className="border border-indigo-800/80 p-2 text-center">
+                                              <button
+                                                type="button"
+                                                onClick={() => setCollapsedDivisions(prev => ({ ...prev, [division.id]: !prev[division.id] }))}
+                                                className="p-1 bg-indigo-800/80 hover:bg-indigo-700 rounded text-white flex items-center justify-center w-full transition-colors cursor-pointer"
+                                                title={isDivCollapsed ? "소속 본부 목록 펼치기" : "소속 본부 목록 접기"}
+                                              >
+                                                {isDivCollapsed ? (
+                                                  <ChevronRight size={14} />
+                                                ) : (
+                                                  <ChevronDown size={14} />
+                                                )}
+                                              </button>
+                                            </td>
+                                            <td className="border border-indigo-800/80 p-2 font-mono text-xs text-indigo-200">
+                                              {members[0]?.payDateDisplay || '-'}
+                                            </td>
+                                            <td className="border border-indigo-800/80 p-2 text-left">
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-amber-300 font-black text-xs flex items-center gap-1">
+                                                  🏢 [사업단] {division.name}
+                                                </span>
+                                                <span className="text-[10px] bg-indigo-800 text-indigo-200 border border-indigo-600/50 px-2 py-0.5 rounded-full font-bold">
+                                                  {members.length}개 본부 ({totalCount}건)
+                                                </span>
+                                                <span className="text-[10px] text-indigo-300 font-normal">
+                                                  (소계)
+                                                </span>
+                                              </div>
+                                            </td>
+                                            <td className="border border-indigo-800/80 p-2 text-xs text-indigo-100">{divBankStr}</td>
+                                            <td className="border border-indigo-800/80 p-2 font-mono text-xs text-indigo-100">{divAcctStr}</td>
+                                            <td className="border border-indigo-800/80 p-2 text-xs text-indigo-100 font-bold">{divHolderStr}</td>
+                                            <td className="border border-indigo-800/80 p-2 text-xs">
+                                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-800 text-amber-200 border border-indigo-600">
+                                                {division.settlementType || '사업자'}
+                                              </span>
+                                            </td>
+                                            <td className="border border-indigo-800/80 p-2 text-right font-mono font-bold text-indigo-200 text-xs">
+                                              {totalGross.toLocaleString()}원
+                                            </td>
+                                            <td className="border border-indigo-800/80 p-2 text-right font-mono font-black text-amber-300 text-xs bg-indigo-950/80">
+                                              {totalPayable.toLocaleString()}원
+                                            </td>
+                                          </tr>
+
+                                          {/* 사업단 소속 본부들 */}
+                                          {!isDivCollapsed && members.map(s => {
+                                            const isExpanded = !!expandedHqs[s.hqName];
+                                            return (
+                                              <React.Fragment key={s.hqName}>
+                                                <tr className={`hover:bg-slate-50 font-medium ${isExpanded ? 'bg-blue-50/30' : 'bg-indigo-50/20'} border-l-4 border-indigo-400`}>
+                                                  <td className="border border-slate-300 p-2">
+                                                    <button
+                                                      onClick={() => setExpandedHqs(prev => ({ ...prev, [s.hqName]: !prev[s.hqName] }))}
+                                                      className="p-1 hover:bg-slate-200 rounded-md transition-colors text-slate-600 flex items-center justify-center w-full cursor-pointer"
+                                                      title="상세 정산 내역 토글"
+                                                    >
+                                                      {isExpanded ? (
+                                                        <Minus size={13} />
+                                                      ) : (
+                                                        <Plus size={13} />
+                                                      )}
+                                                    </button>
+                                                  </td>
+                                                  <td className="border border-slate-300 p-2 font-mono text-xs">{s.payDateDisplay}</td>
+                                                  <td className="border border-slate-300 p-2 text-left font-bold text-slate-800 pl-4">
+                                                    <span className="text-indigo-600 mr-1.5 font-black">↳</span>
+                                                    {s.hqName}
+                                                  </td>
+                                                  <td className="border border-slate-300 p-2 text-xs">{s.bankName}</td>
+                                                  <td className="border border-slate-300 p-2 font-mono text-xs">{s.accountNumber}</td>
+                                                  <td className="border border-slate-300 p-2 text-xs">{s.accountHolder}</td>
+                                                  <td className="border border-slate-300 p-2 text-xs">
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.settlementType.includes('개인') ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                                      {s.settlementType}
+                                                    </span>
+                                                  </td>
+                                                  <td className="border border-slate-300 p-2 text-right font-mono font-bold text-slate-700">{s.totalSum.toLocaleString()}원</td>
+                                                  <td className="border border-slate-300 p-2 text-right font-mono font-bold text-blue-700 bg-blue-50/30">{s.finalPayable.toLocaleString()}원</td>
+                                                </tr>
+
+                                                {/* 상세 아코디언 펼침 행 */}
+                                                {isExpanded && (
+                                                  <tr>
+                                                    <td colSpan={9} className="border border-slate-300 p-4 bg-slate-50/50">
+                                                      {renderHqDetailCard(s)}
+                                                    </td>
+                                                  </tr>
+                                                )}
+                                              </React.Fragment>
+                                            );
+                                          })}
+                                        </React.Fragment>
+                                      );
+                                    })}
+
+                                    {/* 2. 독립 본부 (사업단 미소속 본부) 헤더 및 목록 */}
+                                    {independentSummaries.length > 0 && (
+                                      <>
+                                        {hasDivisions && (
+                                          <tr className="bg-slate-700 text-white font-bold border-y border-slate-600">
+                                            <td colSpan={9} className="p-2.5 text-left text-xs">
+                                              🏛️ 독립 본부 (사업단 미소속 본부 - {independentSummaries.length}개)
+                                            </td>
+                                          </tr>
+                                        )}
+                                        {independentSummaries.map(s => {
+                                          const isExpanded = !!expandedHqs[s.hqName];
+                                          return (
+                                            <React.Fragment key={s.hqName}>
+                                              <tr className={`hover:bg-slate-50 font-medium ${isExpanded ? 'bg-blue-50/20' : ''}`}>
+                                                <td className="border border-slate-300 p-2">
+                                                  <button
+                                                    onClick={() => setExpandedHqs(prev => ({ ...prev, [s.hqName]: !prev[s.hqName] }))}
+                                                    className="p-1 hover:bg-slate-200 rounded-md transition-colors text-slate-600 flex items-center justify-center w-full cursor-pointer"
+                                                    title="상세 정산 내역 토글"
+                                                  >
+                                                    {isExpanded ? (
+                                                      <Minus size={13} />
+                                                    ) : (
+                                                      <Plus size={13} />
+                                                    )}
+                                                  </button>
+                                                </td>
+                                                <td className="border border-slate-300 p-2 font-mono text-xs">{s.payDateDisplay}</td>
+                                                <td className="border border-slate-300 p-2 text-left font-bold text-slate-800">{s.hqName}</td>
+                                                <td className="border border-slate-300 p-2 text-xs">{s.bankName}</td>
+                                                <td className="border border-slate-300 p-2 font-mono text-xs">{s.accountNumber}</td>
+                                                <td className="border border-slate-300 p-2 text-xs">{s.accountHolder}</td>
+                                                <td className="border border-slate-300 p-2 text-xs">
+                                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.settlementType.includes('개인') ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                                    {s.settlementType}
+                                                  </span>
+                                                </td>
+                                                <td className="border border-slate-300 p-2 text-right font-mono font-bold text-slate-700">{s.totalSum.toLocaleString()}원</td>
+                                                <td className="border border-slate-300 p-2 text-right font-mono font-bold text-blue-700 bg-blue-50/30">{s.finalPayable.toLocaleString()}원</td>
+                                              </tr>
+
+                                              {/* 상세 아코디언 펼침 행 */}
+                                              {isExpanded && (
+                                                <tr>
+                                                  <td colSpan={9} className="border border-slate-300 p-4 bg-slate-50/50">
+                                                    {renderHqDetailCard(s)}
+                                                  </td>
+                                                </tr>
+                                              )}
+                                            </React.Fragment>
+                                          );
+                                        })}
+                                      </>
                                     )}
-                                  </React.Fragment>
+                                  </>
                                 );
-                              })}
+                              })()}
                             </tbody>
                           </table>
                         </div>
@@ -12395,7 +12724,20 @@ const ERP_Dashboard = () => {
                         {/* 총 지급액 요약 바 */}
                         <div className="mt-6 p-4 bg-slate-900 text-white rounded-xl flex justify-between items-center shadow-md">
                           <div className="text-sm font-semibold text-slate-400">
-                            총 정산 대상자: <span className="text-white font-bold text-base">{targetSummaries.length}명</span>
+                            총 정산 대상: <span className="text-white font-bold text-base">{targetSummaries.length}개 본부</span>
+                            {(() => {
+                              const activeDivCount = (divisionSettings || []).filter(div =>
+                                (div.hqNames || []).some(name => targetSummaries.some(s => s.hqName === name))
+                              ).length;
+                              if (activeDivCount > 0) {
+                                return (
+                                  <span className="text-xs text-indigo-300 ml-2 font-normal">
+                                    (사업단 {activeDivCount}개 포함)
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                           <div className="text-right flex items-center gap-6">
                             <div>
