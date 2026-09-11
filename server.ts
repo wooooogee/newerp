@@ -535,13 +535,14 @@ app.post('/api/sheets/settings/save', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
 
-  const { settings, globalIncentives, maintenanceRules, manualOrderProducts, manualOrderStores, reportSettings } = req.body as {
+  const { settings, globalIncentives, maintenanceRules, manualOrderProducts, manualOrderStores, reportSettings, divisions } = req.body as {
     settings: any[];
     globalIncentives?: any[];
     maintenanceRules?: any[];
     manualOrderProducts?: string[];
     manualOrderStores?: Record<string, any>;
     reportSettings?: Record<string, any>;
+    divisions?: any[];
   };
   let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
   if (sheetId && sheetId.includes('spreadsheets/d/')) {
@@ -563,6 +564,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     if (manualOrderProducts) cacheData.manualOrderProducts = manualOrderProducts;
     if (manualOrderStores) cacheData.manualOrderStores = manualOrderStores;
     if (reportSettings) cacheData.reportSettings = reportSettings;
+    if (divisions) cacheData.divisions = divisions;
     fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8');
   } catch (e) {
     console.error("[CloudSync] Local cache write error:", e);
@@ -843,8 +845,8 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       console.log("[CloudSync] Maintenance rules saved successfully.");
     }
 
-    // -- Handle manualOrderProducts & manualOrderStores & reportSettings --
-    if (manualOrderProducts || manualOrderStores || reportSettings) {
+    // -- Handle manualOrderProducts & manualOrderStores & reportSettings & divisions --
+    if (manualOrderProducts || manualOrderStores || reportSettings || divisions) {
       let extraSheet = sheetsList.find(s => s.properties?.title === '수기발주및기타설정');
       let extraSheetId: number | null | undefined = extraSheet?.properties?.sheetId;
       
@@ -871,6 +873,9 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       }
       if (reportSettings) {
         extraRows.push(['REPORT_SETTINGS', JSON.stringify(reportSettings), nowStr]);
+      }
+      if (divisions) {
+        extraRows.push(['BUSINESS_DIVISIONS', JSON.stringify(divisions), nowStr]);
       }
 
       await sheets.spreadsheets.values.clear({
@@ -1265,10 +1270,11 @@ app.get('/api/sheets/settings/load', async (req, res) => {
       console.log("[CloudSync] '유지수수료설정' sheet might not exist yet.");
     }
 
-    // -- Load extra settings (manualOrderProducts, manualOrderStores, reportSettings) --
+    // -- Load extra settings (manualOrderProducts, manualOrderStores, reportSettings, divisions) --
     let manualOrderProducts: string[] | null = null;
     let manualOrderStores: Record<string, any> | null = null;
     let reportSettings: Record<string, any> | null = null;
+    let divisions: any[] | null = null;
 
     try {
       const extraResponse = await sheets.spreadsheets.values.get({
@@ -1285,11 +1291,12 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             if (key === 'MANUAL_ORDER_PRODUCTS') manualOrderProducts = JSON.parse(valStr);
             if (key === 'MANUAL_ORDER_STORES') manualOrderStores = JSON.parse(valStr);
             if (key === 'REPORT_SETTINGS') reportSettings = JSON.parse(valStr);
+            if (key === 'BUSINESS_DIVISIONS') divisions = JSON.parse(valStr);
           } catch (e) {
             console.error(`[CloudSync] Parse ${key} error:`, e);
           }
         });
-        console.log(`[CloudSync] Loaded extra settings (manual orders & report) from cloud.`);
+        console.log(`[CloudSync] Loaded extra settings (manual orders, report, divisions) from cloud.`);
       }
     } catch (e: any) {
       console.log("[CloudSync] '수기발주및기타설정' sheet might not exist yet.");
@@ -1309,6 +1316,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         if (!manualOrderProducts && cacheData.manualOrderProducts) manualOrderProducts = cacheData.manualOrderProducts;
         if (!manualOrderStores && cacheData.manualOrderStores) manualOrderStores = cacheData.manualOrderStores;
         if (!reportSettings && cacheData.reportSettings) reportSettings = cacheData.reportSettings;
+        if (!divisions && cacheData.divisions) divisions = cacheData.divisions;
       }
     } catch (e) {}
 
@@ -1318,7 +1326,8 @@ app.get('/api/sheets/settings/load', async (req, res) => {
       maintenanceRules,
       manualOrderProducts,
       manualOrderStores,
-      reportSettings
+      reportSettings,
+      divisions: divisions || []
     });
   } catch (error: any) {
     if (error.response?.status === 400 || error.message?.toLowerCase().includes('not found')) {
@@ -1333,11 +1342,12 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             maintenanceRules: cacheData.maintenanceRules || [],
             manualOrderProducts: cacheData.manualOrderProducts || null,
             manualOrderStores: cacheData.manualOrderStores || null,
-            reportSettings: cacheData.reportSettings || null
+            reportSettings: cacheData.reportSettings || null,
+            divisions: cacheData.divisions || []
           });
         }
       } catch (e) {}
-      return res.json({ settings: null, globalIncentives: [], maintenanceRules: [], manualOrderProducts: null, manualOrderStores: null, reportSettings: null });
+      return res.json({ settings: null, globalIncentives: [], maintenanceRules: [], manualOrderProducts: null, manualOrderStores: null, reportSettings: null, divisions: [] });
     }
     console.error("[CloudSync] Load error:", error.message);
     return handleGoogleError(error, res);

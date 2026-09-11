@@ -1361,7 +1361,7 @@
         },
         {
           "productName": "더좋은프리미엄540",
-          "totalAmount": 680000,
+          "totalAmount": 580000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 100,
@@ -2166,17 +2166,18 @@
       "deliveryState": "배송완료"
     },
     "12330539": {
-      "deliveryDate": "",
+      "orderDate": "",
+      "deliveryDate": "2026-09-02",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송중"
+      "deliveryState": "배송완료"
     },
     "12331355": {
       "orderDate": "2026-09-03",
-      "deliveryDate": "2026-09-04",
+      "deliveryDate": "2026-09-07",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송중"
+      "deliveryState": "배송완료"
     },
     "12332288": {
       "orderDate": "2026-09-03",
@@ -2208,17 +2209,80 @@
     },
     "12334806": {
       "orderDate": "2026-09-03",
-      "deliveryDate": "2026-09-04",
+      "deliveryDate": "2026-09-07",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송중"
+      "deliveryState": "배송완료"
     },
     "12335108": {
       "orderDate": "2026-09-03",
       "deliveryDate": "2026-09-04",
       "courier": "CJ대한통운",
       "trackingNo": "600129310893",
-      "deliveryState": "배송중"
+      "deliveryState": "배송완료"
+    },
+    "12336996": {
+      "orderDate": "2026-09-06",
+      "deliveryDate": "2026-09-08",
+      "courier": "CJ대한통운",
+      "trackingNo": "600193984630",
+      "deliveryState": "배송완료"
+    },
+    "12340266": {
+      "orderDate": "2026-09-06",
+      "deliveryDate": "2026-09-08",
+      "courier": "CJ대한통운",
+      "trackingNo": "600193984641",
+      "deliveryState": "배송완료"
+    },
+    "12340685": {
+      "orderDate": "2026-09-09",
+      "deliveryDate": "",
+      "courier": "경동택배",
+      "trackingNo": "8026090596668",
+      "deliveryState": "발주완료"
+    },
+    "12340738": {
+      "orderDate": "2026-09-09",
+      "deliveryDate": "",
+      "courier": "CJ대한통운",
+      "trackingNo": "600243626036",
+      "deliveryState": "발주완료"
+    },
+    "12342023": {
+      "orderDate": "2026-09-10",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12342026": {
+      "orderDate": "2026-09-10",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12343277": {
+      "orderDate": "2026-09-09",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "9월10~11일 예정",
+      "deliveryState": "발주완료"
+    },
+    "12343341": {
+      "orderDate": "2026-09-10",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12343597": {
+      "orderDate": "2026-09-10",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
     }
   },
   "reportSettings": {

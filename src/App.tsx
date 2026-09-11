@@ -112,6 +112,19 @@ interface HQSetting {
   productRules: ProductRule[];
 }
 
+export interface DivisionSetting {
+  id: string;
+  name: string;
+  hqNames: string[];
+  settlementType: '사업자' | '개인' | '개인/프리랜서';
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+  paymentMethod: string;
+  isActive?: boolean;
+  memo?: string;
+}
+
 export const parseBooleanValue = (val: any): boolean => {
   if (val === true) return true;
   if (val === false) return false;
@@ -1089,7 +1102,45 @@ const ERP_Dashboard = () => {
     return [];
   });
 
-  const [settingsTab, setSettingsTab] = useState<'hq' | 'global_incentive' | 'maintenance' | 'member'>('hq');
+  const [settingsTab, setSettingsTab] = useState<'hq' | 'division' | 'global_incentive' | 'maintenance' | 'member'>('hq');
+
+  // 사업단 설정 상태
+  const [divisionSettings, setDivisionSettings] = useState<DivisionSetting[]>(() => {
+    const saved = localStorage.getItem('erp_division_settings');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return [];
+  });
+  const [activeDivisionId, setActiveDivisionId] = useState<string | null>(null);
+  const [isAddDivisionModalOpen, setIsAddDivisionModalOpen] = useState(false);
+  const [divisionSearchText, setDivisionSearchText] = useState('');
+  const [selectedDivisionHqFilter, setSelectedDivisionHqFilter] = useState<string>('ALL');
+  const [newDivisionForm, setNewDivisionForm] = useState<{
+    name: string;
+    settlementType: '사업자' | '개인' | '개인/프리랜서';
+    bankName: string;
+    accountNumber: string;
+    accountHolder: string;
+    paymentMethod: string;
+    memo: string;
+    hqNames: string[];
+  }>({
+    name: '',
+    settlementType: '사업자',
+    bankName: '',
+    accountNumber: '',
+    accountHolder: '',
+    paymentMethod: '계좌이체',
+    memo: '',
+    hqNames: []
+  });
+  const [commissionSyncSourceHq, setCommissionSyncSourceHq] = useState<string>('');
 
   const [members, setMembers] = useState<{role: string, orgName: string, username: string, password: string}[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
@@ -1166,12 +1217,13 @@ const ERP_Dashboard = () => {
 
   useEffect(() => {
     localStorage.setItem('erp_hq_settings_v2', JSON.stringify(hqSettings));
+    localStorage.setItem('erp_division_settings', JSON.stringify(divisionSettings));
     if (globalIncentiveRules && globalIncentiveRules.length > 0) {
       localStorage.setItem('erp_global_incentives', JSON.stringify(globalIncentiveRules));
       localStorage.setItem('erp_global_incentives_bak', JSON.stringify(globalIncentiveRules));
     }
     localStorage.setItem('erp_maintenance_rules', JSON.stringify(maintenanceRules));
-  }, [hqSettings, globalIncentiveRules, maintenanceRules]);
+  }, [hqSettings, divisionSettings, globalIncentiveRules, maintenanceRules]);
 
   const allDatesWithData = React.useMemo(() => {
     return new Set(data.map(item => {
@@ -1180,17 +1232,20 @@ const ERP_Dashboard = () => {
     }).filter(Boolean));
   }, [data, globalIncentiveRules]);
 
-  // 설정 모달 열릴 때 첫 번째 본부 및 특수수당 자동 선택
+  // 설정 모달 열릴 때 첫 번째 본부, 사업단 및 특수수당 자동 선택
   React.useEffect(() => {
     if (isSettingsModalOpen) {
       if (!activeHqId && hqSettings.length > 0) {
         setActiveHqId(hqSettings[0].id);
       }
+      if (!activeDivisionId && divisionSettings.length > 0) {
+        setActiveDivisionId(divisionSettings[0].id);
+      }
       if (!activeIncentiveId && globalIncentiveRules.length > 0) {
         setActiveIncentiveId(globalIncentiveRules[0].id);
       }
     }
-  }, [isSettingsModalOpen, activeHqId, hqSettings, activeIncentiveId, globalIncentiveRules]);
+  }, [isSettingsModalOpen, activeHqId, hqSettings, activeDivisionId, divisionSettings, activeIncentiveId, globalIncentiveRules]);
 
   const saveSettingsToCloud = async (silent: boolean = false) => {
     if (!isAuthenticated) return;
@@ -1224,6 +1279,7 @@ const ERP_Dashboard = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           settings: hqSettings,
+          divisions: divisionSettings,
           globalIncentives: globalIncentiveRules,
           maintenanceRules,
           manualOrderProducts,
@@ -1262,6 +1318,9 @@ const ERP_Dashboard = () => {
           }))
         }));
         setHqSettings(sanitizedSettings);
+        if (data.divisions && Array.isArray(data.divisions)) {
+          setDivisionSettings(data.divisions);
+        }
         if (data.globalIncentives && Array.isArray(data.globalIncentives) && data.globalIncentives.length > 0) {
           setGlobalIncentiveRules(data.globalIncentives.map((r: any) => ({
             ...r,
@@ -3472,6 +3531,212 @@ const ERP_Dashboard = () => {
 
     return monthlyMap;
   }, [data, hqSettings, maintenanceRules]);
+
+  // 사업단 통합 정산서 엑셀 내보내기
+  const exportDivisionSettlement = async (divisionId: string) => {
+    try {
+      const division = divisionSettings.find(d => d.id === divisionId);
+      if (!division) {
+        alert('해당 사업단 설정을 찾을 수 없습니다.');
+        return;
+      }
+
+      const targetHqs = division.hqNames || [];
+      if (targetHqs.length === 0) {
+        alert(`'${division.name}'에 소속된 본부가 없습니다. 먼저 사업단 설정에서 본부를 배정해 주세요.`);
+        return;
+      }
+
+      const statsMap = new Map<string, number>();
+      data.forEach(item => {
+        if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
+        const key = `${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`;
+        statsMap.set(key, (statsMap.get(key) || 0) + 1);
+      });
+
+      const specialAdditions = settlementStats.globalIncentivesSummary || {};
+      const payDateSample = payDateFilter !== 'ALL' && payDateFilter ? payDateFilter : (filteredData[0]?.payDate || '지급일 미지정');
+
+      const wb = XLSX.utils.book_new();
+      const today = new Date().toLocaleDateString('ko-KR');
+
+      interface HqSummaryRow {
+        hqName: string;
+        count: number;
+        salesSum: number;
+        promoSum: number;
+        generalSum: number;
+        maintenanceSum: number;
+        specialSum: number;
+        grossTotal: number;
+        items: ERPDataItem[];
+      }
+
+      const hqSummaries: HqSummaryRow[] = [];
+      let divTotalCount = 0;
+      let divTotalSales = 0;
+      let divTotalPromo = 0;
+      let divTotalGeneral = 0;
+      let divTotalMaintenance = 0;
+      let divTotalSpecial = 0;
+      let divTotalGross = 0;
+
+      targetHqs.forEach(hqName => {
+        const items = settlementStats.hqGroups[hqName] || [];
+        const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
+        const maintenanceSum = hqMaintenancePayouts.reduce((sum, m) => sum + m.amount, 0);
+        const specialSum = (specialAdditions[hqName] || 0) as number;
+
+        let generalSum = 0;
+        let salesSum = 0;
+        items.forEach((item: any) => {
+          const { totalCommission, salesComm } = calculateCommissionDetails(item, statsMap);
+          generalSum += totalCommission;
+          salesSum += salesComm;
+        });
+        const promoSum = generalSum - salesSum;
+        const grossTotal = generalSum + maintenanceSum + specialSum;
+
+        divTotalCount += items.length;
+        divTotalSales += salesSum;
+        divTotalPromo += promoSum;
+        divTotalGeneral += generalSum;
+        divTotalMaintenance += maintenanceSum;
+        divTotalSpecial += specialSum;
+        divTotalGross += grossTotal;
+
+        hqSummaries.push({
+          hqName,
+          count: items.length,
+          salesSum,
+          promoSum,
+          generalSum,
+          maintenanceSum,
+          specialSum,
+          grossTotal,
+          items
+        });
+      });
+
+      const isPersonal = division.settlementType?.includes('개인');
+      const divTaxTotal = isPersonal ? Math.floor(divTotalGross * 0.033) : 0;
+      const divNetTotal = divTotalGross - divTaxTotal;
+
+      // 시트 1: [사업단 총괄 요약]
+      const summarySheetData: any[][] = [
+        [`【 ${division.name} 정산 종합 보고서 】`],
+        [`■ 정산 기준일: ${payDateSample}  |  작성일: ${today}`],
+        [],
+        ['[ 사업단 대표 정산 정보 ]'],
+        ['사업단명', division.name, '정산유형', division.settlementType || '사업자'],
+        ['입금은행', division.bankName || '-', '계좌번호', division.accountNumber || '-', '예금주', division.accountHolder || '-'],
+        ['지급방식', division.paymentMethod || '계좌이체', '소속 본부수', `${targetHqs.length}개 본부 (${targetHqs.join(', ')})`],
+        [],
+        ['[ 사업단 총 정산 집계 ]'],
+        ['구분', '총 구좌수', '판매수수료', '촉진비', '수수료 소계', '유지수수료', '특수수당', '총 발생액', '원천세(3.3%)', '최종 실지급액'],
+        [
+          '합계',
+          divTotalCount,
+          divTotalSales,
+          divTotalPromo,
+          divTotalGeneral,
+          divTotalMaintenance,
+          divTotalSpecial,
+          divTotalGross,
+          divTaxTotal,
+          divNetTotal
+        ],
+        [],
+        ['[ 소속 본부별 실적 현황 ]'],
+        ['번호', '본부명', '실적건수', '판매수수료', '촉진비', '수수료 소계', '유지수수료', '특수수당', '본부 정산합계']
+      ];
+
+      hqSummaries.forEach((row, idx) => {
+        summarySheetData.push([
+          idx + 1,
+          row.hqName,
+          row.count,
+          row.salesSum,
+          row.promoSum,
+          row.generalSum,
+          row.maintenanceSum,
+          row.specialSum,
+          row.grossTotal
+        ]);
+      });
+
+      const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetData);
+      XLSX.utils.book_append_sheet(wb, wsSummary, '사업단총괄요약');
+
+      // 시트 2: [소속 본부별 계약 명세]
+      const hqDetailSheetData: any[][] = [
+        ['본부명', '회원명', '계약일자', '상품명', '상태', '지사', '영업사원', '판매수수료', '촉진비', '총수수료', '지급일']
+      ];
+
+      hqSummaries.forEach(row => {
+        row.items.forEach(item => {
+          const { totalCommission, salesComm } = calculateCommissionDetails(item, statsMap);
+          hqDetailSheetData.push([
+            item.hq,
+            item.memName,
+            item.contractDate,
+            item.prodName,
+            item.status,
+            item.branch,
+            item.empName,
+            salesComm,
+            totalCommission - salesComm,
+            totalCommission,
+            getDisplayPayDate(item) || item.payDate
+          ]);
+        });
+      });
+
+      const wsDetail = XLSX.utils.aoa_to_sheet(hqDetailSheetData);
+      XLSX.utils.book_append_sheet(wb, wsDetail, '계약상세명세');
+
+      // 시트 3: [유지수수료 및 특수수당 명세]
+      const extraSheetData: any[][] = [
+        ['구분', '본부명', '상품명/항목', '대상월/회차', '지급금액', '비고']
+      ];
+
+      targetHqs.forEach(hqName => {
+        const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
+        hqMaintenancePayouts.forEach(m => {
+          extraSheetData.push([
+            '유지수수료',
+            hqName,
+            m.productName || '헬스케어',
+            m.month || '-',
+            m.amount,
+            `${m.count || 1}건`
+          ]);
+        });
+        const specialSum = (specialAdditions[hqName] || 0) as number;
+        if (specialSum > 0) {
+          extraSheetData.push([
+            '특수수당',
+            hqName,
+            '특수 수당 합계',
+            payDateSample,
+            specialSum,
+            '-'
+          ]);
+        }
+      });
+
+      const wsExtra = XLSX.utils.aoa_to_sheet(extraSheetData);
+      XLSX.utils.book_append_sheet(wb, wsExtra, '유지비및특수수당');
+
+      const cleanPayDate = payDateSample.replace(/[-./\s]/g, '');
+      const fileName = `[사업단정산서]_${division.name}_${cleanPayDate || '정산'}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      setNotification({ message: `${division.name} 사업단 정산서 엑셀이 다운로드되었습니다.`, type: 'success' });
+    } catch (e: any) {
+      console.error('Division Settlement Export failed:', e);
+      alert('사업단 정산서 생성 중 오류가 발생했습니다: ' + (e?.message || ''));
+    }
+  };
 
   const exportIntegratedSettlement = async (appendSheetData?: { name: string, data: any[][] } | null) => {
     try {
@@ -6368,48 +6633,60 @@ const ERP_Dashboard = () => {
                         </span>
                       </div>
                       <div className="flex gap-2">
-                        <div className="relative">
+                        <div className="relative flex items-center">
                           <button
                             onClick={() => setPreviewTarget('ALL')}
-                            className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-l-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                             title="전사통합정산보고서 미리보기"
                           >
                             <FileText size={14} />
-                            정산서 확인
+                            전사 정산서
+                          </button>
+                          <button
+                            onClick={() => setIsExportDropdownOpen(prev => !prev)}
+                            className="px-2 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded-r-xl text-xs font-bold border-l border-rose-600/60 flex items-center cursor-pointer"
+                            title="정산서 선택 (사업단별 / 본부별 / 엑셀 다운로드)"
+                          >
+                            <ChevronDown size={14} />
                           </button>
                           {isExportDropdownOpen && (
                             <motion.div
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
-                              className="absolute right-0 top-full mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 py-2 overflow-hidden"
+                              className="absolute right-0 top-full mt-1 w-80 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 py-2 overflow-hidden"
                             >
                               <div className="px-3 py-1.5 text-[10px] font-black text-slate-400 uppercase border-b border-slate-100 mb-1 flex justify-between items-center">
                                 <span>정산서 미리보기 / 다운로드</span>
-                                <button onClick={() => setIsExportDropdownOpen(false)} className="hover:text-slate-600"><X size={10} /></button>
+                                <button onClick={() => setIsExportDropdownOpen(false)} className="hover:text-slate-600"><X size={12} /></button>
                               </div>
-                              <div className="max-h-60 overflow-y-auto">
-                                {isSuperAdmin && (
-                                  <>
+                              <div className="max-h-96 overflow-y-auto custom-scrollbar divide-y divide-slate-100 text-xs">
+                                {/* 1. 전사 통합 정산서 */}
+                                <div className="p-1.5 bg-slate-50/70">
+                                  <div className="text-[10px] font-black text-slate-500 px-2 py-1 flex items-center gap-1">
+                                    <span>🌐 전사 통합 정산서</span>
+                                  </div>
+                                  <div className="flex items-center justify-between px-2 py-1.5 hover:bg-blue-50 rounded-lg group">
                                     <button
                                       onClick={() => {
                                         setPreviewTarget('ALL');
                                         setIsExportDropdownOpen(false);
                                       }}
-                                      className="w-full text-left px-4 py-2 hover:bg-blue-50 text-[12px] font-black text-blue-700 border-b border-slate-50 flex justify-between items-center bg-blue-50/20"
+                                      className="flex items-center gap-1.5 font-bold text-blue-700 hover:underline"
                                     >
-                                      <span>전사 통합 정산 보고서 미리보기</span>
-                                      <FileText size={12} />
+                                      <FileText size={13} /> 전사 통합 정산서 미리보기
                                     </button>
                                     <button
                                       onClick={() => {
                                         exportIntegratedSettlement();
                                         setIsExportDropdownOpen(false);
                                       }}
-                                      className="w-full text-left px-4 py-2 hover:bg-emerald-50 text-[12px] font-black text-emerald-700 border-b border-slate-50 flex justify-between items-center bg-emerald-50/20"
+                                      title="엑셀 다운로드"
+                                      className="p-1 hover:bg-emerald-100 text-emerald-600 rounded transition-colors"
                                     >
-                                      <span>전사 통합 정산 보고서 (Excel)</span>
-                                      <Download size={12} />
+                                      <Download size={13} />
                                     </button>
+                                  </div>
+                                  {isSuperAdmin && (
                                     <button
                                       onClick={async () => {
                                         setIsExportDropdownOpen(false);
@@ -6435,38 +6712,149 @@ const ERP_Dashboard = () => {
                                           }
                                         }
                                       }}
-                                      className="w-full text-left px-4 py-2 hover:bg-teal-50 text-[12px] font-black text-teal-700 border-b border-slate-50 flex justify-between items-center bg-teal-50/20"
+                                      className="w-full text-left px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-teal-700 hover:bg-teal-50 rounded flex items-center justify-between"
                                     >
-                                      <span>본부별 정산서 일괄 다운로드 (Excel)</span>
+                                      <span>본부별 정산서 일괄 다운로드</span>
                                       <Download size={12} />
                                     </button>
-                                  </>
-                                )}
-                                {Object.keys(settlementStats.hqGroups).map(hq => (
-                                  <div key={hq} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 flex items-center pr-3 group">
-                                    <button
-                                      onClick={() => {
-                                        setPreviewTarget(hq);
-                                        setIsExportDropdownOpen(false);
-                                      }}
-                                      className="flex-1 text-left px-4 py-2 text-[12px] font-bold text-slate-700 flex justify-between items-center"
-                                    >
-                                      <span>{hq}</span>
-                                      <div className="flex gap-1.5 opacity-40 group-hover:opacity-100">
-                                        <FileText size={12} className="text-red-600" />
-                                      </div>
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        exportProfessionalSettlement(hq);
-                                        setIsExportDropdownOpen(false);
-                                      }}
-                                      className="p-1.5 hover:bg-emerald-50 text-emerald-500 rounded-md transition-colors"
-                                    >
-                                      <Download size={14} />
-                                    </button>
+                                  )}
+                                </div>
+
+                                {/* 2. 사업단별 정산서 (사업단 통합 + 소속 본부) */}
+                                {divisionSettings.length > 0 && (
+                                  <div className="p-1.5">
+                                    <div className="text-[10px] font-black text-indigo-600 px-2 py-1 flex items-center gap-1">
+                                      <span>🏢 사업단별 정산서</span>
+                                    </div>
+                                    {divisionSettings.map(div => {
+                                      const memberHqs = div.hqNames || [];
+                                      return (
+                                        <div key={div.id} className="mb-2 bg-indigo-50/30 rounded-lg p-1.5 border border-indigo-100/60">
+                                          {/* 사업단 통합 행 */}
+                                          <div className="flex items-center justify-between px-2 py-1 hover:bg-indigo-100/50 rounded group">
+                                            <button
+                                              onClick={() => {
+                                                setPreviewTarget(`DIV:${div.id}`);
+                                                setIsExportDropdownOpen(false);
+                                              }}
+                                              className="flex items-center gap-1.5 font-black text-indigo-900 text-[11px] truncate text-left"
+                                            >
+                                              <span className="truncate">🏢 [사업단 통합] {div.name}</span>
+                                              <span className="text-[9px] text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded font-normal shrink-0">{memberHqs.length}개 본부</span>
+                                            </button>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                              <button
+                                                onClick={() => {
+                                                  setPreviewTarget(`DIV:${div.id}`);
+                                                  setIsExportDropdownOpen(false);
+                                                }}
+                                                title="사업단 통합 정산서 미리보기"
+                                                className="p-1 hover:bg-indigo-200 text-indigo-700 rounded transition-colors"
+                                              >
+                                                <FileText size={12} />
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  exportDivisionSettlement(div.id);
+                                                  setIsExportDropdownOpen(false);
+                                                }}
+                                                title="사업단 통합 정산서 엑셀 다운로드"
+                                                className="p-1 hover:bg-emerald-200 text-emerald-700 rounded transition-colors"
+                                              >
+                                                <Download size={12} />
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          {/* 소속 본부들 */}
+                                          {memberHqs.length > 0 && (
+                                            <div className="pl-3 space-y-0.5 mt-1 border-l-2 border-indigo-200 ml-1.5">
+                                              {memberHqs.map(hq => (
+                                                <div key={hq} className="flex items-center justify-between px-2 py-1 hover:bg-white/80 rounded group text-[11px]">
+                                                  <button
+                                                    onClick={() => {
+                                                      setPreviewTarget(hq);
+                                                      setIsExportDropdownOpen(false);
+                                                    }}
+                                                    className="text-slate-700 hover:text-blue-600 font-bold truncate text-left"
+                                                  >
+                                                    ↳ {hq}
+                                                  </button>
+                                                  <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 shrink-0">
+                                                    <button
+                                                      onClick={() => {
+                                                        setPreviewTarget(hq);
+                                                        setIsExportDropdownOpen(false);
+                                                      }}
+                                                      title={`${hq} 미리보기`}
+                                                      className="p-0.5 text-slate-500 hover:text-red-600"
+                                                    >
+                                                      <FileText size={11} />
+                                                    </button>
+                                                    <button
+                                                      onClick={() => {
+                                                        exportProfessionalSettlement(hq);
+                                                        setIsExportDropdownOpen(false);
+                                                      }}
+                                                      title={`${hq} 엑셀 다운로드`}
+                                                      className="p-0.5 text-slate-500 hover:text-emerald-600"
+                                                    >
+                                                      <Download size={11} />
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
-                                ))}
+                                )}
+
+                                {/* 3. 독립 본부 정산서 (사업단 미소속 본부) */}
+                                <div className="p-1.5">
+                                  <div className="text-[10px] font-black text-slate-500 px-2 py-1 flex items-center gap-1">
+                                    <span>🏛️ 독립 본부 정산서</span>
+                                  </div>
+                                  {Object.keys(settlementStats.hqGroups)
+                                    .filter(hq => !divisionSettings.some(d => d.hqNames.includes(hq)))
+                                    .map(hq => (
+                                      <div key={hq} className="flex items-center justify-between px-2 py-1 hover:bg-slate-50 rounded group">
+                                        <button
+                                          onClick={() => {
+                                            setPreviewTarget(hq);
+                                            setIsExportDropdownOpen(false);
+                                          }}
+                                          className="flex-1 text-left font-bold text-slate-700 truncate text-[11px]"
+                                        >
+                                          {hq}
+                                        </button>
+                                        <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 shrink-0">
+                                          <button
+                                            onClick={() => {
+                                              setPreviewTarget(hq);
+                                              setIsExportDropdownOpen(false);
+                                            }}
+                                            title={`${hq} 미리보기`}
+                                            className="p-1 text-slate-500 hover:text-red-600"
+                                          >
+                                            <FileText size={12} />
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              exportProfessionalSettlement(hq);
+                                              setIsExportDropdownOpen(false);
+                                            }}
+                                            title={`${hq} 엑셀 다운로드`}
+                                            className="p-1 text-slate-500 hover:text-emerald-600"
+                                          >
+                                            <Download size={12} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                </div>
                               </div>
                             </motion.div>
                           )}
@@ -7932,6 +8320,16 @@ const ERP_Dashboard = () => {
                     </button>
                   )}
                   {isSuperAdmin && (
+                    <button onClick={() => setSettingsTab('division')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors flex items-center gap-1.5 ${settingsTab === 'division' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                      <span>🏢 사업단 관리</span>
+                      {divisionSettings.length > 0 && (
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${settingsTab === 'division' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-800 text-slate-300'}`}>
+                          {divisionSettings.length}
+                        </span>
+                      )}
+                    </button>
+                  )}
+                  {isSuperAdmin && (
                     <button onClick={() => setSettingsTab('global_incentive')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'global_incentive' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
                       특수 수당 설정
                     </button>
@@ -7952,7 +8350,20 @@ const ERP_Dashboard = () => {
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-black text-slate-800 uppercase tracking-wide">본부 목록</span>
                             <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                              총 {hqSettings.filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false) && (!hqSearchText.trim() || s.hqName.toLowerCase().includes(hqSearchText.trim().toLowerCase()))).length}개
+                              총 {hqSettings.filter(s => {
+                                if (hideEmptyProductsHqs && s.productRules.length === 0) return false;
+                                if (hideInactiveHqs && s.isActive === false) return false;
+                                if (hqSearchText.trim() && !s.hqName.toLowerCase().includes(hqSearchText.trim().toLowerCase())) return false;
+                                if (selectedDivisionHqFilter !== 'ALL') {
+                                  const parentDiv = divisionSettings.find(d => (d.hqNames || []).includes(s.hqName));
+                                  if (selectedDivisionHqFilter === 'INDEPENDENT') {
+                                    if (parentDiv) return false;
+                                  } else {
+                                    if (parentDiv?.id !== selectedDivisionHqFilter) return false;
+                                  }
+                                }
+                                return true;
+                              }).length}개
                             </span>
                           </div>
                           <button
@@ -7987,6 +8398,21 @@ const ERP_Dashboard = () => {
                           )}
                         </div>
 
+                        {/* Division Filter */}
+                        <div className="pt-0.5">
+                          <select
+                            value={selectedDivisionHqFilter}
+                            onChange={e => setSelectedDivisionHqFilter(e.target.value)}
+                            className="w-full py-1.5 px-2.5 text-[11px] font-bold bg-slate-50 border border-slate-200 rounded-lg text-slate-700 outline-none focus:border-blue-500 cursor-pointer"
+                          >
+                            <option value="ALL">🏢 전체 본부 보기</option>
+                            <option value="INDEPENDENT">🏛️ 독립 본부만 (사업단 미소속)</option>
+                            {divisionSettings.map(d => (
+                              <option key={d.id} value={d.id}>🏢 {d.name} 소속 본부 ({(d.hqNames || []).length}개)</option>
+                            ))}
+                          </select>
+                        </div>
+
                         {/* Checkbox Options */}
                         <div className="flex items-center gap-3 pt-0.5">
                           <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -8013,10 +8439,24 @@ const ERP_Dashboard = () => {
                       {/* Single Column Vertical List of Headquarters */}
                       <div className="flex-1 overflow-y-auto p-3 space-y-2">
                         {hqSettings
-                          .filter(s => (!hideEmptyProductsHqs || s.productRules.length > 0) && (!hideInactiveHqs || s.isActive !== false) && (!hqSearchText.trim() || s.hqName.toLowerCase().includes(hqSearchText.trim().toLowerCase())))
+                          .filter(s => {
+                            if (hideEmptyProductsHqs && s.productRules.length === 0) return false;
+                            if (hideInactiveHqs && s.isActive === false) return false;
+                            if (hqSearchText.trim() && !s.hqName.toLowerCase().includes(hqSearchText.trim().toLowerCase())) return false;
+                            if (selectedDivisionHqFilter !== 'ALL') {
+                              const parentDiv = divisionSettings.find(d => (d.hqNames || []).includes(s.hqName));
+                              if (selectedDivisionHqFilter === 'INDEPENDENT') {
+                                if (parentDiv) return false;
+                              } else {
+                                if (parentDiv?.id !== selectedDivisionHqFilter) return false;
+                              }
+                            }
+                            return true;
+                          })
                           .map((s) => {
                             const isActive = activeHqId === s.id;
                             const isBusiness = s.settlementType === '사업자';
+                            const parentDiv = divisionSettings.find(d => (d.hqNames || []).includes(s.hqName));
                             return (
                               <button
                                 key={s.id}
@@ -8027,9 +8467,20 @@ const ERP_Dashboard = () => {
                                     : 'bg-white border-slate-200/80 text-slate-800 hover:border-blue-400 hover:bg-blue-50/20'
                                 }`}
                               >
-                                <div className="flex items-center gap-2 truncate">
-                                  <span>{isBusiness ? '🏢' : '👤'}</span>
-                                  <span className="truncate">{s.hqName}</span>
+                                <div className="flex flex-col gap-1 truncate pr-2">
+                                  <div className="flex items-center gap-2 truncate">
+                                    <span>{isBusiness ? '🏢' : '👤'}</span>
+                                    <span className="truncate">{s.hqName}</span>
+                                  </div>
+                                  {parentDiv && (
+                                    <div className="flex items-center">
+                                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded truncate ${
+                                        isActive ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-700 border border-indigo-200/60'
+                                      }`}>
+                                        🏢 {parentDiv.name}
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -8457,6 +8908,537 @@ const ERP_Dashboard = () => {
                         <p className="font-bold">좌측 리스트에서 본부를 선택하여 설정을 시작하세요.</p>
                       </div>
                     )}
+                    </div>
+                  </div>
+                ) : settingsTab === 'division' && isSuperAdmin ? (
+                  <div className="flex-1 overflow-hidden flex bg-white border-t border-slate-100">
+                    {/* Left Sidebar: Division List */}
+                    <div className="w-[420px] shrink-0 border-r border-slate-200 bg-slate-50/70 flex flex-col h-full">
+                      {/* Top Division Action Bar */}
+                      <div className="p-4 border-b border-slate-200/80 flex flex-col gap-3 bg-white">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-slate-800 uppercase tracking-wide">사업단 목록</span>
+                            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                              총 {divisionSettings.filter(d => !divisionSearchText.trim() || d.name.toLowerCase().includes(divisionSearchText.trim().toLowerCase())).length}개
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setNewDivisionForm({
+                                name: '',
+                                settlementType: '사업자',
+                                bankName: '',
+                                accountNumber: '',
+                                accountHolder: '',
+                                paymentMethod: '계좌이체',
+                                memo: '',
+                                hqNames: []
+                              });
+                              setIsAddDivisionModalOpen(true);
+                            }}
+                            className="px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-slate-900 transition-all shadow-xs cursor-pointer"
+                          >
+                            <Plus size={13} /> 사업단 등록
+                          </button>
+                        </div>
+
+                        {/* Search Input */}
+                        <div className="relative flex items-center">
+                          <Search size={14} className="absolute left-2.5 text-slate-400 pointer-events-none" />
+                          <input
+                            type="text"
+                            placeholder="사업단명 검색..."
+                            value={divisionSearchText}
+                            onChange={e => setDivisionSearchText(e.target.value)}
+                            className="w-full pl-8 pr-7 py-1.5 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 outline-none focus:border-indigo-500 focus:bg-white transition-all"
+                          />
+                          {divisionSearchText && (
+                            <button
+                              onClick={() => setDivisionSearchText('')}
+                              className="absolute right-2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Vertical List of Divisions */}
+                      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        {divisionSettings.length === 0 ? (
+                          <div className="p-8 text-center text-slate-400">
+                            <Building size={36} className="mx-auto mb-2 opacity-30 text-indigo-500" />
+                            <p className="text-xs font-bold text-slate-600">등록된 사업단이 없습니다.</p>
+                            <p className="text-[11px] text-slate-400 mt-1">상단 '사업단 등록' 버튼을 눌러 새 사업단을 추가해 보세요.</p>
+                          </div>
+                        ) : (
+                          divisionSettings
+                            .filter(d => !divisionSearchText.trim() || d.name.toLowerCase().includes(divisionSearchText.trim().toLowerCase()))
+                            .map(d => {
+                              const isActive = activeDivisionId === d.id;
+                              const memberCount = (d.hqNames || []).length;
+                              return (
+                                <button
+                                  key={d.id}
+                                  onClick={() => setActiveDivisionId(d.id)}
+                                  className={`w-full p-3 rounded-xl transition-all border flex flex-col gap-2 text-left cursor-pointer ${
+                                    isActive
+                                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-100'
+                                      : 'bg-white border-slate-200/80 text-slate-800 hover:border-indigo-400 hover:bg-indigo-50/20'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between w-full">
+                                    <div className="flex items-center gap-2 truncate">
+                                      <span className="text-base">🏢</span>
+                                      <span className="text-xs font-black truncate">{d.name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                        isActive ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-700'
+                                      }`}>
+                                        본부 {memberCount}개
+                                      </span>
+                                      {d.isActive === false && (
+                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                          isActive ? 'bg-red-500 text-white' : 'bg-red-100 text-red-600'
+                                        }`}>
+                                          미운영
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center justify-between w-full text-[11px] opacity-80 pt-1 border-t border-current/10">
+                                    <span className="truncate">
+                                      {d.bankName ? `${d.bankName} ${d.accountHolder || ''}` : '계좌 미등록'}
+                                    </span>
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                                      isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      {d.settlementType || '사업자'}
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right Main Details Area */}
+                    <div className="flex-1 flex flex-col overflow-hidden bg-white">
+                      {activeDivisionId ? (
+                        (() => {
+                          const div = divisionSettings.find(d => d.id === activeDivisionId);
+                          if (!div) return <div className="flex-1 flex items-center justify-center text-slate-400">사업단을 선택해 주세요.</div>;
+                          
+                          return (
+                            <div className="flex-1 overflow-y-auto">
+                              {/* Division Header & Bank Info */}
+                              <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col gap-4">
+                                <div className="flex justify-between items-center">
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xl">🏢</span>
+                                      <input
+                                        type="text"
+                                        value={div.name}
+                                        onChange={e => {
+                                          const newName = e.target.value;
+                                          setDivisionSettings(prev => prev.map(d => d.id === div.id ? { ...d, name: newName } : d));
+                                        }}
+                                        className="text-lg font-black text-slate-900 bg-white border border-slate-200 px-3 py-1 rounded-lg focus:border-indigo-500 outline-none"
+                                        placeholder="사업단명 입력"
+                                      />
+                                    </div>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full uppercase">
+                                      총괄 사업단
+                                    </span>
+                                    <p className="text-[11px] text-slate-400">ID: {div.id}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <label className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg cursor-pointer text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors select-none">
+                                      <input
+                                        type="checkbox"
+                                        checked={div.isActive !== false}
+                                        onChange={e => setDivisionSettings(prev => prev.map(d => d.id === div.id ? { ...d, isActive: e.target.checked } : d))}
+                                        className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                      />
+                                      <span>운영 중</span>
+                                    </label>
+                                    <button
+                                      onClick={async () => {
+                                        if (await (window as any).customConfirm(`'${div.name}' 사업단을 삭제하시겠습니까?\n(소속 본부들은 삭제되지 않고 독립 본부로 전환됩니다.)`)) {
+                                          setDivisionSettings(prev => prev.filter(d => d.id !== div.id));
+                                          setActiveDivisionId(null);
+                                        }
+                                      }}
+                                      className="px-2.5 py-1.5 text-rose-500 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all border border-rose-100 cursor-pointer"
+                                    >
+                                      사업단 삭제
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* 계좌 및 정산 정보 인라인 배치 */}
+                                <div className="bg-white p-4 border border-slate-200/80 rounded-xl space-y-3">
+                                  <div className="flex items-center gap-2 text-xs font-black text-slate-700 border-b border-slate-100 pb-2">
+                                    <CreditCard size={15} className="text-indigo-600" />
+                                    <span>사업단 대표 정산 및 입금 계좌 정보</span>
+                                    <span className="text-[10px] font-normal text-slate-400 ml-1">
+                                      (사업단 통합 정산서 출력 및 송금 시 이 계좌와 세무 구분이 적용됩니다.)
+                                    </span>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                                    <div className="flex flex-col gap-1">
+                                      <label className="text-[10px] font-bold text-slate-400">정산구분</label>
+                                      <select
+                                        value={div.settlementType || '사업자'}
+                                        onChange={e => setDivisionSettings(prev => prev.map(d => d.id === div.id ? { ...d, settlementType: e.target.value as any } : d))}
+                                        className="px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none focus:border-indigo-500 bg-white"
+                                      >
+                                        <option value="사업자">사업자 (세금계산서/부가세)</option>
+                                        <option value="개인">개인 (원천세 3.3%)</option>
+                                        <option value="개인/프리랜서">개인/프리랜서 (원천세 3.3%)</option>
+                                      </select>
+                                    </div>
+
+                                    <div className="flex flex-col gap-1">
+                                      <label className="text-[10px] font-bold text-slate-400">입금은행</label>
+                                      <input
+                                        type="text"
+                                        value={div.bankName || ''}
+                                        onChange={e => setDivisionSettings(prev => prev.map(d => d.id === div.id ? { ...d, bankName: e.target.value } : d))}
+                                        placeholder="예: 기업, 국민, 하나"
+                                        className="px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none focus:border-indigo-500"
+                                      />
+                                    </div>
+
+                                    <div className="flex flex-col gap-1">
+                                      <label className="text-[10px] font-bold text-slate-400">계좌번호</label>
+                                      <input
+                                        type="text"
+                                        value={div.accountNumber || ''}
+                                        onChange={e => setDivisionSettings(prev => prev.map(d => d.id === div.id ? { ...d, accountNumber: e.target.value } : d))}
+                                        placeholder="계좌번호 입력"
+                                        className="px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none focus:border-indigo-500 font-mono"
+                                      />
+                                    </div>
+
+                                    <div className="flex flex-col gap-1">
+                                      <label className="text-[10px] font-bold text-slate-400">예금주</label>
+                                      <input
+                                        type="text"
+                                        value={div.accountHolder || ''}
+                                        onChange={e => setDivisionSettings(prev => prev.map(d => d.id === div.id ? { ...d, accountHolder: e.target.value } : d))}
+                                        placeholder="예금주명 입력"
+                                        className="px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none focus:border-indigo-500"
+                                      />
+                                    </div>
+
+                                    <div className="flex flex-col gap-1">
+                                      <label className="text-[10px] font-bold text-slate-400">지급방식</label>
+                                      <input
+                                        type="text"
+                                        value={div.paymentMethod || '계좌이체'}
+                                        onChange={e => setDivisionSettings(prev => prev.map(d => d.id === div.id ? { ...d, paymentMethod: e.target.value } : d))}
+                                        placeholder="예: 계좌이체"
+                                        className="px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none focus:border-indigo-500"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* 소속 본부 묶기 및 수수료 설정 영역 */}
+                              <div className="p-6 space-y-6">
+                                {/* 1. 소속 본부 설정 */}
+                                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
+                                  <div className="flex justify-between items-center">
+                                    <div>
+                                      <h5 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                                        <Building size={16} className="text-indigo-600" />
+                                        소속 본부 지정 및 묶기
+                                        <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                                          현재 {(div.hqNames || []).length}개 본부 소속
+                                        </span>
+                                      </h5>
+                                      <p className="text-xs text-slate-500 mt-0.5">
+                                        이 사업단에 소속되어 통합 정산받을 본부들을 선택하세요. (한 본부는 하나의 사업단에만 배정됩니다.)
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => {
+                                          const allAvailable = hqSettings.map(h => h.hqName);
+                                          setDivisionSettings(prev => prev.map(d => {
+                                            if (d.id === div.id) return { ...d, hqNames: allAvailable };
+                                            return { ...d, hqNames: (d.hqNames || []).filter(name => !allAvailable.includes(name)) };
+                                          }));
+                                        }}
+                                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors cursor-pointer"
+                                      >
+                                        전체 본부 배정
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setDivisionSettings(prev => prev.map(d => d.id === div.id ? { ...d, hqNames: [] } : d));
+                                        }}
+                                        className="text-xs font-bold text-slate-500 hover:text-slate-800 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                                      >
+                                        배정 모두 해제
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* 본부 선택 체크박스 그리드 */}
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 pt-1">
+                                    {hqSettings.map(hq => {
+                                      const isSelected = (div.hqNames || []).includes(hq.hqName);
+                                      const otherDiv = divisionSettings.find(d => d.id !== div.id && (d.hqNames || []).includes(hq.hqName));
+
+                                      return (
+                                        <label
+                                          key={hq.id}
+                                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition-all select-none ${
+                                            isSelected
+                                              ? 'bg-indigo-50 border-indigo-300 text-indigo-900 shadow-2xs'
+                                              : otherDiv
+                                                ? 'bg-slate-50/80 border-slate-200/70 text-slate-400 hover:border-slate-300'
+                                                : 'bg-white border-slate-200 text-slate-700 hover:border-indigo-200 hover:bg-slate-50'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-2 truncate">
+                                            <input
+                                              type="checkbox"
+                                              checked={isSelected}
+                                              onChange={e => {
+                                                const checked = e.target.checked;
+                                                setDivisionSettings(prev => prev.map(d => {
+                                                  if (d.id === div.id) {
+                                                    const current = d.hqNames || [];
+                                                    return {
+                                                      ...d,
+                                                      hqNames: checked ? [...current, hq.hqName] : current.filter(n => n !== hq.hqName)
+                                                    };
+                                                  } else {
+                                                    if (checked) {
+                                                      return {
+                                                        ...d,
+                                                        hqNames: (d.hqNames || []).filter(n => n !== hq.hqName)
+                                                      };
+                                                    }
+                                                    return d;
+                                                  }
+                                                }));
+                                              }}
+                                              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                                            />
+                                            <div className="truncate">
+                                              <span className="text-xs font-bold block truncate">{hq.hqName}</span>
+                                              {otherDiv && !isSelected && (
+                                                <span className="text-[10px] text-amber-600 truncate block">
+                                                  ({otherDiv.name} 소속)
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <span className="text-[10px] text-slate-400 shrink-0">
+                                            {hq.productRules.length}개 상품
+                                          </span>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* 2. [수수료 일괄 통일] 도구 */}
+                                <div className="bg-gradient-to-br from-indigo-50/50 to-blue-50/30 border border-indigo-200/70 rounded-xl p-5 shadow-xs space-y-4">
+                                  <div className="flex flex-wrap justify-between items-start gap-4">
+                                    <div>
+                                      <h5 className="text-sm font-black text-indigo-950 flex items-center gap-2">
+                                        <span className="text-base">⚡</span>
+                                        사업단 내 본부 수수료 일괄 통일 (원클릭 동기화)
+                                      </h5>
+                                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                                        사업단 내 소속된 여러 본부들의 상품 수수료 체계(품목별 총액, 판매수수료, 촉진비, 구간 등)를
+                                        특정 기준 본부와 동일하게 일괄 복사하여 통일합니다.<br />
+                                        통일 후에도 '본부별 정산 설정' 탭에서 각 본부의 수수료를 개별적으로 추가/수정하실 수 있습니다.
+                                      </p>
+                                    </div>
+
+                                    <button
+                                      onClick={() => setSettingsTab('hq')}
+                                      className="text-xs font-bold text-slate-600 hover:text-indigo-600 flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors shrink-0 cursor-pointer"
+                                    >
+                                      본부별 수수료 설정 탭으로 이동 ↗
+                                    </button>
+                                  </div>
+
+                                  {(div.hqNames || []).length === 0 ? (
+                                    <div className="bg-white/80 border border-indigo-100 rounded-lg p-4 text-center text-xs text-slate-500 font-bold">
+                                      소속된 본부가 없습니다. 위에서 본부를 먼저 사업단에 배정해 주세요.
+                                    </div>
+                                  ) : (
+                                    <div className="bg-white border border-indigo-200/60 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-xs font-black text-slate-700 shrink-0">기준 본부 선택:</span>
+                                        <select
+                                          value={commissionSyncSourceHq || (div.hqNames[0] || '')}
+                                          onChange={e => setCommissionSyncSourceHq(e.target.value)}
+                                          className="px-3 py-1.5 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-indigo-500 cursor-pointer"
+                                        >
+                                          {div.hqNames.map(name => {
+                                            const hq = hqSettings.find(h => h.hqName === name);
+                                            return (
+                                              <option key={name} value={name}>
+                                                {name} ({hq?.productRules.length || 0}개 상품 등록됨)
+                                              </option>
+                                            );
+                                          })}
+                                        </select>
+                                        <span className="text-xs text-slate-500">
+                                          의 상품 수수료 체계를 소속 본부 {(div.hqNames || []).length}개에 복사
+                                        </span>
+                                      </div>
+
+                                      <button
+                                        onClick={async () => {
+                                          const srcName = commissionSyncSourceHq || div.hqNames[0];
+                                          if (!srcName) return alert('기준 본부를 선택해 주세요.');
+                                          const srcHq = hqSettings.find(h => h.hqName === srcName);
+                                          if (!srcHq) return alert('선택한 기준 본부 정보를 찾을 수 없습니다.');
+
+                                          const targetNames = div.hqNames.filter(n => n !== srcName);
+                                          if (targetNames.length === 0) {
+                                            return alert('사업단 내에 복사할 다른 소속 본부가 없습니다.');
+                                          }
+
+                                          const confirmed = await (window as any).customConfirm(
+                                            `기준 본부 '${srcName}'의 상품 수수료 설정(${srcHq.productRules.length}개 상품)을\n소속 본부 [${targetNames.join(', ')}]\n에 동일하게 덮어쓰기 복사하시겠습니까?`,
+                                            '수수료 체계 일괄 통일'
+                                          );
+
+                                          if (!confirmed) return;
+
+                                          setHqSettings(prev => prev.map(h => {
+                                            if (targetNames.includes(h.hqName)) {
+                                              return {
+                                                ...h,
+                                                enableOverriding: srcHq.enableOverriding,
+                                                overriding: { ...srcHq.overriding },
+                                                productRules: JSON.parse(JSON.stringify(srcHq.productRules))
+                                              };
+                                            }
+                                            return h;
+                                          }));
+
+                                          setNotification({
+                                            message: `'${div.name}' 소속 본부(${div.hqNames.length}개)의 수수료 체계가 '${srcName}' 기준으로 통일되었습니다.`,
+                                            type: 'success'
+                                          });
+                                        }}
+                                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                                      >
+                                        <RefreshCw size={13} />
+                                        기준 본부 수수료로 일괄 통일하기
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* 3. 소속 본부별 실적 현황 요약 */}
+                                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-3">
+                                  <div className="flex justify-between items-center">
+                                    <h5 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                                      <FileSpreadsheet size={16} className="text-indigo-600" />
+                                      소속 본부 목록 및 등록 현황
+                                    </h5>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => {
+                                          setPreviewTarget(`DIV:${div.id}`);
+                                          setIsSettingsModalOpen(false);
+                                        }}
+                                        className="text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <FileText size={13} /> 사업단 통합 정산서 미리보기
+                                      </button>
+                                      <button
+                                        onClick={() => exportDivisionSettlement(div.id)}
+                                        className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <Download size={13} /> 사업단 엑셀 다운로드
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-xs text-left border-collapse border border-slate-200">
+                                      <thead>
+                                        <tr className="bg-slate-100/70 text-slate-700 font-bold border-b border-slate-200">
+                                          <th className="p-2.5">본부명</th>
+                                          <th className="p-2.5">정산유형</th>
+                                          <th className="p-2.5">등록 상품수</th>
+                                          <th className="p-2.5">입금은행 / 계좌</th>
+                                          <th className="p-2.5">예금주</th>
+                                          <th className="p-2.5 text-center">관리</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {(div.hqNames || []).length === 0 ? (
+                                          <tr>
+                                            <td colSpan={6} className="p-6 text-center text-slate-400 font-medium">
+                                              소속된 본부가 없습니다.
+                                            </td>
+                                          </tr>
+                                        ) : (
+                                          div.hqNames.map(hqName => {
+                                            const hq = hqSettings.find(h => h.hqName === hqName);
+                                            return (
+                                              <tr key={hqName} className="border-b border-slate-100 hover:bg-slate-50">
+                                                <td className="p-2.5 font-bold text-slate-800 flex items-center gap-1.5">
+                                                  <span>🏢</span>
+                                                  {hqName}
+                                                </td>
+                                                <td className="p-2.5 text-slate-600">{hq?.settlementType || '-'}</td>
+                                                <td className="p-2.5 font-bold text-indigo-600">{hq?.productRules.length || 0}개</td>
+                                                <td className="p-2.5 text-slate-600">{hq?.bankName} {hq?.accountNumber}</td>
+                                                <td className="p-2.5 text-slate-600">{hq?.accountHolder}</td>
+                                                <td className="p-2.5 text-center">
+                                                  <button
+                                                    onClick={() => {
+                                                      if (hq) {
+                                                        setActiveHqId(hq.id);
+                                                        setSettingsTab('hq');
+                                                      }
+                                                    }}
+                                                    className="text-[11px] font-bold text-blue-600 hover:underline cursor-pointer"
+                                                  >
+                                                    수수료 설정 ↗
+                                                  </button>
+                                                </td>
+                                              </tr>
+                                            );
+                                          })
+                                        )}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400">
+                          <Building size={48} className="mb-4 opacity-20 text-indigo-500" />
+                          <p className="font-bold">좌측 리스트에서 사업단을 선택하여 설정을 시작하세요.</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : settingsTab === 'global_incentive' && isSuperAdmin ? (
@@ -9458,6 +10440,195 @@ const ERP_Dashboard = () => {
             </div>
           )}
         </AnimatePresence>
+
+        {/* 신규 사업단 추가 팝업 모달 */}
+        <AnimatePresence>
+          {isAddDivisionModalOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsAddDivisionModalOpen(false)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                className="relative bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden flex flex-col z-10 border border-slate-100"
+              >
+                {/* Modal Header */}
+                <div className="px-6 py-4 bg-gradient-to-r from-indigo-900 to-slate-900 text-white flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🏢</span>
+                    <h3 className="text-base font-bold">신규 사업단 등록</h3>
+                  </div>
+                  <button
+                    onClick={() => setIsAddDivisionModalOpen(false)}
+                    className="p-1.5 hover:bg-white/10 rounded-full transition-colors text-slate-300 hover:text-white cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Modal Body */}
+                <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+                  {/* 사업단명 */}
+                  <div>
+                    <label className="text-xs font-black text-slate-700 block mb-1">사업단명 *</label>
+                    <input
+                      type="text"
+                      placeholder="예: 다보다사업단, 최강사업단"
+                      value={newDivisionForm.name}
+                      onChange={e => setNewDivisionForm({ ...newDivisionForm, name: e.target.value })}
+                      className="w-full px-3.5 py-2.5 text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:bg-white outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* 정산유형 및 계좌 정보 */}
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/70 space-y-3">
+                    <span className="text-xs font-black text-slate-700 block border-b border-slate-200 pb-1.5">
+                      대표 계좌 및 세무 정보
+                    </span>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">정산구분</label>
+                        <select
+                          value={newDivisionForm.settlementType}
+                          onChange={e => setNewDivisionForm({ ...newDivisionForm, settlementType: e.target.value as any })}
+                          className="w-full px-3 py-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500 cursor-pointer"
+                        >
+                          <option value="사업자">사업자 (세금계산서/부가세)</option>
+                          <option value="개인">개인 (원천세 3.3%)</option>
+                          <option value="개인/프리랜서">개인/프리랜서 (원천세 3.3%)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">입금은행</label>
+                        <input
+                          type="text"
+                          placeholder="예: 국민, 우리, 하나"
+                          value={newDivisionForm.bankName}
+                          onChange={e => setNewDivisionForm({ ...newDivisionForm, bankName: e.target.value })}
+                          className="w-full px-3 py-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">계좌번호</label>
+                        <input
+                          type="text"
+                          placeholder="계좌번호 입력"
+                          value={newDivisionForm.accountNumber}
+                          onChange={e => setNewDivisionForm({ ...newDivisionForm, accountNumber: e.target.value })}
+                          className="w-full px-3 py-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 block mb-1">예금주</label>
+                        <input
+                          type="text"
+                          placeholder="예금주명"
+                          value={newDivisionForm.accountHolder}
+                          onChange={e => setNewDivisionForm({ ...newDivisionForm, accountHolder: e.target.value })}
+                          className="w-full px-3 py-2 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 초기 소속 본부 선택 */}
+                  <div>
+                    <label className="text-xs font-black text-slate-700 block mb-1">
+                      소속 본부 선택 (등록 후에도 언제든지 변경 가능)
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50">
+                      {hqSettings.map(hq => {
+                        const isChecked = newDivisionForm.hqNames.includes(hq.hqName);
+                        const otherDiv = divisionSettings.find(d => (d.hqNames || []).includes(hq.hqName));
+
+                        return (
+                          <label
+                            key={hq.id}
+                            className={`p-2 rounded-lg border text-xs flex items-center gap-2 cursor-pointer transition-colors ${
+                              isChecked
+                                ? 'bg-indigo-100/70 border-indigo-300 font-bold text-indigo-900'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={e => {
+                                const checked = e.target.checked;
+                                setNewDivisionForm({
+                                  ...newDivisionForm,
+                                  hqNames: checked
+                                    ? [...newDivisionForm.hqNames, hq.hqName]
+                                    : newDivisionForm.hqNames.filter(n => n !== hq.hqName)
+                                });
+                              }}
+                              className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            />
+                            <span className="truncate">
+                              {hq.hqName}
+                              {otherDiv && <span className="text-[10px] text-amber-600 block">({otherDiv.name})</span>}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                  <button
+                    onClick={() => setIsAddDivisionModalOpen(false)}
+                    className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!newDivisionForm.name.trim()) {
+                        return alert('사업단명을 입력해 주세요.');
+                      }
+
+                      const newId = `div-${Date.now()}`;
+                      const newDiv: DivisionSetting = {
+                        id: newId,
+                        name: newDivisionForm.name.trim(),
+                        settlementType: newDivisionForm.settlementType,
+                        bankName: newDivisionForm.bankName.trim(),
+                        accountNumber: newDivisionForm.accountNumber.trim(),
+                        accountHolder: newDivisionForm.accountHolder.trim(),
+                        paymentMethod: newDivisionForm.paymentMethod || '계좌이체',
+                        memo: newDivisionForm.memo,
+                        hqNames: newDivisionForm.hqNames,
+                        isActive: true
+                      };
+
+                      const targetHqNames = newDivisionForm.hqNames;
+                      const updatedDivisions = divisionSettings.map(d => ({
+                        ...d,
+                        hqNames: (d.hqNames || []).filter(name => !targetHqNames.includes(name))
+                      }));
+
+                      setDivisionSettings([...updatedDivisions, newDiv]);
+                      setActiveDivisionId(newId);
+                      setIsAddDivisionModalOpen(false);
+                      setNotification({ message: `'${newDiv.name}' 사업단이 등록되었습니다.`, type: 'success' });
+                    }}
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-200 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus size={15} /> 사업단 등록하기
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
         {/* 단건 수수료 변경 사유 입력 모달 */}
         <AnimatePresence>
           {isChangeReasonModalOpen && singleChangePending && (
@@ -10271,16 +11442,30 @@ const ERP_Dashboard = () => {
                 <div className="px-6 py-4 border-b border-slate-100 bg-slate-800 text-white flex justify-between items-center shrink-0">
                   <h3 className="text-lg font-bold flex items-center gap-2">
                     <Monitor size={20} /> 
-                    {previewTarget === 'ALL' ? '전사 통합 정산 보고서 미리보기' : `${previewTarget} 정산서 미리보기`}
+                    {previewTarget === 'ALL'
+                      ? '전사 통합 정산 보고서 미리보기'
+                      : previewTarget.startsWith('DIV:')
+                        ? `[사업단 통합] ${divisionSettings.find(d => d.id === previewTarget.replace('DIV:', ''))?.name || '사업단'} 정산서 미리보기`
+                        : `${previewTarget} 정산서 미리보기`}
                   </h3>
                   <div className="flex items-center gap-3">
-                    <button 
-                      onClick={() => exportIntegratedSettlement()}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
-                      title="전사 통합정산 종합 보고서 엑셀 다운로드 (3개 시트)"
-                    >
-                      <FileSpreadsheet size={14} /> 통합정산 보고서 (Excel)
-                    </button>
+                    {previewTarget.startsWith('DIV:') ? (
+                      <button 
+                        onClick={() => exportDivisionSettlement(previewTarget.replace('DIV:', ''))}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                        title="사업단 통합 정산서 엑셀 다운로드"
+                      >
+                        <FileSpreadsheet size={14} /> 사업단 정산서 (Excel)
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => exportIntegratedSettlement()}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                        title="전사 통합정산 종합 보고서 엑셀 다운로드 (3개 시트)"
+                      >
+                        <FileSpreadsheet size={14} /> 통합정산 보고서 (Excel)
+                      </button>
+                    )}
                     <button 
                       onClick={async () => {
                         const specialAdditions: Record<string, number> = {};
@@ -10293,7 +11478,13 @@ const ERP_Dashboard = () => {
                           ...maintenancePayouts.map(m => m.hq)
                         ]));
                         
-                        const targets = previewTarget === 'ALL' ? combinedHqs : [previewTarget];
+                        const isDivTarget = previewTarget.startsWith('DIV:');
+                        const divTargetObj = isDivTarget ? divisionSettings.find(d => d.id === previewTarget.replace('DIV:', '')) : null;
+                        const targets = previewTarget === 'ALL'
+                          ? combinedHqs
+                          : isDivTarget
+                            ? (divTargetObj?.hqNames || [])
+                            : [previewTarget];
                         
                         for (let i = 0; i < targets.length; i++) {
                           const hq = targets[i];
@@ -10322,7 +11513,13 @@ const ERP_Dashboard = () => {
                           ...Object.keys(specialAdditions),
                           ...maintenancePayouts.map(m => m.hq)
                         ]));
-                        const targets = previewTarget === 'ALL' ? combinedHqs : [previewTarget];
+                        const isDivTarget = previewTarget.startsWith('DIV:');
+                        const divTargetObj = isDivTarget ? divisionSettings.find(d => d.id === previewTarget.replace('DIV:', '')) : null;
+                        const targets = previewTarget === 'ALL'
+                          ? combinedHqs
+                          : isDivTarget
+                            ? (divTargetObj?.hqNames || [])
+                            : [previewTarget];
                         const summaries = targets.map(hqName => {
                           const items = settlementStats.hqGroups[hqName] || [];
                           const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
@@ -10366,6 +11563,9 @@ const ERP_Dashboard = () => {
                 </div>
                 <div className="flex-1 overflow-y-auto p-8 bg-slate-50 space-y-12">
                   {(() => {
+                    const isDivTarget = previewTarget.startsWith('DIV:');
+                    const divTargetObj = isDivTarget ? divisionSettings.find(d => d.id === previewTarget.replace('DIV:', '')) : null;
+
                     const specialAdditions: Record<string, number> = {};
                     Object.entries(settlementStats.globalIncentivesSummary || {}).forEach(([name, amt]) => {
                       if ((amt as number) > 0) specialAdditions[name] = amt as number;
@@ -10376,7 +11576,11 @@ const ERP_Dashboard = () => {
                       ...maintenancePayouts.map(m => m.hq)
                     ]));
                     
-                    const targets = previewTarget === 'ALL' ? combinedHqs : [previewTarget];
+                    const targets = previewTarget === 'ALL'
+                      ? combinedHqs
+                      : isDivTarget
+                        ? (divTargetObj?.hqNames || [])
+                        : [previewTarget];
 
                     const targetSummaries = targets.map(hqName => {
                       const items = settlementStats.hqGroups[hqName] || [];
@@ -10888,10 +12092,61 @@ const ERP_Dashboard = () => {
                     );
                   };
 
-                  return (
-                    <div className="space-y-6">
-                      <div className="bg-white p-6 rounded-xl border border-slate-200">
-                        <h4 className="text-sm font-bold text-slate-800 mb-4">■ 전원 지급 계좌 및 정산 요약</h4>
+                    return (
+                      <div className="space-y-6">
+                        {isDivTarget && divTargetObj && (
+                          <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-6 rounded-2xl shadow-md">
+                            <div className="flex flex-wrap justify-between items-start gap-4 mb-4 border-b border-indigo-700/60 pb-4">
+                              <div>
+                                <div className="flex items-center gap-2.5">
+                                  <span className="text-xl font-black text-white">🏢 {divTargetObj.name}</span>
+                                  <span className="text-xs font-bold bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 px-2.5 py-0.5 rounded-full">
+                                    사업단 통합 정산
+                                  </span>
+                                  <span className="text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                                    {divTargetObj.settlementType || '사업자'}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-indigo-200 mt-1">
+                                  소속 본부 ({divTargetObj.hqNames.length}개): {divTargetObj.hqNames.join(', ') || '없음'}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-[11px] text-indigo-300 block">사업단 최종 실지급액</span>
+                                <span className="text-2xl font-black text-amber-300">
+                                  {(() => {
+                                    const sumTotal = targetSummaries.reduce((sum, s) => sum + (s.totalSum || 0), 0);
+                                    const isPersonal = divTargetObj.settlementType?.includes('개인');
+                                    const net = isPersonal ? sumTotal - Math.floor(sumTotal * 0.033) : sumTotal;
+                                    return net.toLocaleString();
+                                  })()}원
+                                </span>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-white/10 p-4 rounded-xl text-xs backdrop-blur-xs">
+                              <div>
+                                <span className="text-indigo-300 font-medium block">대표 입금은행</span>
+                                <span className="font-bold text-white text-sm">{divTargetObj.bankName || '-'}</span>
+                              </div>
+                              <div>
+                                <span className="text-indigo-300 font-medium block">계좌번호</span>
+                                <span className="font-bold text-white text-sm font-mono">{divTargetObj.accountNumber || '-'}</span>
+                              </div>
+                              <div>
+                                <span className="text-indigo-300 font-medium block">예금주</span>
+                                <span className="font-bold text-white text-sm">{divTargetObj.accountHolder || '-'}</span>
+                              </div>
+                              <div>
+                                <span className="text-indigo-300 font-medium block">지급방식</span>
+                                <span className="font-bold text-white text-sm">{divTargetObj.paymentMethod || '계좌이체'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <div className="bg-white p-6 rounded-xl border border-slate-200">
+                          <h4 className="text-sm font-bold text-slate-800 mb-4">
+                            {isDivTarget && divTargetObj ? `■ [${divTargetObj.name}] 소속 본부별 실적 및 지급 계좌 요약` : '■ 전원 지급 계좌 및 정산 요약'}
+                          </h4>
                         <div className="overflow-x-auto">
                           <table className="w-full border-collapse border border-slate-300 text-xs text-center">
                             <thead>
