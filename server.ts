@@ -340,8 +340,16 @@ app.post('/api/auth/login', async (req, res) => {
             // 헤더 건너뛰고 매칭되는 계정 탐색 (구분, 조직명, 아이디, 비밀번호)
             const matchedRows = rows.slice(1).filter(row => {
               const rowId = String(row[2] || '').trim();
-              const rowPw = String(row[3] || '').trim();
-              return rowId === username && rowPw === password;
+              let rowPw = String(row[3] || '').trim();
+              const inputPw = String(password || '').trim();
+              // 만약 시트에 10자리로 앞자리 0이 누락되어 저장된 경우(10XXXXXXXX) 자동 보정
+              if (rowPw.length === 10 && /^1[0-9]{9}$/.test(rowPw) && (rowId.startsWith('a01') || rowPw.startsWith('10'))) {
+                rowPw = '0' + rowPw;
+              }
+              const pwMatches = rowPw === inputPw || 
+                (inputPw.length === 10 && rowPw === '0' + inputPw) || 
+                (rowPw.length === 10 && '0' + rowPw === inputPw);
+              return rowId === username && pwMatches;
             });
 
             if (matchedRows.length > 0) {
@@ -487,11 +495,11 @@ app.post('/api/auth/change-password', async (req, res) => {
       return res.status(404).json({ error: `등록된 계정 정보(${username})를 찾을 수 없습니다.` });
     }
 
-    // 구글 시트에 업데이트 반영
+    // 구글 시트에 업데이트 반영 (RAW로 저장하여 앞자리 0 유지)
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
       range: `조직계정설정!A1:D${updatedRows.length}`,
-      valueInputOption: 'USER_ENTERED',
+      valueInputOption: 'RAW',
       requestBody: { values: updatedRows }
     });
 
@@ -1017,9 +1025,20 @@ app.get('/api/sheets/members/load', async (req, res) => {
     const members = [];
     for (let i = 0; i < rows.length; i++) {
       if (i === 0 && rows[i][0] === '구분') continue; // 헤더 스킵
-      const [role, orgName, username, password] = rows[i];
+      let [role, orgName, username, password] = rows[i];
       if (!username) continue; // 아이디가 없으면 스킵
-      members.push({ role: role || '', orgName: orgName || '', username: username || '', password: password || '' });
+
+      role = String(role || '').trim();
+      orgName = String(orgName || '').trim();
+      username = String(username || '').trim();
+      let pw = String(password ?? '').trim();
+
+      // 만약 사원 비밀번호가 10자리(예: 10XXXXXXXX)로 맨 앞 0이 누락되어 있고, 아이디가 a010... 형태라면 자동으로 '0'을 붙여 010... 양식 복원
+      if (pw.length === 10 && /^1[0-9]{9}$/.test(pw) && (username.startsWith('a01') || username.startsWith('01') || pw.startsWith('10'))) {
+        pw = '0' + pw;
+      }
+
+      members.push({ role, orgName, username, password: pw });
     }
 
     res.json({ members });
@@ -1057,10 +1076,16 @@ app.post('/api/sheets/members/save', async (req, res) => {
       aSheetId = addSheetRes.data.replies?.[0]?.addSheet?.properties?.sheetId;
     }
 
-    // 헤더 포함
+    // 헤더 포함 및 비밀번호 0 누락 방지 보정
     const rows = [['구분', '조직명', '아이디', '비밀번호']];
     members.forEach(m => {
-      rows.push([m.role || '', m.orgName || '', m.username || '', m.password || '']);
+      const uname = String(m.username ?? '').trim();
+      let pw = String(m.password ?? '').trim();
+      // 만약 비밀번호가 10자리(10XXXXXXXX)이고 아이디가 a01... 형태이거나 10으로 시작하는 경우 010... 형식으로 복원
+      if (pw.length === 10 && /^1[0-9]{9}$/.test(pw) && (uname.startsWith('a01') || uname.startsWith('01') || pw.startsWith('10'))) {
+        pw = '0' + pw;
+      }
+      rows.push([String(m.role || ''), String(m.orgName || ''), uname, pw]);
     });
 
     await sheets.spreadsheets.values.clear({
@@ -1068,10 +1093,11 @@ app.post('/api/sheets/members/save', async (req, res) => {
       range: '조직계정설정!A:D'
     });
 
+    // valueInputOption을 'RAW'로 설정하여 문자열(010XXXXXXXX)이 숫자로 자동 변환되어 앞자리 0이 유실되는 현상 원천 차단
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
       range: '조직계정설정!A1',
-      valueInputOption: 'USER_ENTERED',
+      valueInputOption: 'RAW',
       requestBody: { values: rows }
     });
 
@@ -1080,6 +1106,19 @@ app.post('/api/sheets/members/save', async (req, res) => {
         spreadsheetId: sheetId,
         requestBody: {
           requests: [
+            // 전체 A~D 열을 TEXT 서식으로 지정하여 앞자리 0 보존
+            {
+              repeatCell: {
+                range: { sheetId: aSheetId, startColumnIndex: 0, endColumnIndex: 4 },
+                cell: {
+                  userEnteredFormat: {
+                    numberFormat: { type: 'TEXT' }
+                  }
+                },
+                fields: 'userEnteredFormat.numberFormat'
+              }
+            },
+            // 헤더 스타일
             {
               repeatCell: {
                 range: { sheetId: aSheetId, startRowIndex: 0, endRowIndex: 1 },
@@ -1098,7 +1137,7 @@ app.post('/api/sheets/members/save', async (req, res) => {
       });
     }
 
-    res.json({ success: true });
+    res.json({ success: true, count: members.length });
   } catch (error: any) {
     console.error("[Members] Save error:", error.message);
     return handleGoogleError(error, res);

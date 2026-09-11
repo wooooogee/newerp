@@ -593,9 +593,26 @@ export function AccountManagementModal({
     if (!XLSX) return alert('XLSX 라이브러리가 로드되지 않았습니다.');
     const dataRows = [
       ['구분', '조직명', '아이디', '비밀번호'],
-      ...members.map(m => [m.role, m.orgName, m.username, m.password])
+      ...members.map(m => {
+        let pw = String(m.password || '');
+        if (pw.length === 10 && /^1[0-9]{9}$/.test(pw) && (m.username?.startsWith('a01') || pw.startsWith('10'))) {
+          pw = '0' + pw;
+        }
+        return [m.role, m.orgName, m.username, pw];
+      })
     ];
-    const ws = XLSX.utils.aoa_to_sheet(dataRows);
+    const ws = XLSX.utils.aoa_to_sheet(dataRows, { cellDates: false });
+    // 모든 셀의 데이터 타입을 텍스트(string)로 명시하여 엑셀에서 앞자리 0이 유지되도록 처리
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:D1');
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+        if (ws[cell_ref]) {
+          ws[cell_ref].t = 's';
+          ws[cell_ref].z = '@';
+        }
+      }
+    }
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '조직계정목록');
     const today = new Date().toISOString().slice(0, 10);
@@ -611,10 +628,10 @@ export function AccountManagementModal({
     reader.onload = (evt) => {
       try {
         const data = evt.target?.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
+        const workbook = XLSX.read(data, { type: 'binary', raw: true });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
-        const rows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        const rows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false });
 
         if (!rows || rows.length <= 1) {
           alert('엑셀에 등록할 계정 데이터가 없습니다.');
@@ -641,10 +658,18 @@ export function AccountManagementModal({
 
           const role = String(row[roleIdx] || '').trim();
           const orgName = String(row[orgIdx] || '').trim();
-          const username = String(row[userIdx] || '').trim();
-          const password = String(row[pwIdx] || '').trim();
+          let username = String(row[userIdx] || '').trim();
+          let password = String(row[pwIdx] || '').trim();
 
           if (!username) continue;
+
+          // 엑셀에서 숫자로 파싱되어 010... 번호의 앞자리 0이 누락된 경우 자동 복원
+          if (password.length === 10 && /^1[0-9]{9}$/.test(password) && (username.startsWith('a01') || username.startsWith('01') || password.startsWith('10'))) {
+            password = '0' + password;
+          }
+          if (username.length === 10 && /^1[0-9]{9}$/.test(username)) {
+            username = '0' + username;
+          }
 
           importedMembers.push({
             role: role || '지사',

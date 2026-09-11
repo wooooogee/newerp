@@ -120,7 +120,10 @@ export function AutoAccountGeneratorModal({
       if (r.branch && r.branch !== '-') {
         entry.branches.add(r.branch);
       }
-      const cleanPhone = r.phone.replace(/[^0-9]/g, '');
+      let cleanPhone = r.phone.replace(/[^0-9]/g, '');
+      if (cleanPhone.length === 10 && cleanPhone.startsWith('10')) {
+        cleanPhone = '0' + cleanPhone;
+      }
       if (cleanPhone.length >= 10 && cleanPhone.startsWith('01')) {
         entry.emps += 1;
       }
@@ -243,7 +246,10 @@ export function AutoAccountGeneratorModal({
       const addedEmpUsernames = new Set<string>();
 
       relevantRows.forEach(emp => {
-        const cleanPhone = emp.phone.replace(/[^0-9]/g, '');
+        let cleanPhone = emp.phone.replace(/[^0-9]/g, '');
+        if (cleanPhone.length === 10 && cleanPhone.startsWith('10')) {
+          cleanPhone = '0' + cleanPhone;
+        }
         if (!cleanPhone || cleanPhone.length < 10 || !cleanPhone.startsWith('01')) return;
 
         const username = `a${cleanPhone}`;
