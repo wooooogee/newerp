@@ -700,6 +700,8 @@ const ERP_Dashboard = () => {
   const [isAddHqModalOpen, setIsAddHqModalOpen] = useState(false);
   const [newHqNameInput, setNewHqNameInput] = useState('');
   const [copySourceHqId, setCopySourceHqId] = useState<string>('NONE');
+  const [targetDivisionIdForNewHqs, setTargetDivisionIdForNewHqs] = useState<string>('NONE');
+  const [copyBankInfoForNewHqs, setCopyBankInfoForNewHqs] = useState<boolean>(true);
   
   // 수수료 일괄/동일 렌탈번호 변경 및 이력 관련 state
   const [selectedTableKeys, setSelectedTableKeys] = useState<Set<string>>(new Set());
@@ -8544,6 +8546,87 @@ const ERP_Dashboard = () => {
                                 </div>
                               </div>
 
+                              {/* 쉼표로 연결된 다중 본부명 감지 시 일괄 분리 변환 배너 */}
+                              {s.hqName.includes(',') && (() => {
+                                const splitHqNames = s.hqName.split(/[,;\n\r]+/).map(n => n.trim()).filter(Boolean);
+                                if (splitHqNames.length <= 1) return null;
+                                return (
+                                  <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                                    <div className="flex items-start gap-2.5">
+                                      <div className="p-1.5 bg-amber-500 text-white rounded-lg shrink-0 mt-0.5">
+                                        <AlertCircle size={16} />
+                                      </div>
+                                      <div>
+                                        <div className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                                          <span>본부명에 쉼표(,)로 구분된 {splitHqNames.length}개 본부가 감지되었습니다!</span>
+                                        </div>
+                                        <p className="text-[11px] text-amber-700 mt-0.5">
+                                          현재 설정된 수수료(상품 {s.productRules.length}개)와 계좌 정보를 그대로 복사하여 <strong>{splitHqNames.length}개의 개별 본부</strong>로 즉시 분리 생성합니다.
+                                        </p>
+                                        <div className="flex flex-wrap gap-1 mt-2">
+                                          {splitHqNames.map(name => (
+                                            <span key={name} className="px-2 py-0.5 bg-white/90 border border-amber-200 text-amber-800 rounded-md text-[10px] font-bold">
+                                              {name}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <button
+                                        onClick={async () => {
+                                          const confirmMsg = `현재 묶여있는 [${s.hqName}]을(를) ${splitHqNames.length}개의 독립 본부로 분리 생성하시겠습니까?\n\n- 분리될 본부: ${splitHqNames.join(', ')}\n- 상품 수수료 및 계좌 정보가 동일하게 복사 적용됩니다.\n- 기존 묶음 본부 항목은 삭제되고 개별 본부들로 대체됩니다.`;
+                                          if (!await (window as any).customConfirm(confirmMsg)) return;
+
+                                          const existingHqNames = new Set(hqSettings.filter(h => h.id !== s.id).map(h => h.hqName));
+                                          const newCreatedHqs: HQSetting[] = [];
+                                          const addedNames: string[] = [];
+
+                                          splitHqNames.forEach((name, idx) => {
+                                            if (existingHqNames.has(name)) return;
+                                            const newId = `hq-${Date.now()}-${idx}`;
+                                            const hqObj: HQSetting = {
+                                              ...JSON.parse(JSON.stringify(s)),
+                                              id: newId,
+                                              hqName: name,
+                                              isActive: true
+                                            };
+                                            newCreatedHqs.push(hqObj);
+                                            addedNames.push(name);
+                                          });
+
+                                          if (newCreatedHqs.length === 0) {
+                                            alert('분리 대상 본부들이 이미 시스템에 등록되어 있습니다.');
+                                            return;
+                                          }
+
+                                          setHqSettings(prev => [...prev.filter(h => h.id !== s.id), ...newCreatedHqs]);
+                                          setActiveHqId(newCreatedHqs[0].id);
+
+                                          // 사업단 소속 본부명도 갱신
+                                          setDivisionSettings(prev => prev.map(d => {
+                                            if ((d.hqNames || []).includes(s.hqName)) {
+                                              const remaining = d.hqNames.filter(n => n !== s.hqName);
+                                              return { ...d, hqNames: Array.from(new Set([...remaining, ...addedNames])) };
+                                            }
+                                            return d;
+                                          }));
+
+                                          setNotification({
+                                            message: `${addedNames.length}개의 개별 본부로 분리 등록 완료되었습니다.`,
+                                            type: 'success'
+                                          });
+                                        }}
+                                        className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black transition-all shadow-md shadow-amber-200 flex items-center gap-1.5 cursor-pointer shrink-0"
+                                      >
+                                        <Sparkles size={14} />
+                                        {splitHqNames.length}개 개별 본부로 분리 등록
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+
                               {/* 계좌 및 정산 정보 인라인 배치 */}
                               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-white p-3 border border-slate-200/60 rounded-xl">
                                 <div className="flex items-center gap-2">
@@ -9171,6 +9254,17 @@ const ERP_Dashboard = () => {
                                     </div>
 
                                     <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => {
+                                          setTargetDivisionIdForNewHqs(div.id);
+                                          setNewHqNameInput('');
+                                          setIsAddHqModalOpen(true);
+                                        }}
+                                        className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1 rounded-lg transition-colors flex items-center gap-1 shadow-xs cursor-pointer"
+                                      >
+                                        <Plus size={13} />
+                                        <span>새 본부 일괄등록 및 배정</span>
+                                      </button>
                                       <button
                                         onClick={() => {
                                           const allAvailable = hqSettings.map(h => h.hqName);
@@ -10256,10 +10350,15 @@ const ERP_Dashboard = () => {
                 className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col z-10 border border-slate-100"
               >
                 {/* Modal Header */}
-                <div className="px-6 py-4 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex justify-between items-center">
+                <div className="px-6 py-4 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white flex justify-between items-center">
                   <div className="flex items-center gap-2">
                     <Building className="text-blue-400" size={20} />
-                    <h3 className="text-base font-bold">새로운 본부/거래처 추가</h3>
+                    <div>
+                      <h3 className="text-base font-bold">본부/거래처 일괄 추가 및 수수료 복사</h3>
+                      <p className="text-[11px] text-slate-300 font-normal">
+                        단일 본부 또는 여러 본부명을 쉼표나 줄바꿈으로 한 번에 입력하여 일괄 생성할 수 있습니다.
+                      </p>
+                    </div>
                   </div>
                   <button
                     onClick={() => setIsAddHqModalOpen(false)}
@@ -10270,85 +10369,103 @@ const ERP_Dashboard = () => {
                 </div>
 
                 {/* Modal Content Form */}
-                <div className="p-6 flex flex-col gap-5">
-                  {/* 1. 본부 명칭 입력 */}
+                <div className="p-6 flex flex-col gap-4 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                  {/* 1. 본부 명칭 입력 (단일 및 일괄 쉼표/줄바꿈 지원) */}
                   <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1.5">
-                      신규 본부/거래처명 <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="예: 서울강남본부, 경기북부지사, 제휴사업3팀"
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-xs font-bold text-slate-700">
+                        신규 본부/거래처명 입력 <span className="text-rose-500">*</span>
+                      </label>
+                      <span className="text-[11px] text-blue-600 font-bold">
+                        쉼표(,) 또는 줄바꿈(Enter)으로 여러 본부 동시 입력 가능
+                      </span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      placeholder="예: 가치온본부, 꿈잇다, 명품본부, 온누리본부, 새빛본부, 1본부, 무한본부...&#10;(엑셀에서 여러 행을 복사해 붙여넣어도 자동 분리됩니다)"
                       value={newHqNameInput}
                       onChange={e => setNewHqNameInput(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          if (!newHqNameInput.trim()) {
-                            alert('새로운 본부/거래처명을 입력해 주세요.');
-                            return;
-                          }
-                          const newId = `hq-${Date.now()}`;
-                          let newHq: HQSetting;
-                          if (copySourceHqId !== 'NONE') {
-                            const srcHq = hqSettings.find(h => h.id === copySourceHqId);
-                            if (srcHq) {
-                              newHq = {
-                                ...JSON.parse(JSON.stringify(srcHq)),
-                                id: newId,
-                                hqName: newHqNameInput.trim(),
-                                isActive: true
-                              };
-                            } else {
-                              newHq = {
-                                id: newId,
-                                hqName: newHqNameInput.trim(),
-                                bankName: '-', accountNumber: '-', accountHolder: '-',
-                                paymentMethod: '계좌이체',
-                                settlementType: '사업자',
-                                enableOverriding: false,
-                                overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
-                                productRules: []
-                              };
-                            }
-                          } else {
-                            newHq = {
-                              id: newId,
-                              hqName: newHqNameInput.trim(),
-                              bankName: '-', accountNumber: '-', accountHolder: '-',
-                              paymentMethod: '계좌이체',
-                              settlementType: '사업자',
-                              enableOverriding: false,
-                              overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
-                              productRules: []
-                            };
-                          }
-                          setHqSettings([...hqSettings, newHq]);
-                          setActiveHqId(newId);
-                          setIsAddHqModalOpen(false);
-                        }
-                      }}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm font-bold transition-all"
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-xs font-bold leading-relaxed resize-none transition-all shadow-inner"
                       autoFocus
                     />
+
+                    {/* 실시간 인식된 본부 태그 뱃지 */}
+                    {(() => {
+                      const parsedNames = Array.from(new Set(
+                        newHqNameInput
+                          .split(/[\n\r,;\t/]+/)
+                          .map(n => n.trim())
+                          .filter(Boolean)
+                      ));
+                      if (parsedNames.length === 0) return null;
+                      const duplicateCount = parsedNames.filter(name => hqSettings.some(h => h.hqName === name)).length;
+                      const validCount = parsedNames.length - duplicateCount;
+                      return (
+                        <div className="mt-2 p-3 bg-blue-50/70 border border-blue-100 rounded-xl flex flex-col gap-1.5">
+                          <div className="flex justify-between items-center text-xs font-bold">
+                            <span className="text-blue-950 flex items-center gap-1.5">
+                              <span>총 <strong>{parsedNames.length}개</strong> 본부 인식</span>
+                              {validCount > 0 && <span className="text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded text-[10px]">신규 {validCount}개</span>}
+                              {duplicateCount > 0 && <span className="text-rose-600 bg-rose-100/70 px-1.5 py-0.5 rounded text-[10px]">기존 중복 {duplicateCount}개</span>}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setNewHqNameInput('')}
+                              className="text-[11px] text-slate-400 hover:text-rose-600 font-bold transition-colors"
+                            >
+                              전체 지우기
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-0.5 custom-scrollbar">
+                            {parsedNames.map(name => {
+                              const exists = hqSettings.some(h => h.hqName === name);
+                              return (
+                                <span
+                                  key={name}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all ${
+                                    exists
+                                      ? 'bg-rose-50 text-rose-600 border border-rose-200 line-through opacity-60'
+                                      : 'bg-white text-blue-900 border border-blue-200 shadow-2xs'
+                                  }`}
+                                >
+                                  {name}
+                                  {exists && <span className="text-[9px] text-rose-500 no-underline font-normal">(중복)</span>}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = parsedNames.filter(n => n !== name);
+                                      setNewHqNameInput(next.join(', '));
+                                    }}
+                                    className="hover:text-rose-600 ml-0.5"
+                                  >
+                                    <X size={10} />
+                                  </button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* 2. 기존 본부 설정 복사 선택 */}
                   <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 flex flex-col gap-2">
                     <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                      📋 수수료 세팅 복사 선택 (기본 세팅 동일 적용)
+                      📋 수수료 세팅 복사 선택 (기본 세팅 동일 일괄 적용)
                     </label>
                     <p className="text-[11px] text-slate-500 font-normal">
-                      기존 등록된 본부 중 하나를 선택하면 해당 본부의 상품 수수료, 오버라이딩 비율 및 결제 수단 세팅을 동일하게 복사하여 생성합니다.
+                      기존 등록된 본부 중 하나를 선택하면 해당 본부의 상품 수수료 규격과 오버라이딩 설정을 등록될 모든 본부에 똑같이 복사합니다.
                     </p>
                     <select
                       value={copySourceHqId}
                       onChange={e => setCopySourceHqId(e.target.value)}
-                      className="w-full mt-1 px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-xs"
+                      className="w-full mt-1 px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-xs cursor-pointer"
                     >
                       <option value="NONE">✨ 직접 설정 (새 빈 본부 생성)</option>
                       {hqSettings.map(h => (
                         <option key={h.id} value={h.id}>
-                          📂 {h.hqName} (상품 수수료 {h.productRules.length}개 설정 복사)
+                          📂 {h.hqName} (상품 수수료 {h.productRules?.length || 0}개 설정 복사)
                         </option>
                       ))}
                     </select>
@@ -10357,19 +10474,59 @@ const ERP_Dashboard = () => {
                       const srcHq = hqSettings.find(h => h.id === copySourceHqId);
                       if (!srcHq) return null;
                       return (
-                        <div className="mt-2 p-3 bg-blue-50/70 rounded-xl border border-blue-100 text-blue-900 text-xs flex flex-col gap-1 font-bold">
+                        <div className="mt-2 p-3 bg-blue-50/70 rounded-xl border border-blue-100 text-blue-900 text-xs flex flex-col gap-1.5 font-bold">
                           <div className="flex justify-between items-center">
                             <span>복사 대상: {srcHq.hqName}</span>
                             <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-black">
-                              상품 {srcHq.productRules.length}개 규칙 포함
+                              상품 {srcHq.productRules?.length || 0}개 규칙 포함
                             </span>
                           </div>
                           <span className="text-[10px] font-normal text-blue-700">
-                            계좌: {srcHq.bankName} {srcHq.accountNumber} ({srcHq.accountHolder}) | 정산: {srcHq.settlementType}
+                            계좌: {srcHq.bankName || '-'} {srcHq.accountNumber || '-'} ({srcHq.accountHolder || '-'}) | 정산: {srcHq.settlementType || '사업자'}
                           </span>
+
+                          <label className="flex items-center gap-2 mt-1 pt-1.5 border-t border-blue-100/80 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={copyBankInfoForNewHqs}
+                              onChange={e => setCopyBankInfoForNewHqs(e.target.checked)}
+                              className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <span className="text-xs font-bold text-blue-950">
+                              위 계좌 정보 및 정산유형({srcHq.settlementType || '사업자'})도 함께 복사 적용
+                            </span>
+                          </label>
                         </div>
                       );
                     })()}
+                  </div>
+
+                  {/* 3. 소속 사업단 자동 배정 (선택사항) */}
+                  <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100 flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                        <Building size={14} className="text-indigo-600" />
+                        소속 사업단 자동 배정 (선택사항)
+                      </label>
+                      <span className="text-[10px] text-indigo-600 font-bold bg-indigo-100/60 px-2 py-0.5 rounded-full">
+                        사업단 통합 정산용
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-normal">
+                      등록될 본부들을 특정 사업단에 즉시 소속시켜 사업단 통합 정산서에 함께 묶이도록 합니다.
+                    </p>
+                    <select
+                      value={targetDivisionIdForNewHqs}
+                      onChange={e => setTargetDivisionIdForNewHqs(e.target.value)}
+                      className="w-full mt-1 px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-xs cursor-pointer"
+                    >
+                      <option value="NONE">❌ 소속 사업단 없음 (독립 본부로 등록)</option>
+                      {divisionSettings.map(d => (
+                        <option key={d.id} value={d.id}>
+                          🏢 {d.name} (현재 소속: {(d.hqNames || []).length}개 본부)
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Actions */}
@@ -10377,63 +10534,87 @@ const ERP_Dashboard = () => {
                     <button
                       type="button"
                       onClick={() => setIsAddHqModalOpen(false)}
-                      className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
+                      className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
                     >
                       취소
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!newHqNameInput.trim()) {
-                          alert('새로운 본부/거래처명을 입력해 주세요.');
-                          return;
-                        }
+                    {(() => {
+                      const parsed = Array.from(new Set(
+                        newHqNameInput.split(/[\n\r,;\t/]+/).map(n => n.trim()).filter(Boolean)
+                      ));
+                      const validNames = parsed.filter(n => !hqSettings.some(h => h.hqName === n));
+                      return (
+                        <button
+                          type="button"
+                          disabled={validNames.length === 0}
+                          onClick={() => {
+                            if (validNames.length === 0) {
+                              alert('등록할 신규 본부명을 1개 이상 입력해 주세요.');
+                              return;
+                            }
+                            const srcHq = copySourceHqId !== 'NONE' ? hqSettings.find(h => h.id === copySourceHqId) : null;
+                            const newHqList: HQSetting[] = [];
+                            const addedNames: string[] = [];
 
-                        const newId = `hq-${Date.now()}`;
-                        let newHq: HQSetting;
+                            validNames.forEach((name, idx) => {
+                              const newId = `hq-${Date.now()}-${idx}`;
+                              let newHq: HQSetting;
+                              if (srcHq) {
+                                newHq = {
+                                  ...JSON.parse(JSON.stringify(srcHq)),
+                                  id: newId,
+                                  hqName: name,
+                                  isActive: true,
+                                  bankName: copyBankInfoForNewHqs ? (srcHq.bankName || '-') : '-',
+                                  accountNumber: copyBankInfoForNewHqs ? (srcHq.accountNumber || '-') : '-',
+                                  accountHolder: copyBankInfoForNewHqs ? (srcHq.accountHolder || '-') : '-',
+                                  paymentMethod: copyBankInfoForNewHqs ? (srcHq.paymentMethod || '계좌이체') : '계좌이체',
+                                  settlementType: srcHq.settlementType || '사업자',
+                                };
+                              } else {
+                                newHq = {
+                                  id: newId,
+                                  hqName: name,
+                                  bankName: '-', accountNumber: '-', accountHolder: '-',
+                                  paymentMethod: '계좌이체',
+                                  settlementType: '사업자',
+                                  enableOverriding: false,
+                                  overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
+                                  productRules: []
+                                };
+                              }
+                              newHqList.push(newHq);
+                              addedNames.push(name);
+                            });
 
-                        if (copySourceHqId !== 'NONE') {
-                          const srcHq = hqSettings.find(h => h.id === copySourceHqId);
-                          if (srcHq) {
-                            newHq = {
-                              ...JSON.parse(JSON.stringify(srcHq)),
-                              id: newId,
-                              hqName: newHqNameInput.trim(),
-                              isActive: true
-                            };
-                          } else {
-                            newHq = {
-                              id: newId,
-                              hqName: newHqNameInput.trim(),
-                              bankName: '-', accountNumber: '-', accountHolder: '-',
-                              paymentMethod: '계좌이체',
-                              settlementType: '사업자',
-                              enableOverriding: false,
-                              overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
-                              productRules: []
-                            };
-                          }
-                        } else {
-                          newHq = {
-                            id: newId,
-                            hqName: newHqNameInput.trim(),
-                            bankName: '-', accountNumber: '-', accountHolder: '-',
-                            paymentMethod: '계좌이체',
-                            settlementType: '사업자',
-                            enableOverriding: false,
-                            overriding: { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 },
-                            productRules: []
-                          };
-                        }
+                            setHqSettings(prev => [...prev, ...newHqList]);
+                            setActiveHqId(newHqList[0].id);
 
-                        setHqSettings([...hqSettings, newHq]);
-                        setActiveHqId(newId);
-                        setIsAddHqModalOpen(false);
-                      }}
-                      className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-200 flex items-center gap-1.5"
-                    >
-                      <Plus size={15} /> 본부 생성하기
-                    </button>
+                            // 사업단 자동 배정 처리
+                            if (targetDivisionIdForNewHqs && targetDivisionIdForNewHqs !== 'NONE') {
+                              setDivisionSettings(prev => prev.map(d => {
+                                if (d.id === targetDivisionIdForNewHqs) {
+                                  return { ...d, hqNames: Array.from(new Set([...(d.hqNames || []), ...addedNames])) };
+                                }
+                                return d;
+                              }));
+                            }
+
+                            setIsAddHqModalOpen(false);
+                            setNewHqNameInput('');
+                            const targetDivObj = divisionSettings.find(d => d.id === targetDivisionIdForNewHqs);
+                            setNotification({
+                              message: `${newHqList.length}개 본부가 일괄 생성되었습니다.${targetDivObj ? ` ('${targetDivObj.name}' 사업단에 배정 완료)` : ''}`,
+                              type: 'success'
+                            });
+                          }}
+                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-200 flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Plus size={15} />
+                          <span>{validNames.length > 1 ? `${validNames.length}개 본부 일괄 생성하기` : '본부 생성하기'}</span>
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               </motion.div>

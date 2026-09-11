@@ -1696,6 +1696,85 @@
           "maintenanceRules": []
         }
       ]
+    },
+    {
+      "id": "hq-1789087883833",
+      "hqName": "가치온본부,꿈잇다,명품본부,온누리본부,새빛본부,1본부,무한본부,이음본부,챔피언본부,두드림본부,조이본부,서울중앙본부,스마일본부,아우라본부",
+      "settlementType": "사업자",
+      "isActive": true,
+      "bankName": "국민은행",
+      "accountNumber": "164501-04-161888",
+      "accountHolder": "김애숙(에스제이컨설팅)",
+      "paymentMethod": "계좌이체",
+      "enableOverriding": false,
+      "overriding": {
+        "salesperson": 0,
+        "teamLeader": 0,
+        "branchManager": 0,
+        "hqManager": 0
+      },
+      "productRules": [
+        {
+          "productName": "굿라이프헬스케어실버",
+          "totalAmount": 710000,
+          "salesAmount": 300000,
+          "applyOverriding": false,
+          "tier1Count": 0,
+          "tier1Price": 0,
+          "tier2Count": 0,
+          "tier2Price": 0,
+          "tier3Count": 0,
+          "tier3Price": 0,
+          "overriding": {
+            "salesperson": 0,
+            "teamLeader": 0,
+            "branchManager": 0,
+            "hqManager": 0
+          },
+          "applyMaintenance": false,
+          "maintenanceRules": []
+        },
+        {
+          "productName": "굿라이프헬스케어골드",
+          "totalAmount": 750000,
+          "salesAmount": 300000,
+          "applyOverriding": false,
+          "tier1Count": 0,
+          "tier1Price": 0,
+          "tier2Count": 0,
+          "tier2Price": 0,
+          "tier3Count": 0,
+          "tier3Price": 0,
+          "overriding": {
+            "salesperson": 0,
+            "teamLeader": 0,
+            "branchManager": 0,
+            "hqManager": 0
+          },
+          "applyMaintenance": false,
+          "maintenanceRules": []
+        },
+        {
+          "productName": "굿라이프헬스케어올인원",
+          "totalAmount": 750000,
+          "salesAmount": 300000,
+          "applyOverriding": false,
+          "tier1Count": 0,
+          "tier1Price": 0,
+          "tier2Count": 0,
+          "tier2Price": 0,
+          "tier3Count": 0,
+          "tier3Price": 0,
+          "overriding": {
+            "salesperson": 0,
+            "teamLeader": 0,
+            "branchManager": 0,
+            "hqManager": 0
+          },
+          "applyMaintenance": false,
+          "maintenanceRules": []
+        }
+      ]
     }
   ],
   "globalIncentives": [
