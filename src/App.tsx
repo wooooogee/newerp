@@ -4596,17 +4596,8 @@ const ERP_Dashboard = () => {
       }
 
       const wsSpecial = XLSX.utils.aoa_to_sheet(specialRows);
-      const specialWidths = specialRows.reduce((acc, row) => {
-        row.forEach((cell, i) => {
-          let str = '';
-          if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
-          else if (cell !== null && cell !== undefined) str = cell.toString();
-          const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
-          if (!acc[i] || len > acc[i]) acc[i] = len;
-        });
-        return acc;
-      }, [] as number[]);
-      wsSpecial['!cols'] = specialWidths.map(w => ({ wch: Math.min(w + 2, 40) }));
+      // 전체상세명세 시트 열 너비와 동일하게 맞춤
+      wsSpecial['!cols'] = wsDetail['!cols'] ? JSON.parse(JSON.stringify(wsDetail['!cols'])) : [];
       applyDetailSheetStyles(wsSpecial);
 
       XLSX.utils.book_append_sheet(wb, wsSpecial, "특수수당상세");
@@ -12394,31 +12385,40 @@ const ERP_Dashboard = () => {
                                   <thead>
                                     <tr className="bg-slate-100 text-slate-700 text-center font-bold">
                                       <th className="border border-slate-300 p-1.5">No</th>
-                                      <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
+                                      <th className="border border-slate-300 p-1.5">지사</th>
+                                      <th className="border border-slate-300 p-1.5">사원명</th>
+                                      <th className="border border-slate-300 p-1.5">고객명</th>
+                                      <th className="border border-slate-300 p-1.5">상품명</th>
+                                      <th className="border border-slate-300 p-1.5 text-left">제품명</th>
                                       <th className="border border-slate-300 p-1.5">계약일자</th>
                                       <th className="border border-slate-300 p-1.5">배송일자</th>
-                                      <th className="border border-slate-300 p-1.5">고객명</th>
-                                      <th className="border border-slate-300 p-1.5">영업사원</th>
-                                      <th className="border border-slate-300 p-1.5 text-left">상품명</th>
-                                      <th className="border border-slate-300 p-1.5 text-blue-700">합계금액</th>
+                                      <th className="border border-slate-300 p-1.5 text-right text-blue-700">수수료</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {s.items.map((item: any, i: number) => {
                                       const { totalCommission } = calculateCommissionDetails(item, s.stats);
+                                      const prodModel = item.rentalProd || item.modelName || item.productModel || item.prodName || '-';
                                       return (
-                                        <tr key={i} className="text-center">
+                                        <tr key={i} className="text-center hover:bg-slate-50">
                                           <td className="border border-slate-300 p-1.5">{i + 1}</td>
-                                          <td className="border border-slate-300 p-1.5">{item.rentalNo || '-'}</td>
+                                          <td className="border border-slate-300 p-1.5">{item.branch || '-'}</td>
+                                          <td className="border border-slate-300 p-1.5">{item.empName || '-'}</td>
+                                          <td className="border border-slate-300 p-1.5">{item.memName || item.customerName || '-'}</td>
+                                          <td className="border border-slate-300 p-1.5 truncate max-w-[150px]" title={item.prodName}>{item.prodName || '-'}</td>
+                                          <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={prodModel}>{prodModel}</td>
                                           <td className="border border-slate-300 p-1.5">{item.contractDate || '-'}</td>
                                           <td className="border border-slate-300 p-1.5">{item.deliveryDate || '-'}</td>
-                                          <td className="border border-slate-300 p-1.5">{item.memName || '-'}</td>
-                                          <td className="border border-slate-300 p-1.5">{item.empName || '-'}</td>
-                                          <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={item.prodName}>{item.prodName}</td>
-                                          <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{totalCommission.toLocaleString()}</td>
+                                          <td className="border border-slate-300 p-1.5 font-bold text-right text-blue-700">{totalCommission.toLocaleString()}원</td>
                                         </tr>
                                       );
                                     })}
+                                    <tr className="bg-slate-50 font-bold">
+                                      <td colSpan={8} className="border border-slate-300 p-1.5 text-center text-slate-700">총합계 ({s.items.length}건)</td>
+                                      <td className="border border-slate-300 p-1.5 font-bold text-right text-blue-700">
+                                        {s.items.reduce((sum: number, it: any) => sum + calculateCommissionDetails(it, s.stats).totalCommission, 0).toLocaleString()}원
+                                      </td>
+                                    </tr>
                                   </tbody>
                                 </table>
                               </div>
@@ -12475,30 +12475,43 @@ const ERP_Dashboard = () => {
                                       <thead>
                                         <tr className="bg-slate-100 text-slate-700 text-center font-bold">
                                           <th className="border border-slate-300 p-1.5">No</th>
-                                          <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
+                                          <th className="border border-slate-300 p-1.5">지사</th>
+                                          <th className="border border-slate-300 p-1.5">사원명</th>
+                                          <th className="border border-slate-300 p-1.5">고객명</th>
+                                          <th className="border border-slate-300 p-1.5">상품명</th>
+                                          <th className="border border-slate-300 p-1.5 text-left">제품명</th>
                                           <th className="border border-slate-300 p-1.5">계약일자</th>
                                           <th className="border border-slate-300 p-1.5">배송일자</th>
-                                          <th className="border border-slate-300 p-1.5">고객명</th>
-                                          <th className="border border-slate-300 p-1.5">영업사원</th>
-                                          <th className="border border-slate-300 p-1.5 text-left">제품명</th>
-                                          <th className="border border-slate-300 p-1.5 text-blue-700">합계금액</th>
+                                          <th className="border border-slate-300 p-1.5 text-right text-blue-700">수수료</th>
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {actualSpecialPayouts.map((sp: any, i: number) => (
-                                          <tr key={i} className="text-center">
-                                            <td className="border border-slate-300 p-1.5">{i + 1}</td>
-                                            <td className="border border-slate-300 p-1.5 font-mono">{sp.rentalNo || '-'}</td>
-                                            <td className="border border-slate-300 p-1.5">{sp.contractDate || '-'}</td>
-                                            <td className="border border-slate-300 p-1.5">{sp.deliveryDate || '-'}</td>
-                                            <td className="border border-slate-300 p-1.5">{sp.memName || '-'}</td>
-                                            <td className="border border-slate-300 p-1.5">{sp.empName || '-'}</td>
-                                            <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={sp.rentalProd || sp.prodName}>
-                                              {sp.rentalProd || sp.prodName || '-'}
-                                            </td>
-                                            <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{sp.amount.toLocaleString()}원</td>
-                                          </tr>
-                                        ))}
+                                        {actualSpecialPayouts.map((sp: any, i: number) => {
+                                          const branchVal = sp.branch && sp.branch !== '-'
+                                            ? sp.branch
+                                            : (s.items.find((it: any) => (it.rentalNo && it.rentalNo === sp.rentalNo) || it.memName === sp.memName)?.branch || '-');
+                                          return (
+                                            <tr key={i} className="text-center hover:bg-slate-50">
+                                              <td className="border border-slate-300 p-1.5">{i + 1}</td>
+                                              <td className="border border-slate-300 p-1.5">{branchVal}</td>
+                                              <td className="border border-slate-300 p-1.5">{sp.empName || '-'}</td>
+                                              <td className="border border-slate-300 p-1.5">{sp.memName || '-'}</td>
+                                              <td className="border border-slate-300 p-1.5 truncate max-w-[150px]" title={sp.prodName}>{sp.prodName || '-'}</td>
+                                              <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={sp.rentalProd || sp.prodName}>
+                                                {sp.rentalProd || sp.prodName || '-'}
+                                              </td>
+                                              <td className="border border-slate-300 p-1.5">{sp.contractDate || '-'}</td>
+                                              <td className="border border-slate-300 p-1.5">{sp.deliveryDate || '-'}</td>
+                                              <td className="border border-slate-300 p-1.5 font-bold text-right text-blue-700">{Number(sp.amount || 0).toLocaleString()}원</td>
+                                            </tr>
+                                          );
+                                        })}
+                                        <tr className="bg-slate-50 font-bold">
+                                          <td colSpan={8} className="border border-slate-300 p-1.5 text-center text-slate-700">총합계 ({actualSpecialPayouts.length}건)</td>
+                                          <td className="border border-slate-300 p-1.5 font-bold text-right text-blue-700">
+                                            {actualSpecialPayouts.reduce((sum: number, sp: any) => sum + Number(sp.amount || 0), 0).toLocaleString()}원
+                                          </td>
+                                        </tr>
                                       </tbody>
                                     </table>
                                   </div>
@@ -12544,13 +12557,14 @@ const ERP_Dashboard = () => {
                                     <thead>
                                       <tr className="bg-slate-100 text-slate-700 text-center font-bold">
                                         <th className="border border-slate-300 p-1.5">No</th>
-                                        <th className="border border-slate-300 p-1.5">렌탈계약번호</th>
+                                        <th className="border border-slate-300 p-1.5">지사</th>
+                                        <th className="border border-slate-300 p-1.5">사원명</th>
+                                        <th className="border border-slate-300 p-1.5">고객명</th>
+                                        <th className="border border-slate-300 p-1.5">상품명</th>
+                                        <th className="border border-slate-300 p-1.5 text-left">제품명</th>
                                         <th className="border border-slate-300 p-1.5">계약일자</th>
                                         <th className="border border-slate-300 p-1.5">배송일자</th>
-                                        <th className="border border-slate-300 p-1.5">고객명</th>
-                                        <th className="border border-slate-300 p-1.5">영업사원</th>
-                                        <th className="border border-slate-300 p-1.5 text-left">제품명</th>
-                                        <th className="border border-slate-300 p-1.5 text-blue-700">합계금액</th>
+                                        <th className="border border-slate-300 p-1.5 text-right text-blue-700">수수료</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -12566,21 +12580,28 @@ const ERP_Dashboard = () => {
                                           itemAmount = Math.round(s.specialSum / displayItems.length);
                                         }
 
+                                        const prodModel = item.rentalProd || item.modelName || item.productModel || item.prodName || '-';
+
                                         return (
-                                          <tr key={i} className="text-center">
+                                          <tr key={i} className="text-center hover:bg-slate-50">
                                             <td className="border border-slate-300 p-1.5">{i + 1}</td>
-                                            <td className="border border-slate-300 p-1.5 font-mono">{item.rentalNo || item.resNo || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{item.branch || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{item.empName || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5">{item.memName || item.customerName || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5 truncate max-w-[150px]" title={item.prodName}>{item.prodName || '-'}</td>
+                                            <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={prodModel}>{prodModel}</td>
                                             <td className="border border-slate-300 p-1.5">{item.contractDate || '-'}</td>
                                             <td className="border border-slate-300 p-1.5">{item.deliveryDate || '-'}</td>
-                                            <td className="border border-slate-300 p-1.5">{item.memName || item.customerName || '-'}</td>
-                                            <td className="border border-slate-300 p-1.5">{item.empName || '-'}</td>
-                                            <td className="border border-slate-300 p-1.5 text-left truncate max-w-[200px]" title={item.rentalProd || item.prodName}>
-                                              {item.rentalProd || item.prodName || '-'}
-                                            </td>
-                                            <td className="border border-slate-300 p-1.5 font-bold text-blue-700">{itemAmount.toLocaleString()}원</td>
+                                            <td className="border border-slate-300 p-1.5 font-bold text-right text-blue-700">{itemAmount.toLocaleString()}원</td>
                                           </tr>
                                         );
                                       })}
+                                      <tr className="bg-slate-50 font-bold">
+                                        <td colSpan={8} className="border border-slate-300 p-1.5 text-center text-slate-700">총합계 ({displayItems.length}건)</td>
+                                        <td className="border border-slate-300 p-1.5 font-bold text-right text-blue-700">
+                                          {s.specialSum.toLocaleString()}원
+                                        </td>
+                                      </tr>
                                     </tbody>
                                   </table>
                                 </div>
