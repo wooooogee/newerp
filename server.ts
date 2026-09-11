@@ -1422,9 +1422,22 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         }
         if (!manualOrderProducts && cacheData.manualOrderProducts) manualOrderProducts = cacheData.manualOrderProducts;
         if (!manualOrderStores && cacheData.manualOrderStores) manualOrderStores = cacheData.manualOrderStores;
-        if (!reportSettings && cacheData.reportSettings) reportSettings = cacheData.reportSettings;
-        if ((!divisions || (Array.isArray(divisions) && divisions.length === 0)) && cacheData.divisions && Array.isArray(cacheData.divisions) && cacheData.divisions.length > 0) {
-          divisions = cacheData.divisions;
+        if (cacheData.divisions && Array.isArray(cacheData.divisions) && cacheData.divisions.length > 0) {
+          if (!divisions || (Array.isArray(divisions) && divisions.length === 0)) {
+            divisions = cacheData.divisions;
+          } else {
+            const cacheDivMap = new Map(cacheData.divisions.map((d: any) => [d.id, d]));
+            divisions = divisions.map((d: any) => {
+              const cached = cacheDivMap.get(d.id);
+              if (cached && Array.isArray(cached.hqNames) && Array.isArray(d.hqNames)) {
+                return {
+                  ...d,
+                  hqNames: Array.from(new Set([...d.hqNames, ...cached.hqNames]))
+                };
+              }
+              return d;
+            });
+          }
         }
       }
     } catch (e) {}

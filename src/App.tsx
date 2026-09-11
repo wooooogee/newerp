@@ -1309,6 +1309,18 @@ const ERP_Dashboard = () => {
     }
   }, [isSettingsModalOpen, activeHqId, hqSettings, activeDivisionId, divisionSettings, activeIncentiveId, globalIncentiveRules]);
 
+  const hqSettingsRef = React.useRef(hqSettings);
+  hqSettingsRef.current = hqSettings;
+
+  const divisionSettingsRef = React.useRef(divisionSettings);
+  divisionSettingsRef.current = divisionSettings;
+
+  const globalIncentiveRulesRef = React.useRef(globalIncentiveRules);
+  globalIncentiveRulesRef.current = globalIncentiveRules;
+
+  const maintenanceRulesRef = React.useRef(maintenanceRules);
+  maintenanceRulesRef.current = maintenanceRules;
+
   const isSavingCloudRef = React.useRef(false);
   const pendingCloudSaveRef = React.useRef<{ silent: boolean } | null>(null);
 
@@ -1346,7 +1358,8 @@ const ERP_Dashboard = () => {
       } catch (e) {}
 
       // divisionSettings가 비어있을 경우 로컬 스토리지 확인하여 유효한 데이터 확보
-      let divsToSave: DivisionSetting[] | undefined = (divisionSettings && divisionSettings.length > 0) ? divisionSettings : undefined;
+      const curDivs = divisionSettingsRef.current;
+      let divsToSave: DivisionSetting[] | undefined = (curDivs && curDivs.length > 0) ? curDivs : undefined;
       if (!divsToSave) {
         try {
           const savedDivs = localStorage.getItem('erp_division_settings');
@@ -1361,10 +1374,10 @@ const ERP_Dashboard = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          settings: hqSettings,
+          settings: hqSettingsRef.current,
           divisions: divsToSave,
-          globalIncentives: globalIncentiveRules,
-          maintenanceRules,
+          globalIncentives: globalIncentiveRulesRef.current,
+          maintenanceRules: maintenanceRulesRef.current,
           manualOrderProducts,
           manualOrderStores,
           reportSettings
@@ -1415,7 +1428,31 @@ const ERP_Dashboard = () => {
         }));
         setHqSettings(sanitizedSettings);
         if (data.divisions && Array.isArray(data.divisions) && data.divisions.length > 0) {
-          setDivisionSettings(data.divisions);
+          const savedDivsStr = localStorage.getItem('erp_division_settings');
+          let localDivs: DivisionSetting[] = [];
+          if (savedDivsStr) {
+            try {
+              const p = JSON.parse(savedDivsStr);
+              if (Array.isArray(p)) localDivs = p;
+            } catch (e) {}
+          }
+
+          const mergedDivisions = data.divisions.map((cloudDiv: any) => {
+            const localDiv = localDivs.find(ld => ld.id === cloudDiv.id);
+            if (localDiv && Array.isArray(localDiv.hqNames) && Array.isArray(cloudDiv.hqNames)) {
+              // 로컬에 등록된 본부 배정이 풀리지 않도록 합집합 병합 보존
+              const mergedHqs = Array.from(new Set([...cloudDiv.hqNames, ...localDiv.hqNames]));
+              return {
+                ...cloudDiv,
+                hqNames: mergedHqs
+              };
+            }
+            return cloudDiv;
+          });
+
+          setDivisionSettings(mergedDivisions);
+          localStorage.setItem('erp_division_settings', JSON.stringify(mergedDivisions));
+          divisionSettingsRef.current = mergedDivisions;
         } else {
           // 서버 응답이 비어있을 경우 기존 로컬스토리지의 사업단 설정 보존
           const savedDivs = localStorage.getItem('erp_division_settings');
@@ -1424,6 +1461,7 @@ const ERP_Dashboard = () => {
               const parsed = JSON.parse(savedDivs);
               if (Array.isArray(parsed) && parsed.length > 0) {
                 setDivisionSettings(parsed);
+                divisionSettingsRef.current = parsed;
               }
             } catch (e) {}
           }
@@ -1476,7 +1514,7 @@ const ERP_Dashboard = () => {
     (window as any).triggerCloudSettingsSave = (silent = true) => {
       saveSettingsToCloud(silent);
     };
-  }, [hqSettings, globalIncentiveRules, maintenanceRules, isAuthenticated]);
+  }, [hqSettings, divisionSettings, globalIncentiveRules, maintenanceRules, isAuthenticated]);
 
   // 본부 설정 및 수수료 변경 시 디바운스 자동 동기화 (1.5초 후 실행)
   const isFirstRender = React.useRef(true);
@@ -9640,10 +9678,15 @@ const ERP_Dashboard = () => {
                                       <button
                                         onClick={() => {
                                           const allAvailable = hqSettings.map(h => h.hqName);
-                                          setDivisionSettings(prev => prev.map(d => {
-                                            if (d.id === div.id) return { ...d, hqNames: allAvailable };
-                                            return { ...d, hqNames: (d.hqNames || []).filter(name => !allAvailable.includes(name)) };
-                                          }));
+                                          setDivisionSettings(prev => {
+                                            const next = prev.map(d => {
+                                              if (d.id === div.id) return { ...d, hqNames: allAvailable };
+                                              return { ...d, hqNames: (d.hqNames || []).filter(name => !allAvailable.includes(name)) };
+                                            });
+                                            localStorage.setItem('erp_division_settings', JSON.stringify(next));
+                                            divisionSettingsRef.current = next;
+                                            return next;
+                                          });
                                         }}
                                         className="text-xs font-bold text-indigo-600 hover:text-indigo-800 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors cursor-pointer"
                                       >
@@ -9651,7 +9694,12 @@ const ERP_Dashboard = () => {
                                       </button>
                                       <button
                                         onClick={() => {
-                                          setDivisionSettings(prev => prev.map(d => d.id === div.id ? { ...d, hqNames: [] } : d));
+                                          setDivisionSettings(prev => {
+                                            const next = prev.map(d => d.id === div.id ? { ...d, hqNames: [] } : d);
+                                            localStorage.setItem('erp_division_settings', JSON.stringify(next));
+                                            divisionSettingsRef.current = next;
+                                            return next;
+                                          });
                                         }}
                                         className="text-xs font-bold text-slate-500 hover:text-slate-800 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
                                       >
@@ -9683,23 +9731,31 @@ const ERP_Dashboard = () => {
                                               checked={isSelected}
                                               onChange={e => {
                                                 const checked = e.target.checked;
-                                                setDivisionSettings(prev => prev.map(d => {
-                                                  if (d.id === div.id) {
-                                                    const current = d.hqNames || [];
-                                                    return {
-                                                      ...d,
-                                                      hqNames: checked ? [...current, hq.hqName] : current.filter(n => n !== hq.hqName)
-                                                    };
-                                                  } else {
-                                                    if (checked) {
+                                                setDivisionSettings(prev => {
+                                                  const next = prev.map(d => {
+                                                    if (d.id === div.id) {
+                                                      const current = d.hqNames || [];
+                                                      const nextHqs = checked
+                                                        ? Array.from(new Set([...current, hq.hqName]))
+                                                        : current.filter(n => n !== hq.hqName);
                                                       return {
                                                         ...d,
-                                                        hqNames: (d.hqNames || []).filter(n => n !== hq.hqName)
+                                                        hqNames: nextHqs
                                                       };
+                                                    } else {
+                                                      if (checked) {
+                                                        return {
+                                                          ...d,
+                                                          hqNames: (d.hqNames || []).filter(n => n !== hq.hqName)
+                                                        };
+                                                      }
+                                                      return d;
                                                     }
-                                                    return d;
-                                                  }
-                                                }));
+                                                  });
+                                                  localStorage.setItem('erp_division_settings', JSON.stringify(next));
+                                                  divisionSettingsRef.current = next;
+                                                  return next;
+                                                });
                                               }}
                                               className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
                                             />
