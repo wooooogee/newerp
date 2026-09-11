@@ -153,6 +153,7 @@ export interface GlobalIncentiveRule {
   payDay: number;
   targetHq: string; // Legacy
   targetHqs: string[];
+  targetDivisions?: string[];
   targetProducts: string[];
   targetItems?: string[];
   baseDateType: 'CONTRACT' | 'DELIVERY';
@@ -160,7 +161,49 @@ export interface GlobalIncentiveRule {
   minimumGuarantee: number;
   useInstallments?: boolean;
   installments?: GlobalIncentiveInstallment[];
+  taxType?: 'DEFAULT' | 'NONE' | 'INCOME' | 'VAT' | 'CORPORATE';
+  taxBusinessName?: string;
+  taxBusinessNo?: string;
 }
+
+export const isHqMatchedForSpecialRule = (
+  rule: GlobalIncentiveRule,
+  rawHqName: string,
+  divisionList: DivisionSetting[] = []
+): boolean => {
+  const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
+  const cleanHq = normalizeHq(rawHqName);
+  if (!cleanHq) return false;
+
+  const targetDivisions = rule.targetDivisions || [];
+  const targetHqs = rule.targetHqs || (rule.targetHq ? [rule.targetHq] : ['ALL']);
+
+  const hasDivisions = targetDivisions.length > 0;
+  const hasHqs = targetHqs.length > 0;
+
+  // 1. 전체 적용 여부
+  if (targetDivisions.includes('ALL') || (!hasDivisions && targetHqs.includes('ALL')) || (!hasDivisions && !hasHqs)) {
+    return true;
+  }
+
+  // 2. 사업단 매칭 확인 (소속 본부 일괄 적용)
+  if (hasDivisions) {
+    const isDivMatch = (divisionList || []).some(div => {
+      const isTargetDiv = targetDivisions.includes(div.id) || targetDivisions.includes(div.name);
+      if (!isTargetDiv) return false;
+      return (div.hqNames || []).some(h => normalizeHq(h) === cleanHq);
+    });
+    if (isDivMatch) return true;
+  }
+
+  // 3. 개별 본부 매칭 확인
+  if (hasHqs && !targetHqs.includes('ALL')) {
+    const isDirectHqMatch = targetHqs.some(h => normalizeHq(h) === cleanHq);
+    if (isDirectHqMatch) return true;
+  }
+
+  return false;
+};
 
 export interface MaintenanceTier {
   startMonth: number;
@@ -1094,6 +1137,8 @@ const ERP_Dashboard = () => {
           if (Array.isArray(parsed) && parsed.length > 0) {
             return parsed.map((r: any) => ({
               ...r,
+              targetHqs: r.targetHqs || (r.targetHq ? [r.targetHq] : ['ALL']),
+              targetDivisions: r.targetDivisions || [],
               payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
               commissionPerUnit: Number(r.commissionPerUnit || 0),
               minimumGuarantee: Number(r.minimumGuarantee || 0)
@@ -1364,6 +1409,8 @@ const ERP_Dashboard = () => {
         if (data.globalIncentives && Array.isArray(data.globalIncentives) && data.globalIncentives.length > 0) {
           setGlobalIncentiveRules(data.globalIncentives.map((r: any) => ({
             ...r,
+            targetHqs: r.targetHqs || (r.targetHq ? [r.targetHq] : ['ALL']),
+            targetDivisions: r.targetDivisions || [],
             payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
             commissionPerUnit: Number(r.commissionPerUnit || 0),
             minimumGuarantee: Number(r.minimumGuarantee || 0)
@@ -3219,25 +3266,16 @@ const ERP_Dashboard = () => {
               }
             }
             let isMatch = false;
-            const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
-            const hasAll = (rule.targetHqs && rule.targetHqs.length > 0)
-              ? rule.targetHqs.includes('ALL')
-              : (rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === '');
-            
+            const hasAll = (rule.targetDivisions?.includes('ALL')) || 
+              ((!rule.targetDivisions || rule.targetDivisions.length === 0) && 
+               ((rule.targetHqs && rule.targetHqs.length > 0 ? rule.targetHqs.includes('ALL') : (rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === ''))));
+
             if (isSelfHq) {
-              if (hasAll) {
-                isMatch = true;
-              } else {
-                isMatch = (rule.targetHqs && rule.targetHqs.length > 0)
-                  ? rule.targetHqs.some(hq => normalizeHq(item.hq) === normalizeHq(hq))
-                  : (rule.targetHq ? normalizeHq(item.hq) === normalizeHq(rule.targetHq) : false);
-              }
+              isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
             } else if (hasAll) {
               isMatch = rule.targetName ? (item.empName?.includes(rule.targetName) || false) : true;
             } else {
-              isMatch = (rule.targetHqs && rule.targetHqs.length > 0)
-                ? rule.targetHqs.some(hq => normalizeHq(item.hq) === normalizeHq(hq))
-                : (rule.targetHq ? normalizeHq(item.hq) === normalizeHq(rule.targetHq) : false);
+              isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
             }
             if (!isMatch) return;
 
@@ -4190,7 +4228,10 @@ const ERP_Dashboard = () => {
         const tax = isIndiv ? Math.floor(gross * 0.033) : (gross - supply);
         const net = gross - (isIndiv ? tax : 0);
 
-        const rule = globalIncentiveRules.find(r => r.targetName === hqName);
+        const rule = globalIncentiveRules.find(r => 
+          (r.targetName === hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName) &&
+          isHqMatchedForSpecialRule(r, hqName, divisionSettings)
+        );
         const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : (hqName === '권성훈' ? '홈페이지 유지' : '특수수당'));
         const count = settlementStats.globalIncentivesCountSummary?.[hqName] ?? (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === hqName || sp.targetName === hqName).length;
 
@@ -4748,12 +4789,9 @@ const ERP_Dashboard = () => {
       const maintenanceSum = hqMaintenancePayouts.reduce((sum, m) => sum + m.amount, 0);
       const specialSum = (settlementStats.globalIncentivesSummary || {})[hqName] || 0;
 
-      const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
       const matchedRule = globalIncentiveRules.find(r => 
-        (r.targetName === 'SELF_HQ' || r.targetName === '판매본부' || r.targetName === '해당본부') &&
-        ((r.targetHqs && r.targetHqs.length > 0)
-          ? (r.targetHqs.includes('ALL') || r.targetHqs.some(h => normalizeHq(h) === normalizeHq(hqName)))
-          : (r.targetHq === 'ALL' || !r.targetHq || normalizeHq(r.targetHq) === normalizeHq(hqName)))
+        (r.targetName === 'SELF_HQ' || r.targetName === '판매본부' || r.targetName === '해당본부' || !r.targetName) &&
+        isHqMatchedForSpecialRule(r, hqName, divisionSettings)
       );
 
       if (matchedRule) {
@@ -5220,7 +5258,10 @@ const ERP_Dashboard = () => {
       }
 
       if (specialSum > 0) {
-        const matchedSpecialRule = globalIncentiveRules.find(r => r.targetName === hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
+        const matchedSpecialRule = globalIncentiveRules.find(r => 
+          (r.targetName === hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
+          isHqMatchedForSpecialRule(r, hqName, divisionSettings)
+        );
         const specialIncentiveName = matchedSpecialRule?.incentiveName || (hqName === '조재윤' ? '모델비' : (hqName === '조민경' ? '컨설팅비' : '공급수수료'));
 
         rows.push([]);
@@ -5262,7 +5303,10 @@ const ERP_Dashboard = () => {
             { v: Math.floor(specialSum), t: 'n', z: '#,##0' }
           ]);
         } else {
-          const rule = globalIncentiveRules.find(r => (r.targetName === 'SELF_HQ' || r.targetName === '판매본부' || r.targetName === '해당본부' || r.targetName === hqName));
+          const rule = globalIncentiveRules.find(r => 
+            (r.targetName === 'SELF_HQ' || r.targetName === '판매본부' || r.targetName === '해당본부' || r.targetName === hqName) &&
+            isHqMatchedForSpecialRule(r, hqName, divisionSettings)
+          );
           const detail = rule?.incentiveName || '공급수수료';
           const matchedCount = settlementStats.globalIncentivesCountSummary?.[hqName] || 0;
           rows.push([
@@ -9906,6 +9950,7 @@ const ERP_Dashboard = () => {
                                 payDay: 25,
                                 targetHq: '',
                                 targetHqs: ['ALL'],
+                                targetDivisions: [],
                                 targetProducts: ['ALL'],
                                 targetItems: ['ALL'],
                                 baseDateType: 'DELIVERY',
@@ -9933,6 +9978,11 @@ const ERP_Dashboard = () => {
                           const isActive = activeIncentiveId === rule.id || (!activeIncentiveId && idx === 0);
                           const isCustomPerson = rule.targetName && rule.targetName !== 'SELF_HQ' && rule.targetName !== '해당본부' && rule.targetName !== '판매본부' && rule.targetName.trim() !== '';
 
+                          const targetDivs = (rule.targetDivisions || []).map(divId => {
+                            const d = (divisionSettings || []).find(item => item.id === divId || item.name === divId);
+                            return d ? d.name : divId;
+                          });
+
                           return (
                             <button
                               key={rule.id}
@@ -9956,6 +10006,17 @@ const ERP_Dashboard = () => {
                               <span className="truncate text-xs font-black mt-0.5">
                                 {rule.incentiveName || '수당 명칭 미입력'}
                               </span>
+                              {targetDivs.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-0.5">
+                                  {targetDivs.map(name => (
+                                    <span key={name} className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                                      isActive ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+                                    }`}>
+                                      🏢 {name}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                               <span className={`text-[10px] font-bold ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
                                 건당 {(rule.commissionPerUnit || 0).toLocaleString()}원
                               </span>
@@ -9990,11 +10051,22 @@ const ERP_Dashboard = () => {
                                   <span className="px-3 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full text-xs font-black tracking-wide shadow-sm">
                                     수당 정책 #{idx + 1}
                                   </span>
-                                  <h3 className="text-sm font-bold text-slate-800">
-                                    {rule.incentiveName || '수당 명칭 미입력'} 
-                                    <span className="ml-2 text-xs font-normal text-slate-400">
+                                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 flex-wrap">
+                                    <span>{rule.incentiveName || '수당 명칭 미입력'}</span>
+                                    <span className="text-xs font-normal text-slate-400">
                                       ({isCustomPerson ? `개인 수급 지정: ${rule.targetName}` : '실적 본부 직접 정산'})
                                     </span>
+                                    {(rule.targetDivisions || []).length > 0 && (
+                                      <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-[11px] font-bold flex items-center gap-1">
+                                        <span>🏢</span>
+                                        <span>
+                                          {(rule.targetDivisions || []).map(divId => {
+                                            const d = (divisionSettings || []).find(item => item.id === divId || item.name === divId);
+                                            return d ? d.name : divId;
+                                          }).join(', ')} 사업단 일괄 적용
+                                        </span>
+                                      </span>
+                                    )}
                                   </h3>
                                 </div>
                                 <button 
@@ -10105,40 +10177,124 @@ const ERP_Dashboard = () => {
                                   🎯 적용 대상 필터링
                                 </h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                  {/* 대상 본부 */}
+                                  {/* 대상 사업단 / 본부 */}
                                   <div className="flex flex-col gap-1.5">
-                                    <label className="text-xs font-bold text-slate-600">대상 본부</label>
-                                    <select onChange={e => {
-                                      if (!e.target.value) return;
-                                      const n = [...globalIncentiveRules];
-                                      if (!n[idx].targetHqs) n[idx].targetHqs = ['ALL'];
-                                      if (e.target.value === 'ALL') n[idx].targetHqs = ['ALL'];
-                                      else {
-                                        if (n[idx].targetHqs.includes('ALL')) n[idx].targetHqs = [];
-                                        if (!n[idx].targetHqs.includes(e.target.value)) n[idx].targetHqs.push(e.target.value);
-                                      }
-                                      setGlobalIncentiveRules(n);
-                                      e.target.value = '';
-                                    }} className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all">
-                                      <option value="">본부 선택 추가...</option>
-                                      <option value="ALL">전체 본부 대상</option>
-                                      {hqSettings.map(h => <option key={h.id} value={h.hqName}>{h.hqName}</option>)}
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs font-bold text-slate-600">대상 사업단 / 본부</label>
+                                      {divisionSettings && divisionSettings.length > 0 && (
+                                        <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                                          🏢 사업단 일괄
+                                        </span>
+                                      )}
+                                    </div>
+                                    <select 
+                                      value=""
+                                      onChange={e => {
+                                        const val = e.target.value;
+                                        if (!val) return;
+                                        const n = [...globalIncentiveRules];
+                                        if (!n[idx].targetHqs) n[idx].targetHqs = ['ALL'];
+                                        if (!n[idx].targetDivisions) n[idx].targetDivisions = [];
+
+                                        if (val === 'ALL') {
+                                          n[idx].targetHqs = ['ALL'];
+                                          n[idx].targetDivisions = [];
+                                        } else if (val.startsWith('DIV:')) {
+                                          const divId = val.substring(4);
+                                          n[idx].targetHqs = n[idx].targetHqs.filter(x => x !== 'ALL');
+                                          if (!n[idx].targetDivisions.includes(divId)) {
+                                            n[idx].targetDivisions.push(divId);
+                                          }
+                                        } else if (val.startsWith('HQ:')) {
+                                          const hqName = val.substring(3);
+                                          n[idx].targetHqs = n[idx].targetHqs.filter(x => x !== 'ALL');
+                                          if (!n[idx].targetHqs.includes(hqName)) {
+                                            n[idx].targetHqs.push(hqName);
+                                          }
+                                        }
+                                        setGlobalIncentiveRules(n);
+                                        e.target.value = '';
+                                      }} 
+                                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                                    >
+                                      <option value="">사업단 또는 본부 선택 추가...</option>
+                                      <option value="ALL">🌐 전체 대상 (모든 사업단 및 본부)</option>
+                                      {divisionSettings && divisionSettings.length > 0 && (
+                                        <optgroup label="🏢 사업단 (소속 본부 일괄 적용)">
+                                          {divisionSettings.map(d => (
+                                            <option key={d.id} value={`DIV:${d.id}`}>
+                                              🏢 {d.name} ({d.hqNames?.length || 0}개 본부 소속)
+                                            </option>
+                                          ))}
+                                        </optgroup>
+                                      )}
+                                      <optgroup label="🏛️ 개별 본부">
+                                        {hqSettings.map(h => (
+                                          <option key={h.id} value={`HQ:${h.hqName}`}>
+                                            {h.hqName}
+                                          </option>
+                                        ))}
+                                      </optgroup>
                                     </select>
-                                    <div className="flex flex-wrap gap-1.5 min-h-[32px] p-1.5 bg-slate-50 rounded-xl border border-slate-100">
-                                      {(rule.targetHqs || ['ALL']).includes('ALL') ? (
-                                        <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200/60">전체 본부</span>
+                                    <div className="flex flex-wrap gap-1.5 min-h-[36px] p-1.5 bg-slate-50 rounded-xl border border-slate-100">
+                                      {((!rule.targetDivisions || rule.targetDivisions.length === 0) && (rule.targetHqs || ['ALL']).includes('ALL')) ? (
+                                        <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200/60 flex items-center gap-1">
+                                          🌐 전체 본부/사업단
+                                        </span>
                                       ) : (
-                                        (rule.targetHqs || []).map(h => (
-                                          <span key={h} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200/60">
-                                            {h}
-                                            <button onClick={() => {
-                                              const n = [...globalIncentiveRules];
-                                              n[idx].targetHqs = n[idx].targetHqs.filter(x => x !== h);
-                                              if (n[idx].targetHqs.length === 0) n[idx].targetHqs = ['ALL'];
-                                              setGlobalIncentiveRules(n);
-                                            }} className="hover:text-rose-600 transition-colors"><X size={12} /></button>
-                                          </span>
-                                        ))
+                                        <>
+                                          {/* 사업단 배지 */}
+                                          {(rule.targetDivisions || []).map(divId => {
+                                            const div = (divisionSettings || []).find(d => d.id === divId || d.name === divId);
+                                            const divName = div ? div.name : divId;
+                                            const hqCount = div?.hqNames?.length ?? 0;
+                                            return (
+                                              <span key={divId} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-bold border border-indigo-200 shadow-2xs">
+                                                <span className="text-[11px]">🏢</span>
+                                                <span>{divName} 사업단</span>
+                                                <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1 py-0.2 rounded font-semibold">
+                                                  {hqCount}개 본부
+                                                </span>
+                                                <button 
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const n = [...globalIncentiveRules];
+                                                    n[idx].targetDivisions = (n[idx].targetDivisions || []).filter(x => x !== divId);
+                                                    if (n[idx].targetDivisions.length === 0 && (!n[idx].targetHqs || n[idx].targetHqs.length === 0)) {
+                                                      n[idx].targetHqs = ['ALL'];
+                                                    }
+                                                    setGlobalIncentiveRules(n);
+                                                  }} 
+                                                  className="text-indigo-400 hover:text-rose-600 transition-colors ml-0.5 cursor-pointer"
+                                                  title="사업단 삭제"
+                                                >
+                                                  <X size={12} />
+                                                </button>
+                                              </span>
+                                            );
+                                          })}
+                                          {/* 개별 본부 배지 */}
+                                          {(rule.targetHqs || []).filter(h => h !== 'ALL').map(h => (
+                                            <span key={h} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-200/60 shadow-2xs">
+                                              <span>🏛️ {h}</span>
+                                              <button 
+                                                type="button"
+                                                onClick={() => {
+                                                  const n = [...globalIncentiveRules];
+                                                  n[idx].targetHqs = (n[idx].targetHqs || []).filter(x => x !== h);
+                                                  if ((!n[idx].targetDivisions || n[idx].targetDivisions.length === 0) && n[idx].targetHqs.length === 0) {
+                                                    n[idx].targetHqs = ['ALL'];
+                                                  }
+                                                  setGlobalIncentiveRules(n);
+                                                }} 
+                                                className="text-emerald-400 hover:text-rose-600 transition-colors ml-0.5 cursor-pointer"
+                                                title="본부 삭제"
+                                              >
+                                                <X size={12} />
+                                              </button>
+                                            </span>
+                                          ))}
+                                        </>
                                       )}
                                     </div>
                                   </div>
@@ -12171,7 +12327,10 @@ const ERP_Dashboard = () => {
                               if (tab === 'details' && s.items.length === 0) return null;
                               if (tab === 'special' && s.specialSum === 0) return null;
 
-                              const matchedSpecialRule = globalIncentiveRules.find(r => r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
+                              const matchedSpecialRule = globalIncentiveRules.find(r => 
+                                (r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
+                                isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)
+                              );
                               const specialIncentiveLabel = matchedSpecialRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
 
                               const tabNames: Record<string, string> = {
@@ -12242,7 +12401,10 @@ const ERP_Dashboard = () => {
                                     <tr>
                                       <td className="border border-slate-300 p-1.5 font-bold text-slate-600">
                                         {(() => {
-                                          const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
+                                          const matchedRule = globalIncentiveRules.find(r => 
+                                            (r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
+                                            isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)
+                                          );
                                           return matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
                                         })()}
                                       </td>
@@ -12459,7 +12621,8 @@ const ERP_Dashboard = () => {
 
                           {activeTab === 'special' && (() => {
                             const matchedRule = globalIncentiveRules.find(r => 
-                              r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === ''
+                              (r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
+                              isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)
                             );
                             const matchedIncentiveName = matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
 
@@ -12523,8 +12686,7 @@ const ERP_Dashboard = () => {
                             const processedRentalNos = new Set<string>();
                             const specialItems = s.items.filter((item: any) => {
                               if (!matchedRule) return true;
-                              const targetHqs = matchedRule.targetHqs || ['ALL'];
-                              if (!targetHqs.includes('ALL') && !targetHqs.includes(s.hqName)) return false;
+                              if (!isHqMatchedForSpecialRule(matchedRule, s.hqName, divisionSettings)) return false;
 
                               const targetProducts = matchedRule.targetProducts || ['ALL'];
                               if (!targetProducts.includes('ALL') && !targetProducts.some((p: string) => (item.prodName || item.prodCategory || item.productCategory || '').includes(p))) return false;

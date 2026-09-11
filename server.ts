@@ -736,7 +736,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       }
 
       const incentiveHeaders = [
-        'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰', '대상제품배열', '정산유형', '발행사업자명', '사업자번호'
+        'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰', '대상제품배열', '정산유형', '발행사업자명', '사업자번호', '대상사업단배열'
       ];
       
       const incentiveRows: any[][] = [incentiveHeaders];
@@ -757,7 +757,8 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           JSON.stringify(rule.targetItems || ['ALL']),
           rule.taxType || 'DEFAULT',
           rule.taxBusinessName || '',
-          rule.taxBusinessNo || ''
+          rule.taxBusinessNo || '',
+          JSON.stringify(rule.targetDivisions || [])
         ]);
       });
 
@@ -1256,6 +1257,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         const iTaxType = iCol('정산유형');
         const iTaxBusinessName = iCol('발행사업자명');
         const iTaxBusinessNo = iCol('사업자번호');
+        const iTargetDivisions = iCol('대상사업단배열');
 
         globalIncentives = incRows.slice(1).map((row: string[]) => {
           const productsStr = iTargetProducts >= 0 ? (row[iTargetProducts] || '') : '';
@@ -1266,6 +1268,11 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             try { targetHqs = JSON.parse(row[iTargetHqs]); } catch(e){}
           } else if (iTargetHq >= 0 && row[iTargetHq]) {
              targetHqs = [row[iTargetHq]];
+          }
+
+          let targetDivisions: string[] = [];
+          if (iTargetDivisions >= 0 && row[iTargetDivisions]) {
+            try { targetDivisions = JSON.parse(row[iTargetDivisions]); } catch(e){}
           }
 
           let installments = [];
@@ -1285,6 +1292,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             payDay: iPayDay >= 0 && row[iPayDay] !== undefined && row[iPayDay] !== '' ? (parseInt(row[iPayDay]) || 0) : 0,
             targetHq: iTargetHq >= 0 ? row[iTargetHq] : '',
             targetHqs,
+            targetDivisions,
             targetProducts,
             targetItems,
             baseDateType: iBaseDateType >= 0 ? row[iBaseDateType] : 'DELIVERY',
