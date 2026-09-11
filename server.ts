@@ -551,6 +551,8 @@ app.post('/api/sheets/settings/sync-cache', async (req, res) => {
   }
 });
 
+let settingsCloudSaveQueue: Promise<any> = Promise.resolve();
+
 app.post('/api/sheets/settings/save', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
@@ -571,7 +573,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
   
   if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
 
-  // 로컬 파일 캐시 백업 동기 저장
+  // 로컬 파일 캐시 백업 동기 저장 (즉시 반영)
   try {
     const cachePath = path.join(process.cwd(), '.settings_cache.json');
     let cacheData: any = {};
@@ -594,7 +596,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
 
   console.log(`[CloudSync] Saving pretty settings to sheet: ${sheetId}`);
 
-  try {
+  const runSaveTask = async () => {
     const sheets = google.sheets({ version: 'v4', auth: client });
     
     // Check if '시스템설정' sheet exists, if not create it
@@ -751,14 +753,14 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           rule.commissionPerUnit || 0,
           rule.minimumGuarantee || 0,
           rule.incentiveName || '',
-          JSON.stringify(rule.targetHqs || ['ALL']),
+          JSON.stringify(Array.isArray(rule.targetHqs) ? rule.targetHqs : ['ALL']),
           rule.useInstallments ? 'Y' : 'N',
-          JSON.stringify(rule.installments || []),
-          JSON.stringify(rule.targetItems || ['ALL']),
+          JSON.stringify(Array.isArray(rule.installments) ? rule.installments : []),
+          JSON.stringify(Array.isArray(rule.targetItems) ? rule.targetItems : ['ALL']),
           rule.taxType || 'DEFAULT',
           rule.taxBusinessName || '',
           rule.taxBusinessNo || '',
-          JSON.stringify(rule.targetDivisions || [])
+          JSON.stringify(Array.isArray(rule.targetDivisions) ? rule.targetDivisions : [])
         ]);
       });
 
@@ -969,7 +971,14 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       });
       console.log("[CloudSync] Extra settings (manual orders, report, divisions) safely preserved and saved.");
     }
+  };
 
+  // Google Sheets 동시 쓰기 경합 방지: 순차 큐잉 실행
+  const queueTask = settingsCloudSaveQueue.then(runSaveTask, runSaveTask);
+  settingsCloudSaveQueue = queueTask;
+
+  try {
+    await queueTask;
     res.json({ success: true });
   } catch (error: any) {
     console.error("[CloudSync] Save error:", error.message);
@@ -1392,8 +1401,21 @@ app.get('/api/sheets/settings/load', async (req, res) => {
       const cachePath = path.join(process.cwd(), '.settings_cache.json');
       if (fs.existsSync(cachePath)) {
         const cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-        if ((!globalIncentives || globalIncentives.length === 0) && cacheData.globalIncentives && Array.isArray(cacheData.globalIncentives)) {
-          globalIncentives = cacheData.globalIncentives;
+        if (cacheData.globalIncentives && Array.isArray(cacheData.globalIncentives)) {
+          if (!globalIncentives || globalIncentives.length === 0) {
+            globalIncentives = cacheData.globalIncentives;
+          } else {
+            const cacheRuleMap = new Map(cacheData.globalIncentives.map((r: any) => [r.id, r]));
+            globalIncentives = globalIncentives.map((r: any) => {
+              if ((!r.targetDivisions || r.targetDivisions.length === 0) && cacheRuleMap.has(r.id)) {
+                const c = cacheRuleMap.get(r.id);
+                if (c && Array.isArray(c.targetDivisions) && c.targetDivisions.length > 0) {
+                  return { ...r, targetDivisions: c.targetDivisions };
+                }
+              }
+              return r;
+            });
+          }
         }
         if ((!maintenanceRules || maintenanceRules.length === 0) && cacheData.maintenanceRules && Array.isArray(cacheData.maintenanceRules)) {
           maintenanceRules = cacheData.maintenanceRules;

@@ -1309,8 +1309,17 @@ const ERP_Dashboard = () => {
     }
   }, [isSettingsModalOpen, activeHqId, hqSettings, activeDivisionId, divisionSettings, activeIncentiveId, globalIncentiveRules]);
 
+  const isSavingCloudRef = React.useRef(false);
+  const pendingCloudSaveRef = React.useRef<{ silent: boolean } | null>(null);
+
   const saveSettingsToCloud = async (silent: boolean = false) => {
     if (!isAuthenticated) return;
+    if (isSavingCloudRef.current) {
+      pendingCloudSaveRef.current = { silent: silent && (pendingCloudSaveRef.current?.silent ?? true) };
+      if (!silent) setSaveSettingsStatus('saving');
+      return;
+    }
+    isSavingCloudRef.current = true;
     if (!silent) setSaveSettingsStatus('saving');
     try {
       // 로컬 스토리지에 보관된 수기발주 및 보고서 설정 추가 수집
@@ -1361,18 +1370,31 @@ const ERP_Dashboard = () => {
           reportSettings
         })
       });
-      if (!res.ok) throw new Error('Cloud save failed');
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        const errMsg = errJson.details || errJson.error || `서버 응답 오류 (${res.status})`;
+        throw new Error(errMsg);
+      }
       if (!silent) {
         setSaveSettingsStatus('success');
         setNotification({ message: '모든 설정이 구글 시트에 자동 저장되었습니다.', type: 'success' });
         setTimeout(() => setSaveSettingsStatus('idle'), 3000);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       if (!silent) {
         setSaveSettingsStatus('error');
-        alert('설정 저장 중 오류가 발생했습니다.');
+        alert(`설정 저장 중 오류가 발생했습니다.\n(${err?.message || '구글 시트 연동 상태를 확인해 주세요.'})`);
         setTimeout(() => setSaveSettingsStatus('idle'), 3000);
+      }
+    } finally {
+      isSavingCloudRef.current = false;
+      if (pendingCloudSaveRef.current) {
+        const nextSave = pendingCloudSaveRef.current;
+        pendingCloudSaveRef.current = null;
+        setTimeout(() => {
+          saveSettingsToCloud(nextSave.silent);
+        }, 500);
       }
     }
   };
@@ -1409,8 +1431,8 @@ const ERP_Dashboard = () => {
         if (data.globalIncentives && Array.isArray(data.globalIncentives) && data.globalIncentives.length > 0) {
           setGlobalIncentiveRules(data.globalIncentives.map((r: any) => ({
             ...r,
-            targetHqs: r.targetHqs || (r.targetHq ? [r.targetHq] : ['ALL']),
-            targetDivisions: r.targetDivisions || [],
+            targetHqs: Array.isArray(r.targetHqs) ? r.targetHqs : (r.targetHq ? [r.targetHq] : ['ALL']),
+            targetDivisions: Array.isArray(r.targetDivisions) ? r.targetDivisions : [],
             payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
             commissionPerUnit: Number(r.commissionPerUnit || 0),
             minimumGuarantee: Number(r.minimumGuarantee || 0)
@@ -10192,26 +10214,34 @@ const ERP_Dashboard = () => {
                                       onChange={e => {
                                         const val = e.target.value;
                                         if (!val) return;
-                                        const n = [...globalIncentiveRules];
-                                        if (!n[idx].targetHqs) n[idx].targetHqs = ['ALL'];
-                                        if (!n[idx].targetDivisions) n[idx].targetDivisions = [];
+                                        const curRule = globalIncentiveRules[idx];
+                                        if (!curRule) return;
+
+                                        let nextHqs = Array.isArray(curRule.targetHqs) ? [...curRule.targetHqs] : ['ALL'];
+                                        let nextDivs = Array.isArray(curRule.targetDivisions) ? [...curRule.targetDivisions] : [];
 
                                         if (val === 'ALL') {
-                                          n[idx].targetHqs = ['ALL'];
-                                          n[idx].targetDivisions = [];
+                                          nextHqs = ['ALL'];
+                                          nextDivs = [];
                                         } else if (val.startsWith('DIV:')) {
                                           const divId = val.substring(4);
-                                          n[idx].targetHqs = n[idx].targetHqs.filter(x => x !== 'ALL');
-                                          if (!n[idx].targetDivisions.includes(divId)) {
-                                            n[idx].targetDivisions.push(divId);
+                                          nextHqs = nextHqs.filter(x => x !== 'ALL');
+                                          if (!nextDivs.includes(divId)) {
+                                            nextDivs.push(divId);
                                           }
                                         } else if (val.startsWith('HQ:')) {
                                           const hqName = val.substring(3);
-                                          n[idx].targetHqs = n[idx].targetHqs.filter(x => x !== 'ALL');
-                                          if (!n[idx].targetHqs.includes(hqName)) {
-                                            n[idx].targetHqs.push(hqName);
+                                          nextHqs = nextHqs.filter(x => x !== 'ALL');
+                                          if (!nextHqs.includes(hqName)) {
+                                            nextHqs.push(hqName);
                                           }
                                         }
+
+                                        const n = globalIncentiveRules.map((r, i) => i === idx ? {
+                                          ...r,
+                                          targetHqs: nextHqs,
+                                          targetDivisions: nextDivs
+                                        } : r);
                                         setGlobalIncentiveRules(n);
                                         e.target.value = '';
                                       }} 
@@ -10258,11 +10288,18 @@ const ERP_Dashboard = () => {
                                                 <button 
                                                   type="button"
                                                   onClick={() => {
-                                                    const n = [...globalIncentiveRules];
-                                                    n[idx].targetDivisions = (n[idx].targetDivisions || []).filter(x => x !== divId);
-                                                    if (n[idx].targetDivisions.length === 0 && (!n[idx].targetHqs || n[idx].targetHqs.length === 0)) {
-                                                      n[idx].targetHqs = ['ALL'];
+                                                    const curRule = globalIncentiveRules[idx];
+                                                    if (!curRule) return;
+                                                    const nextDivs = (curRule.targetDivisions || []).filter(x => x !== divId);
+                                                    let nextHqs = curRule.targetHqs || [];
+                                                    if (nextDivs.length === 0 && (!nextHqs || nextHqs.length === 0)) {
+                                                      nextHqs = ['ALL'];
                                                     }
+                                                    const n = globalIncentiveRules.map((r, i) => i === idx ? {
+                                                      ...r,
+                                                      targetDivisions: nextDivs,
+                                                      targetHqs: nextHqs
+                                                    } : r);
                                                     setGlobalIncentiveRules(n);
                                                   }} 
                                                   className="text-indigo-400 hover:text-rose-600 transition-colors ml-0.5 cursor-pointer"
@@ -10280,11 +10317,17 @@ const ERP_Dashboard = () => {
                                               <button 
                                                 type="button"
                                                 onClick={() => {
-                                                  const n = [...globalIncentiveRules];
-                                                  n[idx].targetHqs = (n[idx].targetHqs || []).filter(x => x !== h);
-                                                  if ((!n[idx].targetDivisions || n[idx].targetDivisions.length === 0) && n[idx].targetHqs.length === 0) {
-                                                    n[idx].targetHqs = ['ALL'];
+                                                  const curRule = globalIncentiveRules[idx];
+                                                  if (!curRule) return;
+                                                  let nextHqs = (curRule.targetHqs || []).filter(x => x !== h);
+                                                  const curDivs = curRule.targetDivisions || [];
+                                                  if ((!curDivs || curDivs.length === 0) && nextHqs.length === 0) {
+                                                    nextHqs = ['ALL'];
                                                   }
+                                                  const n = globalIncentiveRules.map((r, i) => i === idx ? {
+                                                    ...r,
+                                                    targetHqs: nextHqs
+                                                  } : r);
                                                   setGlobalIncentiveRules(n);
                                                 }} 
                                                 className="text-emerald-400 hover:text-rose-600 transition-colors ml-0.5 cursor-pointer"

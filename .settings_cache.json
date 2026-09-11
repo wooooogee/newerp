@@ -2814,6 +2814,7 @@
       "targetHqs": [
         "언바운드컴퍼니"
       ],
+      "targetDivisions": [],
       "targetProducts": [
         "ALL"
       ],
@@ -2838,6 +2839,7 @@
       "targetHqs": [
         "언바운드컴퍼니"
       ],
+      "targetDivisions": [],
       "targetProducts": [
         "ALL"
       ],
@@ -2859,11 +2861,9 @@
       "targetName": "해당본부",
       "payDay": 0,
       "targetHq": "",
-      "targetHqs": [
-        "더굿라이프",
-        "최강본부",
-        "다보다",
-        "더굿"
+      "targetHqs": [],
+      "targetDivisions": [
+        "div-goodlife"
       ],
       "targetProducts": [
         "ALL"
@@ -2886,11 +2886,9 @@
       "targetName": "해당본부",
       "payDay": 0,
       "targetHq": "",
-      "targetHqs": [
-        "다보다",
-        "최강본부",
-        "더굿라이프",
-        "더굿"
+      "targetHqs": [],
+      "targetDivisions": [
+        "div-goodlife"
       ],
       "targetProducts": [
         "ALL"
@@ -2913,11 +2911,9 @@
       "targetName": "해당본부",
       "payDay": 0,
       "targetHq": "",
-      "targetHqs": [
-        "굿라이프",
-        "최강본부",
-        "더굿",
-        "더굿라이프"
+      "targetHqs": [],
+      "targetDivisions": [
+        "div-goodlife"
       ],
       "targetProducts": [
         "ALL"
@@ -2940,11 +2936,9 @@
       "targetName": "해당본부",
       "payDay": 0,
       "targetHq": "",
-      "targetHqs": [
-        "더굿",
-        "최강본부",
-        "굿라이프",
-        "더굿라이프"
+      "targetHqs": [],
+      "targetDivisions": [
+        "div-goodlife"
       ],
       "targetProducts": [
         "ALL"
@@ -2972,6 +2966,7 @@
         "해랑인터내셔널",
         "제이어스"
       ],
+      "targetDivisions": [],
       "targetProducts": [
         "더좋은헬스케어580"
       ],
@@ -3004,6 +2999,7 @@
         "제이어스",
         "해랑인터내셔널"
       ],
+      "targetDivisions": [],
       "targetProducts": [
         "더좋은하이브리드698",
         "더좋은프리미엄540"
@@ -3029,6 +3025,7 @@
       "targetHqs": [
         "제이어스"
       ],
+      "targetDivisions": [],
       "targetProducts": [
         "더좋은하이브리드698",
         "더좋은프리미엄540"
@@ -3054,6 +3051,7 @@
       "targetHqs": [
         "ALL"
       ],
+      "targetDivisions": [],
       "targetProducts": [
         "ALL"
       ],
@@ -3078,6 +3076,7 @@
       "targetHqs": [
         "ALL"
       ],
+      "targetDivisions": [],
       "targetProducts": [
         "더좋은라이즈498",
         "더좋은프리미엄540",
@@ -3108,6 +3107,7 @@
       "targetHqs": [
         "ALL"
       ],
+      "targetDivisions": [],
       "targetProducts": [
         "더좋은라이즈498",
         "더좋은프리미엄540",
