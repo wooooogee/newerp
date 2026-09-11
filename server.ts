@@ -532,8 +532,6 @@ app.post('/api/sheets/settings/reset', async (req, res) => {
 });
 
 app.post('/api/sheets/settings/sync-cache', async (req, res) => {
-  const client = await getAuthenticatedClient(req, res);
-  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
   const { settings, divisions, globalIncentives, maintenanceRules } = req.body || {};
   try {
     const cachePath = path.join(process.cwd(), '.settings_cache.json');
@@ -586,7 +584,9 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     if (manualOrderProducts) cacheData.manualOrderProducts = manualOrderProducts;
     if (manualOrderStores) cacheData.manualOrderStores = manualOrderStores;
     if (reportSettings) cacheData.reportSettings = reportSettings;
-    if (divisions) cacheData.divisions = divisions;
+    if (divisions && Array.isArray(divisions) && divisions.length > 0) {
+      cacheData.divisions = divisions;
+    }
     fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8');
   } catch (e) {
     console.error("[CloudSync] Local cache write error:", e);
@@ -868,7 +868,62 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
 
     // -- Handle manualOrderProducts & manualOrderStores & reportSettings & divisions --
-    if (manualOrderProducts || manualOrderStores || reportSettings || divisions) {
+    // 기존 구글 시트의 수기발주및기타설정 내용을 먼저 읽어와서 병합 보존 (어떤 항목이 누락되어 전달되어도 기존 데이터 보존!)
+    let existingExtraMap: Record<string, string> = {};
+    try {
+      const curExtraRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: '수기발주및기타설정!A:C'
+      });
+      const curRows = curExtraRes.data.values || [];
+      if (curRows.length >= 2) {
+        curRows.slice(1).forEach(r => {
+          if (r[0] && r[1]) existingExtraMap[r[0]] = r[1];
+        });
+      }
+    } catch (e) {}
+
+    // 로컬 파일 캐시 백업도 확인
+    const extraCachePath = path.join(process.cwd(), '.settings_cache.json');
+    let extraCacheBackup: any = {};
+    if (fs.existsSync(extraCachePath)) {
+      try { extraCacheBackup = JSON.parse(fs.readFileSync(extraCachePath, 'utf8')); } catch(e){}
+    }
+
+    // divisions 결정: 유효한 데이터 우선, 빈 배열이면 기존 시트 또는 캐시 백업 보존
+    let targetDivisions = (divisions && Array.isArray(divisions) && divisions.length > 0) ? divisions : null;
+    if (!targetDivisions && existingExtraMap['BUSINESS_DIVISIONS']) {
+      try {
+        const parsed = JSON.parse(existingExtraMap['BUSINESS_DIVISIONS']);
+        if (Array.isArray(parsed) && parsed.length > 0) targetDivisions = parsed;
+      } catch (e) {}
+    }
+    if (!targetDivisions && extraCacheBackup.divisions && Array.isArray(extraCacheBackup.divisions) && extraCacheBackup.divisions.length > 0) {
+      targetDivisions = extraCacheBackup.divisions;
+    }
+
+    // manualOrderProducts 결정
+    let targetManualProducts = manualOrderProducts;
+    if (!targetManualProducts && existingExtraMap['MANUAL_ORDER_PRODUCTS']) {
+      try { targetManualProducts = JSON.parse(existingExtraMap['MANUAL_ORDER_PRODUCTS']); } catch (e) {}
+    }
+    if (!targetManualProducts && extraCacheBackup.manualOrderProducts) targetManualProducts = extraCacheBackup.manualOrderProducts;
+
+    // manualOrderStores 결정
+    let targetManualStores = manualOrderStores;
+    if (!targetManualStores && existingExtraMap['MANUAL_ORDER_STORES']) {
+      try { targetManualStores = JSON.parse(existingExtraMap['MANUAL_ORDER_STORES']); } catch (e) {}
+    }
+    if (!targetManualStores && extraCacheBackup.manualOrderStores) targetManualStores = extraCacheBackup.manualOrderStores;
+
+    // reportSettings 결정
+    let targetReportSettings = reportSettings;
+    if (!targetReportSettings && existingExtraMap['REPORT_SETTINGS']) {
+      try { targetReportSettings = JSON.parse(existingExtraMap['REPORT_SETTINGS']); } catch (e) {}
+    }
+    if (!targetReportSettings && extraCacheBackup.reportSettings) targetReportSettings = extraCacheBackup.reportSettings;
+
+    if (targetManualProducts || targetManualStores || targetReportSettings || targetDivisions) {
       let extraSheet = sheetsList.find(s => s.properties?.title === '수기발주및기타설정');
       let extraSheetId: number | null | undefined = extraSheet?.properties?.sheetId;
       
@@ -887,17 +942,17 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       const extraRows: any[][] = [extraHeaders];
       const nowStr = new Date().toISOString();
 
-      if (manualOrderProducts) {
-        extraRows.push(['MANUAL_ORDER_PRODUCTS', JSON.stringify(manualOrderProducts), nowStr]);
+      if (targetManualProducts) {
+        extraRows.push(['MANUAL_ORDER_PRODUCTS', JSON.stringify(targetManualProducts), nowStr]);
       }
-      if (manualOrderStores) {
-        extraRows.push(['MANUAL_ORDER_STORES', JSON.stringify(manualOrderStores), nowStr]);
+      if (targetManualStores) {
+        extraRows.push(['MANUAL_ORDER_STORES', JSON.stringify(targetManualStores), nowStr]);
       }
-      if (reportSettings) {
-        extraRows.push(['REPORT_SETTINGS', JSON.stringify(reportSettings), nowStr]);
+      if (targetReportSettings) {
+        extraRows.push(['REPORT_SETTINGS', JSON.stringify(targetReportSettings), nowStr]);
       }
-      if (divisions) {
-        extraRows.push(['BUSINESS_DIVISIONS', JSON.stringify(divisions), nowStr]);
+      if (targetDivisions && targetDivisions.length > 0) {
+        extraRows.push(['BUSINESS_DIVISIONS', JSON.stringify(targetDivisions), nowStr]);
       }
 
       await sheets.spreadsheets.values.clear({
@@ -911,7 +966,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: extraRows }
       });
-      console.log("[CloudSync] Extra settings (manual orders & report) saved successfully.");
+      console.log("[CloudSync] Extra settings (manual orders, report, divisions) safely preserved and saved.");
     }
 
     res.json({ success: true });
@@ -1338,7 +1393,9 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         if (!manualOrderProducts && cacheData.manualOrderProducts) manualOrderProducts = cacheData.manualOrderProducts;
         if (!manualOrderStores && cacheData.manualOrderStores) manualOrderStores = cacheData.manualOrderStores;
         if (!reportSettings && cacheData.reportSettings) reportSettings = cacheData.reportSettings;
-        if (!divisions && cacheData.divisions) divisions = cacheData.divisions;
+        if ((!divisions || (Array.isArray(divisions) && divisions.length === 0)) && cacheData.divisions && Array.isArray(cacheData.divisions) && cacheData.divisions.length > 0) {
+          divisions = cacheData.divisions;
+        }
       }
     } catch (e) {}
 
@@ -1352,12 +1409,14 @@ app.get('/api/sheets/settings/load', async (req, res) => {
       divisions: divisions || []
     });
   } catch (error: any) {
-    if (error.response?.status === 400 || error.message?.toLowerCase().includes('not found')) {
-      // 구글시트 조회가 안 될 경우 로컬 디스크 캐시 복구 시도
-      try {
-        const cachePath = path.join(process.cwd(), '.settings_cache.json');
-        if (fs.existsSync(cachePath)) {
-          const cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+    console.error("[CloudSync] Load error:", error.message);
+    // 구글 API 에러(429 쿼터 초과, 네트워크 오류 등) 발생 시 로컬 디스크 캐시 백업으로 즉시 자동 폴백
+    try {
+      const cachePath = path.join(process.cwd(), '.settings_cache.json');
+      if (fs.existsSync(cachePath)) {
+        const cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+        if (cacheData.settings && cacheData.settings.length > 0) {
+          console.log("[CloudSync] Successfully loaded settings from local cache fallback due to cloud error.");
           return res.json({
             settings: cacheData.settings || null,
             globalIncentives: cacheData.globalIncentives || [],
@@ -1368,10 +1427,8 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             divisions: cacheData.divisions || []
           });
         }
-      } catch (e) {}
-      return res.json({ settings: null, globalIncentives: [], maintenanceRules: [], manualOrderProducts: null, manualOrderStores: null, reportSettings: null, divisions: [] });
-    }
-    console.error("[CloudSync] Load error:", error.message);
+      }
+    } catch (e) {}
     return handleGoogleError(error, res);
   }
 });

@@ -1291,12 +1291,24 @@ const ERP_Dashboard = () => {
         };
       } catch (e) {}
 
+      // divisionSettings가 비어있을 경우 로컬 스토리지 확인하여 유효한 데이터 확보
+      let divsToSave: DivisionSetting[] | undefined = (divisionSettings && divisionSettings.length > 0) ? divisionSettings : undefined;
+      if (!divsToSave) {
+        try {
+          const savedDivs = localStorage.getItem('erp_division_settings');
+          if (savedDivs) {
+            const parsed = JSON.parse(savedDivs);
+            if (Array.isArray(parsed) && parsed.length > 0) divsToSave = parsed;
+          }
+        } catch (e) {}
+      }
+
       const res = await fetch('/api/sheets/settings/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           settings: hqSettings,
-          divisions: divisionSettings,
+          divisions: divsToSave,
           globalIncentives: globalIncentiveRules,
           maintenanceRules,
           manualOrderProducts,
@@ -1409,7 +1421,7 @@ const ERP_Dashboard = () => {
       saveSettingsToCloud(true);
     }, 1500);
     return () => clearTimeout(timer);
-  }, [hqSettings, globalIncentiveRules, maintenanceRules]);
+  }, [hqSettings, divisionSettings, globalIncentiveRules, maintenanceRules]);
 
   // 구글 시트 + 로컬 설정을 완전 초기화하고 MASTER_HQ_DATA로 재설정
   const resetSettingsToDefault = async () => {
@@ -11003,10 +11015,13 @@ const ERP_Dashboard = () => {
                         hqNames: (d.hqNames || []).filter(name => !targetHqNames.includes(name))
                       }));
 
-                      setDivisionSettings([...updatedDivisions, newDiv]);
+                      const nextDivisions = [...updatedDivisions, newDiv];
+                      setDivisionSettings(nextDivisions);
+                      localStorage.setItem('erp_division_settings', JSON.stringify(nextDivisions));
                       setActiveDivisionId(newId);
                       setIsAddDivisionModalOpen(false);
                       setNotification({ message: `'${newDiv.name}' 사업단이 등록되었습니다.`, type: 'success' });
+                      setTimeout(() => saveSettingsToCloud(true), 100);
                     }}
                     className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-200 flex items-center gap-1.5 cursor-pointer"
                   >

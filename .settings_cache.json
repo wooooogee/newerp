@@ -3408,5 +3408,24 @@
       "(주)해랑인터내셔널",
       "에넥스텔레콤"
     ]
-  }
+  },
+  "divisions": [
+    {
+      "id": "div-goodlife",
+      "name": "굿라이프",
+      "settlementType": "사업자",
+      "bankName": "국민은행",
+      "accountNumber": "164501-04-161888",
+      "accountHolder": "김애숙(에스제이컨설팅)",
+      "paymentMethod": "계좌이체",
+      "memo": "굿라이프 사업단",
+      "hqNames": [
+        "다보다",
+        "더굿",
+        "최강본부",
+        "노반AI"
+      ],
+      "isActive": true
+    }
+  ]
 }
