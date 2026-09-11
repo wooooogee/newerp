@@ -531,6 +531,28 @@ app.post('/api/sheets/settings/reset', async (req, res) => {
   }
 });
 
+app.post('/api/sheets/settings/sync-cache', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+  const { settings, divisions, globalIncentives, maintenanceRules } = req.body || {};
+  try {
+    const cachePath = path.join(process.cwd(), '.settings_cache.json');
+    let cacheData: any = {};
+    if (fs.existsSync(cachePath)) {
+      try { cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8')); } catch (e) {}
+    }
+    if (settings && Array.isArray(settings) && settings.length > 0) cacheData.settings = settings;
+    if (divisions && Array.isArray(divisions) && divisions.length > 0) cacheData.divisions = divisions;
+    if (globalIncentives && Array.isArray(globalIncentives) && globalIncentives.length > 0) cacheData.globalIncentives = globalIncentives;
+    if (maintenanceRules && Array.isArray(maintenanceRules) && maintenanceRules.length > 0) cacheData.maintenanceRules = maintenanceRules;
+    fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8');
+    return res.json({ success: true });
+  } catch (e: any) {
+    console.error("[CacheSync] write error:", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/sheets/settings/save', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
