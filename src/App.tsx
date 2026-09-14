@@ -5222,24 +5222,76 @@ const ERP_Dashboard = () => {
 
       // Row 17~: 4. [일반수수료 상세 내역]
       rows.push(['[일반수수료 상세 내역]']);
-      rows.push(['No', '지사명', '계약일자', '지급일자', '본부명', '사원명', '고객명', '렌탈계약번호', '배송일자', '정산상품명', '수수료']);
+      rows.push(['No', '지사', '사원명', '고객명', '상품명', '제품명', '계약일자', '배송일자', '수수료']);
 
-      items.forEach((item, idx) => {
-        const { totalCommission, displayPayDate } = calculateCommissionDetails(item, stats);
+      const sortedItems = [...items].sort((a, b) => {
+        const branchDiff = (a.branch || '').localeCompare(b.branch || '', 'ko');
+        if (branchDiff !== 0) return branchDiff;
+        const prodDiff = (a.prodName || '').localeCompare(b.prodName || '', 'ko');
+        if (prodDiff !== 0) return prodDiff;
+        return (a.contractDate || '').localeCompare(b.contractDate || '', 'ko');
+      });
+
+      let currentBranch = '';
+      let currentProd = '';
+      let subCount = 0;
+      let subComm = 0;
+      let dataRowNo = 0;
+
+      sortedItems.forEach((item, idx) => {
+        const { totalCommission } = calculateCommissionDetails(item, stats);
+
+        if (idx > 0 && (currentBranch !== (item.branch || '') || currentProd !== (item.prodName || ''))) {
+          rows.push([
+            `[${currentBranch}] ${currentProd} 소계`,
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            `${subCount}건`,
+            { v: Math.floor(subComm), t: 'n', z: '#,##0' }
+          ]);
+          subCount = 0;
+          subComm = 0;
+        }
+
+        currentBranch = item.branch || '';
+        currentProd = item.prodName || '';
+
+        subCount++;
+        subComm += totalCommission;
+        dataRowNo++;
+
+        const prodModel = item.rentalProd || item.modelName || item.productModel || item.prodName || '-';
+
         rows.push([
-          idx + 1,
-          item.branch,
-          item.contractDate,
-          displayPayDate,
-          item.hq,
-          item.empName,
-          item.memName,
-          item.rentalNo,
-          item.deliveryDate,
-          item.prodName,
+          dataRowNo,
+          item.branch || '-',
+          item.empName || '-',
+          item.memName || item.customerName || '-',
+          item.prodName || '-',
+          prodModel,
+          item.contractDate || '-',
+          item.deliveryDate || '-',
           { v: Math.floor(totalCommission), t: 'n', z: '#,##0' }
         ]);
       });
+
+      if (subCount > 0) {
+        rows.push([
+          `[${currentBranch}] ${currentProd} 소계`,
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          `${subCount}건`,
+          { v: Math.floor(subComm), t: 'n', z: '#,##0' }
+        ]);
+      }
 
       if (items.length > 0) {
         rows.push([
@@ -5248,11 +5300,9 @@ const ERP_Dashboard = () => {
           '',
           '',
           '',
+          '',
+          '',
           `${items.length}건`,
-          '',
-          '',
-          '',
-          '',
           { v: Math.floor(generalSum), t: 'n', z: '#,##0' }
         ]);
       }
@@ -5263,11 +5313,9 @@ const ERP_Dashboard = () => {
         '',
         '',
         '',
+        '',
+        '',
         `${totalItemsCount}건`,
-        '',
-        '',
-        '',
-        '',
         { v: Math.floor(totalSum), t: 'n', z: '#,##0' }
       ]);
 
@@ -5419,27 +5467,57 @@ const ERP_Dashboard = () => {
 
       const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
       for (let R = range.s.r; R <= range.e.r; ++R) {
+        // 해당 행에 소계/합계 키워드가 있는지 확인
+        let isSubtotalRow = false;
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const checkAddr = XLSX.utils.encode_cell({ r: R, c: C });
+          const cellVal = ws[checkAddr] ? String(ws[checkAddr].v || '') : '';
+          if (cellVal.includes('소계') || cellVal === '계' || cellVal.includes('합계') || cellVal === '최종 실지급액 합계') {
+            isSubtotalRow = true;
+            break;
+          }
+        }
+
         for (let C = range.s.c; C <= range.e.c; ++C) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (!ws[addr]) continue;
-          ws[addr].s = { ...cellStyle };
-          if (R === 0) ws[addr].s = titleStyle;
+
+          if (R === 0) {
+            ws[addr].s = titleStyle;
+            continue;
+          }
+
           const val = String(ws[addr].v || '');
           const isHeader = [
             '본부명', '정산유형', '지급일자', '은행', '계좌번호', '예금주', '지급액(실지급)',
             '세금계산서 발행', '원천징수 영수 요약 (3.3% 공제)', '구분', '공급가액', '부가세(10%)', '합계금액(실지급액)', '정산금액', '원천세(3.3%)', '실지급액',
             '상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계',
-            '[일반수수료 상세 내역]', 'No', '지사명', '계약일자', '사원명', '고객명', '렌탈계약번호', '배송일자', '정산상품명', '수수료',
+            '[일반수수료 상세 내역]', 'No', '지사', '지사명', '계약일자', '사원명', '고객명', '제품명', '렌탈계약번호', '배송일자', '정산상품명', '수수료',
             '[유지수수료 상세 내역]', '지급회차범위', '유지수수료', '[특수수당 상세 내역]', '수당 종류', '지급 기준 구좌수', '수당 단가', '최종 수당 금액'
           ].some(h => val === h || (val.startsWith('[') && val.endsWith(']')));
-          
-          if (isHeader) ws[addr].s = headerStyle;
-          if (ws[addr].t === 'n') ws[addr].s = numberStyle;
-          if (val === '계' || val === '합계' || val.includes('소계') || val === '최종 실지급액 합계') ws[addr].s = graySubtotalStyle;
+
+          if (isHeader) {
+            ws[addr].s = headerStyle;
+            continue;
+          }
+
+          if (isSubtotalRow) {
+            ws[addr].s = { ...graySubtotalStyle };
+            if (ws[addr].t === 'n') {
+              ws[addr].s.alignment = { vertical: 'center', horizontal: 'right' };
+              ws[addr].numFmt = '#,##0';
+            }
+            continue;
+          }
+
+          ws[addr].s = { ...cellStyle };
+          if (ws[addr].t === 'n') {
+            ws[addr].s = numberStyle;
+          }
         }
       }
 
-      ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
+      ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }];
 
       XLSX.utils.book_append_sheet(wb, ws, "정산내역");
 
