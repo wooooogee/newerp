@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AutoAccountGeneratorModal } from './AutoAccountGeneratorModal';
+import { customConfirm } from './CustomDialog';
 
 const XLSX = (window as any).XLSX;
 
@@ -428,12 +429,12 @@ export function AccountManagementModal({
   };
 
   // 계정 전체 삭제 (해당 아이디의 모든 소속 행 삭제)
-  const handleDeleteGroupedAccount = (username: string) => {
+  const handleDeleteGroupedAccount = async (username: string) => {
     if (username === currentUser?.username) {
       alert('현재 로그인 중인 본인 계정은 삭제할 수 없습니다.');
       return;
     }
-    if (confirm(`정말 계정 [${username}]의 모든 소속 및 로그인 정보를 삭제하시겠습니까?`)) {
+    if (await customConfirm(`정말 계정 [${username}]의 모든 소속 및 로그인 정보를 삭제하시겠습니까?`, '계정 삭제')) {
       const updated = members.filter(m => m.username.toLowerCase() !== username.toLowerCase());
       setMembers(updated);
       setHasChanges(true);
@@ -444,10 +445,10 @@ export function AccountManagementModal({
   };
 
   // 특정 조직 권한 1개만 제거
-  const handleRemoveSingleOrg = (username: string, orgName: string, role: string) => {
+  const handleRemoveSingleOrg = async (username: string, orgName: string, role: string) => {
     const userRows = members.filter(m => m.username.toLowerCase() === username.toLowerCase());
     if (userRows.length <= 1) {
-      if (!confirm(`이 조직을 제거하면 계정 [${username}]의 소속이 0개가 됩니다. 계정을 완전히 삭제하시겠습니까?`)) {
+      if (!await customConfirm(`이 조직을 제거하면 계정 [${username}]의 소속이 0개가 됩니다.\n계정을 완전히 삭제하시겠습니까?`, '계정 삭제 확인')) {
         return;
       }
     }
@@ -552,7 +553,7 @@ export function AccountManagementModal({
   // 서버/시트에 최종 저장
   const handleSaveToSheet = async () => {
     if (members.length === 0) {
-      if (!confirm('현재 등록된 계정이 0개입니다. 그대로 저장하면 모든 계정이 삭제됩니다. 진행하시겠습니까?')) {
+      if (!await customConfirm('현재 등록된 계정이 0개입니다.\n그대로 저장하면 모든 계정이 삭제됩니다. 진행하시겠습니까?', '전체 계정 삭제 경고')) {
         return;
       }
     }
@@ -702,9 +703,9 @@ export function AccountManagementModal({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={() => {
+        onClick={async () => {
           if (hasChanges) {
-            if (confirm('저장되지 않은 변경 사항이 있습니다. 닫으시겠습니까?')) {
+            if (await customConfirm('저장되지 않은 변경 사항이 있습니다.\n정말 닫으시겠습니까?', '저장되지 않은 변경사항')) {
               onClose();
             }
           } else {
@@ -807,8 +808,8 @@ export function AccountManagementModal({
 
             {/* 닫기 버튼 */}
             <button
-              onClick={() => {
-                if (hasChanges && !confirm('저장되지 않은 변경 사항이 있습니다. 닫으시겠습니까?')) return;
+              onClick={async () => {
+                if (hasChanges && !await customConfirm('저장되지 않은 변경 사항이 있습니다.\n정말 닫으시겠습니까?', '저장되지 않은 변경사항')) return;
                 onClose();
               }}
               className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer shrink-0 ml-1"

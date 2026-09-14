@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Search, Filter, Plus, Edit3, Trash2, Download, RefreshCw, MessageSquare, CheckCircle2, Clock, AlertCircle, Calendar, User, Phone, Building, Check, Loader2, Send, CornerDownRight, UserCheck, CreditCard, Tag, ShieldAlert, FileText, Layers, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { customConfirm } from './CustomDialog';
 
 const XLSX = (window as any).XLSX;
 
@@ -469,7 +470,7 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
   // 코멘트 전용 모달에서 코멘트 삭제
   const handleDeleteQuickComment = async (commentId: string) => {
     if (!commentViewItem) return;
-    if (!window.confirm('해당 코멘트를 삭제하시겠습니까?')) return;
+    if (!await customConfirm('해당 코멘트를 삭제하시겠습니까?', '코멘트 삭제')) return;
     const updatedComments = (commentViewItem.comments || []).filter(c => c.id !== commentId);
     const updatedItem: VocItem = {
       ...commentViewItem,
@@ -534,7 +535,7 @@ export function VocManagementModal({ isOpen, onClose, hqs = [], erpData = [], is
 
   // VOC 삭제
   const handleDelete = async (id: string) => {
-    if (!window.confirm('해당 VOC 건을 삭제하시겠습니까?')) return;
+    if (!await customConfirm('해당 VOC 건을 삭제하시겠습니까?', 'VOC 삭제')) return;
     const updatedList = vocList.filter(item => item.id !== id);
     await saveVocData(updatedList);
   };

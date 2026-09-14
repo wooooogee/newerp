@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Search, FileText, RefreshCw, AlertCircle, Calendar, User, DollarSign, Tag, CheckCircle2, ArrowRight, CheckSquare, Square, Layers, List } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { customConfirm } from './CustomDialog';
 
 interface ERPDataItem {
   uniqueKey: string;
@@ -291,7 +292,7 @@ export function CommissionNotesModal({
 
   // 삭제
   const handleDelete = async (id: string) => {
-    if (!confirm('이 수수료 특이사항 항목을 삭제하시겠습니까?')) return;
+    if (!await customConfirm('이 수수료 특이사항 항목을 삭제하시겠습니까?', '특이사항 삭제')) return;
     setDeletingId(id);
     try {
       const res = await fetch('/api/sheets/commission-notes/delete', {

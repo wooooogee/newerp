@@ -6115,17 +6115,46 @@ const ERP_Dashboard = () => {
       <AnimatePresence>
         {notification && (
           <motion.div
-            initial={{ opacity: 0, y: -100 }}
-            animate={{ opacity: 1, y: 20 }}
-            exit={{ opacity: 0, y: -100 }}
-            className="absolute top-0 left-1/2 -translate-x-1/2 z-[100] pointer-events-none"
+            initial={{ opacity: 0, y: -80, scale: 0.95 }}
+            animate={{ opacity: 1, y: 24, scale: 1 }}
+            exit={{ opacity: 0, y: -80, scale: 0.95 }}
+            transition={{ type: 'spring', duration: 0.35, bounce: 0.2 }}
+            className="fixed top-0 left-1/2 -translate-x-1/2 z-[99999] pointer-events-none"
           >
-            <div className="bg-white border-l-4 border-emerald-500 shadow-2xl rounded-lg px-6 py-4 flex items-center gap-4 pointer-events-auto">
-              <div className="bg-emerald-100 p-2 rounded-full">
-                <CheckCircle size={20} className="text-emerald-600" />
+            <div className={`shadow-[0_20px_50px_rgba(0,0,0,0.15)] rounded-2xl px-5 py-3.5 flex items-center gap-3.5 pointer-events-auto border backdrop-blur-md bg-white/95 ${
+              notification.type === 'error'
+                ? 'border-rose-200'
+                : notification.type === 'warning'
+                  ? 'border-amber-200'
+                  : notification.type === 'info'
+                    ? 'border-blue-200'
+                    : 'border-emerald-200'
+            }`}>
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                notification.type === 'error'
+                  ? 'bg-rose-50 text-rose-600'
+                  : notification.type === 'warning'
+                    ? 'bg-amber-50 text-amber-600'
+                    : notification.type === 'info'
+                      ? 'bg-blue-50 text-blue-600'
+                      : 'bg-emerald-50 text-emerald-600'
+              }`}>
+                {notification.type === 'error' ? (
+                  <AlertCircle size={20} />
+                ) : notification.type === 'warning' ? (
+                  <AlertCircle size={20} />
+                ) : notification.type === 'info' ? (
+                  <HelpCircle size={20} />
+                ) : (
+                  <CheckCircle size={20} />
+                )}
               </div>
-              <p className="text-sm font-bold text-slate-800 pr-4">{notification.message}</p>
-              <button onClick={() => setNotification(null)} className="text-slate-400 hover:text-slate-600">
+              <p className="text-sm font-bold text-slate-800 pr-2 whitespace-nowrap select-none">{notification.message}</p>
+              <button 
+                onClick={() => setNotification(null)} 
+                className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer ml-1"
+                title="닫기"
+              >
                 <X size={16} />
               </button>
             </div>

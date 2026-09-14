@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Printer, Save, Plus, Minus, Loader2, Calendar, Building2, ChevronRight, Check, Trash2, AlertCircle, Edit2 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { customConfirm } from './CustomDialog';
 
 interface BranchNoteModalProps {
   isOpen: boolean;
@@ -169,9 +170,9 @@ export function BranchNoteModal({ isOpen, onClose, hqs }: BranchNoteModalProps) 
   };
 
   // 6-2. 그룹 수정 핸들러 (작성된 내용을 작성 폼으로 다시 로드)
-  const handleEditGroup = (group: NoteGroup) => {
+  const handleEditGroup = async (group: NoteGroup) => {
     if (selectedOrgs.length > 0 || currentNote.trim() || currentReport.trim()) {
-      const confirmOverwrite = window.confirm("현재 작성 중인 내용이 있습니다. 작성 내역의 항목을 불러와서 수정하시겠습니까?");
+      const confirmOverwrite = await customConfirm("현재 작성 중인 내용이 있습니다.\n작성 내역의 항목을 불러와서 수정하시겠습니까?", "내용 덮어쓰기 확인");
       if (!confirmOverwrite) return;
     }
     
