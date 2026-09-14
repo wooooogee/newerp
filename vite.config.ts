@@ -20,6 +20,15 @@ export default defineConfig(({mode}) => {
     },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
+      watch: {
+        ignored: [
+          '**/.settings_cache.json',
+          '**/.google_tokens.json',
+          '**/token.json',
+          '**/*.log',
+          '**/.system_generated/**'
+        ],
+      },
     },
   };
 });

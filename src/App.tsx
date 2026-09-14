@@ -634,6 +634,12 @@ const ERP_Dashboard = () => {
 
   // 앱 시동 시 모든 인증 상태 (ERP 로그인 + 구글 연동) 순차 확인
   useEffect(() => {
+    let isMounted = true;
+    // 4초 안전 타임아웃: 네트워크 지연 시에도 무한 대기 방지
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) setIsAuthChecking(false);
+    }, 4000);
+
     const initializeAuth = async () => {
       try {
         const hasSession = sessionStorage.getItem('erp_logged_in') === 'true';
@@ -642,31 +648,41 @@ const ERP_Dashboard = () => {
           // 1. ERP 로그인 상태 확인
           const userRes = await fetch('/api/auth/user');
           const userResData = await userRes.json();
-          if (userRes.ok && userResData.authenticated) {
-            setCurrentUser(userResData.user);
-          } else {
-            setCurrentUser(null);
-            sessionStorage.removeItem('erp_logged_in');
+          if (isMounted) {
+            if (userRes.ok && userResData.authenticated) {
+              setCurrentUser(userResData.user);
+            } else {
+              setCurrentUser(null);
+              sessionStorage.removeItem('erp_logged_in');
+            }
           }
         } else {
           // 브라우저 탭/창 종료 후 재접속한 경우 -> 자동 로그인 쿠키 무효화를 위해 로그아웃 호출
           await fetch('/api/auth/logout', { method: 'POST' });
-          setCurrentUser(null);
+          if (isMounted) setCurrentUser(null);
         }
 
         // 2. 구글 연동 상태 확인
         const googleRes = await fetch('/api/auth/status');
         const googleResData = await googleRes.json();
-        setIsAuthenticated(!!googleResData.authenticated);
+        if (isMounted) setIsAuthenticated(!!googleResData.authenticated);
       } catch (err) {
         console.error('Failed to initialize auth status:', err);
-        setCurrentUser(null);
-        setIsAuthenticated(false);
+        if (isMounted) {
+          setCurrentUser(null);
+          setIsAuthenticated(false);
+        }
       } finally {
-        setIsAuthChecking(false);
+        clearTimeout(safetyTimer);
+        if (isMounted) setIsAuthChecking(false);
       }
     };
     initializeAuth();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(safetyTimer);
+    };
   }, []);
 
   useEffect(() => {

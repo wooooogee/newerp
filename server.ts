@@ -3294,7 +3294,18 @@ async function start() {
   try {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        watch: {
+          ignored: [
+            '**/.settings_cache.json',
+            '**/.google_tokens.json',
+            '**/token.json',
+            '**/*.log',
+            '**/.system_generated/**'
+          ],
+        },
+      },
       appType: 'spa',
     });
 
