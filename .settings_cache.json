@@ -3285,6 +3285,13 @@
       "trackingNo": "",
       "deliveryState": "배송완료"
     },
+    "12331580": {
+      "orderDate": "2026-09-14",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
     "12332288": {
       "orderDate": "2026-09-03",
       "deliveryDate": "2026-09-04",
@@ -3350,10 +3357,10 @@
     },
     "12340738": {
       "orderDate": "2026-09-09",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-10",
       "courier": "CJ대한통운",
       "trackingNo": "600243626036",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료"
     },
     "12342023": {
       "orderDate": "2026-09-10",
@@ -3369,11 +3376,25 @@
       "trackingNo": "",
       "deliveryState": "발주완료"
     },
+    "12342076": {
+      "orderDate": "2026-09-11",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
     "12343277": {
       "orderDate": "2026-09-09",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "9월10~11일 예정",
+      "deliveryState": "발주완료"
+    },
+    "12343279": {
+      "orderDate": "2026-09-14",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
       "deliveryState": "발주완료"
     },
     "12343341": {
@@ -3385,6 +3406,69 @@
     },
     "12343597": {
       "orderDate": "2026-09-10",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12344814": {
+      "orderDate": "2026-09-11",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12344818": {
+      "orderDate": "2026-09-11",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12344946": {
+      "orderDate": "2026-09-11",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12344995": {
+      "orderDate": "2026-09-11",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12345624": {
+      "orderDate": "2026-09-11",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12345717": {
+      "orderDate": "2026-09-14",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12345804": {
+      "orderDate": "2026-09-14",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12345838": {
+      "orderDate": "2026-09-14",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12346412": {
+      "orderDate": "2026-09-14",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",

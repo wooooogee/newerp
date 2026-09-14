@@ -430,10 +430,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     
     const currentOrder = extractedOrders.find((o) => o.contractNo === contractNo);
     const curOrdDate = editedValues[contractNo]?.orderDate ?? savedOrderStore[contractNo]?.orderDate ?? currentOrder?.orderDate ?? '';
-    const curDelDate = editedValues[contractNo]?.deliveryDate ?? savedOrderStore[contractNo]?.deliveryDate ?? currentOrder?.deliveryDate ?? '';
 
+    // 발주완료 시 발주일자만 자동 설정 (배송일/설치일은 수작업으로 직접 입력)
     if (nextState === '발주완료' && !curOrdDate.trim()) handleInputChange(contractNo, 'orderDate', today);
-    if (nextState === '배송중' && !curDelDate.trim()) handleInputChange(contractNo, 'deliveryDate', today);
   };
 
   const handleBulkStateChange = (targetState: DeliveryState) => {
@@ -454,21 +453,14 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       return next;
     });
 
-    // 일괄 발주완료 / 배송중 시 날짜 자동 채움
+    // 일괄 발주완료 시 발주일자만 자동 채움 (배송일/설치일은 수작업으로 직접 입력)
     targets.forEach((t) => {
       const curOrdDate = editedValues[t.contractNo]?.orderDate ?? savedOrderStore[t.contractNo]?.orderDate ?? t.orderDate ?? '';
-      const curDelDate = editedValues[t.contractNo]?.deliveryDate ?? savedOrderStore[t.contractNo]?.deliveryDate ?? t.deliveryDate ?? '';
 
       if (targetState === '발주완료' && !curOrdDate.trim()) {
         handleInputChange(t.contractNo, 'orderDate', today);
-      } else if (targetState === '배송중' && !curDelDate.trim()) {
-        handleInputChange(t.contractNo, 'deliveryDate', today);
       }
     });
-
-    if (stateFilter !== 'all' && stateFilter !== targetState) {
-      setStateFilter('all');
-    }
 
     setNotification({
       message: `선택된 ${targets.length}건의 배송상태가 [${targetState}] (으)로 변경되었습니다. 상단 [저장하기] 버튼을 눌러 확정하세요.`,
@@ -535,32 +527,29 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   // 요청일자 필터 1차 적용 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
   const ordersFilteredByReqDate = useMemo(() => {
     return extractedOrders.filter((order) => {
-      const currentState = getRowDeliveryState(order);
       if (requestDateFilter === 'has_value') {
         if (!order.requestDate || !order.requestDate.trim()) return false;
       } else if (requestDateFilter === 'no_value') {
         if (order.requestDate && order.requestDate.trim()) return false;
-        if (currentState === '배송완료') return false;
+        if (order.deliveryState === '배송완료') return false;
       }
       return true;
     });
-  }, [extractedOrders, requestDateFilter, editedStates]);
+  }, [extractedOrders, requestDateFilter]);
 
   // 검색 및 요청일(O열 탭), 상품명 다중선택, 상태 필터링
   const filteredOrders = useMemo(() => {
     return extractedOrders.filter((order) => {
-      const currentState = getRowDeliveryState(order);
-
       // 요청일자 1클릭 탭 필터
       if (requestDateFilter === 'has_value') {
         if (!order.requestDate || !order.requestDate.trim()) return false;
       } else if (requestDateFilter === 'no_value') {
         if (order.requestDate && order.requestDate.trim()) return false;
-        if (currentState === '배송완료') return false;
+        if (order.deliveryState === '배송완료') return false;
       }
 
-      // 배송상태 탭 필터
-      if (stateFilter !== 'all' && currentState !== stateFilter) return false;
+      // 배송상태 탭 필터 (저장된 배송상태 기준: 배송상태를 변경하더라도 [저장하기] 누르기 전까지 목록에서 사라지지 않음)
+      if (stateFilter !== 'all' && order.deliveryState !== stateFilter) return false;
 
       // 렌탈상품 다중 선택 필터
       if (selectedProducts.size > 0 && !selectedProducts.has(order.rentalProdClean)) {
@@ -1035,19 +1024,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
           {/* Filter Bar (Row 1: 필터 영역) */}
           <div className="p-3.5 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2.5 flex-1">
-              {/* 검색어 */}
-              <div className="relative min-w-[200px] max-w-xs">
-                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="계약번호, 회원명, 핸드폰, 상품명, 송장번호..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-8.5 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 transition-all"
-                />
-              </div>
-
+            <div className="flex flex-wrap items-center gap-2.5">
               {/* O열 요청일자 1클릭 탭 필터 */}
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold whitespace-nowrap">
                 <button
@@ -1075,7 +1052,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     requestDateFilter === 'no_value' ? 'bg-slate-700 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  요청일자 없음 ({extractedOrders.filter((o) => !o.requestDate?.trim() && getRowDeliveryState(o) !== '배송완료').length})
+                  요청일자 없음 ({extractedOrders.filter((o) => !o.requestDate?.trim() && o.deliveryState !== '배송완료').length})
                 </button>
               </div>
 
@@ -1161,7 +1138,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === '발주대기' ? 'bg-amber-500 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  발주대기 ({ordersFilteredByReqDate.filter((o) => getRowDeliveryState(o) === '발주대기').length})
+                  발주대기 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '발주대기').length})
                 </button>
                 <button
                   type="button"
@@ -1170,7 +1147,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === '발주완료' ? 'bg-purple-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  발주완료 ({ordersFilteredByReqDate.filter((o) => getRowDeliveryState(o) === '발주완료').length})
+                  발주완료 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '발주완료').length})
                 </button>
                 <button
                   type="button"
@@ -1179,7 +1156,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === '배송중' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  배송중 ({ordersFilteredByReqDate.filter((o) => getRowDeliveryState(o) === '배송중').length})
+                  배송중 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '배송중').length})
                 </button>
                 <button
                   type="button"
@@ -1188,9 +1165,21 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === '배송완료' ? 'bg-emerald-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  배송완료 ({ordersFilteredByReqDate.filter((o) => getRowDeliveryState(o) === '배송완료').length})
+                  배송완료 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '배송완료').length})
                 </button>
               </div>
+            </div>
+
+            {/* 검색어 (제일 우측 공란에 위치) */}
+            <div className="relative min-w-[240px] max-w-sm flex-1 sm:flex-initial">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="계약번호, 회원명, 핸드폰, 상품명, 송장번호..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-8.5 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 transition-all"
+              />
             </div>
           </div>
 
@@ -1593,16 +1582,16 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 체크 선택: <strong className="text-blue-700 font-mono font-bold">{selectedKeys.size}</strong> / {filteredOrders.length}건
               </span>
               <span>
-                발주대기: <strong className="text-amber-600 font-mono font-bold">{extractedOrders.filter((o) => getRowDeliveryState(o) === '발주대기').length}</strong>건
+                발주대기: <strong className="text-amber-600 font-mono font-bold">{extractedOrders.filter((o) => o.deliveryState === '발주대기').length}</strong>건
               </span>
               <span>
-                발주완료: <strong className="text-purple-700 font-mono font-bold">{extractedOrders.filter((o) => getRowDeliveryState(o) === '발주완료').length}</strong>건
+                발주완료: <strong className="text-purple-700 font-mono font-bold">{extractedOrders.filter((o) => o.deliveryState === '발주완료').length}</strong>건
               </span>
               <span>
-                배송중: <strong className="text-blue-600 font-mono font-bold">{extractedOrders.filter((o) => getRowDeliveryState(o) === '배송중').length}</strong>건
+                배송중: <strong className="text-blue-600 font-mono font-bold">{extractedOrders.filter((o) => o.deliveryState === '배송중').length}</strong>건
               </span>
               <span>
-                배송완료: <strong className="text-emerald-600 font-mono font-bold">{extractedOrders.filter((o) => getRowDeliveryState(o) === '배송완료').length}</strong>건
+                배송완료: <strong className="text-emerald-600 font-mono font-bold">{extractedOrders.filter((o) => o.deliveryState === '배송완료').length}</strong>건
               </span>
             </div>
 
