@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, Component, ReactNode } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, Minus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare, Copy, Check, UserCheck, Sparkles } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, Minus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare, Copy, Check, UserCheck, Sparkles, FolderTree } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -24,6 +24,7 @@ import { CommissionNotesModal } from './CommissionNotesModal';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { VocManagementModal } from './VocManagementModal';
 import { AccountManagementModal } from './AccountManagementModal';
+import { OrganizationChartModal } from './OrganizationChartModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -575,6 +576,7 @@ const ERP_Dashboard = () => {
   const [isPresidentReportModalOpen, setIsPresidentReportModalOpen] = useState(false);
   const [isBranchNoteModalOpen, setIsBranchNoteModalOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [isOrgChartModalOpen, setIsOrgChartModalOpen] = useState(false);
   const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
@@ -6794,6 +6796,19 @@ const ERP_Dashboard = () => {
                           <UserCheck size={13} />
                           <span className="hidden sm:inline">계정 관리</span>
                         </button>
+                        <button
+                          onClick={() => {
+                            if (members.length === 0) {
+                              loadMembersFromCloud();
+                            }
+                            setIsOrgChartModalOpen(true);
+                          }}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
+                          title="사업단/본부/지사/사원 계층 조직도 및 계정 정보 확인"
+                        >
+                          <FolderTree size={13} />
+                          <span className="hidden sm:inline">조직도</span>
+                        </button>
                       </div>
                     )}
                     <button
@@ -12032,6 +12047,15 @@ const ERP_Dashboard = () => {
               availableBranches={allBranches}
               currentUser={currentUser}
               hqSettings={hqSettings}
+            />
+          )}
+          {isOrgChartModalOpen && (
+            <OrganizationChartModal
+              isOpen={isOrgChartModalOpen}
+              onClose={() => setIsOrgChartModalOpen(false)}
+              divisionSettings={divisionSettings}
+              members={members}
+              availableHqs={uniqueHqs}
             />
           )}
         </AnimatePresence>
