@@ -577,6 +577,7 @@ const ERP_Dashboard = () => {
   const [isBranchNoteModalOpen, setIsBranchNoteModalOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [isOrgChartModalOpen, setIsOrgChartModalOpen] = useState(false);
+  const [cachedEmpRows, setCachedEmpRows] = useState<any[][]>([]);
   const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
@@ -1980,6 +1981,7 @@ const ERP_Dashboard = () => {
           const empJson = await empRes.json();
           if (Array.isArray(empJson)) {
             empRows = empJson;
+            setCachedEmpRows(empJson);
           }
         } catch (e) {
           console.warn('사원리스트 파싱 실패:', e);
@@ -12056,6 +12058,7 @@ const ERP_Dashboard = () => {
               divisionSettings={divisionSettings}
               members={members}
               availableHqs={uniqueHqs}
+              initialEmpRows={cachedEmpRows}
             />
           )}
         </AnimatePresence>

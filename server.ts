@@ -2044,6 +2044,10 @@ app.get('/api/sheets/data', async (req, res) => {
   }
 });
 
+// 구글 시트 데이터 인메모리 캐시 (반복 호출 시 로딩 지연 방지)
+const sheetDataCache = new Map<string, { timestamp: number; data: any[] }>();
+const SHEET_DATA_CACHE_TTL = 3 * 60 * 1000; // 3분 캐시
+
 app.get('/api/sheets/sheetData', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
@@ -2059,6 +2063,13 @@ app.get('/api/sheets/sheetData', async (req, res) => {
   const sheetName = req.query.sheetName as string;
   if (!sheetName) return res.status(400).json({ error: 'sheetName is required' });
 
+  const forceFresh = req.query.fresh === 'true' || req.query.forceFresh === 'true';
+  const cached = sheetDataCache.get(sheetName);
+  const now = Date.now();
+  if (!forceFresh && cached && (now - cached.timestamp < SHEET_DATA_CACHE_TTL)) {
+    return res.json(cached.data);
+  }
+
   try {
     const sheets = google.sheets({ version: 'v4', auth: client });
     
@@ -2069,9 +2080,11 @@ app.get('/api/sheets/sheetData', async (req, res) => {
 
     const rows = response.data.values;
     if (!rows || rows.length === 0) {
+      sheetDataCache.set(sheetName, { timestamp: now, data: [] });
       return res.json([]);
     }
 
+    sheetDataCache.set(sheetName, { timestamp: now, data: rows });
     res.json(rows);
   } catch (error: any) {
     if (error.code === 400 || (error.message && error.message.includes('Unable to parse range'))) {

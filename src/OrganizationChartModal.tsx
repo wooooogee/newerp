@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   X, Search, Download, Image as ImageIcon, Building2, Users, ChevronDown, ChevronRight, 
   KeyRound, Copy, Check, Eye, EyeOff, Sparkles, FolderTree, Phone, ShieldCheck, RefreshCw, Layers
@@ -40,7 +40,36 @@ interface OrganizationChartModalProps {
   divisionSettings: DivisionInfo[];
   members: AccountInfo[];
   availableHqs?: string[];
+  initialEmpRows?: any[][];
 }
+
+const LOCAL_STORAGE_KEY = 'erp_org_chart_emplist_v2';
+
+// 헬퍼: 구글 시트 원시 행 데이터를 EmpInfo 객체 배열로 변환
+const parseRawRows = (rows: any[]): EmpInfo[] => {
+  if (!Array.isArray(rows) || rows.length <= 1) return [];
+  return rows.slice(1).map((r: any[]) => {
+    let cleanPhone = String(r[11] || '').trim();
+    const digits = cleanPhone.replace(/[^0-9]/g, '');
+    if (digits.length === 10 && digits.startsWith('10')) {
+      cleanPhone = '0' + digits;
+    } else if (digits.length >= 10 && digits.startsWith('01')) {
+      cleanPhone = digits;
+    }
+
+    return {
+      no: String(r[0] || '').trim(),
+      code: String(r[1] || '').trim(),
+      hq: String(r[2] || '').trim(),
+      branch: String(r[3] || '').trim(),
+      branchOffice: String(r[4] || '').trim(),
+      name: String(r[5] || '').trim(),
+      position: String(r[7] || '').trim(),
+      status: String(r[8] || '').trim(),
+      phone: cleanPhone,
+    };
+  }).filter(r => r.hq && r.hq !== '-');
+};
 
 export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
   isOpen,
@@ -48,12 +77,28 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
   divisionSettings,
   members,
   availableHqs = [],
+  initialEmpRows,
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
 
-  // 사원리스트 데이터
-  const [empList, setEmpList] = useState<EmpInfo[]>([]);
+  // 사원리스트 데이터 (초기값: initialEmpRows -> localStorage 캐시 -> 빈 배열 즉시 초기화)
+  const [empList, setEmpList] = useState<EmpInfo[]>(() => {
+    if (initialEmpRows && initialEmpRows.length > 1) {
+      const parsed = parseRawRows(initialEmpRows);
+      if (parsed.length > 0) return parsed;
+    }
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // 필터 및 검색 상태
@@ -61,9 +106,12 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
   const [selectedDivFilter, setSelectedDivFilter] = useState<string>('ALL');
   const [selectedHqFilter, setSelectedHqFilter] = useState<string>('ALL');
 
-  // 아코디언(접기/펼치기) 상태
+  // 접기/펼치기 상태:
+  // - 본부(Hqs)는 기본 모두 펼침
+  // - 지사(Branches)는 성능 최적화를 위해 기본 접힘 처리 (클릭 시 펼침, 검색 시 자동 펼침)
   const [collapsedHqs, setCollapsedHqs] = useState<Set<string>>(new Set());
-  const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(new Set());
+  const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set());
+  const [isAllBranchesExpanded, setIsAllBranchesExpanded] = useState(false);
 
   // 이미지 내보내기 진행 상태
   const [isExportingImage, setIsExportingImage] = useState(false);
@@ -79,52 +127,61 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
 
-  // 1. 사원리스트 시트 데이터 불러오기
-  const fetchEmpList = async () => {
-    setIsLoading(true);
+  // 1. 사원리스트 데이터 동기화 함수
+  const fetchEmpList = useCallback(async (force = false) => {
+    if (empList.length === 0) {
+      setIsLoading(true);
+    } else {
+      setIsSyncing(true);
+    }
     setLoadError(null);
+
     try {
-      const res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('사원리스트')}&t=${Date.now()}`);
-      if (!res.ok) throw new Error('사원리스트 시트 데이터를 불러오지 못했습니다.');
+      const cacheParam = force ? '&forceFresh=true' : '';
+      const res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('사원리스트')}${cacheParam}&t=${Date.now()}`);
+      if (!res.ok) throw new Error('사원리스트 데이터를 불러오지 못했습니다.');
       const data = await res.json();
       const rows = Array.isArray(data) ? data : (data.rows || []);
+      const parsed = parseRawRows(rows);
 
-      const parsed: EmpInfo[] = rows.slice(1).map((r: any[]) => {
-        let cleanPhone = String(r[11] || '').trim();
-        const digits = cleanPhone.replace(/[^0-9]/g, '');
-        if (digits.length === 10 && digits.startsWith('10')) {
-          cleanPhone = '0' + digits;
-        } else if (digits.length >= 10 && digits.startsWith('01')) {
-          cleanPhone = digits;
-        }
-
-        return {
-          no: String(r[0] || '').trim(),
-          code: String(r[1] || '').trim(),
-          hq: String(r[2] || '').trim(),
-          branch: String(r[3] || '').trim(),
-          branchOffice: String(r[4] || '').trim(),
-          name: String(r[5] || '').trim(),
-          position: String(r[7] || '').trim(),
-          status: String(r[8] || '').trim(),
-          phone: cleanPhone,
-        };
-      }).filter(r => r.hq && r.hq !== '-');
-
-      setEmpList(parsed);
+      if (parsed.length > 0) {
+        setEmpList(parsed);
+        try {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(parsed));
+        } catch (e) {}
+      }
     } catch (err: any) {
       console.error('[OrganizationChartModal] 사원리스트 로딩 실패:', err);
-      setLoadError(err.message || '데이터 로딩 실패');
+      if (empList.length === 0) {
+        setLoadError(err.message || '데이터 로딩 실패');
+      }
     } finally {
       setIsLoading(false);
+      setIsSyncing(false);
     }
-  };
+  }, [empList.length]);
 
+  // initialEmpRows가 전달되었을 때 즉시 반영
+  useEffect(() => {
+    if (initialEmpRows && initialEmpRows.length > 1) {
+      const parsed = parseRawRows(initialEmpRows);
+      if (parsed.length > 0) {
+        setEmpList(parsed);
+        try {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(parsed));
+        } catch (e) {}
+      }
+    }
+  }, [initialEmpRows]);
+
+  // 모달 오픈 시 데이터 로드 (캐시 없을 시 즉시 로드)
   useEffect(() => {
     if (isOpen) {
-      fetchEmpList();
+      if (empList.length === 0) {
+        fetchEmpList(false);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, empList.length, fetchEmpList]);
 
   // 전화번호 포맷팅 헬퍼
   const formatPhone = (phoneStr: string) => {
@@ -138,46 +195,125 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
     return phoneStr;
   };
 
-  // 2. 계정 매칭 헬퍼 함수
-  const findAccountsForTarget = (type: 'hq' | 'branch' | 'emp', targetName: string, extra?: { code?: string; phone?: string; hq?: string; branch?: string }) => {
-    if (!members || members.length === 0) return [];
+  // 2. 계정 룩업 인덱스 (O(1) 초고속 검색: 수십만 회의 배열 순회 제거)
+  const memberLookup = useMemo(() => {
+    const byHq = new Map<string, AccountInfo[]>();
+    const byBranch = new Map<string, AccountInfo[]>();
+    const byCode = new Map<string, AccountInfo[]>();
+    const byPhone = new Map<string, AccountInfo[]>();
+    const byName = new Map<string, AccountInfo[]>();
 
-    const normTarget = targetName.toLowerCase().replace(/[\s()]/g, '');
+    (members || []).forEach(m => {
+      const role = (m.role || '').trim();
+      const org = (m.orgName || '').trim();
+      const user = (m.username || '').trim().toLowerCase();
+
+      // 본부 인덱싱
+      const normHq = org.toLowerCase().replace(/[\s()본부]/g, '');
+      const userHq = user.replace(/[\s()본부]/g, '');
+      if (normHq) {
+        if (!byHq.has(normHq)) byHq.set(normHq, []);
+        byHq.get(normHq)!.push(m);
+      }
+      if (userHq && userHq !== normHq) {
+        if (!byHq.has(userHq)) byHq.set(userHq, []);
+        byHq.get(userHq)!.push(m);
+      }
+
+      // 지사 인덱싱
+      const normBranch = org.toLowerCase().replace(/[\s()지사지점]/g, '');
+      const userBranch = user.replace(/[\s()지사지점]/g, '');
+      if (normBranch) {
+        if (!byBranch.has(normBranch)) byBranch.set(normBranch, []);
+        byBranch.get(normBranch)!.push(m);
+      }
+      if (userBranch && userBranch !== normBranch) {
+        if (!byBranch.has(userBranch)) byBranch.set(userBranch, []);
+        byBranch.get(userBranch)!.push(m);
+      }
+
+      // 사원코드 및 아이디 인덱싱
+      if (user) {
+        if (!byCode.has(user)) byCode.set(user, []);
+        byCode.get(user)!.push(m);
+
+        if (user.startsWith('a')) {
+          const withoutA = user.slice(1);
+          if (!byCode.has(withoutA)) byCode.set(withoutA, []);
+          byCode.get(withoutA)!.push(m);
+        }
+      }
+
+      // 휴대폰번호 인덱싱
+      const phoneDigits = user.replace(/[^0-9]/g, '');
+      if (phoneDigits.length >= 8) {
+        if (!byPhone.has(phoneDigits)) byPhone.set(phoneDigits, []);
+        byPhone.get(phoneDigits)!.push(m);
+        const noZero = phoneDigits.startsWith('0') ? phoneDigits.slice(1) : phoneDigits;
+        if (!byPhone.has(noZero)) byPhone.set(noZero, []);
+        byPhone.get(noZero)!.push(m);
+      }
+
+      // 조직/사원명 인덱싱
+      const normName = org.toLowerCase().replace(/[\s()]/g, '');
+      if (normName) {
+        if (!byName.has(normName)) byName.set(normName, []);
+        byName.get(normName)!.push(m);
+      }
+    });
+
+    return { byHq, byBranch, byCode, byPhone, byName };
+  }, [members]);
+
+  // 고속 O(1) 계정 매칭 함수
+  const findAccountsForTarget = useCallback((
+    type: 'hq' | 'branch' | 'emp', 
+    targetName: string, 
+    extra?: { code?: string; phone?: string; hq?: string; branch?: string }
+  ): AccountInfo[] => {
+    if (!members || members.length === 0) return [];
+    const res: AccountInfo[] = [];
+    const seen = new Set<string>();
+
+    const addAccount = (accs?: AccountInfo[]) => {
+      if (!accs) return;
+      for (const a of accs) {
+        const key = `${a.username}_${a.orgName}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          res.push(a);
+        }
+      }
+    };
 
     if (type === 'hq') {
-      return members.filter(m => {
-        const mOrg = (m.orgName || '').toLowerCase().replace(/[\s()본부]/g, '');
-        const mUser = (m.username || '').toLowerCase().replace(/[\s()본부]/g, '');
-        return mOrg === normTarget || mUser === normTarget || (m.role?.includes('본부') && mOrg.includes(normTarget));
-      });
+      const norm = targetName.toLowerCase().replace(/[\s()본부]/g, '');
+      addAccount(memberLookup.byHq.get(norm));
+      return res;
     }
 
     if (type === 'branch') {
-      return members.filter(m => {
-        const mOrg = (m.orgName || '').toLowerCase().replace(/[\s()지사지점]/g, '');
-        const mUser = (m.username || '').toLowerCase().replace(/[\s()지사지점]/g, '');
-        return mOrg === normTarget || mUser === normTarget || (m.role?.includes('지사') && mOrg.includes(normTarget));
-      });
+      const norm = targetName.toLowerCase().replace(/[\s()지사지점]/g, '');
+      addAccount(memberLookup.byBranch.get(norm));
+      return res;
     }
 
-    // type === 'emp'
-    const empCode = (extra?.code || '').toLowerCase().trim();
-    const cleanPhone = (extra?.phone || '').replace(/[^0-9]/g, '');
-    const phoneNoZero = cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone;
+    // 사원 계정 매칭
+    if (extra?.code) {
+      const c = extra.code.toLowerCase().trim();
+      addAccount(memberLookup.byCode.get(c));
+    }
+    if (extra?.phone) {
+      const p = extra.phone.replace(/[^0-9]/g, '');
+      addAccount(memberLookup.byPhone.get(p));
+      const noZero = p.startsWith('0') ? p.slice(1) : p;
+      addAccount(memberLookup.byPhone.get(noZero));
+    }
+    const normEmp = targetName.toLowerCase().replace(/[\s()]/g, '');
+    addAccount(memberLookup.byName.get(normEmp));
 
-    return members.filter(m => {
-      const mUser = (m.username || '').toLowerCase().trim();
-      const mOrg = (m.orgName || '').toLowerCase().trim();
-
-      // 1) 사원코드 일치
-      if (empCode && (mUser === empCode || mUser === 'a' + empCode)) return true;
-      // 2) 휴대폰번호 일치
-      if (cleanPhone && (mUser === cleanPhone || mUser === 'a' + cleanPhone || mUser === 'a010' + cleanPhone.slice(3) || mUser === phoneNoZero || mUser === 'a' + phoneNoZero)) return true;
-      // 3) 사원명 일치
-      if (mOrg === normTarget || mUser === normTarget) return true;
-      return false;
-    });
-  };
+    return res;
+  }, [members, memberLookup]);
 
   // 3. 계층 조직도 데이터 트리 빌드
   const orgTree = useMemo(() => {
@@ -371,6 +507,13 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
     return { divCount, hqCount, branchCount, empCount };
   }, [filteredTree]);
 
+  // 지사 펼침 여부 확인 (검색 중이거나 전체 펼치기 모드이거나 개별 펼침된 경우)
+  const isBranchOpen = useCallback((branchKey: string) => {
+    if (searchTerm.trim().length > 0) return true; // 검색 중일 땐 결과 자동 펼침
+    if (isAllBranchesExpanded) return true;
+    return expandedBranches.has(branchKey);
+  }, [searchTerm, isAllBranchesExpanded, expandedBranches]);
+
   // 접기/펼치기 토글
   const toggleHqCollapse = (hqName: string) => {
     setCollapsedHqs(prev => {
@@ -381,8 +524,19 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
     });
   };
 
-  const toggleBranchCollapse = (branchKey: string) => {
-    setCollapsedBranches(prev => {
+  const toggleBranch = (branchKey: string) => {
+    if (isAllBranchesExpanded) {
+      setIsAllBranchesExpanded(false);
+      const allKeys = new Set<string>();
+      orgTree.forEach(d => d.hqs.forEach(h => h.branches.forEach(b => {
+        const k = `${h.hqName}_${b.branchName}`;
+        if (k !== branchKey) allKeys.add(k);
+      })));
+      setExpandedBranches(allKeys);
+      return;
+    }
+
+    setExpandedBranches(prev => {
       const next = new Set(prev);
       if (next.has(branchKey)) next.delete(branchKey);
       else next.add(branchKey);
@@ -392,20 +546,15 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
 
   const expandAll = () => {
     setCollapsedHqs(new Set());
-    setCollapsedBranches(new Set());
+    setIsAllBranchesExpanded(true);
   };
 
   const collapseAll = () => {
     const allHqSet = new Set<string>();
-    const allBrSet = new Set<string>();
-    orgTree.forEach(d => {
-      d.hqs.forEach(h => {
-        allHqSet.add(h.hqName);
-        h.branches.forEach(b => allBrSet.add(`${h.hqName}_${b.branchName}`));
-      });
-    });
+    orgTree.forEach(d => d.hqs.forEach(h => allHqSet.add(h.hqName)));
     setCollapsedHqs(allHqSet);
-    setCollapsedBranches(allBrSet);
+    setIsAllBranchesExpanded(false);
+    setExpandedBranches(new Set());
   };
 
   // 클립보드 복사 헬퍼
@@ -554,6 +703,11 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
                 <span className="text-xs font-bold px-2.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full">
                   사업단 · 본부 · 지사 · 사원
                 </span>
+                {isSyncing && (
+                  <span className="text-[11px] font-bold px-2 py-0.5 bg-blue-50 text-blue-600 rounded-md border border-blue-200 flex items-center gap-1 animate-pulse">
+                    <RefreshCw size={10} className="animate-spin" /> 동기화 중...
+                  </span>
+                )}
                 <span className="text-xs font-medium text-slate-400">
                   (클릭 시 계정 및 비밀번호 확인)
                 </span>
@@ -566,6 +720,15 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
 
           {/* 액션 버튼 툴바 */}
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => fetchEmpList(true)}
+              disabled={isLoading || isSyncing}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs flex items-center gap-1.5 disabled:opacity-50"
+              title="구글 시트의 최신 사원리스트 데이터로 새로고침합니다."
+            >
+              <RefreshCw size={13} className={isSyncing ? "animate-spin text-indigo-600" : ""} />
+              <span>새로고침</span>
+            </button>
             <button
               onClick={expandAll}
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
@@ -682,20 +845,20 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
 
         {/* 본문 조직도 캔버스 영역 */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50">
-          {isLoading && (
+          {isLoading && empList.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3">
               <RefreshCw size={32} className="animate-spin text-indigo-500" />
               <p className="text-sm font-bold">사원리스트 및 조직 데이터를 불러오는 중입니다...</p>
             </div>
           )}
 
-          {loadError && !isLoading && (
+          {loadError && empList.length === 0 && (
             <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-xl text-center text-xs font-bold">
               {loadError}
             </div>
           )}
 
-          {!isLoading && !loadError && (
+          {empList.length > 0 && (
             <div ref={chartRef} className="space-y-8 p-4 bg-slate-50 rounded-2xl">
               {filteredTree.map(division => (
                 <div 
@@ -788,7 +951,7 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
                             <div className="p-4 space-y-4 flex-1">
                               {hq.branches.map(branch => {
                                 const branchKey = `${hq.hqName}_${branch.branchName}`;
-                                const isBranchCollapsed = collapsedBranches.has(branchKey);
+                                const isBranchOpened = isBranchOpen(branchKey);
                                 const branchAccounts = findAccountsForTarget('branch', branch.branchName, { hq: hq.hqName });
 
                                 return (
@@ -798,13 +961,16 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
                                   >
                                     {/* 3단계: 지사 헤더 */}
                                     <div className="px-3.5 py-2.5 bg-slate-100 border-b border-slate-200/80 flex items-center justify-between gap-2">
-                                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                                      <div 
+                                        onClick={() => toggleBranch(branchKey)}
+                                        className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
+                                      >
                                         <button
-                                          onClick={() => toggleBranchCollapse(branchKey)}
+                                          type="button"
                                           className="p-0.5 hover:bg-slate-200 rounded transition-colors text-slate-500 cursor-pointer shrink-0"
-                                          title={isBranchCollapsed ? '펼치기' : '접기'}
+                                          title={isBranchOpened ? '사원 목록 접기' : '사원 목록 펼치기'}
                                         >
-                                          {isBranchCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                                          {isBranchOpened ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                         </button>
 
                                         <span className="font-bold text-xs text-slate-800 truncate">
@@ -837,7 +1003,7 @@ export const OrganizationChartModal: React.FC<OrganizationChartModalProps> = ({
                                     </div>
 
                                     {/* 4단계: 사원 카드 그리드 */}
-                                    {!isBranchCollapsed && (
+                                    {isBranchOpened && (
                                       <div className="p-3">
                                         {branch.emps.length === 0 ? (
                                           <p className="text-[11px] text-slate-400 text-center py-2">소속 사원이 없습니다.</p>
