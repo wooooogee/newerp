@@ -500,6 +500,86 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     });
   }, [scopeDeliveryData, hqFilter]);
 
+  // 고유 계약건수(rentalNo 중복제거)와 전체 구좌수(row 개수) 계산 헬퍼
+  const calcCounts = (items: any[]) => {
+    const uniqueKeys = new Set<string>();
+    let contracts = 0;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const key = item.rentalNo ? String(item.rentalNo).trim() : (item.uniqueKey || `__row_${i}`);
+      if (!uniqueKeys.has(key)) {
+        uniqueKeys.add(key);
+        contracts += 1;
+      }
+    }
+    const accounts = items.length;
+    return {
+      contracts,
+      accounts,
+      text: `${contracts}건(${accounts}구좌)`
+    };
+  };
+
+  // 중복 제거 전(전체 구좌) 기준 scope 필터링
+  const rawScopeContractData = useMemo(() => {
+    if (isBranchMobile && branchViewScope === 'self') {
+      return contractMonthFilteredData.filter(item => isMyContract(item));
+    }
+    return contractMonthFilteredData;
+  }, [contractMonthFilteredData, isBranchMobile, branchViewScope, currentUser]);
+
+  const rawScopeDeliveryData = useMemo(() => {
+    if (isBranchMobile && branchViewScope === 'self') {
+      return deliveryCompletedMonthData.filter(item => isMyContract(item));
+    }
+    return deliveryCompletedMonthData;
+  }, [deliveryCompletedMonthData, isBranchMobile, branchViewScope, currentUser]);
+
+  // 중복 제거 전(전체 구좌) 기준 hqFilter 적용 데이터
+  const rawHqFilteredContractData = useMemo(() => {
+    if (hqFilter === '전체') return rawScopeContractData;
+    const filterNorm = normOrg(hqFilter);
+    return rawScopeContractData.filter(item => {
+      const itemHqNorm = normOrg(item.hq);
+      return itemHqNorm === filterNorm || (filterNorm !== '' && itemHqNorm.includes(filterNorm)) || (itemHqNorm !== '' && filterNorm.includes(itemHqNorm));
+    });
+  }, [rawScopeContractData, hqFilter]);
+
+  const rawHqFilteredDeliveryData = useMemo(() => {
+    if (hqFilter === '전체') return rawScopeDeliveryData;
+    const filterNorm = normOrg(hqFilter);
+    return rawScopeDeliveryData.filter(item => {
+      const itemHqNorm = normOrg(item.hq);
+      return itemHqNorm === filterNorm || (filterNorm !== '' && itemHqNorm.includes(filterNorm)) || (itemHqNorm !== '' && filterNorm.includes(itemHqNorm));
+    });
+  }, [rawScopeDeliveryData, hqFilter]);
+
+  // 건수(구좌수) 종합 요약 통계
+  const summaryCounts = useMemo(() => {
+    const activeContract = rawHqFilteredContractData.filter(item => (item.status || '').trim() === '가입');
+    const activeDelivery = rawHqFilteredDeliveryData.filter(item => (item.status || '').trim() === '가입');
+    const waitingContract = activeContract.filter(item => (item.deliveryStatus || '').trim() === '배송대기');
+    const contractCompleted = activeContract.filter(item => (item.deliveryStatus || '').trim() === '배송완료');
+    const noDeliveryContract = activeContract.filter(item => {
+      const s = (item.deliveryStatus || '').trim();
+      return s !== '배송대기' && s !== '배송완료';
+    });
+    const terminatedContract = rawHqFilteredContractData.filter(item => (item.status || '').trim().includes('해약'));
+    const cancelledContract = rawHqFilteredContractData.filter(item => (item.status || '').trim().includes('취소'));
+
+    return {
+      all: calcCounts(rawHqFilteredContractData),
+      total: calcCounts(activeContract),
+      waiting: calcCounts(waitingContract),
+      completed: calcCounts(activeDelivery), // N열 배송일자 기준 실제 배송완료
+      contractCompleted: calcCounts(contractCompleted),
+      noDelivery: calcCounts(noDeliveryContract),
+      signed: calcCounts(activeContract),
+      terminated: calcCounts(terminatedContract),
+      cancelled: calcCounts(cancelledContract),
+    };
+  }, [rawHqFilteredContractData, rawHqFilteredDeliveryData]);
+
   // 4. 요약 통계 계산 (계약일자 기준 계약/가입/해약/취소/배송대기 + N열 배송일자 기준 해당월 배송완료)
   const summary = useMemo(() => {
     const activeContractData = hqFilteredContractData.filter(item => (item.status || '').trim() === '가입');
@@ -585,6 +665,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
     });
   }, [hqFilteredContractData, hqFilteredDeliveryData, searchTerm, statusFilter, deliveryFilter, branchFilter, empFilter, isUnpaidRental, isUnpaidMutualAid]);
 
+  // 검색 결과 건수(구좌수)
+  const filteredDataCounts = useMemo(() => {
+    return calcCounts(filteredData);
+  }, [filteredData]);
+
   // 1페이지당 10개 아이템 기준 전체 페이지 계산
   const totalPages = useMemo(() => {
     return Math.ceil(filteredData.length / 10) || 1;
@@ -632,75 +717,102 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
   // 6-1. 권한별 조직 실적 집계 (관리자: 본부별, 본부: 지사별, 지사: 사원별)
   const orgReportData = useMemo(() => {
-    const map = new Map<string, { name: string; sales: number; deliveryCompleted: number }>();
+    const map = new Map<string, {
+      name: string;
+      salesItems: any[];
+      deliveryItems: any[];
+    }>();
 
-    hqFilteredContractData.forEach(item => {
+    rawHqFilteredContractData.forEach(item => {
       const name = reportCategory.getKey(item);
       if (!map.has(name)) {
-        map.set(name, { name, sales: 0, deliveryCompleted: 0 });
+        map.set(name, { name, salesItems: [], deliveryItems: [] });
       }
-      const entry = map.get(name)!;
       if ((item.status || '').trim() === '가입') {
-        entry.sales += 1;
+        map.get(name)!.salesItems.push(item);
       }
     });
 
-    hqFilteredDeliveryData.forEach(item => {
+    rawHqFilteredDeliveryData.forEach(item => {
       const name = reportCategory.getKey(item);
       if (!map.has(name)) {
-        map.set(name, { name, sales: 0, deliveryCompleted: 0 });
+        map.set(name, { name, salesItems: [], deliveryItems: [] });
       }
-      const entry = map.get(name)!;
       if ((item.status || '').trim() === '가입') {
-        entry.deliveryCompleted += 1;
+        map.get(name)!.deliveryItems.push(item);
       }
     });
 
-    let list = Array.from(map.values());
+    let list = Array.from(map.values()).map(entry => {
+      const salesCounts = calcCounts(entry.salesItems);
+      const deliveryCounts = calcCounts(entry.deliveryItems);
+      return {
+        name: entry.name,
+        sales: salesCounts.accounts,
+        salesContracts: salesCounts.contracts,
+        salesAccounts: salesCounts.accounts,
+        deliveryCompleted: deliveryCounts.accounts,
+        deliveryContracts: deliveryCounts.contracts,
+        deliveryAccounts: deliveryCounts.accounts,
+      };
+    });
+
     if (hideZeroHq) {
-      list = list.filter(item => item.sales > 0 || item.deliveryCompleted > 0);
+      list = list.filter(item => item.salesAccounts > 0 || item.deliveryAccounts > 0);
     }
-    return list.sort((a, b) => b.sales - a.sales);
-  }, [hqFilteredContractData, hqFilteredDeliveryData, hideZeroHq, reportCategory]);
+    return list.sort((a, b) => b.salesAccounts - a.salesAccounts);
+  }, [rawHqFilteredContractData, rawHqFilteredDeliveryData, hideZeroHq, reportCategory]);
 
   // 6-2. 상품별 집계 (sales: 계약월 기준, deliveryCompleted: N열 배송일자 기준)
   const prodReportData = useMemo(() => {
-    const map = new Map<string, { prodName: string; sales: number; deliveryCompleted: number }>();
+    const map = new Map<string, {
+      prodName: string;
+      salesItems: any[];
+      deliveryItems: any[];
+    }>();
 
-    hqFilteredContractData.forEach(item => {
+    rawHqFilteredContractData.forEach(item => {
       const prodName = item.prodName || '미지정상품';
       if (!map.has(prodName)) {
-        map.set(prodName, { prodName, sales: 0, deliveryCompleted: 0 });
+        map.set(prodName, { prodName, salesItems: [], deliveryItems: [] });
       }
-      const entry = map.get(prodName)!;
       if ((item.status || '').trim() === '가입') {
-        entry.sales += 1;
+        map.get(prodName)!.salesItems.push(item);
       }
     });
 
-    hqFilteredDeliveryData.forEach(item => {
+    rawHqFilteredDeliveryData.forEach(item => {
       const prodName = item.prodName || '미지정상품';
       if (!map.has(prodName)) {
-        map.set(prodName, { prodName, sales: 0, deliveryCompleted: 0 });
+        map.set(prodName, { prodName, salesItems: [], deliveryItems: [] });
       }
-      const entry = map.get(prodName)!;
       if ((item.status || '').trim() === '가입') {
-        entry.deliveryCompleted += 1;
+        map.get(prodName)!.deliveryItems.push(item);
       }
     });
 
-    return Array.from(map.values()).sort((a, b) => b.sales - a.sales);
-  }, [hqFilteredContractData, hqFilteredDeliveryData]);
+    return Array.from(map.values()).map(entry => {
+      const salesCounts = calcCounts(entry.salesItems);
+      const deliveryCounts = calcCounts(entry.deliveryItems);
+      return {
+        prodName: entry.prodName,
+        sales: salesCounts.accounts,
+        salesContracts: salesCounts.contracts,
+        salesAccounts: salesCounts.accounts,
+        deliveryCompleted: deliveryCounts.accounts,
+        deliveryContracts: deliveryCounts.contracts,
+        deliveryAccounts: deliveryCounts.accounts,
+      };
+    }).sort((a, b) => b.salesAccounts - a.salesAccounts);
+  }, [rawHqFilteredContractData, rawHqFilteredDeliveryData]);
 
   // 6-3. 계약월별 코호트 배송완료 집계 (계약월 기준 총 계약건 중 배송완료 건수 및 상세목록)
   const contractMonthDeliveryReport = useMemo(() => {
-    const validContracts = scopeContractData.filter(item => (item.status || '').trim() === '가입' && item.contractDate);
+    const validContracts = rawHqFilteredContractData.filter(item => (item.status || '').trim() === '가입' && item.contractDate);
 
     const monthMap = new Map<string, {
       month: string;
-      total: number;
-      completed: number;
-      waiting: number;
+      allItems: any[];
       completedItems: any[];
       waitingItems: any[];
     }>();
@@ -713,34 +825,50 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       if (!monthMap.has(month)) {
         monthMap.set(month, {
           month,
-          total: 0,
-          completed: 0,
-          waiting: 0,
+          allItems: [],
           completedItems: [],
           waitingItems: [],
         });
       }
 
       const entry = monthMap.get(month)!;
-      entry.total += 1;
+      entry.allItems.push(item);
 
       const isCompleted = item.deliveryStatus === '배송완료' || (item.deliveryStatus && item.deliveryStatus.includes('배송완료'));
       if (isCompleted) {
-        entry.completed += 1;
         entry.completedItems.push(item);
       } else {
-        entry.waiting += 1;
         entry.waitingItems.push(item);
       }
     });
 
-    const list = Array.from(monthMap.values()).map(item => ({
-      ...item,
-      rate: item.total > 0 ? parseFloat(((item.completed / item.total) * 100).toFixed(1)) : 0
-    }));
+    const list = Array.from(monthMap.values()).map(entry => {
+      const totalCounts = calcCounts(entry.allItems);
+      const completedCounts = calcCounts(entry.completedItems);
+      const waitingCounts = calcCounts(entry.waitingItems);
+      const rate = totalCounts.accounts > 0
+        ? parseFloat(((completedCounts.accounts / totalCounts.accounts) * 100).toFixed(1))
+        : 0;
+
+      return {
+        month: entry.month,
+        total: totalCounts.contracts, // 기존 호환용
+        completed: completedCounts.contracts, // 기존 호환용
+        waiting: waitingCounts.contracts, // 기존 호환용
+        totalContracts: totalCounts.contracts,
+        totalAccounts: totalCounts.accounts,
+        completedContracts: completedCounts.contracts,
+        completedAccounts: completedCounts.accounts,
+        waitingContracts: waitingCounts.contracts,
+        waitingAccounts: waitingCounts.accounts,
+        rate,
+        completedItems: entry.completedItems,
+        waitingItems: entry.waitingItems,
+      };
+    });
 
     return list.sort((a, b) => b.month.localeCompare(a.month));
-  }, [scopeContractData]);
+  }, [rawHqFilteredContractData]);
 
   // 6-4. 배송완료일(N열) 기준 월별 실제 배송완료 건수 통계 (최근 순 정렬)
   const actualDeliveryMonthStats = useMemo(() => {
@@ -749,18 +877,6 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       const isComplete = (item.deliveryStatus || '').trim() === '배송완료';
       return isSigned && isComplete;
     });
-
-    if (displayMode !== '구좌수') {
-      const uniqueMap = new Map();
-      base.forEach(item => {
-        if (item.rentalNo && !uniqueMap.has(item.rentalNo)) {
-          uniqueMap.set(item.rentalNo, item);
-        } else if (!item.rentalNo) {
-          uniqueMap.set(item.uniqueKey, item);
-        }
-      });
-      base = Array.from(uniqueMap.values());
-    }
 
     if (isBranchMobile && branchViewScope === 'self') {
       base = base.filter(item => isMyContract(item));
@@ -774,20 +890,31 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       });
     }
 
-    const monthMap = new Map<string, number>();
+    const monthMap = new Map<string, any[]>();
     base.forEach(item => {
       const cleanDate = (item.deliveryDate || '').replace(/[./]/g, '-');
       const match = cleanDate.match(/^(\d{4})-(\d{2})/);
       if (match) {
         const mStr = `${match[1]}-${match[2]}`;
-        monthMap.set(mStr, (monthMap.get(mStr) || 0) + 1);
+        if (!monthMap.has(mStr)) {
+          monthMap.set(mStr, []);
+        }
+        monthMap.get(mStr)!.push(item);
       }
     });
 
     return Array.from(monthMap.entries())
-      .map(([month, count]) => ({ month, count }))
+      .map(([month, items]) => {
+        const counts = calcCounts(items);
+        return {
+          month,
+          count: counts.contracts, // 호환용
+          contracts: counts.contracts,
+          accounts: counts.accounts,
+        };
+      })
       .sort((a, b) => b.month.localeCompare(a.month));
-  }, [data, displayMode, isBranchMobile, branchViewScope, currentUser, hqFilter]);
+  }, [data, isBranchMobile, branchViewScope, currentUser, hqFilter]);
 
   // 메모 편집 시작
   const handleStartEdit = (rowIdx: number, currentMemo: string) => {
@@ -971,19 +1098,26 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm space-y-2 relative">
           <div className="grid grid-cols-3 gap-2">
             {[
-              { label: '전체', filterKey: '전체', count: summary.total, color: 'border-slate-200 bg-slate-50 text-slate-800' },
-              { label: '배송대기', filterKey: '배송대기', count: summary.waiting, color: 'border-amber-200 bg-amber-50 text-amber-800' },
-              { label: '배송완료', filterKey: '배송완료', count: summary.completed, color: 'border-emerald-200 bg-emerald-50 text-emerald-800' }
+              { label: '전체', filterKey: '전체', counts: summaryCounts.total, color: 'border-slate-200 bg-slate-50 text-slate-800' },
+              { label: '배송대기', filterKey: '배송대기', counts: summaryCounts.waiting, color: 'border-amber-200 bg-amber-50 text-amber-800' },
+              { label: '배송완료', filterKey: '배송완료', counts: summaryCounts.completed, color: 'border-emerald-200 bg-emerald-50 text-emerald-800' }
             ].map((item, i) => (
               <div
                 key={i}
                 onClick={() => setDeliveryFilter(item.filterKey)}
-                className={`p-2.5 border rounded-xl flex flex-col items-center justify-center shadow-sm cursor-pointer hover:opacity-90 active:scale-95 transition-all ${
+                className={`p-2 border rounded-xl flex flex-col items-center justify-center shadow-sm cursor-pointer hover:opacity-90 active:scale-95 transition-all ${
                   deliveryFilter === item.filterKey ? 'ring-2 ring-blue-500 font-bold' : ''
                 } ${item.color}`}
               >
                 <span className="text-[10px] text-slate-500 font-medium">{item.label}</span>
-                <span className="text-base font-extrabold mt-1">{item.count}</span>
+                <div className="flex flex-col items-center mt-1">
+                  <span className="text-base font-extrabold leading-none">
+                    {item.counts.contracts}<span className="text-xs font-semibold ml-0.5">건</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-500 font-mono mt-0.5">
+                    ({item.counts.accounts}구좌)
+                  </span>
+                </div>
               </div>
             ))}
           </div>
@@ -1019,19 +1153,27 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="bg-slate-50 border border-slate-200 p-2 rounded-xl flex justify-between items-center">
                         <span className="text-[10px] text-slate-500 font-medium">총 접수건</span>
-                        <strong className="text-xs font-bold text-slate-900">{contractModeProcessedData.length}건</strong>
+                        <strong className="text-xs font-bold text-slate-900 font-mono">
+                          {summaryCounts.all.contracts}건<span className="text-[10px] text-slate-500 font-normal">({summaryCounts.all.accounts}구좌)</span>
+                        </strong>
                       </div>
                       <div className="bg-teal-50 border border-teal-200 p-2 rounded-xl flex justify-between items-center">
                         <span className="text-[10px] text-teal-700 font-medium">가입 건수</span>
-                        <strong className="text-xs font-bold text-teal-700">{summary.signed}건</strong>
+                        <strong className="text-xs font-bold text-teal-700 font-mono">
+                          {summaryCounts.signed.contracts}건<span className="text-[10px] text-teal-600 font-normal">({summaryCounts.signed.accounts}구좌)</span>
+                        </strong>
                       </div>
                       <div className="bg-rose-50 border border-rose-200 p-2 rounded-xl flex justify-between items-center">
                         <span className="text-[10px] text-rose-700 font-medium">해약 건수</span>
-                        <strong className="text-xs font-bold text-rose-700">{summary.terminated}건</strong>
+                        <strong className="text-xs font-bold text-rose-700 font-mono">
+                          {summaryCounts.terminated.contracts}건<span className="text-[10px] text-rose-600 font-normal">({summaryCounts.terminated.accounts}구좌)</span>
+                        </strong>
                       </div>
                       <div className="bg-red-50 border border-red-200 p-2 rounded-xl flex justify-between items-center">
                         <span className="text-[10px] text-red-700 font-medium">취소 건수</span>
-                        <strong className="text-xs font-bold text-red-700">{summary.cancelled}건</strong>
+                        <strong className="text-xs font-bold text-red-700 font-mono">
+                          {summaryCounts.cancelled.contracts}건<span className="text-[10px] text-red-600 font-normal">({summaryCounts.cancelled.accounts}구좌)</span>
+                        </strong>
                       </div>
                     </div>
                   </div>
@@ -1042,15 +1184,24 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                     <div className="grid grid-cols-3 gap-1.5 text-xs">
                       <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
                         <span className="text-[9px] text-amber-700 font-medium">배송 대기</span>
-                        <strong className="text-xs font-bold text-amber-700 mt-0.5">{summary.waiting}건</strong>
+                        <strong className="text-xs font-bold text-amber-700 mt-0.5 font-mono">
+                          {summaryCounts.waiting.contracts}건
+                          <span className="text-[10px] block font-normal text-amber-600">({summaryCounts.waiting.accounts}구좌)</span>
+                        </strong>
                       </div>
                       <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
-                        <span className="text-[9px] text-emerald-700 font-medium">배송 완료</span>
-                        <strong className="text-xs font-bold text-emerald-700 mt-0.5">{summary.completed}건</strong>
+                        <span className="text-[9px] text-emerald-700 font-medium">실제 배송완료</span>
+                        <strong className="text-xs font-bold text-emerald-700 mt-0.5 font-mono">
+                          {summaryCounts.completed.contracts}건
+                          <span className="text-[10px] block font-normal text-emerald-600">({summaryCounts.completed.accounts}구좌)</span>
+                        </strong>
                       </div>
                       <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
                         <span className="text-[9px] text-slate-500 font-medium">배송 미해당</span>
-                        <strong className="text-xs font-bold text-slate-800 mt-0.5">{summary.noDelivery}건</strong>
+                        <strong className="text-xs font-bold text-slate-800 mt-0.5 font-mono">
+                          {summaryCounts.noDelivery.contracts}건
+                          <span className="text-[10px] block font-normal text-slate-500">({summaryCounts.noDelivery.accounts}구좌)</span>
+                        </strong>
                       </div>
                     </div>
                   </div>
@@ -1247,7 +1398,10 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
             {/* List Header */}
             <div className="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
-              <span>검색 결과: <strong className="text-slate-900 font-semibold">{filteredData.length}</strong>건</span>
+              <span>
+                검색 결과: <strong className="text-slate-900 font-semibold">{filteredDataCounts.contracts}</strong>건
+                <span className="text-[11px] text-slate-500 font-normal ml-0.5">({filteredDataCounts.accounts}구좌)</span>
+              </span>
               <span className="text-[10.5px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium border border-blue-200/60 flex items-center gap-1 shadow-xs">
                 <Info size={11} className="text-blue-500" />
                 항목 클릭 시 전체보기
@@ -1587,12 +1741,13 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 </div>
 
                 <div className="text-right shrink-0">
-                  <div className="flex items-baseline justify-end gap-1">
+                  <div className="flex items-baseline justify-end gap-1 flex-wrap">
                     <span className="text-2xl font-black text-emerald-600 font-mono tracking-tight">
-                      {summary.completed.toLocaleString()}
+                      {summaryCounts.completed.contracts.toLocaleString()}
                     </span>
-                    <span className="text-xs font-bold text-slate-600">
-                      {displayMode === '구좌수' ? '구좌' : '건'}
+                    <span className="text-xs font-bold text-slate-600">건</span>
+                    <span className="text-xs font-bold text-emerald-700 font-mono">
+                      ({summaryCounts.completed.accounts.toLocaleString()}구좌)
                     </span>
                   </div>
                   <button
@@ -1613,7 +1768,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
               {actualDeliveryMonthStats.length > 0 && (
                 <div className="pt-2 border-t border-slate-100">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] font-bold text-slate-500">배송월별 완료 건수 (터치 시 월 변경)</span>
+                    <span className="text-[10px] font-bold text-slate-500">배송월별 완료 건수(구좌수) (터치 시 월 변경)</span>
                     <span className="text-[9.5px] text-slate-400">총 {actualDeliveryMonthStats.length}개 월</span>
                   </div>
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
@@ -1633,7 +1788,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                         >
                           <span>{monthNum}월</span>
                           <span className={`text-[10px] font-mono font-semibold px-1 rounded ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                            {stat.count}건
+                            {stat.contracts}건({stat.accounts}구좌)
                           </span>
                         </button>
                       );
@@ -1655,7 +1810,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
               <div className="bg-slate-50 border border-slate-100 rounded-xl p-2 flex items-start gap-1.5 text-[10.5px] text-slate-600 leading-tight">
                 <Info size={12} className="text-emerald-600 shrink-0 mt-0.5" />
                 <span>
-                  위 건수는 <strong>실제 배송완료일(N열)</strong> 기준이며, 아래 <strong>계약월별 현황</strong>은 계약월 기준 코호트 완료율입니다.
+                  위 수치는 <strong>실제 배송완료일(N열)</strong> 기준이며, 아래 <strong>계약월별 현황</strong>은 계약월 기준 코호트 완료율입니다.
                 </span>
               </div>
             </div>
@@ -1679,10 +1834,10 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 <table className="w-full text-xs text-left text-slate-700">
                   <thead>
                     <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-100 font-bold bg-emerald-50/50">
-                      <th className="py-2 px-2">계약월</th>
-                      <th className="py-2 px-2 text-right">계약건수</th>
-                      <th className="py-2 px-2 text-right text-emerald-700">배송완료</th>
-                      <th className="py-2 px-2 text-right">완료율</th>
+                      <th className="py-2 px-1.5">계약월</th>
+                      <th className="py-2 px-1.5 text-right">계약건수(구좌수)</th>
+                      <th className="py-2 px-1.5 text-right text-emerald-700">배송완료(구좌수)</th>
+                      <th className="py-2 px-1.5 text-right">완료율</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1695,16 +1850,20 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               onClick={() => setExpandedReportMonth(isExpanded ? null : mStat.month)}
                               className="hover:bg-slate-50 cursor-pointer transition-colors active:bg-slate-100 select-none"
                             >
-                              <td className="py-2.5 px-2 font-bold text-slate-900 flex items-center gap-1">
+                              <td className="py-2.5 px-1.5 font-bold text-slate-900 flex items-center gap-1">
                                 <span>{mStat.month}</span>
                                 <ChevronDown
                                   size={12}
                                   className={`text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180 text-emerald-600' : ''}`}
                                 />
                               </td>
-                              <td className="py-2.5 px-2 text-right font-semibold text-slate-700 font-mono">{mStat.total}건</td>
-                              <td className="py-2.5 px-2 text-right font-bold text-emerald-600 font-mono">{mStat.completed}건</td>
-                              <td className="py-2.5 px-2 text-right font-bold font-mono">
+                              <td className="py-2.5 px-1.5 text-right font-semibold text-slate-700 font-mono text-[11px] whitespace-nowrap">
+                                {mStat.totalContracts}건<span className="text-[10px] text-slate-500 font-normal">({mStat.totalAccounts}구좌)</span>
+                              </td>
+                              <td className="py-2.5 px-1.5 text-right font-bold text-emerald-600 font-mono text-[11px] whitespace-nowrap">
+                                {mStat.completedContracts}건<span className="text-[10px] text-emerald-700 font-normal">({mStat.completedAccounts}구좌)</span>
+                              </td>
+                              <td className="py-2.5 px-1.5 text-right font-bold font-mono">
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] ${mStat.rate >= 80 ? 'bg-emerald-100 text-emerald-800' : mStat.rate >= 50 ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
                                   {mStat.rate}%
                                 </span>
@@ -1731,7 +1890,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                               : 'text-slate-500 hover:text-slate-800'
                                           }`}
                                         >
-                                          배송완료 ({mStat.completedItems.length})
+                                          배송완료 ({mStat.completedContracts}건/{mStat.completedAccounts}구좌)
                                         </button>
                                         <button
                                           type="button"
@@ -1745,7 +1904,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                               : 'text-slate-500 hover:text-slate-800'
                                           }`}
                                         >
-                                          미배송 ({mStat.waitingItems.length})
+                                          미배송 ({mStat.waitingContracts}건/{mStat.waitingAccounts}구좌)
                                         </button>
                                       </div>
                                       <span className="text-[9.5px] text-slate-400">클릭 시 전체상세</span>
@@ -1833,8 +1992,8 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                   <thead>
                     <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-100 font-bold bg-slate-50">
                       <th className="py-2.5 px-2">{reportCategory.colHeader}</th>
-                      <th className="py-2.5 px-2 text-right">판매건수 ({displayMode})</th>
-                      <th className="py-2.5 px-2 text-right">배송완료건수</th>
+                      <th className="py-2.5 px-2 text-right">판매건수(구좌수)</th>
+                      <th className="py-2.5 px-2 text-right">배송완료건수(구좌수)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1842,8 +2001,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                       orgReportData.map((s, idx) => (
                         <tr key={idx} className="hover:bg-slate-50 transition-colors">
                           <td className="py-2.5 px-2 font-bold text-slate-900">{s.name}</td>
-                          <td className="py-2.5 px-2 text-right font-semibold text-blue-600">{s.sales}</td>
-                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-600">{s.deliveryCompleted}</td>
+                          <td className="py-2.5 px-2 text-right font-semibold text-blue-600 font-mono text-[11px] whitespace-nowrap">
+                            {s.salesContracts}건<span className="text-[10px] text-blue-500 font-normal">({s.salesAccounts}구좌)</span>
+                          </td>
+                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-600 font-mono text-[11px] whitespace-nowrap">
+                            {s.deliveryContracts}건<span className="text-[10px] text-emerald-700 font-normal">({s.deliveryAccounts}구좌)</span>
+                          </td>
                         </tr>
                       ))
                     ) : (
@@ -1864,8 +2027,8 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                   <thead>
                     <tr className="text-[10px] text-slate-500 uppercase border-b border-slate-100 font-bold bg-slate-50">
                       <th className="py-2.5 px-2">상품명</th>
-                      <th className="py-2.5 px-2 text-right">판매건수 ({displayMode})</th>
-                      <th className="py-2.5 px-2 text-right">배송완료건수</th>
+                      <th className="py-2.5 px-2 text-right">판매건수(구좌수)</th>
+                      <th className="py-2.5 px-2 text-right">배송완료건수(구좌수)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1873,8 +2036,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                       prodReportData.map((s, idx) => (
                         <tr key={idx} className="hover:bg-slate-50 transition-colors">
                           <td className="py-2.5 px-2 font-semibold text-slate-900 truncate max-w-[120px]">{s.prodName}</td>
-                          <td className="py-2.5 px-2 text-right font-semibold text-blue-600">{s.sales}</td>
-                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-600">{s.deliveryCompleted}</td>
+                          <td className="py-2.5 px-2 text-right font-semibold text-blue-600 font-mono text-[11px] whitespace-nowrap">
+                            {s.salesContracts}건<span className="text-[10px] text-blue-500 font-normal">({s.salesAccounts}구좌)</span>
+                          </td>
+                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-600 font-mono text-[11px] whitespace-nowrap">
+                            {s.deliveryContracts}건<span className="text-[10px] text-emerald-700 font-normal">({s.deliveryAccounts}구좌)</span>
+                          </td>
                         </tr>
                       ))
                     ) : (
