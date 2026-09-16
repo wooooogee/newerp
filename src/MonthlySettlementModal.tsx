@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { X, Calendar, Download, Search, Building2, ChevronRight, FileSpreadsheet, Layers, CreditCard, ArrowUpDown, Filter } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { X, Calendar, Download, Search, Building2, ChevronRight, ChevronDown, FileSpreadsheet, Layers, CreditCard, ArrowUpDown, Filter, Check, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // @ts-ignore
@@ -52,6 +52,12 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   const [selectedHqDetail, setSelectedHqDetail] = useState<HqMonthlyStat | null>(null);
   const [sortField, setSortField] = useState<'netTotal' | 'count' | 'hqName'>('netTotal');
   const [sortAsc, setSortAsc] = useState(false);
+
+  // 본부 다중 선택 상태
+  const [selectedHqs, setSelectedHqs] = useState<string[]>([]);
+  const [isHqDropdownOpen, setIsHqDropdownOpen] = useState(false);
+  const [hqSearchInput, setHqSearchInput] = useState('');
+  const hqDropdownRef = useRef<HTMLDivElement>(null);
 
   // 1. 데이터에서 존재하는 모든 월(YYYY-MM) 목록 추출 (최신순 정렬)
   const availableMonths = useMemo(() => {
@@ -189,13 +195,91 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     return Array.from(statsMap.values());
   }, [data, selectedMonth, hqSettings, maintenancePayouts, calculateCommissionDetails, globalStatsMap]);
 
+  // 3-1. 현재 월의 전체 고유 본부 목록
+  const allAvailableHqs = useMemo(() => {
+    return Array.from(new Set(hqMonthlyStats.map(s => s.hqName))).sort((a, b) => a.localeCompare(b, 'ko'));
+  }, [hqMonthlyStats]);
+
+  // 3-2. 본부명 -> 통계 빠른 조회를 위한 맵
+  const hqStatMap = useMemo(() => {
+    const map = new Map<string, HqMonthlyStat>();
+    hqMonthlyStats.forEach(s => map.set(s.hqName, s));
+    return map;
+  }, [hqMonthlyStats]);
+
+  // 3-3. 월 변경 또는 초기 로드 시 본부 선택 목록 초기화/동기화
+  const prevMonthRef = useRef<string>('');
+  useEffect(() => {
+    if (allAvailableHqs.length === 0) return;
+
+    if (prevMonthRef.current !== selectedMonth) {
+      // 월이 변경되었을 때: 새로운 월의 전체 본부를 기본 선택
+      prevMonthRef.current = selectedMonth;
+      setSelectedHqs(allAvailableHqs);
+    } else {
+      // 데이터 업데이트 등으로 본부 목록이 달라졌을 때
+      setSelectedHqs(prev => {
+        if (prev.length === 0) return allAvailableHqs;
+        const valid = prev.filter(h => allAvailableHqs.includes(h));
+        return valid.length > 0 ? valid : allAvailableHqs;
+      });
+    }
+  }, [selectedMonth, allAvailableHqs]);
+
+  // 3-4. 드롭다운 팝오버 외부 클릭 시 닫기
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (hqDropdownRef.current && !hqDropdownRef.current.contains(e.target as Node)) {
+        setIsHqDropdownOpen(false);
+      }
+    };
+    if (isHqDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isHqDropdownOpen]);
+
+  // 3-5. 본부 선택 토글 핸들러
+  const handleToggleHq = (hq: string) => {
+    setSelectedHqs(prev => {
+      if (prev.includes(hq)) {
+        return prev.filter(h => h !== hq);
+      } else {
+        return [...prev, hq];
+      }
+    });
+  };
+
+  const handleSelectAllHqs = () => {
+    setSelectedHqs(allAvailableHqs);
+  };
+
+  const handleDeselectAllHqs = () => {
+    setSelectedHqs([]);
+  };
+
+  // 3-6. 드롭다운 팝오버 내부 검색 필터
+  const dropdownFilteredHqs = useMemo(() => {
+    if (!hqSearchInput.trim()) return allAvailableHqs;
+    const term = hqSearchInput.trim().toLowerCase();
+    return allAvailableHqs.filter(h => h.toLowerCase().includes(term));
+  }, [allAvailableHqs, hqSearchInput]);
+
   // 필터링 및 정렬된 본부 목록
   const filteredAndSortedStats = useMemo(() => {
     let list = hqMonthlyStats.filter(stat => {
+      // 1. 본부 다중 선택 필터
+      if (!selectedHqs.includes(stat.hqName)) {
+        return false;
+      }
+      // 2. 정산유형 필터
       if (typeFilter !== 'all') {
         if (typeFilter === '개인' && !stat.settlementType.includes('개인')) return false;
         if (typeFilter === '사업자' && stat.settlementType.includes('개인')) return false;
       }
+      // 3. 검색어 필터
       if (searchTerm.trim()) {
         const term = searchTerm.trim().toLowerCase();
         const matchHq = stat.hqName.toLowerCase().includes(term);
@@ -216,7 +300,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
 
     return list;
-  }, [hqMonthlyStats, typeFilter, searchTerm, sortField, sortAsc]);
+  }, [hqMonthlyStats, selectedHqs, typeFilter, searchTerm, sortField, sortAsc]);
+
+  // 테이블 내 현재 표시된 본부들의 전체 선택 여부 판별
+  const visibleHqNames = useMemo(() => filteredAndSortedStats.map(s => s.hqName), [filteredAndSortedStats]);
+  const isAllVisibleSelected = visibleHqNames.length > 0 && visibleHqNames.every(h => selectedHqs.includes(h));
+  const isSomeVisibleSelected = visibleHqNames.some(h => selectedHqs.includes(h)) && !isAllVisibleSelected;
+
+  const handleToggleAllVisible = () => {
+    if (isAllVisibleSelected) {
+      setSelectedHqs(prev => prev.filter(h => !visibleHqNames.includes(h)));
+    } else {
+      setSelectedHqs(prev => Array.from(new Set([...prev, ...visibleHqNames])));
+    }
+  };
 
   // 전체 요약 KPI 계산
   const summaryTotals = useMemo(() => {
@@ -550,6 +647,146 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                 </select>
               </div>
 
+              {/* 본부 다중 선택 드롭다운 */}
+              <div className="relative" ref={hqDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsHqDropdownOpen(!isHqDropdownOpen)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-2xs ${
+                    selectedHqs.length !== allAvailableHqs.length
+                      ? 'bg-blue-50 border-blue-300 text-blue-700 ring-2 ring-blue-500/20'
+                      : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200/80'
+                  }`}
+                >
+                  <Building2 size={14} className={selectedHqs.length !== allAvailableHqs.length ? 'text-blue-600' : 'text-slate-500'} />
+                  <span>
+                    {selectedHqs.length === allAvailableHqs.length
+                      ? `본부 선택: 전체 (${allAvailableHqs.length}개)`
+                      : selectedHqs.length === 0
+                        ? '본부 선택: 0개'
+                        : selectedHqs.length === 1
+                          ? `${selectedHqs[0]}`
+                          : `${selectedHqs[0]} 외 ${selectedHqs.length - 1}개 (${selectedHqs.length}/${allAvailableHqs.length})`}
+                  </span>
+                  <ChevronDown size={14} className={`transition-transform duration-200 ${isHqDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {/* Dropdown Popover */}
+                {isHqDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 z-50 w-72 bg-white rounded-2xl shadow-xl border border-slate-200 p-3 space-y-2.5">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <span className="text-xs font-black text-slate-800">조회할 본부 선택</span>
+                      <span className="text-[11px] text-blue-600 font-bold">
+                        {selectedHqs.length} / {allAvailableHqs.length}개 선택
+                      </span>
+                    </div>
+
+                    {/* 본부 검색 */}
+                    <div className="relative">
+                      <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="본부명 검색..."
+                        value={hqSearchInput}
+                        onChange={(e) => setHqSearchInput(e.target.value)}
+                        className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs placeholder-slate-400 focus:outline-hidden focus:border-blue-500"
+                      />
+                      {hqSearchInput && (
+                        <button
+                          type="button"
+                          onClick={() => setHqSearchInput('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 전체 선택 / 해제 버튼 */}
+                    <div className="flex items-center justify-between text-[11px]">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={handleSelectAllHqs}
+                          className="px-2 py-0.5 rounded bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-slate-600 font-bold transition-colors cursor-pointer"
+                        >
+                          전체 선택
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeselectAllHqs}
+                          className="px-2 py-0.5 rounded bg-slate-100 hover:bg-rose-100 hover:text-rose-700 text-slate-600 font-bold transition-colors cursor-pointer"
+                        >
+                          전체 해제
+                        </button>
+                      </div>
+                      {selectedHqs.length !== allAvailableHqs.length && (
+                        <button
+                          type="button"
+                          onClick={handleSelectAllHqs}
+                          className="text-[10.5px] text-blue-600 hover:underline font-bold cursor-pointer"
+                        >
+                          초기화
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 본부 체크박스 목록 */}
+                    <div className="max-h-56 overflow-y-auto space-y-0.5 custom-scrollbar pr-1">
+                      {dropdownFilteredHqs.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-slate-400">
+                          검색된 본부가 없습니다.
+                        </div>
+                      ) : (
+                        dropdownFilteredHqs.map(hq => {
+                          const isChecked = selectedHqs.includes(hq);
+                          const stat = hqStatMap.get(hq);
+                          return (
+                            <label
+                              key={hq}
+                              className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer text-xs select-none transition-colors ${
+                                isChecked ? 'bg-blue-50/70 font-semibold' : 'hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => handleToggleHq(hq)}
+                                  className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                />
+                                <span className={isChecked ? 'text-blue-950 font-bold' : 'text-slate-700'}>
+                                  {hq}
+                                </span>
+                              </div>
+                              {stat && (
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  {stat.count}건
+                                </span>
+                              )}
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* 하단 확인 버튼 */}
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400">
+                        {selectedHqs.length === 0 ? '선택된 본부 없음' : `${selectedHqs.length}개 선택됨`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsHqDropdownOpen(false)}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                      >
+                        적용 및 닫기
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* 정산유형 필터 */}
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
                 <button
@@ -585,6 +822,55 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               />
             </div>
           </div>
+
+          {/* 선택된 본부 태그 칩 바 (일부 본부만 선택되었을 때 노출) */}
+          {selectedHqs.length > 0 && selectedHqs.length < allAvailableHqs.length && (
+            <div className="px-6 py-2 bg-blue-50/60 border-b border-blue-100 flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-blue-800 font-bold flex items-center gap-1 text-[11px] shrink-0">
+                <Filter size={12} />
+                선택된 본부 ({selectedHqs.length}개):
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {selectedHqs.map(hq => (
+                  <span
+                    key={hq}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-white border border-blue-200 text-blue-700 text-[11px] font-bold shadow-2xs"
+                  >
+                    <span>{hq}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleHq(hq)}
+                      className="text-blue-400 hover:text-blue-800 rounded-full hover:bg-blue-100 p-0.5 cursor-pointer transition-colors"
+                      title="선택 해제"
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={handleSelectAllHqs}
+                className="text-[11px] text-blue-600 hover:text-blue-800 font-bold underline ml-auto cursor-pointer shrink-0"
+              >
+                전체 본부 보기로 초기화
+              </button>
+            </div>
+          )}
+
+          {/* 본부가 0개 선택되었을 때 경고 배너 */}
+          {selectedHqs.length === 0 && allAvailableHqs.length > 0 && (
+            <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center justify-between text-xs text-amber-800">
+              <span>선택된 본부가 없습니다. 상단 '본부 선택'에서 조회할 본부를 선택해 주세요.</span>
+              <button
+                type="button"
+                onClick={handleSelectAllHqs}
+                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] cursor-pointer transition-colors"
+              >
+                모든 본부 선택하기
+              </button>
+            </div>
+          )}
 
           {/* KPI Dashboard Summary Cards */}
           <div className="px-6 py-3.5 bg-slate-50/60 border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3.5">
@@ -651,6 +937,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               <table className="w-full text-xs text-left border-collapse">
                 <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 uppercase tracking-wider sticky top-0 z-10">
                   <tr>
+                    <th className="px-2.5 py-3 text-center w-10 border-r border-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={isAllVisibleSelected}
+                        ref={input => {
+                          if (input) {
+                            input.indeterminate = isSomeVisibleSelected;
+                          }
+                        }}
+                        onChange={handleToggleAllVisible}
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        title={isAllVisibleSelected ? "전체 해제" : "현재 표시된 본부 전체 선택"}
+                      />
+                    </th>
                     <th className="px-3 py-3 text-center w-12 border-r border-slate-200">No</th>
                     <th 
                       onClick={() => handleSort('hqName')}
@@ -694,17 +994,30 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {filteredAndSortedStats.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-6 py-12 text-center text-slate-400 font-medium">
-                        {selectedMonth} 월에 조회된 본부별 정산 내역이 없습니다.
+                      <td colSpan={15} className="px-6 py-12 text-center text-slate-400 font-medium">
+                        {selectedHqs.length === 0 
+                          ? '선택된 본부가 없습니다. 상단 본부 선택 필터에서 조회할 본부를 선택해 주세요.' 
+                          : `${selectedMonth} 월에 조회된 본부별 정산 내역이 없습니다.`}
                       </td>
                     </tr>
                   ) : (
                     filteredAndSortedStats.map((stat, idx) => (
                       <tr 
                         key={stat.hqName} 
-                        className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
+                        className={`hover:bg-blue-50/40 transition-colors cursor-pointer group ${selectedHqs.includes(stat.hqName) ? 'bg-blue-50/15' : ''}`}
                         onClick={() => setSelectedHqDetail(stat)}
                       >
+                        <td 
+                          className="px-2.5 py-2.5 text-center border-r border-slate-100"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedHqs.includes(stat.hqName)}
+                            onChange={() => handleToggleHq(stat.hqName)}
+                            className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                        </td>
                         <td className="px-3 py-2.5 text-center text-slate-400 font-medium border-r border-slate-100">
                           {idx + 1}
                         </td>
@@ -756,7 +1069,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                               e.stopPropagation();
                               setSelectedHqDetail(stat);
                             }}
-                            className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 text-[11px] font-bold transition-all shadow-2xs"
+                            className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 text-[11px] font-bold transition-all shadow-2xs cursor-pointer"
                           >
                             명세보기
                           </button>
@@ -768,7 +1081,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                 {filteredAndSortedStats.length > 0 && (
                   <tfoot className="bg-slate-100/90 font-black text-slate-900 border-t-2 border-slate-300">
                     <tr>
-                      <td colSpan={3} className="px-4 py-3 text-center border-r border-slate-200">
+                      <td colSpan={4} className="px-4 py-3 text-center border-r border-slate-200">
                         총합계 ({filteredAndSortedStats.length}개 본부)
                       </td>
                       <td className="px-3 py-3 text-right font-mono border-r border-slate-200">
