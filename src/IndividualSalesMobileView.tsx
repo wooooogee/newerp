@@ -1114,7 +1114,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                   <span className="text-base font-extrabold leading-none">
                     {item.counts.contracts}<span className="text-xs font-semibold ml-0.5">건</span>
                   </span>
-                  <span className="text-[10px] font-bold text-slate-500 font-mono mt-0.5">
+                  <span className="text-[10px] font-bold text-slate-500 mt-0.5">
                     ({item.counts.accounts}구좌)
                   </span>
                 </div>
@@ -1153,25 +1153,25 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="bg-slate-50 border border-slate-200 p-2 rounded-xl flex justify-between items-center">
                         <span className="text-[10px] text-slate-500 font-medium">총 접수건</span>
-                        <strong className="text-xs font-bold text-slate-900 font-mono">
+                        <strong className="text-xs font-bold text-slate-900">
                           {summaryCounts.all.contracts}건<span className="text-[10px] text-slate-500 font-normal">({summaryCounts.all.accounts}구좌)</span>
                         </strong>
                       </div>
                       <div className="bg-teal-50 border border-teal-200 p-2 rounded-xl flex justify-between items-center">
                         <span className="text-[10px] text-teal-700 font-medium">가입 건수</span>
-                        <strong className="text-xs font-bold text-teal-700 font-mono">
+                        <strong className="text-xs font-bold text-teal-700">
                           {summaryCounts.signed.contracts}건<span className="text-[10px] text-teal-600 font-normal">({summaryCounts.signed.accounts}구좌)</span>
                         </strong>
                       </div>
                       <div className="bg-rose-50 border border-rose-200 p-2 rounded-xl flex justify-between items-center">
                         <span className="text-[10px] text-rose-700 font-medium">해약 건수</span>
-                        <strong className="text-xs font-bold text-rose-700 font-mono">
+                        <strong className="text-xs font-bold text-rose-700">
                           {summaryCounts.terminated.contracts}건<span className="text-[10px] text-rose-600 font-normal">({summaryCounts.terminated.accounts}구좌)</span>
                         </strong>
                       </div>
                       <div className="bg-red-50 border border-red-200 p-2 rounded-xl flex justify-between items-center">
                         <span className="text-[10px] text-red-700 font-medium">취소 건수</span>
-                        <strong className="text-xs font-bold text-red-700 font-mono">
+                        <strong className="text-xs font-bold text-red-700">
                           {summaryCounts.cancelled.contracts}건<span className="text-[10px] text-red-600 font-normal">({summaryCounts.cancelled.accounts}구좌)</span>
                         </strong>
                       </div>
@@ -1184,21 +1184,21 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                     <div className="grid grid-cols-3 gap-1.5 text-xs">
                       <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
                         <span className="text-[9px] text-amber-700 font-medium">배송 대기</span>
-                        <strong className="text-xs font-bold text-amber-700 mt-0.5 font-mono">
+                        <strong className="text-xs font-bold text-amber-700 mt-0.5">
                           {summaryCounts.waiting.contracts}건
                           <span className="text-[10px] block font-normal text-amber-600">({summaryCounts.waiting.accounts}구좌)</span>
                         </strong>
                       </div>
                       <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
                         <span className="text-[9px] text-emerald-700 font-medium">실제 배송완료</span>
-                        <strong className="text-xs font-bold text-emerald-700 mt-0.5 font-mono">
+                        <strong className="text-xs font-bold text-emerald-700 mt-0.5">
                           {summaryCounts.completed.contracts}건
                           <span className="text-[10px] block font-normal text-emerald-600">({summaryCounts.completed.accounts}구좌)</span>
                         </strong>
                       </div>
                       <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex flex-col items-center justify-center text-center">
                         <span className="text-[9px] text-slate-500 font-medium">배송 미해당</span>
-                        <strong className="text-xs font-bold text-slate-800 mt-0.5 font-mono">
+                        <strong className="text-xs font-bold text-slate-800 mt-0.5">
                           {summaryCounts.noDelivery.contracts}건
                           <span className="text-[10px] block font-normal text-slate-500">({summaryCounts.noDelivery.accounts}구좌)</span>
                         </strong>
@@ -1440,7 +1440,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               {item.status || '가입'}
                             </span>
                             {item.rentalNo ? (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0" title="렌탈번호">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0" title="렌탈번호">
                                 {item.rentalNo}
                               </span>
                             ) : null}
@@ -1466,7 +1466,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                   <Calendar size={11} className="text-slate-400 shrink-0" />
                                   <span>계약일자</span>
                                 </div>
-                                <div className="mt-0.5 font-semibold truncate text-[11px] font-mono text-slate-800">
+                                <div className="mt-0.5 font-semibold truncate text-[11px] text-slate-800">
                                   {formatDate(item.contractDate)}
                                 </div>
                               </div>
@@ -1496,7 +1496,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                   <CreditCard size={11} className="text-slate-400 shrink-0" />
                                   <span>상조출금일</span>
                                 </div>
-                                <div className="mt-0.5 font-semibold truncate text-[11px] font-mono text-slate-800">
+                                <div className="mt-0.5 font-semibold truncate text-[11px] text-slate-800">
                                   {mutualAidPayVal}
                                 </div>
                               </div>
@@ -1514,7 +1514,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                   <Truck size={11} className="text-blue-500 shrink-0" />
                                   <span>배송일자</span>
                                 </div>
-                                <div className="mt-0.5 font-semibold truncate text-[11px] font-mono text-blue-700">
+                                <div className="mt-0.5 font-semibold truncate text-[11px] text-blue-700">
                                   {formatDate(item.deliveryDate)}
                                 </div>
                               </div>
@@ -1529,7 +1529,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                   <Calendar size={11} className="text-blue-500 shrink-0" />
                                   <span>배송예정일</span>
                                 </div>
-                                <div className="mt-0.5 font-semibold truncate text-[11px] font-mono text-blue-700">
+                                <div className="mt-0.5 font-semibold truncate text-[11px] text-blue-700">
                                   {expectedDeliveryVal}
                                 </div>
                               </div>
@@ -1544,7 +1544,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                   <CreditCard size={11} className="text-indigo-400 shrink-0" />
                                   <span>렌탈출금일</span>
                                 </div>
-                                <div className="mt-0.5 font-semibold truncate text-[11px] font-mono text-slate-800">
+                                <div className="mt-0.5 font-semibold truncate text-[11px] text-slate-800">
                                   {rentalPayVal}
                                 </div>
                               </div>
@@ -1589,12 +1589,12 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                   <a 
                                     href={`tel:${empPhoneVal}`} 
                                     onClick={(e) => e.stopPropagation()}
-                                    className="text-blue-600 font-mono font-semibold hover:underline"
+                                    className="text-blue-600 font-semibold hover:underline"
                                   >
                                     {empPhoneVal}
                                   </a>
                                 ) : (
-                                  <span className="text-slate-400 font-mono">-</span>
+                                  <span className="text-slate-400">-</span>
                                 )}
                               </div>
                             </div>
@@ -1742,11 +1742,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
                 <div className="text-right shrink-0">
                   <div className="flex items-baseline justify-end gap-1 flex-wrap">
-                    <span className="text-2xl font-black text-emerald-600 font-mono tracking-tight">
+                    <span className="text-2xl font-black text-emerald-600 tracking-tight">
                       {summaryCounts.completed.contracts.toLocaleString()}
                     </span>
                     <span className="text-xs font-bold text-slate-600">건</span>
-                    <span className="text-xs font-bold text-emerald-700 font-mono">
+                    <span className="text-xs font-bold text-emerald-700">
                       ({summaryCounts.completed.accounts.toLocaleString()}구좌)
                     </span>
                   </div>
@@ -1787,7 +1787,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                           }`}
                         >
                           <span>{monthNum}월</span>
-                          <span className={`text-[10px] font-mono font-semibold px-1 rounded ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                          <span className={`text-[10px] font-semibold px-1 rounded ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
                             {stat.contracts}건({stat.accounts}구좌)
                           </span>
                         </button>
@@ -1857,13 +1857,13 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                   className={`text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180 text-emerald-600' : ''}`}
                                 />
                               </td>
-                              <td className="py-2.5 px-1.5 text-right font-semibold text-slate-700 font-mono text-[11px] whitespace-nowrap">
+                              <td className="py-2.5 px-1.5 text-right font-semibold text-slate-700 text-[11px] whitespace-nowrap">
                                 {mStat.totalContracts}건<span className="text-[10px] text-slate-500 font-normal">({mStat.totalAccounts}구좌)</span>
                               </td>
-                              <td className="py-2.5 px-1.5 text-right font-bold text-emerald-600 font-mono text-[11px] whitespace-nowrap">
+                              <td className="py-2.5 px-1.5 text-right font-bold text-emerald-600 text-[11px] whitespace-nowrap">
                                 {mStat.completedContracts}건<span className="text-[10px] text-emerald-700 font-normal">({mStat.completedAccounts}구좌)</span>
                               </td>
-                              <td className="py-2.5 px-1.5 text-right font-bold font-mono">
+                              <td className="py-2.5 px-1.5 text-right font-bold">
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] ${mStat.rate >= 80 ? 'bg-emerald-100 text-emerald-800' : mStat.rate >= 50 ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
                                   {mStat.rate}%
                                 </span>
@@ -1936,13 +1936,13 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                               >
                                                 {/* 좌측: 계약일자, 고객명 및 렌탈계약번호 */}
                                                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                                  <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                                                  <span className="text-[10px] text-slate-500 shrink-0">
                                                     {formatDate(item.contractDate)}
                                                   </span>
                                                   <span className="font-bold text-slate-900 truncate text-[11.5px] max-w-[65px]">
                                                     {item.memName || '-'}
                                                   </span>
-                                                  <span className="text-[10px] text-slate-400 font-mono truncate">
+                                                  <span className="text-[10px] text-slate-400 truncate">
                                                     {item.rentalNo || '-'}
                                                   </span>
                                                 </div>
@@ -1950,7 +1950,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                                 {/* 우측: 배송완료일 또는 미배송 상태 */}
                                                 <div className="shrink-0 text-right">
                                                   {reportDetailTab === 'completed' ? (
-                                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-mono">
+                                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
                                                       {deliveryDateStr !== '-' ? deliveryDateStr : '완료'}
                                                     </span>
                                                   ) : (
@@ -2001,10 +2001,10 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                       orgReportData.map((s, idx) => (
                         <tr key={idx} className="hover:bg-slate-50 transition-colors">
                           <td className="py-2.5 px-2 font-bold text-slate-900">{s.name}</td>
-                          <td className="py-2.5 px-2 text-right font-semibold text-blue-600 font-mono text-[11px] whitespace-nowrap">
+                          <td className="py-2.5 px-2 text-right font-semibold text-blue-600 text-[11px] whitespace-nowrap">
                             {s.salesContracts}건<span className="text-[10px] text-blue-500 font-normal">({s.salesAccounts}구좌)</span>
                           </td>
-                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-600 font-mono text-[11px] whitespace-nowrap">
+                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-600 text-[11px] whitespace-nowrap">
                             {s.deliveryContracts}건<span className="text-[10px] text-emerald-700 font-normal">({s.deliveryAccounts}구좌)</span>
                           </td>
                         </tr>
@@ -2036,10 +2036,10 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                       prodReportData.map((s, idx) => (
                         <tr key={idx} className="hover:bg-slate-50 transition-colors">
                           <td className="py-2.5 px-2 font-semibold text-slate-900 truncate max-w-[120px]">{s.prodName}</td>
-                          <td className="py-2.5 px-2 text-right font-semibold text-blue-600 font-mono text-[11px] whitespace-nowrap">
+                          <td className="py-2.5 px-2 text-right font-semibold text-blue-600 text-[11px] whitespace-nowrap">
                             {s.salesContracts}건<span className="text-[10px] text-blue-500 font-normal">({s.salesAccounts}구좌)</span>
                           </td>
-                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-600 font-mono text-[11px] whitespace-nowrap">
+                          <td className="py-2.5 px-2 text-right font-semibold text-emerald-600 text-[11px] whitespace-nowrap">
                             {s.deliveryContracts}건<span className="text-[10px] text-emerald-700 font-normal">({s.deliveryAccounts}구좌)</span>
                           </td>
                         </tr>
@@ -2133,7 +2133,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                         {selectedDetailItem.status || '가입'}
                       </span>
                     </h3>
-                    <p className="text-xs text-slate-500 font-mono">
+                    <p className="text-xs text-slate-500">
                       렌탈번호: {selectedDetailItem.rentalNo || '-'}
                     </p>
                   </div>
@@ -2157,7 +2157,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                   <div className="grid grid-cols-2 gap-2.5 pt-1 text-slate-700">
                     <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
                       <span className="text-[10px] text-slate-400 font-medium block">계약일자</span>
-                      <strong className="text-slate-900 font-mono text-xs">{formatDate(selectedDetailItem.contractDate)}</strong>
+                      <strong className="text-slate-900 text-xs">{formatDate(selectedDetailItem.contractDate)}</strong>
                     </div>
                     <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
                       <span className="text-[10px] text-slate-400 font-medium block">배송상태</span>
@@ -2165,19 +2165,19 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                     </div>
                     <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
                       <span className="text-[10px] text-slate-400 font-medium block">상조출금일</span>
-                      <strong className="text-slate-900 font-mono text-xs">{formatDate(selectedDetailItem.raw && selectedDetailItem.raw[21])}</strong>
+                      <strong className="text-slate-900 text-xs">{formatDate(selectedDetailItem.raw && selectedDetailItem.raw[21])}</strong>
                     </div>
                     <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
                       <span className="text-[10px] text-slate-400 font-medium block">렌탈출금일</span>
-                      <strong className="text-slate-900 font-mono text-xs">{formatDate(selectedDetailItem.raw && selectedDetailItem.raw[26])}</strong>
+                      <strong className="text-slate-900 text-xs">{formatDate(selectedDetailItem.raw && selectedDetailItem.raw[26])}</strong>
                     </div>
                     <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
                       <span className="text-[10px] text-slate-400 font-medium block">배송일자</span>
-                      <strong className="text-blue-700 font-mono text-xs">{formatDate(selectedDetailItem.deliveryDate)}</strong>
+                      <strong className="text-blue-700 text-xs">{formatDate(selectedDetailItem.deliveryDate)}</strong>
                     </div>
                     <div className="bg-white/80 p-2 rounded-xl border border-blue-100/60">
                       <span className="text-[10px] text-slate-400 font-medium block">배송예정일</span>
-                      <strong className="text-blue-700 font-mono text-xs">{formatDate(selectedDetailItem.expectedDeliveryDate || (selectedDetailItem.raw && selectedDetailItem.raw[28]))}</strong>
+                      <strong className="text-blue-700 text-xs">{formatDate(selectedDetailItem.expectedDeliveryDate || (selectedDetailItem.raw && selectedDetailItem.raw[28]))}</strong>
                     </div>
                   </div>
                 </div>
