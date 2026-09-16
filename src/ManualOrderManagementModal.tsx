@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy } from 'lucide-react';
+import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ManualOrderReconModal } from './ManualOrderReconModal';
 
@@ -80,6 +80,20 @@ const COURIER_OPTIONS = [
 ];
 
 const LOCAL_STORAGE_KEY = 'erp_manual_order_target_products_v1';
+
+// 날짜 문자열(YYYY-MM-DD, YYYY.MM.DD 등)에서 YYYY-MM 추출 헬퍼
+export const parseYearMonth = (dateStr?: string | null): string | null => {
+  if (!dateStr) return null;
+  const trimmed = String(dateStr).trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(\d{4})[-./]?(\d{1,2})/);
+  if (match) {
+    const year = match[1];
+    const month = match[2].padStart(2, '0');
+    return `${year}-${month}`;
+  }
+  return null;
+};
 
 // 상품명에서 구좌 접두사 제거 (예: 1구좌_ -> 순수 상품명)
 const cleanProductName = (name: string): string => {
@@ -170,6 +184,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
   const [stateFilter, setStateFilter] = useState<'all' | DeliveryState>('all');
+  const [contractMonthFilter, setContractMonthFilter] = useState<string>('all');
+  const [deliveryMonthFilter, setDeliveryMonthFilter] = useState<string>('all');
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // 발주서 엑셀 팝업 모달 상태
@@ -524,9 +540,59 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     }));
   }, [extractedOrders, editedStates, editedValues]);
 
-  // 요청일자 필터 1차 적용 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
-  const ordersFilteredByReqDate = useMemo(() => {
+  // 계약월 목록 추출 (YYYY-MM)
+  const availableContractMonths = useMemo(() => {
+    const months = new Set<string>();
+    extractedOrders.forEach((o) => {
+      const ym = parseYearMonth(o.contractDate);
+      if (ym) months.add(ym);
+    });
+    return Array.from(months).sort().reverse();
+  }, [extractedOrders]);
+
+  // 배송/설치월 목록 추출 (YYYY-MM)
+  const availableDeliveryMonths = useMemo(() => {
+    const months = new Set<string>();
+    extractedOrders.forEach((o) => {
+      const dDate = getFieldValue(o, 'deliveryDate');
+      const ym = parseYearMonth(dDate);
+      if (ym) months.add(ym);
+    });
+    return Array.from(months).sort().reverse();
+  }, [extractedOrders, editedValues]);
+
+  // 계약월, 배송월, 렌탈상품 필터가 1차 적용된 리스트 (상단 탭 카운트 연동)
+  const ordersFilteredByMonthsAndProd = useMemo(() => {
     return extractedOrders.filter((order) => {
+      // 계약월 필터
+      if (contractMonthFilter !== 'all') {
+        const ym = parseYearMonth(order.contractDate);
+        if (ym !== contractMonthFilter) return false;
+      }
+
+      // 배송/설치월 필터
+      if (deliveryMonthFilter !== 'all') {
+        const curDelDate = getFieldValue(order, 'deliveryDate');
+        if (deliveryMonthFilter === 'none') {
+          if (curDelDate && curDelDate.trim()) return false;
+        } else {
+          const ym = parseYearMonth(curDelDate);
+          if (ym !== deliveryMonthFilter) return false;
+        }
+      }
+
+      // 렌탈상품 다중 선택 필터
+      if (selectedProducts.size > 0 && !selectedProducts.has(order.rentalProdClean)) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, selectedProducts, editedValues]);
+
+  // 요청일자 필터까지 적용된 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
+  const ordersFilteredByReqDate = useMemo(() => {
+    return ordersFilteredByMonthsAndProd.filter((order) => {
       if (requestDateFilter === 'has_value') {
         if (!order.requestDate || !order.requestDate.trim()) return false;
       } else if (requestDateFilter === 'no_value') {
@@ -535,11 +601,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       }
       return true;
     });
-  }, [extractedOrders, requestDateFilter]);
+  }, [ordersFilteredByMonthsAndProd, requestDateFilter]);
 
-  // 검색 및 요청일(O열 탭), 상품명 다중선택, 상태 필터링
+  // 검색 및 요청일(O열 탭), 계약월, 배송월, 상품명 다중선택, 상태 필터링
   const filteredOrders = useMemo(() => {
-    return extractedOrders.filter((order) => {
+    return ordersFilteredByMonthsAndProd.filter((order) => {
       // 요청일자 1클릭 탭 필터
       if (requestDateFilter === 'has_value') {
         if (!order.requestDate || !order.requestDate.trim()) return false;
@@ -550,11 +616,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
       // 배송상태 탭 필터 (저장된 배송상태 기준: 배송상태를 변경하더라도 [저장하기] 누르기 전까지 목록에서 사라지지 않음)
       if (stateFilter !== 'all' && order.deliveryState !== stateFilter) return false;
-
-      // 렌탈상품 다중 선택 필터
-      if (selectedProducts.size > 0 && !selectedProducts.has(order.rentalProdClean)) {
-        return false;
-      }
 
       if (!searchTerm.trim()) return true;
 
@@ -570,7 +631,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
       return matchContract || matchDate || matchReqDate || matchMemName || matchPhone || matchProd || matchCourier || matchTracking;
     });
-  }, [extractedOrders, editedValues, editedStates, requestDateFilter, stateFilter, selectedProducts, searchTerm]);
+  }, [ordersFilteredByMonthsAndProd, editedValues, requestDateFilter, stateFilter, searchTerm]);
 
   // 체크박스 핸들러
   const handleToggleSelect = (key: string) => {
@@ -1043,7 +1104,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     requestDateFilter === 'has_value' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  요청일자 있음 ({extractedOrders.filter((o) => !!o.requestDate?.trim()).length})
+                  요청일자 있음 ({ordersFilteredByMonthsAndProd.filter((o) => !!o.requestDate?.trim()).length})
                 </button>
                 <button
                   type="button"
@@ -1052,8 +1113,53 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     requestDateFilter === 'no_value' ? 'bg-slate-700 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  요청일자 없음 ({extractedOrders.filter((o) => !o.requestDate?.trim() && o.deliveryState !== '배송완료').length})
+                  요청일자 없음 ({ordersFilteredByMonthsAndProd.filter((o) => !o.requestDate?.trim() && o.deliveryState !== '배송완료').length})
                 </button>
+              </div>
+
+              {/* 계약월 필터 드롭다운 */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
+                  <Calendar size={13} className={contractMonthFilter !== 'all' ? 'text-blue-600' : 'text-slate-400'} />
+                  <span>계약월</span>
+                </div>
+                <select
+                  value={contractMonthFilter}
+                  onChange={(e) => setContractMonthFilter(e.target.value)}
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
+                    contractMonthFilter !== 'all' ? 'text-blue-600 font-bold' : 'text-slate-700'
+                  }`}
+                >
+                  <option value="all">전체 계약월</option>
+                  {availableContractMonths.map((m) => (
+                    <option key={m} value={m}>
+                      {m.replace('-', '년 ')}월
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 배송일/설치일 월 필터 드롭다운 */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
+                  <Truck size={13} className={deliveryMonthFilter !== 'all' ? 'text-blue-600' : 'text-slate-400'} />
+                  <span>배송/설치월</span>
+                </div>
+                <select
+                  value={deliveryMonthFilter}
+                  onChange={(e) => setDeliveryMonthFilter(e.target.value)}
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
+                    deliveryMonthFilter !== 'all' ? 'text-blue-600 font-bold' : 'text-slate-700'
+                  }`}
+                >
+                  <option value="all">전체 배송월</option>
+                  {availableDeliveryMonths.map((m) => (
+                    <option key={m} value={m}>
+                      {m.replace('-', '년 ')}월
+                    </option>
+                  ))}
+                  <option value="none">배송일 없음</option>
+                </select>
               </div>
 
               {/* 렌탈상품 다중 선택 드롭다운 */}
@@ -1119,6 +1225,24 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   </div>
                 )}
               </div>
+
+              {/* 필터 조건 초기화 버튼 */}
+              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || selectedProducts.size > 0 || requestDateFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContractMonthFilter('all');
+                    setDeliveryMonthFilter('all');
+                    setSelectedProducts(new Set());
+                    setRequestDateFilter('all');
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs"
+                  title="월별 및 상품, 요청일 필터 초기화"
+                >
+                  <RotateCcw size={12} />
+                  <span>초기화</span>
+                </button>
+              )}
 
               {/* 배송상태 탭 필터 */}
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold whitespace-nowrap">
