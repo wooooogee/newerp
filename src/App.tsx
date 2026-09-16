@@ -25,6 +25,7 @@ import { ChangePasswordModal } from './ChangePasswordModal';
 import { VocManagementModal } from './VocManagementModal';
 import { AccountManagementModal } from './AccountManagementModal';
 import { OrganizationChartModal } from './OrganizationChartModal';
+import { MonthlySettlementModal } from './MonthlySettlementModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -591,6 +592,7 @@ const ERP_Dashboard = () => {
   const [isCertificateDispatchHistoryModalOpen, setIsCertificateDispatchHistoryModalOpen] = useState(false);
   const [isMembershipApplicationModalOpen, setIsMembershipApplicationModalOpen] = useState(false);
   const [isManualSettlementModalOpen, setIsManualSettlementModalOpen] = useState(false);
+  const [isMonthlySettlementModalOpen, setIsMonthlySettlementModalOpen] = useState(false);
   const [topSearchQuery, setTopSearchQuery] = useState('');
 
   // searchTerm이 변경될 때 상단 검색어 동기화
@@ -3783,6 +3785,47 @@ const ERP_Dashboard = () => {
       const divTaxTotal = isPersonal ? Math.floor(divTotalGross * 0.033) : 0;
       const divNetTotal = divTotalGross - divTaxTotal;
 
+      // --- 공통 스타일 정의 ---
+      const headerStyle = {
+        fill: { fgColor: { rgb: "2F5597" } },
+        font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 },
+        alignment: { vertical: "center", horizontal: "center" },
+        border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+      };
+      const cellStyle = {
+        font: { sz: 9 },
+        alignment: { vertical: "center", horizontal: "center" },
+        border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+      };
+      const numberStyle = {
+        ...cellStyle,
+        alignment: { vertical: "center", horizontal: "right" }
+      };
+      const graySubtotalStyle = {
+        fill: { fgColor: { rgb: "F2F2F2" } },
+        font: { bold: true, sz: 9, color: { rgb: "1E293B" } },
+        alignment: { vertical: "center", horizontal: "center" },
+        border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+      };
+      const titleStyle = {
+        font: { bold: true, sz: 16 },
+        alignment: { vertical: "center", horizontal: "center" }
+      };
+
+      const applySheetColWidths = (ws: any, rows: any[][]) => {
+        const colWidths = rows.reduce((acc, row) => {
+          row.forEach((cell, i) => {
+            let str = '';
+            if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+            else if (cell !== null && cell !== undefined) str = cell.toString();
+            const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+            if (!acc[i] || len > acc[i]) acc[i] = len;
+          });
+          return acc;
+        }, [] as number[]);
+        ws['!cols'] = colWidths.map(w => ({ wch: Math.min(Math.max(w + 4, 10), 45) }));
+      };
+
       // 시트 1: [사업단 총괄 요약]
       const summarySheetData: any[][] = [
         [`【 ${division.name} 정산 종합 보고서 】`],
@@ -3797,15 +3840,15 @@ const ERP_Dashboard = () => {
         ['구분', '총 구좌수', '판매수수료', '촉진비', '수수료 소계', '유지수수료', '특수수당', '총 발생액', '원천세(3.3%)', '최종 실지급액'],
         [
           '합계',
-          divTotalCount,
-          divTotalSales,
-          divTotalPromo,
-          divTotalGeneral,
-          divTotalMaintenance,
-          divTotalSpecial,
-          divTotalGross,
-          divTaxTotal,
-          divNetTotal
+          { v: divTotalCount, t: 'n', z: '#,##0' },
+          { v: divTotalSales, t: 'n', z: '#,##0' },
+          { v: divTotalPromo, t: 'n', z: '#,##0' },
+          { v: divTotalGeneral, t: 'n', z: '#,##0' },
+          { v: divTotalMaintenance, t: 'n', z: '#,##0' },
+          { v: divTotalSpecial, t: 'n', z: '#,##0' },
+          { v: divTotalGross, t: 'n', z: '#,##0' },
+          { v: divTaxTotal, t: 'n', z: '#,##0' },
+          { v: divNetTotal, t: 'n', z: '#,##0' }
         ],
         [],
         ['[ 소속 본부별 실적 현황 ]'],
@@ -3816,17 +3859,84 @@ const ERP_Dashboard = () => {
         summarySheetData.push([
           idx + 1,
           row.hqName,
-          row.count,
-          row.salesSum,
-          row.promoSum,
-          row.generalSum,
-          row.maintenanceSum,
-          row.specialSum,
-          row.grossTotal
+          { v: row.count, t: 'n', z: '#,##0' },
+          { v: row.salesSum, t: 'n', z: '#,##0' },
+          { v: row.promoSum, t: 'n', z: '#,##0' },
+          { v: row.generalSum, t: 'n', z: '#,##0' },
+          { v: row.maintenanceSum, t: 'n', z: '#,##0' },
+          { v: row.specialSum, t: 'n', z: '#,##0' },
+          { v: row.grossTotal, t: 'n', z: '#,##0' }
         ]);
       });
 
+      // 소속 본부별 실적 현황 하단 총합계 행
+      summarySheetData.push([
+        '총합계',
+        `${hqSummaries.length}개 본부`,
+        { v: divTotalCount, t: 'n', z: '#,##0' },
+        { v: divTotalSales, t: 'n', z: '#,##0' },
+        { v: divTotalPromo, t: 'n', z: '#,##0' },
+        { v: divTotalGeneral, t: 'n', z: '#,##0' },
+        { v: divTotalMaintenance, t: 'n', z: '#,##0' },
+        { v: divTotalSpecial, t: 'n', z: '#,##0' },
+        { v: divTotalGross, t: 'n', z: '#,##0' }
+      ]);
+
       const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetData);
+      applySheetColWidths(wsSummary, summarySheetData);
+      wsSummary['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
+
+      // 시트 1 스타일 적용
+      const rangeSummary = XLSX.utils.decode_range(wsSummary['!ref'] || 'A1:A1');
+      for (let R = rangeSummary.s.r; R <= rangeSummary.e.r; ++R) {
+        let isSubtotalRow = false;
+        for (let C = rangeSummary.s.c; C <= rangeSummary.e.c; ++C) {
+          const checkAddr = XLSX.utils.encode_cell({ r: R, c: C });
+          const cellVal = wsSummary[checkAddr] ? String(wsSummary[checkAddr].v || '') : '';
+          if (cellVal.includes('합계') || cellVal.includes('총합계') || cellVal.includes('소계')) {
+            isSubtotalRow = true;
+            break;
+          }
+        }
+
+        for (let C = rangeSummary.s.c; C <= rangeSummary.e.c; ++C) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!wsSummary[addr]) continue;
+
+          if (R === 0) {
+            wsSummary[addr].s = titleStyle;
+            continue;
+          }
+          if (R === 1) {
+            wsSummary[addr].s = { font: { sz: 10, bold: true, color: { rgb: "475569" } }, alignment: { vertical: "center", horizontal: "left" } };
+            continue;
+          }
+
+          const val = String(wsSummary[addr].v || '');
+          const isHeader = [
+            '구분', '총 구좌수', '판매수수료', '촉진비', '수수료 소계', '유지수수료', '특수수당', '총 발생액', '원천세(3.3%)', '최종 실지급액',
+            '번호', '본부명', '실적건수', '본부 정산합계', '사업단명', '정산유형', '입금은행', '계좌번호', '예금주', '지급방식', '소속 본부수'
+          ].some(h => val === h) || (val.startsWith('[') && val.endsWith(']'));
+
+          if (isHeader) {
+            wsSummary[addr].s = headerStyle;
+            continue;
+          }
+
+          if (isSubtotalRow) {
+            wsSummary[addr].s = { ...graySubtotalStyle };
+            if (wsSummary[addr].t === 'n') {
+              wsSummary[addr].s.alignment = { vertical: 'center', horizontal: 'right' };
+            }
+            continue;
+          }
+
+          wsSummary[addr].s = { ...cellStyle };
+          if (wsSummary[addr].t === 'n') {
+            wsSummary[addr].s = { ...numberStyle };
+          }
+        }
+      }
       XLSX.utils.book_append_sheet(wb, wsSummary, '사업단총괄요약');
 
       // 시트 2: [소속 본부별 계약 명세]
@@ -3834,9 +3944,27 @@ const ERP_Dashboard = () => {
         ['본부명', '회원명', '계약일자', '상품명', '상태', '지사', '영업사원', '판매수수료', '촉진비', '총수수료', '지급일']
       ];
 
+      let detailTotalSales = 0;
+      let detailTotalPromo = 0;
+      let detailTotalComm = 0;
+      let detailTotalCount = 0;
+
       hqSummaries.forEach(row => {
+        let hqSubSales = 0;
+        let hqSubPromo = 0;
+        let hqSubComm = 0;
+
         row.items.forEach(item => {
           const { totalCommission, salesComm } = calculateCommissionDetails(item, statsMap);
+          const promo = totalCommission - salesComm;
+          hqSubSales += salesComm;
+          hqSubPromo += promo;
+          hqSubComm += totalCommission;
+          detailTotalSales += salesComm;
+          detailTotalPromo += promo;
+          detailTotalComm += totalCommission;
+          detailTotalCount++;
+
           hqDetailSheetData.push([
             item.hq,
             item.memName,
@@ -3845,15 +3973,84 @@ const ERP_Dashboard = () => {
             item.status,
             item.branch,
             item.empName,
-            salesComm,
-            totalCommission - salesComm,
-            totalCommission,
+            { v: salesComm, t: 'n', z: '#,##0' },
+            { v: promo, t: 'n', z: '#,##0' },
+            { v: totalCommission, t: 'n', z: '#,##0' },
             getDisplayPayDate(item) || item.payDate
           ]);
         });
+
+        if (row.items.length > 0) {
+          hqDetailSheetData.push([
+            `[${row.hqName}] 소계`,
+            '',
+            '',
+            '',
+            '',
+            '',
+            `${row.items.length}건`,
+            { v: hqSubSales, t: 'n', z: '#,##0' },
+            { v: hqSubPromo, t: 'n', z: '#,##0' },
+            { v: hqSubComm, t: 'n', z: '#,##0' },
+            ''
+          ]);
+        }
       });
 
+      if (detailTotalCount > 0) {
+        hqDetailSheetData.push([
+          '총합계',
+          '',
+          '',
+          '',
+          '',
+          '',
+          `${detailTotalCount}건`,
+          { v: detailTotalSales, t: 'n', z: '#,##0' },
+          { v: detailTotalPromo, t: 'n', z: '#,##0' },
+          { v: detailTotalComm, t: 'n', z: '#,##0' },
+          ''
+        ]);
+      }
+
       const wsDetail = XLSX.utils.aoa_to_sheet(hqDetailSheetData);
+      applySheetColWidths(wsDetail, hqDetailSheetData);
+
+      const rangeDetail = XLSX.utils.decode_range(wsDetail['!ref'] || 'A1:A1');
+      for (let R = rangeDetail.s.r; R <= rangeDetail.e.r; ++R) {
+        let isSubtotalRow = false;
+        for (let C = rangeDetail.s.c; C <= rangeDetail.e.c; ++C) {
+          const checkAddr = XLSX.utils.encode_cell({ r: R, c: C });
+          const cellVal = wsDetail[checkAddr] ? String(wsDetail[checkAddr].v || '') : '';
+          if (cellVal.includes('소계') || cellVal.includes('총합계')) {
+            isSubtotalRow = true;
+            break;
+          }
+        }
+
+        for (let C = rangeDetail.s.c; C <= rangeDetail.e.c; ++C) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!wsDetail[addr]) continue;
+
+          if (R === 0) {
+            wsDetail[addr].s = headerStyle;
+            continue;
+          }
+
+          if (isSubtotalRow) {
+            wsDetail[addr].s = { ...graySubtotalStyle };
+            if (wsDetail[addr].t === 'n') {
+              wsDetail[addr].s.alignment = { vertical: 'center', horizontal: 'right' };
+            }
+            continue;
+          }
+
+          wsDetail[addr].s = { ...cellStyle };
+          if (wsDetail[addr].t === 'n') {
+            wsDetail[addr].s = { ...numberStyle };
+          }
+        }
+      }
       XLSX.utils.book_append_sheet(wb, wsDetail, '계약상세명세');
 
       // 시트 3: [유지수수료 및 특수수당 명세]
@@ -3861,37 +4058,95 @@ const ERP_Dashboard = () => {
         ['구분', '본부명', '상품명/항목', '대상월/회차', '지급금액', '비고']
       ];
 
+      let extraTotalAmt = 0;
+      let extraTotalCount = 0;
+
       targetHqs.forEach(hqName => {
         const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
         hqMaintenancePayouts.forEach(m => {
+          extraTotalAmt += m.amount;
+          extraTotalCount++;
           extraSheetData.push([
             '유지수수료',
             hqName,
             m.productName || '헬스케어',
             m.month || '-',
-            m.amount,
+            { v: m.amount, t: 'n', z: '#,##0' },
             `${m.count || 1}건`
           ]);
         });
         const specialSum = (specialAdditions[hqName] || 0) as number;
         if (specialSum > 0) {
+          extraTotalAmt += specialSum;
+          extraTotalCount++;
           extraSheetData.push([
             '특수수당',
             hqName,
             '특수 수당 합계',
             payDateSample,
-            specialSum,
+            { v: specialSum, t: 'n', z: '#,##0' },
             '-'
           ]);
         }
       });
 
+      if (extraTotalCount > 0) {
+        extraSheetData.push([
+          '합계',
+          '',
+          '',
+          `${extraTotalCount}건`,
+          { v: extraTotalAmt, t: 'n', z: '#,##0' },
+          ''
+        ]);
+      }
+
       const wsExtra = XLSX.utils.aoa_to_sheet(extraSheetData);
+      applySheetColWidths(wsExtra, extraSheetData);
+
+      const rangeExtra = XLSX.utils.decode_range(wsExtra['!ref'] || 'A1:A1');
+      for (let R = rangeExtra.s.r; R <= rangeExtra.e.r; ++R) {
+        let isSubtotalRow = false;
+        for (let C = rangeExtra.s.c; C <= rangeExtra.e.c; ++C) {
+          const checkAddr = XLSX.utils.encode_cell({ r: R, c: C });
+          const cellVal = wsExtra[checkAddr] ? String(wsExtra[checkAddr].v || '') : '';
+          if (cellVal.includes('합계') || cellVal.includes('소계')) {
+            isSubtotalRow = true;
+            break;
+          }
+        }
+
+        for (let C = rangeExtra.s.c; C <= rangeExtra.e.c; ++C) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!wsExtra[addr]) continue;
+
+          if (R === 0) {
+            wsExtra[addr].s = headerStyle;
+            continue;
+          }
+
+          if (isSubtotalRow) {
+            wsExtra[addr].s = { ...graySubtotalStyle };
+            if (wsExtra[addr].t === 'n') {
+              wsExtra[addr].s.alignment = { vertical: 'center', horizontal: 'right' };
+            }
+            continue;
+          }
+
+          wsExtra[addr].s = { ...cellStyle };
+          if (wsExtra[addr].t === 'n') {
+            wsExtra[addr].s = { ...numberStyle };
+          }
+        }
+      }
       XLSX.utils.book_append_sheet(wb, wsExtra, '유지비및특수수당');
 
       const cleanPayDate = payDateSample.replace(/[-./\s]/g, '');
       const fileName = `[사업단정산서]_${division.name}_${cleanPayDate || '정산'}.xlsx`;
-      XLSX.writeFile(wb, fileName);
+
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+      const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
+      executeDownload(blob, fileName);
       setNotification({ message: `${division.name} 사업단 정산서 엑셀이 다운로드되었습니다.`, type: 'success' });
     } catch (e: any) {
       console.error('Division Settlement Export failed:', e);
@@ -6322,6 +6577,7 @@ const ERP_Dashboard = () => {
                   >
                     <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
                       {[
+                        { dot: 'bg-blue-600', label: '월별 본부 정산서', action: () => setIsMonthlySettlementModalOpen(true) },
                         { dot: 'bg-purple-500', label: '수동 수수료 정산', action: () => setIsManualSettlementModalOpen(true) },
                         { dot: 'bg-amber-500', label: '수수료 특이사항', action: () => setIsCommissionNotesModalOpen(true) },
                         { dot: 'bg-emerald-500', label: '유지수수료 현황 조회', action: () => { setMaintenanceTab('eligible'); setIsMaintenanceStatusModalOpen(true); } },
@@ -7185,6 +7441,14 @@ const ERP_Dashboard = () => {
                         </span>
                       </div>
                       <div className="flex gap-2">
+                        <button
+                          onClick={() => setIsMonthlySettlementModalOpen(true)}
+                          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                          title="월별 본부별 지급 총액 및 상세 정산서 조회"
+                        >
+                          <Building size={14} />
+                          월별 본부 정산서
+                        </button>
                         <div className="relative flex items-center">
                           <button
                             onClick={() => setPreviewTarget('ALL')}
@@ -7212,6 +7476,23 @@ const ERP_Dashboard = () => {
                                 <button onClick={() => setIsExportDropdownOpen(false)} className="hover:text-slate-600"><X size={12} /></button>
                               </div>
                               <div className="max-h-96 overflow-y-auto custom-scrollbar divide-y divide-slate-100 text-xs">
+                                {/* 0. 월별 본부 정산서 */}
+                                <div className="p-1.5 bg-blue-50/50">
+                                  <button
+                                    onClick={() => {
+                                      setIsMonthlySettlementModalOpen(true);
+                                      setIsExportDropdownOpen(false);
+                                    }}
+                                    className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-blue-100/70 rounded-lg text-blue-800 font-bold text-left text-xs transition-colors"
+                                  >
+                                    <span className="flex items-center gap-1.5">
+                                      <Building size={13} className="text-blue-600" />
+                                      월별 본부 정산서 조회
+                                    </span>
+                                    <ChevronRight size={13} className="text-blue-500" />
+                                  </button>
+                                </div>
+
                                 {/* 1. 전사 통합 정산서 */}
                                 <div className="p-1.5 bg-slate-50/70">
                                   <div className="text-[10px] font-black text-slate-500 px-2 py-1 flex items-center gap-1">
@@ -11863,6 +12144,17 @@ const ERP_Dashboard = () => {
             isOpen={isMembershipApplicationModalOpen}
             onClose={() => setIsMembershipApplicationModalOpen(false)}
             data={data}
+          />
+          <MonthlySettlementModal
+            isOpen={isMonthlySettlementModalOpen}
+            onClose={() => setIsMonthlySettlementModalOpen(false)}
+            data={data}
+            hqSettings={hqSettings}
+            divisionSettings={divisionSettings}
+            maintenancePayouts={maintenancePayouts}
+            globalIncentiveRules={globalIncentiveRules}
+            calculateCommissionDetails={calculateCommissionDetails}
+            onExportHqSettlement={exportProfessionalSettlement}
           />
           <CustomDialog
             isOpen={dialogState.isOpen}
