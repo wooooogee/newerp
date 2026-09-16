@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ChevronUp, ArrowUp, KeyRound, CreditCard, Hash, Phone, Building, Maximize2, Eye, Copy, Info } from 'lucide-react';
+import { Search, LogOut, RefreshCw, Calendar, User, Package, Truck, FileText, Check, X, Edit2, ChevronDown, ChevronUp, ChevronRight, ArrowUp, KeyRound, CreditCard, Hash, Phone, Building, Maximize2, Eye, Copy, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
@@ -741,6 +741,53 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
     return list.sort((a, b) => b.month.localeCompare(a.month));
   }, [scopeContractData]);
+
+  // 6-4. 배송완료일(N열) 기준 월별 실제 배송완료 건수 통계 (최근 순 정렬)
+  const actualDeliveryMonthStats = useMemo(() => {
+    let base = data.filter(item => {
+      const isSigned = (item.status || '').trim() === '가입';
+      const isComplete = (item.deliveryStatus || '').trim() === '배송완료';
+      return isSigned && isComplete;
+    });
+
+    if (displayMode !== '구좌수') {
+      const uniqueMap = new Map();
+      base.forEach(item => {
+        if (item.rentalNo && !uniqueMap.has(item.rentalNo)) {
+          uniqueMap.set(item.rentalNo, item);
+        } else if (!item.rentalNo) {
+          uniqueMap.set(item.uniqueKey, item);
+        }
+      });
+      base = Array.from(uniqueMap.values());
+    }
+
+    if (isBranchMobile && branchViewScope === 'self') {
+      base = base.filter(item => isMyContract(item));
+    }
+
+    if (hqFilter !== '전체') {
+      const filterNorm = normOrg(hqFilter);
+      base = base.filter(item => {
+        const itemHqNorm = normOrg(item.hq);
+        return itemHqNorm === filterNorm || (filterNorm !== '' && itemHqNorm.includes(filterNorm)) || (itemHqNorm !== '' && filterNorm.includes(itemHqNorm));
+      });
+    }
+
+    const monthMap = new Map<string, number>();
+    base.forEach(item => {
+      const cleanDate = (item.deliveryDate || '').replace(/[./]/g, '-');
+      const match = cleanDate.match(/^(\d{4})-(\d{2})/);
+      if (match) {
+        const mStr = `${match[1]}-${match[2]}`;
+        monthMap.set(mStr, (monthMap.get(mStr) || 0) + 1);
+      }
+    });
+
+    return Array.from(monthMap.entries())
+      .map(([month, count]) => ({ month, count }))
+      .sort((a, b) => b.month.localeCompare(a.month));
+  }, [data, displayMode, isBranchMobile, branchViewScope, currentUser, hqFilter]);
 
   // 메모 편집 시작
   const handleStartEdit = (rowIdx: number, currentMemo: string) => {
@@ -1514,6 +1561,105 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
         ) : (
           /* 요약 보고서 (대표님 보고서) 전용 뷰 */
           <div className="space-y-4">
+            {/* 해당월(배송일자 기준) 실제 배송완료 총 건수 안내 카드 */}
+            <div className="p-4 bg-white border border-emerald-200 rounded-2xl shadow-sm space-y-3">
+              {/* 상단 헤더 및 대표 건수 */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0 mt-0.5">
+                    <Truck size={16} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-black text-slate-900">
+                        {monthFilter === '전체' ? '전체 기간' : `${parseInt(monthFilter.split('-')[1], 10)}월`} 실제 배송완료
+                      </span>
+                      <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold px-1.5 py-0.5 rounded-md">
+                        실제 배송일 기준
+                      </span>
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 mt-0.5">
+                      {monthFilter === '전체' 
+                        ? '전체 기간 동안 배송/설치 완료된 총 실적' 
+                        : `${monthFilter.replace('-', '년 ')}월에 실제 배송/설치 완료된 총 실적`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right shrink-0">
+                  <div className="flex items-baseline justify-end gap-1">
+                    <span className="text-2xl font-black text-emerald-600 font-mono tracking-tight">
+                      {summary.completed.toLocaleString()}
+                    </span>
+                    <span className="text-xs font-bold text-slate-600">
+                      {displayMode === '구좌수' ? '구좌' : '건'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('detail');
+                      setDeliveryFilter('배송완료');
+                    }}
+                    className="mt-1 text-[10px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-lg transition-all inline-flex items-center gap-0.5 active:scale-95"
+                  >
+                    <span>완료 상세목록</span>
+                    <ChevronRight size={11} />
+                  </button>
+                </div>
+              </div>
+
+              {/* 배송월 빠른 선택 칩 (월별 배송완료 건수 한눈에 보기 & 터치 시 해당 월로 필터 변경) */}
+              {actualDeliveryMonthStats.length > 0 && (
+                <div className="pt-2 border-t border-slate-100">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-bold text-slate-500">배송월별 완료 건수 (터치 시 월 변경)</span>
+                    <span className="text-[9.5px] text-slate-400">총 {actualDeliveryMonthStats.length}개 월</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                    {actualDeliveryMonthStats.slice(0, 8).map((stat) => {
+                      const isSelected = monthFilter === stat.month;
+                      const monthNum = parseInt(stat.month.split('-')[1], 10);
+                      return (
+                        <button
+                          key={stat.month}
+                          type="button"
+                          onClick={() => setMonthFilter(stat.month)}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-bold shrink-0 transition-all flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-emerald-600 text-white shadow-xs shadow-emerald-600/30 ring-2 ring-emerald-600/20'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95'
+                          }`}
+                        >
+                          <span>{monthNum}월</span>
+                          <span className={`text-[10px] font-mono font-semibold px-1 rounded ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                            {stat.count}건
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {monthFilter !== '전체' && (
+                      <button
+                        type="button"
+                        onClick={() => setMonthFilter('전체')}
+                        className="px-2 py-1 rounded-xl text-[10px] font-bold shrink-0 bg-slate-100 text-slate-500 hover:bg-slate-200 transition-all"
+                      >
+                        전체보기
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* 안내 노트 */}
+              <div className="bg-slate-50 border border-slate-100 rounded-xl p-2 flex items-start gap-1.5 text-[10.5px] text-slate-600 leading-tight">
+                <Info size={12} className="text-emerald-600 shrink-0 mt-0.5" />
+                <span>
+                  위 건수는 <strong>실제 배송완료일(N열)</strong> 기준이며, 아래 <strong>계약월별 현황</strong>은 계약월 기준 코호트 완료율입니다.
+                </span>
+              </div>
+            </div>
+
             {/* 계약월별 배송완료 코호트 실적 표 */}
             <div className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-3">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
