@@ -33,7 +33,48 @@ interface HqMonthlyStat {
   accountNumber: string;
   accountHolder: string;
   items: any[];
+  specialItems: any[];
 }
+
+// 특수수당 본부/사업단 매칭 헬퍼 함수
+const isHqMatchedForSpecialRule = (
+  rule: any,
+  rawHqName: string,
+  divisionList: any[] = []
+): boolean => {
+  const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '');
+  const cleanHq = normalizeHq(rawHqName);
+  if (!cleanHq) return false;
+
+  const targetDivisions = rule.targetDivisions || [];
+  const targetHqs = rule.targetHqs || (rule.targetHq ? [rule.targetHq] : ['ALL']);
+
+  const hasDivisions = targetDivisions.length > 0;
+  const hasHqs = targetHqs.length > 0;
+
+  // 1. 전체 적용 여부
+  if (targetDivisions.includes('ALL') || (!hasDivisions && targetHqs.includes('ALL')) || (!hasDivisions && !hasHqs)) {
+    return true;
+  }
+
+  // 2. 사업단 매칭 확인 (소속 본부 일괄 적용)
+  if (hasDivisions) {
+    const isDivMatch = (divisionList || []).some((div: any) => {
+      const isTargetDiv = targetDivisions.includes(div.id) || targetDivisions.includes(div.name);
+      if (!isTargetDiv) return false;
+      return (div.hqNames || []).some((h: string) => normalizeHq(h) === cleanHq);
+    });
+    if (isDivMatch) return true;
+  }
+
+  // 3. 개별 본부 매칭 확인
+  if (hasHqs && !targetHqs.includes('ALL')) {
+    const isDirectHqMatch = targetHqs.some((h: string) => normalizeHq(h) === cleanHq);
+    if (isDirectHqMatch) return true;
+  }
+
+  return false;
+};
 
 export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   isOpen,
@@ -135,7 +176,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           bankName: setting?.bankName || '-',
           accountNumber: setting?.accountNumber || '-',
           accountHolder: setting?.accountHolder || '-',
-          items: []
+          items: [],
+          specialItems: []
         });
       }
 
@@ -176,7 +218,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           bankName: setting?.bankName || '-',
           accountNumber: setting?.accountNumber || '-',
           accountHolder: setting?.accountHolder || '-',
-          items: []
+          items: [],
+          specialItems: []
         });
       }
 
@@ -184,7 +227,217 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       stat.maintenanceSum += (mItem.amount || 0);
     });
 
-    // 3) 세금 및 최종 실지급액 계산
+    // 3) 특수수당 (글로벌 인센티브 규칙) 집계
+    if (globalIncentiveRules && globalIncentiveRules.length > 0) {
+      const year = parseInt(selectedMonth.split('-')[0]);
+      const month = parseInt(selectedMonth.split('-')[1]);
+      const prevDate = new Date(year, month - 2, 1);
+      const prevYearStr = String(prevDate.getFullYear());
+      const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
+      const prevMonthKey = `${prevYearStr}-${prevMonthStr}`;
+
+      globalIncentiveRules.forEach(rule => {
+        if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
+
+        const isSelfHq = !rule.targetName || rule.targetName.trim() === '' || rule.targetName === 'SELF_HQ' || rule.targetName === '판매본부' || rule.targetName === '해당본부' || rule.targetName === '본부';
+
+        const processedRentalNos = new Set<string>();
+        let matchedCount = 0;
+        let commission = 0;
+        const matchedItems: any[] = [];
+
+        (data || []).forEach(item => {
+          if ((item.status?.includes('취소') || item.status?.includes('해약')) && !item.payDate?.trim()) return;
+
+          // 렌탈계약번호 기준 중복제거 (본부 공급수수료 isSelfHq인 경우에만 1회 지급 중복제거)
+          if (isSelfHq) {
+            const rentalKey = item.rentalNo || item.resNo;
+            if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+              if (processedRentalNos.has(rentalKey)) return;
+            }
+          }
+
+          let isMatch = false;
+          const hasAll = (rule.targetDivisions?.includes('ALL')) || 
+            ((!rule.targetDivisions || rule.targetDivisions.length === 0) && 
+             ((rule.targetHqs && rule.targetHqs.length > 0 ? rule.targetHqs.includes('ALL') : (rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === ''))));
+
+          if (isSelfHq) {
+            isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
+          } else if (hasAll) {
+            isMatch = rule.targetName ? (item.empName?.includes(rule.targetName) || false) : true;
+          } else {
+            isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
+          }
+          if (!isMatch) return;
+
+          // 상품 매칭
+          if (rule.targetProducts && !rule.targetProducts.includes('ALL')) {
+            const normItemProd = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
+            if (!rule.targetProducts.some((p: string) => normItemProd.includes(p.replace(/[\s()]/g, '').toLowerCase()))) return;
+          }
+
+          if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+            const isItemMatch = rule.targetItems.some((prod: string) => {
+              const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
+              const cleanRuleProd = prod.replace(/\s+/g, '');
+              return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
+            });
+            if (!isItemMatch) return;
+          }
+
+          // 실적 기준일 (DELIVERY: 배송일자 vs CONTRACT: 계약일자)
+          let dateStr = '';
+          if (rule.baseDateType === 'DELIVERY') {
+            dateStr = item.deliveryDate || '';
+            if (!dateStr) return;
+            if (item.deliveryStatus && !item.deliveryStatus.includes('완료') && item.deliveryStatus !== '-' && item.deliveryStatus.trim() !== '') return;
+          } else {
+            dateStr = item.contractDate || '';
+          }
+
+          // 해당 월(selectedMonth) 정산 대상 매칭
+          let isMatchedDate = false;
+          const pDate = item.payDate || '';
+          const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
+          const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
+
+          if (rule.payDay && rule.payDay > 0) {
+            // 지정일 수당 (다음달 N일 지급: 예: 25일)
+            if (itemPayMonth === selectedMonth) {
+              isMatchedDate = true;
+            } else {
+              // 실적기준일이 전월(prevMonthKey)인 건
+              const dMatch = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+              if (dMatch) {
+                let y = dMatch[1];
+                if (y.length === 2) y = '20' + y;
+                const m = dMatch[2].padStart(2, '0');
+                if (`${y}-${m}` === prevMonthKey) {
+                  isMatchedDate = true;
+                }
+              }
+            }
+          } else {
+            // 기존 정산 지급일과 동일 (연동)
+            if (itemPayMonth === selectedMonth) {
+              isMatchedDate = true;
+            } else if (!itemPayMonth) {
+              // 지급일 미지정 시 당월 실적기준일 건 매칭
+              const dMatch = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+              if (dMatch) {
+                let y = dMatch[1];
+                if (y.length === 2) y = '20' + y;
+                const m = dMatch[2].padStart(2, '0');
+                if (`${y}-${m}` === selectedMonth) {
+                  isMatchedDate = true;
+                }
+              }
+            }
+          }
+
+          if (!isMatchedDate) return;
+
+          const rentalKey = item.rentalNo || item.resNo;
+          if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+            processedRentalNos.add(rentalKey);
+          }
+
+          let itemComm = 0;
+          if (rule.useInstallments && rule.installments) {
+            const paidCount = item.hcPaidCount || 0;
+            const applicableInstallment = rule.installments.find((ins: any) => paidCount >= ins.startRound && paidCount <= ins.endRound);
+            if (applicableInstallment) {
+              itemComm = applicableInstallment.amount;
+            }
+          } else {
+            itemComm = rule.commissionPerUnit;
+          }
+
+          const specialItemInfo = {
+            id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
+            incentiveName: rule.incentiveName || '특수수당',
+            memName: item.memName || '-',
+            prodName: item.prodName || '-',
+            amount: itemComm,
+            contractDate: item.contractDate || '-',
+            deliveryDate: item.deliveryDate || '-',
+            payDate: item.payDate || '-'
+          };
+
+          if (isSelfHq) {
+            const hqName = item.hq;
+            if (hqName && itemComm > 0) {
+              if (!statsMap.has(hqName)) {
+                const setting = (hqSettings || []).find(s => s.hqName === hqName);
+                const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+                statsMap.set(hqName, {
+                  hqName,
+                  count: 0,
+                  salesSum: 0,
+                  promoSum: 0,
+                  generalSum: 0,
+                  maintenanceSum: 0,
+                  specialSum: 0,
+                  grossTotal: 0,
+                  tax: 0,
+                  netTotal: 0,
+                  settlementType: setting?.settlementType || (isIndiv ? '개인' : '사업자'),
+                  bankName: setting?.bankName || '-',
+                  accountNumber: setting?.accountNumber || '-',
+                  accountHolder: setting?.accountHolder || '-',
+                  items: [],
+                  specialItems: []
+                });
+              }
+              const stat = statsMap.get(hqName)!;
+              stat.specialSum += itemComm;
+              stat.specialItems.push(specialItemInfo);
+            }
+          } else {
+            matchedCount++;
+            commission += itemComm;
+            matchedItems.push(specialItemInfo);
+          }
+        });
+
+        // 타겟 지정형 수당 (예: 모델비, 컨설팅비 등)
+        if (!isSelfHq && rule.targetName) {
+          const finalAmount = Math.max(commission, rule.minimumGuarantee || 0);
+          if (finalAmount > 0) {
+            const targetName = rule.targetName;
+            if (!statsMap.has(targetName)) {
+              const setting = (hqSettings || []).find(s => s.hqName === targetName);
+              const isIndiv = setting?.settlementType?.includes('개인') || targetName === '글로씨';
+              statsMap.set(targetName, {
+                hqName: targetName,
+                count: matchedCount,
+                salesSum: 0,
+                promoSum: 0,
+                generalSum: 0,
+                maintenanceSum: 0,
+                specialSum: 0,
+                grossTotal: 0,
+                tax: 0,
+                netTotal: 0,
+                settlementType: setting?.settlementType || (isIndiv ? '개인' : '사업자'),
+                bankName: setting?.bankName || '-',
+                accountNumber: setting?.accountNumber || '-',
+                accountHolder: setting?.accountHolder || '-',
+                items: [],
+                specialItems: []
+              });
+            }
+            const stat = statsMap.get(targetName)!;
+            stat.specialSum += finalAmount;
+            stat.specialItems.push(...matchedItems);
+            if (stat.count === 0) stat.count = matchedCount;
+          }
+        }
+      });
+    }
+
+    // 4) 세금 및 최종 실지급액 계산
     statsMap.forEach(stat => {
       stat.grossTotal = stat.generalSum + stat.maintenanceSum + stat.specialSum;
       const isPersonal = stat.settlementType.includes('개인');
@@ -193,7 +446,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
 
     return Array.from(statsMap.values());
-  }, [data, selectedMonth, hqSettings, maintenancePayouts, calculateCommissionDetails, globalStatsMap]);
+  }, [data, selectedMonth, hqSettings, maintenancePayouts, globalIncentiveRules, divisionSettings, calculateCommissionDetails, globalStatsMap]);
 
   // 3-1. 현재 월의 전체 고유 본부 목록
   const allAvailableHqs = useMemo(() => {
@@ -1169,13 +1422,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                     <div><span className="text-slate-400">판매수수료:</span> <strong className="font-mono text-slate-800">{selectedHqDetail.salesSum.toLocaleString()}원</strong></div>
                     <div><span className="text-slate-400">촉진비:</span> <strong className="font-mono text-slate-800">{selectedHqDetail.promoSum.toLocaleString()}원</strong></div>
                     <div><span className="text-slate-400">유지수수료:</span> <strong className="font-mono text-emerald-600">{selectedHqDetail.maintenanceSum.toLocaleString()}원</strong></div>
+                    <div><span className="text-slate-400">특수수당:</span> <strong className="font-mono text-purple-600">{selectedHqDetail.specialSum.toLocaleString()}원</strong></div>
                     <div><span className="text-slate-400">최종 실지급액:</span> <strong className="font-mono text-indigo-700 text-sm">{selectedHqDetail.netTotal.toLocaleString()}원</strong></div>
                     <div className="ml-auto text-slate-500">
                       <span>계좌: {selectedHqDetail.bankName} {selectedHqDetail.accountNumber} ({selectedHqDetail.accountHolder})</span>
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-auto p-4 custom-scrollbar">
+                  <div className="flex-1 overflow-auto p-4 custom-scrollbar space-y-4">
                     <table className="w-full text-xs text-left border border-slate-200 rounded-lg overflow-hidden">
                       <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 sticky top-0">
                         <tr>
@@ -1211,6 +1465,46 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                         })}
                       </tbody>
                     </table>
+
+                    {/* 특수수당 상세 목록 */}
+                    {selectedHqDetail.specialItems && selectedHqDetail.specialItems.length > 0 && (
+                      <div className="pt-2 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-purple-600" />
+                            특수수당 내역 ({selectedHqDetail.specialItems.length}건, 총 {selectedHqDetail.specialSum.toLocaleString()}원)
+                          </h4>
+                        </div>
+                        <table className="w-full text-xs text-left border border-purple-200 rounded-lg overflow-hidden bg-purple-50/10">
+                          <thead className="bg-purple-100/60 text-purple-900 font-bold border-b border-purple-200">
+                            <tr>
+                              <th className="px-3 py-2 text-center w-10">No</th>
+                              <th className="px-3 py-2">수당명</th>
+                              <th className="px-3 py-2">회원명</th>
+                              <th className="px-3 py-2">상품명</th>
+                              <th className="px-3 py-2 text-right">수당금액</th>
+                              <th className="px-3 py-2 text-center">계약일자</th>
+                              <th className="px-3 py-2 text-center">배송일자</th>
+                              <th className="px-3 py-2 text-center">지급일자</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-purple-100">
+                            {selectedHqDetail.specialItems.map((spItem, idx) => (
+                              <tr key={idx} className="hover:bg-purple-50/40">
+                                <td className="px-3 py-1.5 text-center text-slate-400">{idx + 1}</td>
+                                <td className="px-3 py-1.5 font-bold text-purple-700">{spItem.incentiveName}</td>
+                                <td className="px-3 py-1.5 text-slate-800">{spItem.memName}</td>
+                                <td className="px-3 py-1.5 text-slate-700">{spItem.prodName}</td>
+                                <td className="px-3 py-1.5 text-right font-mono font-bold text-purple-700">{spItem.amount.toLocaleString()}원</td>
+                                <td className="px-3 py-1.5 text-center text-slate-500">{spItem.contractDate}</td>
+                                <td className="px-3 py-1.5 text-center text-slate-500">{spItem.deliveryDate}</td>
+                                <td className="px-3 py-1.5 text-center text-slate-500">{spItem.payDate}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               </motion.div>
