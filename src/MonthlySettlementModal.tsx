@@ -14,7 +14,8 @@ export interface MonthlySettlementModalProps {
   maintenancePayouts: any[];
   globalIncentiveRules: any[];
   calculateCommissionDetails: (item: any, countMap: Map<string, number>) => any;
-  onExportHqSettlement?: (hqName: string) => Promise<void>;
+  onExportHqSettlement?: (hqName: string, monthStr?: string) => Promise<void>;
+  calculateMaintenancePayouts?: (items: any[], monthStr?: string, ignoreDay?: boolean) => any[];
 }
 
 interface HqMonthlyStat {
@@ -34,6 +35,7 @@ interface HqMonthlyStat {
   accountHolder: string;
   items: any[];
   specialItems: any[];
+  maintenanceItems: any[];
 }
 
 // 특수수당 본부/사업단 매칭 헬퍼 함수
@@ -85,7 +87,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   maintenancePayouts,
   globalIncentiveRules,
   calculateCommissionDetails,
-  onExportHqSettlement
+  onExportHqSettlement,
+  calculateMaintenancePayouts
 }) => {
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -112,7 +115,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       }
     });
 
-    (maintenancePayouts || []).forEach(mItem => {
+    const maintList = calculateMaintenancePayouts
+      ? calculateMaintenancePayouts(data, undefined, true)
+      : (maintenancePayouts || []);
+
+    maintList.forEach(mItem => {
       const m = (mItem.month || mItem.payDate || '').match(/(\d{4})[-./](\d{1,2})/);
       if (m) {
         months.add(`${m[1]}-${m[2].padStart(2, '0')}`);
@@ -121,7 +128,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
     const sorted = Array.from(months).sort().reverse();
     return sorted;
-  }, [data, maintenancePayouts]);
+  }, [data, maintenancePayouts, calculateMaintenancePayouts]);
 
   // 기본 선택 월 설정 (최신 월)
   React.useEffect(() => {
@@ -177,7 +184,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           accountNumber: setting?.accountNumber || '-',
           accountHolder: setting?.accountHolder || '-',
           items: [],
-          specialItems: []
+          specialItems: [],
+          maintenanceItems: []
         });
       }
 
@@ -193,7 +201,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
 
     // 2) 유지수수료 집계
-    (maintenancePayouts || []).forEach(mItem => {
+    const currentMaintList = calculateMaintenancePayouts
+      ? calculateMaintenancePayouts(data, selectedMonth, true)
+      : (maintenancePayouts || []);
+
+    currentMaintList.forEach(mItem => {
       const m = (mItem.month || mItem.payDate || '').match(/(\d{4})[-./](\d{1,2})/);
       const mMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
 
@@ -219,12 +231,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           accountNumber: setting?.accountNumber || '-',
           accountHolder: setting?.accountHolder || '-',
           items: [],
-          specialItems: []
+          specialItems: [],
+          maintenanceItems: []
         });
       }
 
       const stat = statsMap.get(hq)!;
       stat.maintenanceSum += (mItem.amount || 0);
+      stat.maintenanceItems.push(mItem);
     });
 
     // 3) 특수수당 (글로벌 인센티브 규칙) 집계
@@ -387,7 +401,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                   accountNumber: setting?.accountNumber || '-',
                   accountHolder: setting?.accountHolder || '-',
                   items: [],
-                  specialItems: []
+                  specialItems: [],
+                  maintenanceItems: []
                 });
               }
               const stat = statsMap.get(hqName)!;
@@ -425,7 +440,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                 accountNumber: setting?.accountNumber || '-',
                 accountHolder: setting?.accountHolder || '-',
                 items: [],
-                specialItems: []
+                specialItems: [],
+                maintenanceItems: []
               });
             }
             const stat = statsMap.get(targetName)!;
@@ -446,7 +462,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
 
     return Array.from(statsMap.values());
-  }, [data, selectedMonth, hqSettings, maintenancePayouts, globalIncentiveRules, divisionSettings, calculateCommissionDetails, globalStatsMap]);
+  }, [data, selectedMonth, hqSettings, maintenancePayouts, globalIncentiveRules, divisionSettings, calculateCommissionDetails, globalStatsMap, calculateMaintenancePayouts]);
 
   // 3-1. 현재 월의 전체 고유 본부 목록
   const allAvailableHqs = useMemo(() => {
@@ -807,6 +823,119 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       }
     }
     XLSX.utils.book_append_sheet(wb, wsDetail, '계약상세명세');
+
+    // 3. 유지수수료 상세 명세 시트
+    const maintDetailRows: any[][] = [
+      ['본부명', '회원명', '계약일자', '상품명', '회차', '유지수수료금액', '지급일자']
+    ];
+
+    filteredAndSortedStats.forEach(stat => {
+      (stat.maintenanceItems || []).forEach(mItem => {
+        maintDetailRows.push([
+          mItem.hq || stat.hqName,
+          mItem.memName || '-',
+          mItem.contractDate || '-',
+          mItem.prodName || '-',
+          mItem.round ? `${mItem.round}회차` : '-',
+          { v: mItem.amount || 0, t: 'n', z: '#,##0' },
+          mItem.payDate || selectedMonth
+        ]);
+      });
+    });
+
+    if (maintDetailRows.length > 1) {
+      const wsMaintDetail = XLSX.utils.aoa_to_sheet(maintDetailRows);
+      const maintColWidths = maintDetailRows.reduce((acc, row) => {
+        row.forEach((cell, i) => {
+          let str = '';
+          if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+          else if (cell !== null && cell !== undefined) str = cell.toString();
+          const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+          if (!acc[i] || len > acc[i]) acc[i] = len;
+        });
+        return acc;
+      }, [] as number[]);
+      wsMaintDetail['!cols'] = maintColWidths.map(w => ({ wch: Math.min(Math.max(w + 4, 10), 40) }));
+
+      const rangeMaint = XLSX.utils.decode_range(wsMaintDetail['!ref'] || 'A1:A1');
+      for (let R = rangeMaint.s.r; R <= rangeMaint.e.r; ++R) {
+        for (let C = rangeMaint.s.c; C <= rangeMaint.e.c; ++C) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!wsMaintDetail[addr]) continue;
+          if (R === 0) {
+            wsMaintDetail[addr].s = {
+              fill: { fgColor: { rgb: "1E7E34" } },
+              font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 },
+              alignment: { vertical: "center", horizontal: "center" },
+              border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+            };
+          } else {
+            wsMaintDetail[addr].s = { ...cellStyle };
+            if (wsMaintDetail[addr].t === 'n') {
+              wsMaintDetail[addr].s = { ...numberStyle };
+            }
+          }
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, wsMaintDetail, '유지수수료명세');
+    }
+
+    // 4. 특수수당 상세 명세 시트
+    const specialDetailRows: any[][] = [
+      ['본부명', '수당명', '회원명', '상품명', '수당금액', '계약일자', '배송일자', '지급일자']
+    ];
+
+    filteredAndSortedStats.forEach(stat => {
+      (stat.specialItems || []).forEach(spItem => {
+        specialDetailRows.push([
+          stat.hqName,
+          spItem.incentiveName || '특수수당',
+          spItem.memName || '-',
+          spItem.prodName || '-',
+          { v: spItem.amount || 0, t: 'n', z: '#,##0' },
+          spItem.contractDate || '-',
+          spItem.deliveryDate || '-',
+          spItem.payDate || '-'
+        ]);
+      });
+    });
+
+    if (specialDetailRows.length > 1) {
+      const wsSpecialDetail = XLSX.utils.aoa_to_sheet(specialDetailRows);
+      const spColWidths = specialDetailRows.reduce((acc, row) => {
+        row.forEach((cell, i) => {
+          let str = '';
+          if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+          else if (cell !== null && cell !== undefined) str = cell.toString();
+          const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+          if (!acc[i] || len > acc[i]) acc[i] = len;
+        });
+        return acc;
+      }, [] as number[]);
+      wsSpecialDetail['!cols'] = spColWidths.map(w => ({ wch: Math.min(Math.max(w + 4, 10), 40) }));
+
+      const rangeSpecial = XLSX.utils.decode_range(wsSpecialDetail['!ref'] || 'A1:A1');
+      for (let R = rangeSpecial.s.r; R <= rangeSpecial.e.r; ++R) {
+        for (let C = rangeSpecial.s.c; C <= rangeSpecial.e.c; ++C) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!wsSpecialDetail[addr]) continue;
+          if (R === 0) {
+            wsSpecialDetail[addr].s = {
+              fill: { fgColor: { rgb: "6B21A8" } },
+              font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 },
+              alignment: { vertical: "center", horizontal: "center" },
+              border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+            };
+          } else {
+            wsSpecialDetail[addr].s = { ...cellStyle };
+            if (wsSpecialDetail[addr].t === 'n') {
+              wsSpecialDetail[addr].s = { ...numberStyle };
+            }
+          }
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, wsSpecialDetail, '특수수당명세');
+    }
 
     const s2ab = (s: string) => {
       const buf = new ArrayBuffer(s.length);
@@ -1402,7 +1531,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                     <div className="flex items-center gap-2">
                       {onExportHqSettlement && (
                         <button
-                          onClick={() => onExportHqSettlement(selectedHqDetail.hqName)}
+                          onClick={() => onExportHqSettlement(selectedHqDetail.hqName, selectedMonth)}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
                         >
                           <Download size={13} />
@@ -1465,6 +1594,48 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                         })}
                       </tbody>
                     </table>
+
+                    {/* 유지수수료 상세 목록 */}
+                    {selectedHqDetail.maintenanceItems && selectedHqDetail.maintenanceItems.length > 0 && (
+                      <div className="pt-2 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                            유지수수료 내역 ({selectedHqDetail.maintenanceItems.length}건, 총 {selectedHqDetail.maintenanceSum.toLocaleString()}원)
+                          </h4>
+                        </div>
+                        <table className="w-full text-xs text-left border border-emerald-200 rounded-lg overflow-hidden bg-emerald-50/10">
+                          <thead className="bg-emerald-100/60 text-emerald-900 font-bold border-b border-emerald-200">
+                            <tr>
+                              <th className="px-3 py-2 text-center w-10">No</th>
+                              <th className="px-3 py-2">회원명</th>
+                              <th className="px-3 py-2">상품명</th>
+                              <th className="px-3 py-2 text-center">회차</th>
+                              <th className="px-3 py-2 text-right">유지수수료</th>
+                              <th className="px-3 py-2 text-center">계약일자</th>
+                              <th className="px-3 py-2 text-center">지급일자</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-emerald-100">
+                            {selectedHqDetail.maintenanceItems.map((mItem, idx) => (
+                              <tr key={idx} className="hover:bg-emerald-50/40">
+                                <td className="px-3 py-1.5 text-center text-slate-400">{idx + 1}</td>
+                                <td className="px-3 py-1.5 font-bold text-slate-800">{mItem.memName || '-'}</td>
+                                <td className="px-3 py-1.5 text-slate-700">{mItem.prodName || '-'}</td>
+                                <td className="px-3 py-1.5 text-center font-semibold text-emerald-700">
+                                  {mItem.round ? `${mItem.round}회차` : '-'}
+                                </td>
+                                <td className="px-3 py-1.5 text-right font-mono font-bold text-emerald-700">
+                                  {(mItem.amount || 0).toLocaleString()}원
+                                </td>
+                                <td className="px-3 py-1.5 text-center text-slate-500">{mItem.contractDate || '-'}</td>
+                                <td className="px-3 py-1.5 text-center text-slate-500">{mItem.payDate || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
 
                     {/* 특수수당 상세 목록 */}
                     {selectedHqDetail.specialItems && selectedHqDetail.specialItems.length > 0 && (

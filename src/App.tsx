@@ -3015,24 +3015,36 @@ const ERP_Dashboard = () => {
     setCurrentPage(1);
   }, [searchTerm, productFilter, hqFilter, branchFilter, empNameFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter, contractMonthFilter]);
 
-  const calculateMaintenancePayouts = React.useCallback((items: ERPDataItem[]) => {
+  const calculateMaintenancePayouts = React.useCallback((items: ERPDataItem[], overrideMonthStr?: string, ignoreDayFilter: boolean = false) => {
     const payouts: any[] = [];
-    if (maintenanceRules.length === 0 && hqSettings.every(h => h.productRules.every(p => !p.applyMaintenance))) return payouts;
 
-    const filterClean = payDateFilter.replace(/[^0-9]/g, '');
-    let currentYearMonth = filterClean.length >= 6 ? filterClean.substring(0, 6) : '';
+    // 기준 연월 산출: overrideMonthStr가 있으면 최우선 사용, 없으면 payDateFilter, 없으면 오늘 날짜
+    let currentYearMonth = '';
+    if (overrideMonthStr) {
+      const cleanOverride = overrideMonthStr.replace(/[^0-9]/g, '');
+      if (cleanOverride.length >= 6) {
+        currentYearMonth = cleanOverride.substring(0, 6);
+      }
+    }
+    
     if (!currentYearMonth) {
-      // 만약 조회 조건이 없으면 오늘 기준으로 산정
+      const filterClean = payDateFilter.replace(/[^0-9]/g, '');
+      currentYearMonth = filterClean.length >= 6 ? filterClean.substring(0, 6) : '';
+    }
+
+    if (!currentYearMonth) {
       const d = new Date();
       currentYearMonth = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
     }
     
     const currentYear = parseInt(currentYearMonth.substring(0, 4));
     const currentMonth = parseInt(currentYearMonth.substring(4, 6));
+    const currentFormattedMonth = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+    const currentFormattedPayDate = `${currentYear}.${String(currentMonth).padStart(2, '0')}.25`;
 
-    // payDateFilter가 YYYY.MM.DD 형식일 경우 일(Day) 정보 추출
+    // payDateFilter가 YYYY.MM.DD 형식일 경우 일(Day) 정보 추출 (overrideMonthStr 또는 ignoreDayFilter가 켜져 있으면 무시)
     let filterDay = 0;
-    if (payDateFilter) {
+    if (!overrideMonthStr && !ignoreDayFilter && payDateFilter) {
       const clean = payDateFilter.replace(/[-./\s]/g, '');
       if (clean.length === 8) {
         filterDay = parseInt(clean.substring(6, 8));
@@ -3047,27 +3059,37 @@ const ERP_Dashboard = () => {
     items.forEach(item => {
       if (item.status.includes('취소') || item.status.includes('해약')) return;
       
-      const overdueCount = parseInt(item.raw[20]) || 0; // U열
+      const overdueCount = parseInt(item.raw?.[20] || item.memo || '0') || 0; // U열
       if (overdueCount > 0) return; // 연체 시 미지급
       
-      // 유지수수료는 매월 25일에 지급됨.
-      // 특정 일(Day)로 필터링 시, 25일이 아니면 유지수수료 대상에서 모두 제외 (25일 필터일 경우에만 산출)
-      if (filterDay > 0 && filterDay !== 25) {
+      // 특정 일(Day)로 필터링 시, 25일이 아니면 제외 (월별 정산서나 전체 요약 시 ignoreDayFilter로 바이패스)
+      if (!ignoreDayFilter && filterDay > 0 && filterDay !== 25) {
         return;
       }
       
       const hqName = item.hq;
-      const prodName = item.prodName.replace(/[\s()]/g, '').toLowerCase();
+      const cleanItemProd = item.prodName.replace(/[\s()]/g, '').toLowerCase();
 
       const hqSetting = hqSettings.find(h => h.hqName === hqName);
-      const productRule = hqSetting?.productRules.find(p => p.productName.replace(/[\s()]/g, '').toLowerCase() === prodName);
+      
+      // 본부 상품 룰 매칭: 정확 일치, 접미사(1회차/유지) 제거 일치, 상호 포함 일치 지원
+      const matchedProductRules = hqSetting?.productRules.filter(p => {
+        const cleanRuleProd = p.productName.replace(/[\s()]/g, '').toLowerCase();
+        const baseRuleProd = cleanRuleProd.replace(/1회차|유지/g, '');
+        const baseItemProd = cleanItemProd.replace(/1회차|유지/g, '');
+        return cleanRuleProd === cleanItemProd || 
+               (baseRuleProd.length > 0 && baseItemProd.length > 0 && (baseRuleProd === baseItemProd || baseItemProd.includes(baseRuleProd) || baseRuleProd.includes(baseItemProd)));
+      }) || [];
+
+      // 유지수수료 활성화 또는 유지수수료 룰이 등록된 룰 최우선 선택
+      const productRule = matchedProductRules.find(p => p.applyMaintenance && p.maintenanceRules && p.maintenanceRules.length > 0) || matchedProductRules[0];
 
       let activeRules: any[] = [];
       let usingProductRule = false;
 
       if (productRule?.applyMaintenance && productRule.maintenanceRules && productRule.maintenanceRules.length > 0) {
         usingProductRule = true;
-        activeRules = productRule.maintenanceRules.filter(r => {
+        activeRules = productRule.maintenanceRules.filter((r: any) => {
           const itemDateStr = item.contractDate || item.deliveryDate || '';
           const itemClean = itemDateStr.replace(/[^0-9]/g, '');
           if (itemClean) {
@@ -3086,12 +3108,11 @@ const ERP_Dashboard = () => {
 
       if (!usingProductRule || activeRules.length === 0) {
         usingProductRule = false;
-        activeRules = maintenanceRules.filter(r => {
+        activeRules = maintenanceRules.filter((r: any) => {
           const hqMatch = r.targetHqs.includes('ALL') || r.targetHqs.includes(hqName);
-          const prodMatch = r.targetProducts.includes('ALL') || r.targetProducts.some(p => prodName.includes(p.replace(/[\s()]/g, '').toLowerCase()));
+          const prodMatch = r.targetProducts.includes('ALL') || r.targetProducts.some((p: string) => cleanItemProd.includes(p.replace(/[\s()]/g, '').toLowerCase()));
           if (!hqMatch || !prodMatch) return false;
 
-          // 계약일 범위 비교
           const itemDateStr = item.contractDate || item.deliveryDate || '';
           const itemClean = itemDateStr.replace(/[^0-9]/g, '');
           if (itemClean) {
@@ -3108,9 +3129,26 @@ const ERP_Dashboard = () => {
         });
       }
 
+      // 기본/시스템 유지수수료 폴백 (좋은건강크루즈, 더좋은헬스케어580 등)
+      if (activeRules.length === 0) {
+        if (cleanItemProd.includes('580') || cleanItemProd.includes('더좋은헬스케어580') || cleanItemProd.includes('헬스케어580')) {
+          const defaultAmount = hqName === '다이렉트' ? 14000 : 10000;
+          activeRules = [{
+            id: 'fallback-hc580',
+            tiers: [{ startMonth: 2, endMonth: 37, amount: defaultAmount }]
+          }];
+        } else if (cleanItemProd.includes('크루즈') || cleanItemProd.includes('좋은건강크루즈')) {
+          activeRules = [{
+            id: 'fallback-cruise',
+            tiers: [{ startMonth: 2, endMonth: 11, amount: 10000 }]
+          }];
+        }
+      }
+
       if (activeRules.length === 0) return;
 
-      const baseDateStr = item.payDate || item.contractDate || item.deliveryDate;
+      // 회차 계산: 계약일(contractDate) 또는 최초납입일(raw[21]) 기준
+      const baseDateStr = item.contractDate || item.deliveryDate || item.raw?.[21] || item.payDate;
       if (!baseDateStr) return;
       
       const bdMatch = baseDateStr.match(/(\d{4})[-\.](\d{1,2})/);
@@ -3136,20 +3174,19 @@ const ERP_Dashboard = () => {
       let matchedTierAmount = 0;
       
       if (usingProductRule) {
-        let tier = activeRules.flatMap(r => r.tiers).find(t => i >= t.startMonth && i <= t.endMonth);
+        let tier = activeRules.flatMap((r: any) => r.tiers || []).find((t: any) => i >= t.startMonth && i <= t.endMonth);
         if (tier) matchedTierAmount = tier.amount;
       } else {
-        // Find matching tier across all matched rules (prioritize specific hq rules over 'ALL')
-        let specificRule = activeRules.find(r => !r.targetHqs.includes('ALL'));
+        let specificRule = activeRules.find((r: any) => r.targetHqs && !r.targetHqs.includes('ALL'));
         if (specificRule) {
-          let tier = specificRule.tiers.find((t: any) => i >= t.startMonth && i <= t.endMonth);
+          let tier = (specificRule.tiers || []).find((t: any) => i >= t.startMonth && i <= t.endMonth);
           if (tier) matchedTierAmount = tier.amount;
         }
         
         if (!matchedTierAmount) {
-          let allRule = activeRules.find(r => r.targetHqs.includes('ALL'));
-          if (allRule) {
-            let tier = allRule.tiers.find((t: any) => i >= t.startMonth && i <= t.endMonth);
+          let anyRule = activeRules[0];
+          if (anyRule) {
+            let tier = (anyRule.tiers || []).find((t: any) => i >= t.startMonth && i <= t.endMonth);
             if (tier) matchedTierAmount = tier.amount;
           }
         }
@@ -3157,7 +3194,7 @@ const ERP_Dashboard = () => {
 
       if (matchedTierAmount > 0) {
         payouts.push({
-          resNo: item.resNo,
+          resNo: item.resNo || item.rentalNo || '-',
           memNo: item.memNo || item.raw?.[2] || '-',
           contractDate: item.contractDate || item.raw?.[0] || '-',
           lastPayDate: item.raw?.[22] || item.cancelDate || item.payDate || '-',
@@ -3169,13 +3206,15 @@ const ERP_Dashboard = () => {
           toInstallment: i,
           empName: item.empName,
           branch: item.branch,
+          month: currentFormattedMonth,
+          payDate: currentFormattedPayDate,
         });
       }
     });
 
     // 맥스 본부 이지안 고객 유지수수료 강제 주입 (7회차 - 2구좌)
     // 이지안 고객의 지급일은 25일이므로, filterDay가 지정되어 있고 25가 아닌 경우에는 주입하지 않음
-    if (!filterDay || filterDay === 25) {
+    if (ignoreDayFilter || !filterDay || filterDay === 25) {
       for (let g = 1; g <= 2; g++) {
         const resNoForced = `MAX-LEE-FORCED-${g}`;
         const isLeeAlreadyPaid = maintenanceHistory.some(h => h.resNo === resNoForced && h.payInstallment === 7);
@@ -3193,6 +3232,8 @@ const ERP_Dashboard = () => {
             toInstallment: 7,
             empName: "김학민",
             branch: "맥스",
+            month: currentFormattedMonth,
+            payDate: currentFormattedPayDate,
           });
         }
       }
@@ -3554,13 +3595,17 @@ const ERP_Dashboard = () => {
     maintenancePayouts.forEach(m => {
       if (!hqSummary[m.hq]) hqSummary[m.hq] = { count: 0, amount: 0 };
       hqSummary[m.hq].amount += m.amount;
+      hqSummary[m.hq].count = (hqSummary[m.hq].count || 0) + 1;
       
-      if (!summary[m.productName]) summary[m.productName] = { count: 0, amount: 0 };
-      summary[m.productName].amount += m.amount;
+      const prodKey = m.productName || m.prodName || '유지수수료';
+      if (!summary[prodKey]) summary[prodKey] = { count: 0, amount: 0 };
+      summary[prodKey].amount += m.amount;
+      summary[prodKey].count += 1;
       
       totalAmount += m.amount;
-      
+      totalCount += 1;
       totalPendingAmount += m.amount;
+      totalPendingCount += 1;
     });
 
     totalPendingEnexAmount = historyReconData
@@ -3593,7 +3638,7 @@ const ERP_Dashboard = () => {
       specialPayouts,
       hqSummary
     };
-  }, [filteredData, hqSettings, historyReconData, payDateFilter, isHQStaff, userHqNames]);
+  }, [filteredData, hqSettings, historyReconData, payDateFilter, isHQStaff, userHqNames, maintenancePayouts, globalIncentiveRules, divisionSettings]);
 
   const pendingDeliveryStats = React.useMemo(() => {
     const statsMap = new Map<string, number>();
@@ -5110,10 +5155,24 @@ const ERP_Dashboard = () => {
     }
   }, [pendingExportDate, payDateFilter, settlementStats, originalPayDateFilter]);
 
-  const exportProfessionalSettlement = async (hqName: string) => {
+  const exportProfessionalSettlement = async (hqName: string, targetMonthStr?: string) => {
     try {
-      const items = settlementStats.hqGroups[hqName] || [];
-      const hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
+      let items = settlementStats.hqGroups[hqName] || [];
+      let hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
+
+      if (targetMonthStr) {
+        items = (data || []).filter(item => {
+          if (item.hq !== hqName) return false;
+          if ((item.status?.includes('취소') || item.status?.includes('해약')) && !item.payDate?.trim()) return false;
+          const pDate = item.payDate || '';
+          const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+          const itemMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+          return itemMonth === targetMonthStr;
+        });
+        const currentMonthMaint = calculateMaintenancePayouts(data, targetMonthStr, true);
+        hqMaintenancePayouts = currentMonthMaint.filter(m => m.hq === hqName);
+      }
+
       let hqSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => {
         if (sp.hq !== hqName) return false;
         if (payDateFilter && payDateFilter !== 'ALL' && sp.payDate && sp.payDate !== '-' && sp.payDate !== '지급일 미지정') {
@@ -5232,7 +5291,9 @@ const ERP_Dashboard = () => {
       const totalSum = generalSum + maintenanceSum + specialSum;
 
       let payDateDisplay = payDateFilter || '';
-      if (!payDateDisplay && items.length > 0) {
+      if (targetMonthStr) {
+        payDateDisplay = `${targetMonthStr.replace('-', '.')}.25`;
+      } else if (!payDateDisplay && items.length > 0) {
         const { displayPayDate } = calculateCommissionDetails(items[0], stats);
         payDateDisplay = displayPayDate;
       } else if (!payDateDisplay) {
@@ -12155,6 +12216,7 @@ const ERP_Dashboard = () => {
             globalIncentiveRules={globalIncentiveRules}
             calculateCommissionDetails={calculateCommissionDetails}
             onExportHqSettlement={exportProfessionalSettlement}
+            calculateMaintenancePayouts={calculateMaintenancePayouts}
           />
           <CustomDialog
             isOpen={dialogState.isOpen}
