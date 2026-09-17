@@ -219,8 +219,8 @@ export function AccountManagementModal({
   // 지사 목록 정제 (사원리스트의 전체 지사 + availableBranches + members)
   const cleanBranches = useMemo(() => {
     const set = new Set<string>();
-    Object.values(empSheetHqToBranches).forEach(brs => {
-      brs.forEach(b => { if (b && b.trim()) set.add(b.trim()); });
+    (Object.values(empSheetHqToBranches) as string[][]).forEach(brs => {
+      (brs || []).forEach(b => { if (b && b.trim()) set.add(b.trim()); });
     });
     availableBranches.forEach(b => {
       if (b && b !== '전체' && b.trim()) set.add(b.trim());
@@ -261,7 +261,7 @@ export function AccountManagementModal({
   // 특정 지사의 소속 본부명 찾기
   const getBranchHqName = (branchName: string): string => {
     for (const [hq, branches] of Object.entries(empSheetHqToBranches)) {
-      if (branches.includes(branchName)) return hq;
+      if ((branches as string[]).includes(branchName)) return hq;
     }
     return '';
   };

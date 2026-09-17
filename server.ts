@@ -279,6 +279,40 @@ app.get('/api/auth/status', (req, res) => {
   res.json({ authenticated: hasGlobalToken || hasEnvToken || !!req.cookies.google_tokens });
 });
 
+/**
+ * 비밀번호 일치 여부 확인 함수
+ * - 완전 일치(1순위)
+ * - 10자리 핸드폰 번호(010XXXXXXXX vs 10XXXXXXXX) 호환
+ * - 숫자로만 구성된 비밀번호에서 구글 시트 숫자 변환으로 인한 앞자리 '0' 누락/추가 양방향 호환 (예: '0123' vs '123', '0825' vs '825')
+ */
+function isPasswordMatching(storedPw: string, inputPw: string): boolean {
+  const s = String(storedPw || '').trim();
+  const inp = String(inputPw || '').trim();
+  if (!s || !inp) return false;
+  if (s === inp) return true;
+
+  // 10자리 핸드폰 번호 호환 (010XXXXXXXX vs 10XXXXXXXX)
+  if ((s.length === 10 && '0' + s === inp) || (inp.length === 10 && s === '0' + inp)) {
+    return true;
+  }
+
+  // 둘 다 순수 숫자로 이루어진 경우: 앞자리 0이 유실되었거나 붙었을 가능성 호환
+  if (/^\d+$/.test(s) && /^\d+$/.test(inp)) {
+    const sTrimmed = s.replace(/^0+/, '');
+    const inpTrimmed = inp.replace(/^0+/, '');
+    // 0이 아닌 숫자가 남아있고 동일한 경우 (예: '0123' vs '123')
+    if (sTrimmed.length > 0 && sTrimmed === inpTrimmed) {
+      return true;
+    }
+    // 둘 다 0으로만 이루어진 경우 (예: '0000' vs '0')
+    if (sTrimmed === '' && inpTrimmed === '') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -333,6 +367,7 @@ app.post('/api/auth/login', async (req, res) => {
           const response = await sheets.spreadsheets.values.get({
             spreadsheetId: sheetId,
             range: '조직계정설정!A:D',
+            valueRenderOption: 'FORMATTED_VALUE',
           });
 
           const rows = response.data.values;
@@ -340,15 +375,10 @@ app.post('/api/auth/login', async (req, res) => {
             // 헤더 건너뛰고 매칭되는 계정 탐색 (구분, 조직명, 아이디, 비밀번호)
             const matchedRows = rows.slice(1).filter(row => {
               const rowId = String(row[2] || '').trim();
-              let rowPw = String(row[3] || '').trim();
+              const rowPw = String(row[3] || '').trim();
               const inputPw = String(password || '').trim();
-              // 만약 시트에 10자리로 앞자리 0이 누락되어 저장된 경우(10XXXXXXXX) 자동 보정
-              if (rowPw.length === 10 && /^1[0-9]{9}$/.test(rowPw) && (rowId.startsWith('a01') || rowPw.startsWith('10'))) {
-                rowPw = '0' + rowPw;
-              }
-              const pwMatches = rowPw === inputPw || 
-                (inputPw.length === 10 && rowPw === '0' + inputPw) || 
-                (rowPw.length === 10 && '0' + rowPw === inputPw);
+              
+              const pwMatches = isPasswordMatching(rowPw, inputPw);
               return rowId === username && pwMatches;
             });
 
@@ -451,9 +481,44 @@ app.post('/api/auth/change-password', async (req, res) => {
     }
 
     const sheets = google.sheets({ version: 'v4', auth: client });
+
+    // 1. 시트 메타데이터에서 '조직계정설정'의 sheetId 확인
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    const accountSheet = sheetsList.find(s => s.properties?.title === '조직계정설정');
+    const aSheetId = accountSheet?.properties?.sheetId;
+
+    // 2. C열(아이디)과 D열(비밀번호)을 TEXT 서식으로 선제 지정 (앞자리 0 보존 환경 선제 구축)
+    if (aSheetId != null) {
+      try {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: aSheetId, startColumnIndex: 0, endColumnIndex: 4 },
+                  cell: {
+                    userEnteredFormat: {
+                      numberFormat: { type: 'TEXT' }
+                    }
+                  },
+                  fields: 'userEnteredFormat.numberFormat'
+                }
+              }
+            ]
+          }
+        });
+      } catch (fmtErr) {
+        console.warn('[CHANGE-PASSWORD] Failed to pre-format TEXT on sheet:', fmtErr);
+      }
+    }
+
+    // 3. 조직계정설정 데이터 조회 (FORMATTED_VALUE로 원본 서식 텍스트 보존)
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
       range: '조직계정설정!A:D',
+      valueRenderOption: 'FORMATTED_VALUE',
     });
 
     const rows = response.data.values || [];
@@ -467,7 +532,10 @@ app.post('/api/auth/change-password', async (req, res) => {
 
     let matchedCount = 0;
     let pwMismatchCount = 0;
-    let updatedRows = [...rows];
+    let updatedRows = rows.map(r => [...r]);
+
+    // 아이디(C열) 일치 행 우선 확인
+    const hasExactIdMatch = updatedRows.slice(1).some(row => String(row[2] || '').trim().toLowerCase() === targetUser);
 
     // 헤더(index 0) 제외 후 검색
     for (let i = 1; i < updatedRows.length; i++) {
@@ -475,15 +543,17 @@ app.post('/api/auth/change-password', async (req, res) => {
       const rowId = String(updatedRows[i][2] || '').trim().toLowerCase();
       const rowPw = String(updatedRows[i][3] || '').trim();
 
+      const isUserMatch = hasExactIdMatch ? (rowId === targetUser) : (rowId === targetUser || rowOrgName === targetUser);
+
       // C열(아이디) 또는 B열(조직명/사원명)로 계정 대조
-      if (rowId === targetUser || rowOrgName === targetUser) {
-        if (rowPw !== targetPw) {
+      if (isUserMatch) {
+        if (!isPasswordMatching(rowPw, targetPw)) {
           console.log(`[PASSWORD MISMATCH] User: ${targetUser}, Input PW: "${targetPw}", Sheet PW: "${rowPw}"`);
           pwMismatchCount++;
           continue;
         }
-        // 비밀번호 (D열) 업데이트
-        updatedRows[i][3] = newPwStr;
+        // 비밀번호 (D열) 업데이트 - 반드시 순수 문자열로 저장하여 앞자리 0 온전 보존
+        updatedRows[i][3] = String(newPwStr);
         matchedCount++;
       }
     }
@@ -495,13 +565,47 @@ app.post('/api/auth/change-password', async (req, res) => {
       return res.status(404).json({ error: `등록된 계정 정보(${username})를 찾을 수 없습니다.` });
     }
 
+    // 4. 모든 행의 데이터를 순수 문자열로 보존하여 기존 다른 계정들의 비밀번호와 데이터를 100% 안전하게 유지
+    const cleanRows = updatedRows.map(row => [
+      String(row[0] ?? ''),
+      String(row[1] ?? ''),
+      String(row[2] ?? ''),
+      String(row[3] ?? '')
+    ]);
+
     // 구글 시트에 업데이트 반영 (RAW로 저장하여 앞자리 0 유지)
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: `조직계정설정!A1:D${updatedRows.length}`,
+      range: `조직계정설정!A1:D${cleanRows.length}`,
       valueInputOption: 'RAW',
-      requestBody: { values: updatedRows }
+      requestBody: { values: cleanRows }
     });
+
+    // 5. 저장 후에도 TEXT 서식 유지 보장
+    if (aSheetId != null) {
+      try {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: aSheetId, startColumnIndex: 0, endColumnIndex: 4 },
+                  cell: {
+                    userEnteredFormat: {
+                      numberFormat: { type: 'TEXT' }
+                    }
+                  },
+                  fields: 'userEnteredFormat.numberFormat'
+                }
+              }
+            ]
+          }
+        });
+      } catch (postFmtErr) {
+        console.warn('[CHANGE-PASSWORD] Failed to re-format TEXT on sheet:', postFmtErr);
+      }
+    }
 
     console.log(`[PASSWORD CHANGED SUCCESS] User: ${username}`);
     return res.json({ success: true, message: '비밀번호가 성공적으로 변경되었습니다.' });
@@ -1018,6 +1122,7 @@ app.get('/api/sheets/members/load', async (req, res) => {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
       range: '조직계정설정!A:D',
+      valueRenderOption: 'FORMATTED_VALUE',
     });
 
     const rows = response.data.values || [];
@@ -1076,6 +1181,32 @@ app.post('/api/sheets/members/save', async (req, res) => {
       aSheetId = addSheetRes.data.replies?.[0]?.addSheet?.properties?.sheetId;
     }
 
+    // 1. [중요] values.update 전에 먼저 A~D 열 전체를 TEXT 서식으로 지정하여 앞자리 0 보존 환경을 선제 구축
+    if (aSheetId != null) {
+      try {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: aSheetId, startColumnIndex: 0, endColumnIndex: 4 },
+                  cell: {
+                    userEnteredFormat: {
+                      numberFormat: { type: 'TEXT' }
+                    }
+                  },
+                  fields: 'userEnteredFormat.numberFormat'
+                }
+              }
+            ]
+          }
+        });
+      } catch (fmtErr) {
+        console.warn('[MEMBERS-SAVE] Pre-format TEXT error:', fmtErr);
+      }
+    }
+
     // 헤더 포함 및 비밀번호 0 누락 방지 보정
     const rows = [['구분', '조직명', '아이디', '비밀번호']];
     members.forEach(m => {
@@ -1085,7 +1216,7 @@ app.post('/api/sheets/members/save', async (req, res) => {
       if (pw.length === 10 && /^1[0-9]{9}$/.test(pw) && (uname.startsWith('a01') || uname.startsWith('01') || pw.startsWith('10'))) {
         pw = '0' + pw;
       }
-      rows.push([String(m.role || ''), String(m.orgName || ''), uname, pw]);
+      rows.push([String(m.role || ''), String(m.orgName || ''), uname, String(pw)]);
     });
 
     await sheets.spreadsheets.values.clear({
@@ -1093,7 +1224,7 @@ app.post('/api/sheets/members/save', async (req, res) => {
       range: '조직계정설정!A:D'
     });
 
-    // valueInputOption을 'RAW'로 설정하여 문자열(010XXXXXXXX)이 숫자로 자동 변환되어 앞자리 0이 유실되는 현상 원천 차단
+    // 2. valueInputOption을 'RAW'로 설정하여 문자열(010XXXXXXXX, 0123 등)이 숫자로 자동 변환되어 앞자리 0이 유실되는 현상 원천 차단
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
       range: '조직계정설정!A1',
@@ -1101,40 +1232,45 @@ app.post('/api/sheets/members/save', async (req, res) => {
       requestBody: { values: rows }
     });
 
+    // 3. 저장 완료 후 헤더 스타일 및 TEXT 서식 재확정
     if (aSheetId != null) {
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: sheetId,
-        requestBody: {
-          requests: [
-            // 전체 A~D 열을 TEXT 서식으로 지정하여 앞자리 0 보존
-            {
-              repeatCell: {
-                range: { sheetId: aSheetId, startColumnIndex: 0, endColumnIndex: 4 },
-                cell: {
-                  userEnteredFormat: {
-                    numberFormat: { type: 'TEXT' }
-                  }
-                },
-                fields: 'userEnteredFormat.numberFormat'
+      try {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              // 전체 A~D 열을 TEXT 서식으로 지정하여 앞자리 0 보존
+              {
+                repeatCell: {
+                  range: { sheetId: aSheetId, startColumnIndex: 0, endColumnIndex: 4 },
+                  cell: {
+                    userEnteredFormat: {
+                      numberFormat: { type: 'TEXT' }
+                    }
+                  },
+                  fields: 'userEnteredFormat.numberFormat'
+                }
+              },
+              // 헤더 스타일
+              {
+                repeatCell: {
+                  range: { sheetId: aSheetId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
               }
-            },
-            // 헤더 스타일
-            {
-              repeatCell: {
-                range: { sheetId: aSheetId, startRowIndex: 0, endRowIndex: 1 },
-                cell: {
-                  userEnteredFormat: {
-                    backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
-                    textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                    horizontalAlignment: 'CENTER'
-                  }
-                },
-                fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
-              }
-            }
-          ]
-        }
-      });
+            ]
+          }
+        });
+      } catch (postErr) {
+        console.warn('[MEMBERS-SAVE] Post-format error:', postErr);
+      }
     }
 
     res.json({ success: true, count: members.length });
