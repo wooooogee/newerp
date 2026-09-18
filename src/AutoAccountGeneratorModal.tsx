@@ -15,14 +15,15 @@ import {
   CheckSquare,
   Square,
   ShieldCheck,
-  UserPlus
+  UserPlus,
+  UserMinus
 } from 'lucide-react';
 import { MemberAccount } from './AccountManagementModal';
 
 interface AutoAccountGeneratorModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onGenerate: (newAccounts: MemberAccount[]) => void;
+  onGenerate: (newAccounts: MemberAccount[], deletedUsernames?: string[]) => void;
   existingAccounts: MemberAccount[];
 }
 
@@ -62,6 +63,9 @@ export function AutoAccountGeneratorModal({
 
   // 4. 이미 생성된 계정 건너뛰기 옵션 (기본값: TRUE)
   const [skipExisting, setSkipExisting] = useState<boolean>(true);
+
+  // 5. 사원리스트에서 사라진 기존 계정 삭제 옵션 (기본값: TRUE)
+  const [deleteMissing, setDeleteMissing] = useState<boolean>(true);
 
   // 사원리스트 데이터 로딩
   useEffect(() => {
@@ -292,10 +296,128 @@ export function AutoAccountGeneratorModal({
     };
   }, [selectedHqs, empRows, targetType, platformType, existingUsernameSet, skipExisting]);
 
-  // 최종 일괄 생성 핸들러
+  // 선택된 본부 범위 내에서 사원리스트에 없는 기존 계정(퇴사 또는 시트에서 삭제된 계정) 감지
+  const missingAccountsToDelete = useMemo(() => {
+    if (selectedHqs.length === 0 || existingAccounts.length === 0 || empRows.length === 0) {
+      return [];
+    }
+
+    const selectedHqSet = new Set(selectedHqs);
+    const relevantEmpRows = empRows.filter(r => selectedHqSet.has(r.hq));
+
+    const validPhoneSet = new Set<string>();
+    const validCodeSet = new Set<string>();
+    const validBranchSet = new Set<string>();
+    const validHqSet = new Set<string>();
+    const retiredPhoneSet = new Set<string>();
+    const retiredCodeSet = new Set<string>();
+
+    relevantEmpRows.forEach(emp => {
+      if (emp.hq && emp.hq !== '-') validHqSet.add(emp.hq.trim());
+      if (emp.branch && emp.branch !== '-') validBranchSet.add(emp.branch.trim());
+      if (emp.code) validCodeSet.add(emp.code.trim().toUpperCase());
+
+      let cleanPhone = emp.phone.replace(/[^0-9]/g, '');
+      if (cleanPhone.length === 10 && cleanPhone.startsWith('10')) cleanPhone = '0' + cleanPhone;
+      if (cleanPhone.length >= 10 && cleanPhone.startsWith('01')) {
+        validPhoneSet.add(cleanPhone);
+        const statusClean = (emp.status || '').trim();
+        if (statusClean.includes('퇴사') || statusClean.includes('해촉') || statusClean.includes('중지')) {
+          retiredPhoneSet.add(cleanPhone);
+          if (emp.code) retiredCodeSet.add(emp.code.trim().toUpperCase());
+        }
+      }
+    });
+
+    // existingAccounts를 username별로 그룹핑
+    const map = new Map<string, { username: string; primaryRole: string; orgEntries: { role: string; orgName: string }[] }>();
+    existingAccounts.forEach(m => {
+      const uname = (m.username || '').trim();
+      if (!uname) return;
+      const lower = uname.toLowerCase();
+      if (!map.has(lower)) {
+        map.set(lower, { username: uname, primaryRole: m.role || '지사', orgEntries: [{ role: m.role, orgName: m.orgName }] });
+      } else {
+        map.get(lower)!.orgEntries.push({ role: m.role, orgName: m.orgName });
+      }
+    });
+
+    const toDelete: Array<{ username: string; role: string; orgName: string; reason: string }> = [];
+
+    map.forEach(acc => {
+      // 최고 관리자, 총무 보호
+      if (acc.primaryRole === '관리자' || acc.primaryRole === '총무') return;
+
+      // 1. 영업사원 계정
+      const isSalesPattern = /^a01[0-9]{8,9}$/i.test(acc.username) || acc.primaryRole === '영업사원';
+      if (isSalesPattern) {
+        // 선택된 본부 소속인지 검사
+        const belongsToSelected = acc.orgEntries.some(o => 
+          selectedHqSet.has(o.orgName.trim()) || 
+          validBranchSet.has(o.orgName.trim()) || 
+          validCodeSet.has(o.orgName.trim().toUpperCase())
+        );
+
+        if (belongsToSelected) {
+          let cleanPhone = acc.username.replace(/^[aA]/, '').replace(/[^0-9]/g, '');
+          if (cleanPhone.length === 10 && cleanPhone.startsWith('10')) cleanPhone = '0' + cleanPhone;
+
+          const exists = validPhoneSet.has(cleanPhone) || validCodeSet.has(acc.username.toUpperCase());
+          if (!exists) {
+            toDelete.push({
+              username: acc.username,
+              role: acc.primaryRole,
+              orgName: acc.orgEntries.map(o => o.orgName).join(', '),
+              reason: '사원리스트에서 사원정보 삭제됨'
+            });
+          } else if (retiredPhoneSet.has(cleanPhone) || retiredCodeSet.has(acc.username.toUpperCase())) {
+            toDelete.push({
+              username: acc.username,
+              role: acc.primaryRole,
+              orgName: acc.orgEntries.map(o => o.orgName).join(', '),
+              reason: '사원리스트에서 퇴사/해촉 처리됨'
+            });
+          }
+        }
+        return;
+      }
+
+      // 2. 본부 계정
+      if (acc.primaryRole === '본부' || acc.primaryRole === '본부모바일') {
+        if (selectedHqSet.has(acc.username) && !validHqSet.has(acc.username)) {
+          toDelete.push({
+            username: acc.username,
+            role: acc.primaryRole,
+            orgName: acc.orgEntries.map(o => o.orgName).join(', '),
+            reason: '사원리스트에 존재하지 않는 본부'
+          });
+        }
+        return;
+      }
+
+      // 3. 지사 계정
+      if (acc.primaryRole === '지사' || acc.primaryRole === '지사모바일') {
+        const belongsToSelected = acc.orgEntries.some(o => selectedHqSet.has(o.orgName.trim()));
+        if (belongsToSelected && !validBranchSet.has(acc.username)) {
+          toDelete.push({
+            username: acc.username,
+            role: acc.primaryRole,
+            orgName: acc.orgEntries.map(o => o.orgName).join(', '),
+            reason: '사원리스트에 존재하지 않는 지사'
+          });
+        }
+      }
+    });
+
+    return toDelete;
+  }, [selectedHqs, existingAccounts, empRows]);
+
+  // 최종 일괄 생성 및 사라진 계정 삭제 처리 핸들러
   const handleConfirmGenerate = () => {
-    if (filteredAccounts.length === 0) {
-      alert('생성할 대상 계정이 없습니다. (모든 계정이 이미 등록되어 있거나 본부가 선택되지 않았습니다.)');
+    const deletedUsernames = deleteMissing ? missingAccountsToDelete.map(a => a.username) : [];
+
+    if (filteredAccounts.length === 0 && deletedUsernames.length === 0) {
+      alert('생성할 신규 계정이나 정리할 삭제 대상 계정이 없습니다.');
       return;
     }
 
@@ -306,7 +428,7 @@ export function AutoAccountGeneratorModal({
       password: p.password
     }));
 
-    onGenerate(accountsToInsert);
+    onGenerate(accountsToInsert, deletedUsernames);
     onClose();
   };
 
@@ -442,7 +564,7 @@ export function AutoAccountGeneratorModal({
 
               {/* 2. 생성 옵션 설정 카드 */}
               <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3.5">
                   {/* 2-1. 생성 대상 선택 */}
                   <div>
                     <label className="block text-xs font-black text-slate-700 mb-1.5 flex items-center gap-1.5">
@@ -545,7 +667,7 @@ export function AutoAccountGeneratorModal({
                     </p>
                   </div>
 
-                  {/* 2-3. 중복 계정 처리 기본 조건 (핵심!) */}
+                  {/* 2-3. 중복 계정 처리 기본 조건 */}
                   <div>
                     <label className="block text-xs font-black text-slate-700 mb-1.5 flex items-center gap-1.5">
                       <ShieldCheck size={14} className="text-amber-500" />
@@ -566,9 +688,45 @@ export function AutoAccountGeneratorModal({
                         className="mt-0.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
                       />
                       <div className="text-xs">
-                        <span className="font-black block">이미 등록된 계정 자동 건너뛰기</span>
+                        <span className="font-black block">기존 계정 자동 보호 (건너뛰기)</span>
                         <span className="text-[11px] text-slate-500 font-medium">
-                          (기존 계정은 보호하고, 등록되지 않은 <b>신규 계정만 추가</b>합니다)
+                          (이미 등록된 아이디는 유지하고 <b>신규만 추가</b>)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2-4. 사라진 계정 자동 정리 조건 */}
+                  <div>
+                    <label className="block text-xs font-black text-slate-700 mb-1.5 flex items-center gap-1.5">
+                      <UserMinus size={14} className="text-rose-500" />
+                      5. 사라진 계정 동시 정리
+                    </label>
+                    <div 
+                      onClick={() => setDeleteMissing(!deleteMissing)}
+                      className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-start gap-2.5 ${
+                        deleteMissing 
+                          ? 'bg-rose-50/70 border-rose-300 text-rose-900' 
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={deleteMissing}
+                        onChange={() => {}}
+                        className="mt-0.5 rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
+                      />
+                      <div className="text-xs">
+                        <span className="font-black flex items-center gap-1.5">
+                          <span>시트 미존재/퇴사 계정 삭제</span>
+                          {missingAccountsToDelete.length > 0 && (
+                            <span className="px-1.5 py-0.2 bg-rose-600 text-white rounded text-[10px] font-black leading-none">
+                              {missingAccountsToDelete.length}개
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          (선택한 본부에서 퇴사/삭제된 기존 계정 함께 제거)
                         </span>
                       </div>
                     </div>
@@ -593,11 +751,16 @@ export function AutoAccountGeneratorModal({
               {/* 3. 생성 예정 미리보기 테이블 */}
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
                 <div className="px-5 py-3 bg-slate-100/70 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-xs font-black text-slate-800">생성 예정 계정 목록</h3>
                     <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 font-black rounded-full text-xs">
-                      총 {filteredAccounts.length}개 추가 예정
+                      신규 추가 {filteredAccounts.length}개
                     </span>
+                    {deleteMissing && missingAccountsToDelete.length > 0 && (
+                      <span className="px-2.5 py-0.5 bg-rose-100 text-rose-700 font-black rounded-full text-xs">
+                        사라진 계정 {missingAccountsToDelete.length}개 동시 삭제 예정
+                      </span>
+                    )}
                     {skippedCount > 0 && skipExisting && (
                       <span className="text-[11px] text-slate-400 font-medium">
                         (이미 등록된 계정 {skippedCount}개 제외됨)
@@ -697,15 +860,21 @@ export function AutoAccountGeneratorModal({
             </button>
             <button
               onClick={handleConfirmGenerate}
-              disabled={isLoading || filteredAccounts.length === 0}
+              disabled={isLoading || (filteredAccounts.length === 0 && (!deleteMissing || missingAccountsToDelete.length === 0))}
               className={`px-5 py-2 rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition-all cursor-pointer ${
-                filteredAccounts.length > 0
+                filteredAccounts.length > 0 || (deleteMissing && missingAccountsToDelete.length > 0)
                   ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200 scale-102 ring-2 ring-indigo-300'
                   : 'bg-slate-200 text-slate-400 cursor-not-allowed'
               }`}
             >
               <UserPlus size={15} />
-              <span>{filteredAccounts.length}개 신규 계정 일괄 생성 추가</span>
+              <span>
+                {filteredAccounts.length > 0 && `${filteredAccounts.length}개 신규 생성`}
+                {filteredAccounts.length > 0 && deleteMissing && missingAccountsToDelete.length > 0 && ' 및 '}
+                {deleteMissing && missingAccountsToDelete.length > 0 && `${missingAccountsToDelete.length}개 사라진 계정 정리`}
+                {filteredAccounts.length === 0 && (!deleteMissing || missingAccountsToDelete.length === 0) && '처리할 대상 없음'}
+                {' 실행'}
+              </span>
             </button>
           </div>
         </div>

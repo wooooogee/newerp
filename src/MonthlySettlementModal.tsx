@@ -466,7 +466,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
   // 3-1. 현재 월의 전체 고유 본부 목록
   const allAvailableHqs = useMemo(() => {
-    return Array.from(new Set(hqMonthlyStats.map(s => s.hqName))).sort((a, b) => a.localeCompare(b, 'ko'));
+    return Array.from<string>(new Set(hqMonthlyStats.map(s => s.hqName))).sort((a, b) => a.localeCompare(b, 'ko'));
   }, [hqMonthlyStats]);
 
   // 3-2. 본부명 -> 통계 빠른 조회를 위한 맵

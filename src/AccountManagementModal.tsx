@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   X, UserCheck, Plus, Search, Trash2, Edit3, Eye, EyeOff, 
   Download, Upload, CheckCircle, AlertTriangle, RefreshCw, 
-  Building2, User, FileSpreadsheet, Check, ChevronDown, Layers, Sparkles
+  Building2, User, FileSpreadsheet, Check, ChevronDown, Layers, Sparkles, UserX
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AutoAccountGeneratorModal } from './AutoAccountGeneratorModal';
+import { MissingAccountCleanupModal, EmpRowData } from './MissingAccountCleanupModal';
 import { customConfirm } from './CustomDialog';
 
 const XLSX = (window as any).XLSX;
@@ -90,36 +91,48 @@ export function AccountManagementModal({
   // 계정 자동 생성 모달 상태
   const [isAutoGeneratorOpen, setIsAutoGeneratorOpen] = useState(false);
 
+  // 사원리스트 미존재 계정 일괄 정리 모달 상태
+  const [isMissingCleanupOpen, setIsMissingCleanupOpen] = useState(false);
+  const [isRefreshingEmpSheet, setIsRefreshingEmpSheet] = useState(false);
+
   // 테이블 페이지네이션 상태 (대용량 1,000건 렌더링 성능 최적화)
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
 
-  // 사원리스트 시트 기반 52개 본부 목록 및 본부별 소속 지사 매핑 데이터
+  // 사원리스트 시트 기반 52개 본부 목록, 소속 지사 매핑 데이터 및 전체 사원 행 데이터
   const [empSheetHqs, setEmpSheetHqs] = useState<string[]>([]);
   const [empSheetHqToBranches, setEmpSheetHqToBranches] = useState<Record<string, string[]>>({});
+  const [empSheetRows, setEmpSheetRows] = useState<EmpRowData[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 사원리스트 시트 데이터 로딩 (본부 52개 목록 및 본부별 지사 매핑)
-  useEffect(() => {
-    if (!isOpen) return;
+  // 사원리스트 시트 데이터 로딩 (본부 52개 목록, 지사 매핑 및 사원 전체 데이터)
+  const fetchEmpSheet = async () => {
+    setIsRefreshingEmpSheet(true);
+    try {
+      const res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('사원리스트')}&forceFresh=true&t=${Date.now()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const rows = Array.isArray(data) ? data : (data.rows || []);
 
-    let isMounted = true;
-    const fetchEmpSheet = async () => {
-      try {
-        const res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('사원리스트')}&t=${Date.now()}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const rows = Array.isArray(data) ? data : (data.rows || []);
+      const hqBranchesMap: Record<string, Set<string>> = {};
+      const orderedHqs: string[] = [];
+      const parsedEmpRows: EmpRowData[] = [];
 
-        const hqBranchesMap: Record<string, Set<string>> = {};
-        const orderedHqs: string[] = [];
+      rows.slice(1).forEach((r: any[]) => {
+        const no = String(r[0] || '').trim();
+        const code = String(r[1] || '').trim();
+        const hq = String(r[2] || '').trim();
+        const branch = String(r[3] || '').trim();
+        const branchOffice = String(r[4] || '').trim();
+        const name = String(r[5] || '').trim();
+        const resNo = String(r[6] || '').trim();
+        const position = String(r[7] || '').trim();
+        const status = String(r[8] || '').trim();
+        const empType = String(r[9] || '').trim();
+        const phone = String(r[11] || '').trim();
 
-        rows.slice(1).forEach((r: any[]) => {
-          const hq = String(r[2] || '').trim();
-          const branch = String(r[3] || '').trim();
-          if (!hq || hq === '-' || hq === '본부') return;
-
+        if (hq && hq !== '-' && hq !== '본부') {
           if (!hqBranchesMap[hq]) {
             hqBranchesMap[hq] = new Set();
             orderedHqs.push(hq);
@@ -127,44 +140,153 @@ export function AccountManagementModal({
           if (branch && branch !== '-' && branch !== '지사') {
             hqBranchesMap[hq].add(branch);
           }
-        });
-
-        if (isMounted) {
-          const sortedHqs = Array.from(new Set(orderedHqs)).sort((a, b) => a.localeCompare(b, 'ko-KR'));
-          const finalMap: Record<string, string[]> = {};
-          Object.keys(hqBranchesMap).forEach(h => {
-            finalMap[h] = Array.from(hqBranchesMap[h]).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+          parsedEmpRows.push({
+            no, code, hq, branch, branchOffice, name, resNo, position, status, empType, phone
           });
-          setEmpSheetHqs(sortedHqs);
-          setEmpSheetHqToBranches(finalMap);
         }
-      } catch (err) {
-        console.error('사원리스트 데이터 로딩 실패:', err);
-      }
-    };
+      });
 
-    fetchEmpSheet();
-    return () => { isMounted = false; };
+      const sortedHqs = Array.from(new Set(orderedHqs)).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+      const finalMap: Record<string, string[]> = {};
+      Object.keys(hqBranchesMap).forEach(h => {
+        finalMap[h] = Array.from(hqBranchesMap[h]).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+      });
+
+      setEmpSheetHqs(sortedHqs);
+      setEmpSheetHqToBranches(finalMap);
+      setEmpSheetRows(parsedEmpRows);
+    } catch (err) {
+      console.error('사원리스트 데이터 로딩 실패:', err);
+    } finally {
+      setIsRefreshingEmpSheet(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchEmpSheet();
+    }
   }, [isOpen]);
 
-  // 자동 생성된 계정 목록 병합 처리
-  const handleBatchGeneratedAccounts = (newAccounts: MemberAccount[]) => {
-    if (newAccounts.length === 0) return;
+  // 사원리스트에 없는 계정(미존재/퇴사/삭제 계정) 감지 건수 계산
+  const missingAccountCount = useMemo(() => {
+    if (empSheetRows.length === 0 || members.length === 0) return 0;
 
+    const phoneSet = new Set<string>();
+    const codeSet = new Set<string>();
+    const hqSet = new Set<string>();
+    const branchSet = new Set<string>();
+    const retiredPhoneSet = new Set<string>();
+    const retiredCodeSet = new Set<string>();
+
+    empSheetRows.forEach(emp => {
+      if (emp.hq && emp.hq !== '-') hqSet.add(emp.hq.trim());
+      if (emp.branch && emp.branch !== '-') branchSet.add(emp.branch.trim());
+      if (emp.code) codeSet.add(emp.code.trim().toUpperCase());
+
+      let cleanPhone = emp.phone.replace(/[^0-9]/g, '');
+      if (cleanPhone.length === 10 && cleanPhone.startsWith('10')) cleanPhone = '0' + cleanPhone;
+      if (cleanPhone.length >= 10 && cleanPhone.startsWith('01')) {
+        phoneSet.add(cleanPhone);
+        const statusClean = (emp.status || '').trim();
+        if (statusClean.includes('퇴사') || statusClean.includes('해촉') || statusClean.includes('중지')) {
+          retiredPhoneSet.add(cleanPhone);
+          if (emp.code) retiredCodeSet.add(emp.code.trim().toUpperCase());
+        }
+      }
+    });
+
+    const userMap = new Map<string, { username: string; primaryRole: string; orgs: string[] }>();
+    members.forEach(m => {
+      const uname = (m.username || '').trim();
+      if (!uname) return;
+      const lower = uname.toLowerCase();
+      if (!userMap.has(lower)) {
+        userMap.set(lower, { username: uname, primaryRole: m.role || '지사', orgs: [m.orgName] });
+      } else {
+        const item = userMap.get(lower)!;
+        const priority: { [k: string]: number } = { 관리자: 10, 총무: 8, 본부: 6, 지사: 4, 본부모바일: 5, 지사모바일: 3, 영업사원: 2 };
+        if ((priority[m.role] || 0) > (priority[item.primaryRole] || 0)) item.primaryRole = m.role;
+        item.orgs.push(m.orgName);
+      }
+    });
+
+    let count = 0;
+    const currentLower = (currentUser?.username || '').trim().toLowerCase();
+
+    userMap.forEach(acc => {
+      if (acc.primaryRole === '관리자' || acc.primaryRole === '총무') return;
+      if (currentLower && acc.username.toLowerCase() === currentLower) return;
+
+      const isSalesPattern = /^a01[0-9]{8,9}$/i.test(acc.username) || acc.primaryRole === '영업사원';
+      if (isSalesPattern) {
+        let cleanPhone = acc.username.replace(/^[aA]/, '').replace(/[^0-9]/g, '');
+        if (cleanPhone.length === 10 && cleanPhone.startsWith('10')) cleanPhone = '0' + cleanPhone;
+
+        const existsPhone = phoneSet.has(cleanPhone);
+        const existsCode = codeSet.has(acc.username.toUpperCase());
+
+        if (!existsPhone && !existsCode) {
+          count++;
+        } else if (retiredPhoneSet.has(cleanPhone) || retiredCodeSet.has(acc.username.toUpperCase())) {
+          count++;
+        }
+        return;
+      }
+
+      if (acc.primaryRole === '본부' || acc.primaryRole === '본부모바일') {
+        const hasHq = acc.orgs.some(o => hqSet.has(o.trim())) || hqSet.has(acc.username);
+        if (!hasHq) count++;
+        return;
+      }
+
+      if (acc.primaryRole === '지사' || acc.primaryRole === '지사모바일') {
+        const hasBranch = acc.orgs.some(o => branchSet.has(o.trim())) || branchSet.has(acc.username);
+        if (!hasBranch) count++;
+        return;
+      }
+    });
+
+    return count;
+  }, [empSheetRows, members, currentUser]);
+
+  // 사원리스트 미존재 계정 일괄 삭제 처리
+  const handleDeleteMissingAccounts = (usernamesToDelete: string[]) => {
+    if (usernamesToDelete.length === 0) return;
+    const lowerSet = new Set(usernamesToDelete.map(u => u.trim().toLowerCase()));
+    setMembers(prev => prev.filter(m => !lowerSet.has(m.username.trim().toLowerCase())));
+    setHasChanges(true);
+    alert(`총 ${usernamesToDelete.length}개의 미존재/퇴사 계정이 삭제되었습니다.\n상단의 [시트에 최종 저장] 버튼을 눌러 구글 시트에 반영해 주세요.`);
+  };
+
+  // 자동 생성된 계정 목록 병합 및 미존재 계정 삭제 연동 처리
+  const handleBatchGeneratedAccounts = (newAccounts: MemberAccount[], deletedUsernames?: string[]) => {
     setMembers(prev => {
-      const existingKeySet = new Set(
-        prev.map(m => `${m.username.trim().toUpperCase()}|${m.role}|${m.orgName}`)
-      );
-      const trulyNew = newAccounts.filter(
-        a => !existingKeySet.has(`${a.username.trim().toUpperCase()}|${a.role}|${a.orgName}`)
-      );
-      return [...trulyNew, ...prev];
+      let list = prev;
+      if (deletedUsernames && deletedUsernames.length > 0) {
+        const delSet = new Set(deletedUsernames.map(u => u.trim().toLowerCase()));
+        list = list.filter(m => !delSet.has(m.username.trim().toLowerCase()));
+      }
+      if (newAccounts.length > 0) {
+        const existingKeySet = new Set(
+          list.map(m => `${m.username.trim().toUpperCase()}|${m.role}|${m.orgName}`)
+        );
+        const trulyNew = newAccounts.filter(
+          a => !existingKeySet.has(`${a.username.trim().toUpperCase()}|${a.role}|${a.orgName}`)
+        );
+        list = [...trulyNew, ...list];
+      }
+      return list;
     });
 
     setHasChanges(true);
     setSelectedRoleFilter('전체');
     setSearchTerm('');
-    alert(`총 ${newAccounts.length}개의 신규 계정이 목록에 즉시 추가되었습니다!\n상단 [시트에 최종 저장] 버튼을 눌러 구글 시트에 반영해 주세요.`);
+
+    const addedMsg = newAccounts.length > 0 ? `${newAccounts.length}개 신규 계정 추가` : '';
+    const deletedMsg = deletedUsernames && deletedUsernames.length > 0 ? `${deletedUsernames.length}개 사라진 계정 정리` : '';
+    const resultMsg = [addedMsg, deletedMsg].filter(Boolean).join(', ');
+    alert(`${resultMsg} 완료!\n상단 [시트에 최종 저장] 버튼을 눌러 구글 시트에 반영해 주세요.`);
   };
 
   useEffect(() => {
@@ -755,6 +877,21 @@ export function AccountManagementModal({
             >
               <Sparkles size={14} className="text-indigo-600" />
               <span className="whitespace-nowrap">계정 자동생성</span>
+            </button>
+
+            {/* 사원리스트 미존재 계정 정리 버튼 */}
+            <button
+              onClick={() => setIsMissingCleanupOpen(true)}
+              className="px-3.5 py-2 text-xs font-black text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs hover:scale-102 whitespace-nowrap shrink-0 relative"
+              title="사원리스트 시트에 없는 계정 및 퇴사자 계정 일괄 정리"
+            >
+              <UserX size={14} className="text-rose-600 shrink-0" />
+              <span className="whitespace-nowrap">미존재 계정 정리</span>
+              {missingAccountCount > 0 && (
+                <span className="px-1.5 py-0.5 bg-rose-600 text-white text-[10px] font-black rounded-full shadow-2xs animate-pulse leading-none">
+                  {missingAccountCount}
+                </span>
+              )}
             </button>
 
             {/* 엑셀 관련 액션 버튼 */}
@@ -1771,6 +1908,22 @@ export function AccountManagementModal({
             onClose={() => setIsAutoGeneratorOpen(false)}
             onGenerate={handleBatchGeneratedAccounts}
             existingAccounts={members}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 사원리스트 미존재 계정 일괄 정리 모달 */}
+      <AnimatePresence>
+        {isMissingCleanupOpen && (
+          <MissingAccountCleanupModal
+            isOpen={isMissingCleanupOpen}
+            onClose={() => setIsMissingCleanupOpen(false)}
+            members={members}
+            empRows={empSheetRows}
+            onDeleteAccounts={handleDeleteMissingAccounts}
+            currentUser={currentUser}
+            onRefreshEmpList={fetchEmpSheet}
+            isRefreshing={isRefreshingEmpSheet}
           />
         )}
       </AnimatePresence>

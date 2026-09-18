@@ -11582,7 +11582,7 @@ const ERP_Dashboard = () => {
                       취소
                     </button>
                     {(() => {
-                      const parsed = Array.from(new Set(
+                      const parsed = Array.from<string>(new Set(
                         newHqNameInput.split(/[\n\r,;\t/]+/).map(n => n.trim()).filter(Boolean)
                       ));
                       const validNames = parsed.filter(n => !hqSettings.some(h => h.hqName === n));
