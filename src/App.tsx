@@ -753,7 +753,10 @@ const ERP_Dashboard = () => {
   const [isReconCalendarModalOpen, setIsReconCalendarModalOpen] = useState(false);
   const [reconCalendarViewDate, setReconCalendarViewDate] = useState(new Date());
   const [reconTab, setReconTab] = useState<'NEW' | 'HISTORY'>('NEW');
+  const [reconMode, setReconMode] = useState<'PAY_DATE' | 'DELIVERY_DATE'>('PAY_DATE');
   const [reconDate, setReconDate] = useState('');
+  const [reconDeliveryStartDate, setReconDeliveryStartDate] = useState('');
+  const [reconDeliveryEndDate, setReconDeliveryEndDate] = useState('');
   const [reconData, setReconData] = useState<any[]>([]);
   const [reconHistoryDates, setReconHistoryDates] = useState<string[]>([]);
   const [selectedHistoryDate, setSelectedHistoryDate] = useState<string>('');
@@ -1667,9 +1670,50 @@ const ERP_Dashboard = () => {
   };
 
   const fetchEnexData = async () => {
-    if (!reconDate) {
-      setNotification({ message: '정산기준일을 먼저 입력해주세요.', type: 'info' });
-      return;
+    const normalizeDateStr = (dateStr: string): string => {
+      if (!dateStr) return '';
+      const cleaned = String(dateStr).trim().replace(/[./]/g, '-');
+      const parts = cleaned.split('-');
+      if (parts.length === 3) {
+        const y = parts[0].length === 2 ? `20${parts[0]}` : parts[0];
+        const m = parts[1].padStart(2, '0');
+        const d = parts[2].padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+      return cleaned;
+    };
+
+    const isDateInRange = (dateStr: string, start: string, end: string): boolean => {
+      const norm = normalizeDateStr(dateStr);
+      const normStart = normalizeDateStr(start);
+      const normEnd = normalizeDateStr(end);
+      if (!norm || !normStart || !normEnd) return false;
+      return norm >= normStart && norm <= normEnd;
+    };
+
+    let targetReconLabel = '';
+    let normStart = '';
+    let normEnd = '';
+
+    if (reconMode === 'PAY_DATE') {
+      if (!reconDate) {
+        setNotification({ message: '정산기준일을 먼저 입력해주세요.', type: 'info' });
+        return;
+      }
+      targetReconLabel = reconDate;
+    } else {
+      if (!reconDeliveryStartDate || !reconDeliveryEndDate) {
+        setNotification({ message: '배송 시작일과 종료일을 모두 설정해주세요.', type: 'info' });
+        return;
+      }
+      normStart = normalizeDateStr(reconDeliveryStartDate);
+      normEnd = normalizeDateStr(reconDeliveryEndDate);
+      if (normStart > normEnd) {
+        setNotification({ message: '배송 시작일이 종료일보다 늦을 수 없습니다.', type: 'info' });
+        return;
+      }
+      targetReconLabel = `${normStart} ~ ${normEnd} (배송기준)`;
+      setReconDate(targetReconLabel);
     }
     
     try {
@@ -1717,17 +1761,36 @@ const ERP_Dashboard = () => {
               internalPayable += commission.finalPayable || commission.totalCommission;
           });
 
-          // 수수료지급일자 vs 정산기준일 비교하여 비고 설정
-          const normReconDate = (reconDate || '').replace(/\./g, '-').trim();
-          const normPayDate = (payDate || '').replace(/\./g, '-').trim();
           let remark = '정상';
 
-          if (!normPayDate) {
-            remark = '지급일자 미지정';
-          } else if (normPayDate < normReconDate) {
-            remark = `선지급 (${payDate})`;
-          } else if (normPayDate > normReconDate) {
-            remark = `지급일자 상이 (${payDate})`;
+          if (reconMode === 'PAY_DATE') {
+            // 정산기준일 기준 비교
+            const normReconDate = (reconDate || '').replace(/\./g, '-').trim();
+            const normPayDate = (payDate || '').replace(/\./g, '-').trim();
+
+            if (!normPayDate) {
+              remark = '지급일자 미지정';
+            } else if (normPayDate < normReconDate) {
+              remark = `선지급 (${payDate})`;
+            } else if (normPayDate > normReconDate) {
+              remark = `지급일자 상이 (${payDate})`;
+            }
+          } else {
+            // 배송일자 기간 기준 비교
+            const normDeliv = normalizeDateStr(intDeliveryDate || extDeliveryDate);
+            const isCompleted = firstMatch.deliveryStatus?.includes('완료') || (Boolean(intDeliveryDate) && intDeliveryDate !== '-');
+
+            if (!normDeliv) {
+              remark = '배송일자 미지정';
+            } else if (normDeliv < normStart) {
+              remark = `이전 배송 (${intDeliveryDate || extDeliveryDate})`;
+            } else if (normDeliv > normEnd) {
+              remark = `이후 배송 (${intDeliveryDate || extDeliveryDate})`;
+            } else if (!isCompleted) {
+              remark = `미배송 (${firstMatch.deliveryStatus || '진행중'})`;
+            } else {
+              remark = '정상';
+            }
           }
 
           return {
@@ -1741,7 +1804,7 @@ const ERP_Dashboard = () => {
             '거래처 배송일': extDeliveryDate,
             '내부 배송일자': intDeliveryDate,
             '수수료지급일자': payDate || '',
-            '정산기준일': reconDate,
+            '정산기준일': targetReconLabel,
             '구좌수': accountCount,
             '거래처입금액': extDeposit,
             '내부지급액합계': internalPayable,
@@ -1760,7 +1823,7 @@ const ERP_Dashboard = () => {
             '거래처 배송일': row['배송일'] || '',
             '내부 배송일자': '',
             '수수료지급일자': '',
-            '정산기준일': reconDate,
+            '정산기준일': targetReconLabel,
             '구좌수': row['실적(건)'] || 1, 
             '거래처입금액': extDeposit,
             '내부지급액합계': 0,
@@ -1773,12 +1836,27 @@ const ERP_Dashboard = () => {
       const enexRentalNos = new Set(excelData.map((row: any) => String(row['계약ID'] || row['계약ID(렌탈번호)'] || '').trim()).filter(Boolean));
       
       const internalByRentalNo = new Map<string, any[]>();
-      data.filter(d => d.payDate === reconDate && d.rentalNo && !enexRentalNos.has(d.rentalNo)).forEach(d => {
-          if (!internalByRentalNo.has(d.rentalNo)) {
-              internalByRentalNo.set(d.rentalNo, []);
-          }
-          internalByRentalNo.get(d.rentalNo)!.push(d);
-      });
+
+      if (reconMode === 'PAY_DATE') {
+        data.filter(d => d.payDate === reconDate && d.rentalNo && !enexRentalNos.has(d.rentalNo)).forEach(d => {
+            if (!internalByRentalNo.has(d.rentalNo)) {
+                internalByRentalNo.set(d.rentalNo, []);
+            }
+            internalByRentalNo.get(d.rentalNo)!.push(d);
+        });
+      } else {
+        data.filter(d => {
+          if (!d.rentalNo || enexRentalNos.has(d.rentalNo)) return false;
+          const isCompleted = d.deliveryStatus?.includes('완료') || (Boolean(d.deliveryDate) && d.deliveryDate !== '-');
+          const inRange = isDateInRange(d.deliveryDate, normStart, normEnd);
+          return isCompleted && inRange;
+        }).forEach(d => {
+            if (!internalByRentalNo.has(d.rentalNo)) {
+                internalByRentalNo.set(d.rentalNo, []);
+            }
+            internalByRentalNo.get(d.rentalNo)!.push(d);
+        });
+      }
 
       const missingInEnex = Array.from(internalByRentalNo.entries()).map(([rentalNo, items]) => {
           const firstMatch = items[0];
@@ -1799,7 +1877,7 @@ const ERP_Dashboard = () => {
             '거래처 배송일': '',
             '내부 배송일자': firstMatch.deliveryDate,
             '수수료지급일자': firstMatch.payDate || '',
-            '정산기준일': reconDate,
+            '정산기준일': targetReconLabel,
             '구좌수': items.length,
             '거래처입금액': 0,
             '내부지급액합계': internalPayable,
@@ -14400,51 +14478,188 @@ const ERP_Dashboard = () => {
                 <div className="flex-1 overflow-auto p-4 bg-[#f8fafc]">
                   {reconTab === 'NEW' ? (
                     <div className="flex flex-col gap-4">
-                      <div className="flex items-end gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                        <div className="flex-1">
-                          <label className="block text-xs font-bold text-slate-600 mb-1">정산기준일 설정 (YYYY-MM-DD)</label>
-                          <button
-                            onClick={() => {
-                              const uniqueDates = Array.from(new Set(data.map(d => d.payDate).filter(Boolean))).sort().reverse();
-                              if (uniqueDates.length > 0) {
-                                setReconCalendarViewDate(reconDate ? new Date(reconDate.replace(/\./g, '-')) : new Date((uniqueDates[0] as string).replace(/\./g, '-')));
-                              } else {
-                                setReconCalendarViewDate(new Date());
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                        {/* 1. 대사 기준 조건 전환 탭 */}
+                        <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-2.5 gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-slate-700">대사 기준:</span>
+                            <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                              <button
+                                type="button"
+                                onClick={() => setReconMode('PAY_DATE')}
+                                className={`px-3 py-1 rounded-md text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                  reconMode === 'PAY_DATE'
+                                    ? 'bg-white text-orange-600 shadow-xs'
+                                    : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                              >
+                                <Calendar size={13} />
+                                <span>정산기준일 기준</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReconMode('DELIVERY_DATE');
+                                  if (!reconDeliveryStartDate || !reconDeliveryEndDate) {
+                                    const now = new Date();
+                                    const y = now.getFullYear();
+                                    const m = String(now.getMonth() + 1).padStart(2, '0');
+                                    setReconDeliveryStartDate(`${y}-${m}-01`);
+                                    setReconDeliveryEndDate(`${y}-${m}-15`);
+                                  }
+                                }}
+                                className={`px-3 py-1 rounded-md text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                  reconMode === 'DELIVERY_DATE'
+                                    ? 'bg-white text-blue-600 shadow-xs'
+                                    : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                              >
+                                <Truck size={13} />
+                                <span>배송일자 기간 기준</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="text-[11px] text-slate-400 font-medium">
+                            {reconMode === 'PAY_DATE'
+                              ? '※ 특정 정산일자의 수수료지급 건을 기준으로 대사합니다.'
+                              : '※ 설정 기간 내에 배송완료된 계약 건을 기준으로 대사합니다.'}
+                          </div>
+                        </div>
+
+                        {/* 2. 조건 설정 및 버튼 */}
+                        <div className="flex flex-wrap items-end gap-3">
+                          {reconMode === 'PAY_DATE' ? (
+                            <div className="min-w-[200px]">
+                              <label className="block text-xs font-bold text-slate-600 mb-1">정산기준일 선택 (YYYY-MM-DD)</label>
+                              <button
+                                onClick={() => {
+                                  const uniqueDates = Array.from(new Set(data.map(d => d.payDate).filter(Boolean))).sort().reverse();
+                                  if (uniqueDates.length > 0) {
+                                    setReconCalendarViewDate(reconDate && !reconDate.includes('배송기준') ? new Date(reconDate.replace(/\./g, '-')) : new Date((uniqueDates[0] as string).replace(/\./g, '-')));
+                                  } else {
+                                    setReconCalendarViewDate(new Date());
+                                  }
+                                  setIsReconCalendarModalOpen(true);
+                                }}
+                                className="w-[200px] border border-slate-300 rounded-lg p-2 text-xs font-bold bg-white text-left text-slate-700 flex justify-between items-center hover:border-slate-400 cursor-pointer"
+                              >
+                                <span>{reconDate && !reconDate.includes('배송기준') ? reconDate : '선택하세요'}</span>
+                                <Calendar size={15} className="text-slate-400" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1.5 flex-1 min-w-[320px]">
+                              <div className="flex flex-wrap items-center justify-between gap-1">
+                                <label className="block text-xs font-bold text-slate-600">배송일자 기간 설정</label>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const now = new Date();
+                                      const y = now.getFullYear();
+                                      const m = String(now.getMonth() + 1).padStart(2, '0');
+                                      setReconDeliveryStartDate(`${y}-${m}-01`);
+                                      setReconDeliveryEndDate(`${y}-${m}-15`);
+                                    }}
+                                    className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer"
+                                  >
+                                    1일~15일
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const now = new Date();
+                                      const y = now.getFullYear();
+                                      const m = String(now.getMonth() + 1).padStart(2, '0');
+                                      const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+                                      setReconDeliveryStartDate(`${y}-${m}-16`);
+                                      setReconDeliveryEndDate(`${y}-${m}-${lastDay}`);
+                                    }}
+                                    className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer"
+                                  >
+                                    16일~말일
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const now = new Date();
+                                      const y = now.getFullYear();
+                                      const m = String(now.getMonth() + 1).padStart(2, '0');
+                                      const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+                                      setReconDeliveryStartDate(`${y}-${m}-01`);
+                                      setReconDeliveryEndDate(`${y}-${m}-${lastDay}`);
+                                    }}
+                                    className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer"
+                                  >
+                                    이번달 전체
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const now = new Date();
+                                      const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                                      const y = prevMonth.getFullYear();
+                                      const m = String(prevMonth.getMonth() + 1).padStart(2, '0');
+                                      const lastDay = new Date(y, prevMonth.getMonth() + 1, 0).getDate();
+                                      setReconDeliveryStartDate(`${y}-${m}-01`);
+                                      setReconDeliveryEndDate(`${y}-${m}-${lastDay}`);
+                                    }}
+                                    className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer"
+                                  >
+                                    지난달 전체
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="date"
+                                  value={reconDeliveryStartDate}
+                                  onChange={e => setReconDeliveryStartDate(e.target.value)}
+                                  className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:border-blue-500 focus:outline-none bg-white"
+                                />
+                                <span className="text-xs text-slate-400 font-bold">~</span>
+                                <input
+                                  type="date"
+                                  value={reconDeliveryEndDate}
+                                  onChange={e => setReconDeliveryEndDate(e.target.value)}
+                                  className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:border-blue-500 focus:outline-none bg-white"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex-1 flex flex-col justify-end min-w-[200px]">
+                            <button
+                              onClick={fetchEnexData}
+                              disabled={
+                                (reconMode === 'PAY_DATE' ? !reconDate || reconDate.includes('배송기준') : (!reconDeliveryStartDate || !reconDeliveryEndDate)) || reconLoading
                               }
-                              setIsReconCalendarModalOpen(true);
-                            }}
-                            className="w-[200px] border border-slate-300 rounded p-2 text-sm bg-white text-left text-slate-700 flex justify-between items-center"
-                          >
-                            <span>{reconDate || '선택하세요'}</span>
-                            <Calendar size={16} className="text-slate-400" />
-                          </button>
-                        </div>
-                        <div className="flex-1 flex flex-col justify-end">
-                          <button
-                            onClick={fetchEnexData}
-                            disabled={!reconDate || reconLoading}
-                            className="w-full px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 disabled:opacity-50 border border-slate-300"
-                          >
-                            {reconLoading ? '불러오는 중...' : '에넥스수수료 데이터 불러오기'}
-                          </button>
-                        </div>
-                        <div>
-                          <button
-                            onClick={saveReconData}
-                            disabled={reconData.length === 0 || reconLoading}
-                            className="px-6 py-2 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-2"
-                          >
-                            <Save size={16} /> 저장하기
-                          </button>
+                              className="w-full px-4 py-2 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-900 disabled:opacity-50 text-xs transition-colors cursor-pointer shadow-2xs"
+                            >
+                              {reconLoading ? '대사 분석 중...' : '에넥스수수료 데이터 불러오기'}
+                            </button>
+                          </div>
+
+                          <div>
+                            <button
+                              onClick={saveReconData}
+                              disabled={reconData.length === 0 || reconLoading}
+                              className="px-5 py-2 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-1.5 text-xs shadow-2xs cursor-pointer transition-colors"
+                            >
+                              <Save size={15} /> 저장하기
+                            </button>
+                          </div>
                         </div>
                       </div>
 
                       {reconData.length > 0 && (
-                        <div className="flex justify-between items-center bg-blue-50/50 p-3 rounded-lg border border-blue-100 text-sm">
-                          <div className="flex gap-4 font-bold text-slate-700">
+                        <div className="flex flex-wrap justify-between items-center bg-blue-50/50 p-3 rounded-lg border border-blue-100 text-sm gap-2">
+                          <div className="flex flex-wrap gap-4 font-bold text-slate-700">
+                            <span>대사 기준: <span className="text-indigo-600">{reconData[0]?.['정산기준일'] || reconDate}</span></span>
                             <span>총 대상 건수: <span className="text-blue-600">{reconData.length}</span>건</span>
                             <span>정상: <span className="text-emerald-600">{reconData.filter(d => d['비고'] === '정상').length}</span>건</span>
-                            <span className={reconData.some(d => d['비고'] !== '정상' && d['비고']) ? 'text-rose-600' : 'text-slate-500'}>이상(누락 등): {reconData.filter(d => d['비고'] !== '정상' && d['비고']).length}건</span>
+                            <span className={reconData.some(d => d['비고'] !== '정상' && d['비고']) ? 'text-rose-600' : 'text-slate-500'}>이상(누락/기간외 등): {reconData.filter(d => d['비고'] !== '정상' && d['비고']).length}건</span>
                           </div>
                         </div>
                       )}
@@ -14455,7 +14670,7 @@ const ERP_Dashboard = () => {
                             <table className="w-full text-left border-collapse min-w-max">
                               <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm text-[11px] text-slate-500 uppercase tracking-wider">
                                 <tr>
-                                  <th className="py-3 px-4 font-bold border-b border-slate-200">정산기준일</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">{reconMode === 'DELIVERY_DATE' ? '대사기준(배송기간)' : '정산기준일'}</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">수수료지급일자</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">계약ID</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">고객명</th>
