@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw } from 'lucide-react';
+import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw, ArrowUpDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ManualOrderReconModal } from './ManualOrderReconModal';
 
@@ -35,6 +35,8 @@ interface ManualOrderManagementModalProps {
 }
 
 export type DeliveryState = '발주대기' | '발주완료' | '배송중' | '배송완료';
+export type SortField = 'contractDate' | 'requestDate' | 'rentalProdClean' | 'orderDate';
+export type SortDirection = 'asc' | 'desc';
 
 interface OrderRow {
   uniqueKey: string;
@@ -187,6 +189,22 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [contractMonthFilter, setContractMonthFilter] = useState<string>('all');
   const [deliveryMonthFilter, setDeliveryMonthFilter] = useState<string>('all');
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      if (sortDirection === 'desc') {
+        setSortDirection('asc');
+      } else {
+        setSortField(null);
+        setSortDirection('desc');
+      }
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
 
   // 발주서 엑셀 팝업 모달 상태
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
@@ -603,9 +621,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     });
   }, [ordersFilteredByMonthsAndProd, requestDateFilter]);
 
-  // 검색 및 요청일(O열 탭), 계약월, 배송월, 상품명 다중선택, 상태 필터링
+  // 검색 및 요청일(O열 탭), 계약월, 배송월, 상품명 다중선택, 상태 필터링 및 정렬
   const filteredOrders = useMemo(() => {
-    return ordersFilteredByMonthsAndProd.filter((order) => {
+    const list = ordersFilteredByMonthsAndProd.filter((order) => {
       // 요청일자 1클릭 탭 필터
       if (requestDateFilter === 'has_value') {
         if (!order.requestDate || !order.requestDate.trim()) return false;
@@ -631,7 +649,35 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
       return matchContract || matchDate || matchReqDate || matchMemName || matchPhone || matchProd || matchCourier || matchTracking;
     });
-  }, [ordersFilteredByMonthsAndProd, editedValues, requestDateFilter, stateFilter, searchTerm]);
+
+    if (!sortField) return list;
+
+    return [...list].sort((a, b) => {
+      let valA = '';
+      let valB = '';
+
+      if (sortField === 'contractDate') {
+        valA = (a.contractDate || '').trim();
+        valB = (b.contractDate || '').trim();
+      } else if (sortField === 'requestDate') {
+        valA = (a.requestDate || '').trim();
+        valB = (b.requestDate || '').trim();
+      } else if (sortField === 'rentalProdClean') {
+        valA = (a.rentalProdClean || '').trim();
+        valB = (b.rentalProdClean || '').trim();
+      } else if (sortField === 'orderDate') {
+        valA = (getFieldValue(a, 'orderDate') || '').trim();
+        valB = (getFieldValue(b, 'orderDate') || '').trim();
+      }
+
+      if (!valA && !valB) return 0;
+      if (!valA) return 1; // 빈 값은 항상 맨 뒤로 배치
+      if (!valB) return -1;
+
+      const compareRes = valA.localeCompare(valB, 'ko', { numeric: true, sensitivity: 'base' });
+      return sortDirection === 'asc' ? compareRes : -compareRes;
+    });
+  }, [ordersFilteredByMonthsAndProd, editedValues, requestDateFilter, stateFilter, searchTerm, sortField, sortDirection]);
 
   // 체크박스 핸들러
   const handleToggleSelect = (key: string) => {
@@ -1226,8 +1272,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 )}
               </div>
 
-              {/* 필터 조건 초기화 버튼 */}
-              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || selectedProducts.size > 0 || requestDateFilter !== 'all') && (
+              {/* 필터 및 정렬 조건 초기화 버튼 */}
+              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || selectedProducts.size > 0 || requestDateFilter !== 'all' || sortField !== null) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1235,9 +1281,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     setDeliveryMonthFilter('all');
                     setSelectedProducts(new Set());
                     setRequestDateFilter('all');
+                    setSortField(null);
+                    setSortDirection('desc');
                   }}
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs"
-                  title="월별 및 상품, 요청일 필터 초기화"
+                  title="월별, 상품, 요청일 필터 및 정렬 초기화"
                 >
                   <RotateCcw size={12} />
                   <span>초기화</span>
@@ -1452,11 +1500,41 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                         </button>
                       </th>
                       <th className="py-3 px-3 w-12 text-center border-r border-slate-200">No</th>
-                      <th className="py-3 px-3 w-28 border-r border-slate-200 text-slate-800 bg-slate-200/50 text-center">
-                        계약일자
+                      <th
+                        onClick={() => handleSort('contractDate')}
+                        className="py-3 px-3 w-28 border-r border-slate-200 text-slate-800 bg-slate-200/50 text-center cursor-pointer select-none hover:bg-slate-300/70 transition-colors group"
+                        title="클릭 시 내림차순/올림차순 정렬"
+                      >
+                        <div className="inline-flex items-center justify-center gap-1 w-full">
+                          <span>계약일자</span>
+                          {sortField === 'contractDate' ? (
+                            sortDirection === 'desc' ? (
+                              <ChevronDown size={14} className="text-blue-600 font-bold shrink-0" />
+                            ) : (
+                              <ChevronUp size={14} className="text-blue-600 font-bold shrink-0" />
+                            )
+                          ) : (
+                            <ArrowUpDown size={12} className="text-slate-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                          )}
+                        </div>
                       </th>
-                      <th className="py-3 px-3 w-28 border-r border-slate-200 text-blue-800 bg-blue-50/60 text-center">
-                        요청일자
+                      <th
+                        onClick={() => handleSort('requestDate')}
+                        className="py-3 px-3 w-28 border-r border-slate-200 text-blue-800 bg-blue-50/60 text-center cursor-pointer select-none hover:bg-blue-100/70 transition-colors group"
+                        title="클릭 시 내림차순/올림차순 정렬"
+                      >
+                        <div className="inline-flex items-center justify-center gap-1 w-full">
+                          <span>요청일자</span>
+                          {sortField === 'requestDate' ? (
+                            sortDirection === 'desc' ? (
+                              <ChevronDown size={14} className="text-blue-600 font-bold shrink-0" />
+                            ) : (
+                              <ChevronUp size={14} className="text-blue-600 font-bold shrink-0" />
+                            )
+                          ) : (
+                            <ArrowUpDown size={12} className="text-blue-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                          )}
+                        </div>
                       </th>
                       <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono">
                         계약번호
@@ -1467,14 +1545,44 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono">
                         핸드폰
                       </th>
-                      <th className="py-3 px-3 min-w-[180px] border-r border-slate-200 text-blue-800 bg-blue-50/60">
-                        렌탈상품명
+                      <th
+                        onClick={() => handleSort('rentalProdClean')}
+                        className="py-3 px-3 min-w-[180px] border-r border-slate-200 text-blue-800 bg-blue-50/60 cursor-pointer select-none hover:bg-blue-100/70 transition-colors group"
+                        title="클릭 시 내림차순/올림차순 정렬"
+                      >
+                        <div className="inline-flex items-center gap-1">
+                          <span>렌탈상품명</span>
+                          {sortField === 'rentalProdClean' ? (
+                            sortDirection === 'desc' ? (
+                              <ChevronDown size={14} className="text-blue-600 font-bold shrink-0" />
+                            ) : (
+                              <ChevronUp size={14} className="text-blue-600 font-bold shrink-0" />
+                            )
+                          ) : (
+                            <ArrowUpDown size={12} className="text-blue-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                          )}
+                        </div>
                       </th>
                       <th className="py-3 px-3 w-28 text-center border-r border-slate-200">
                         배송상태
                       </th>
-                      <th className="py-3 px-3 w-36 text-purple-900 bg-purple-50/60 border-r border-slate-200 text-center">
-                        발주일
+                      <th
+                        onClick={() => handleSort('orderDate')}
+                        className="py-3 px-3 w-36 text-purple-900 bg-purple-50/60 border-r border-slate-200 text-center cursor-pointer select-none hover:bg-purple-100/70 transition-colors group"
+                        title="클릭 시 내림차순/올림차순 정렬"
+                      >
+                        <div className="inline-flex items-center justify-center gap-1 w-full">
+                          <span>발주일</span>
+                          {sortField === 'orderDate' ? (
+                            sortDirection === 'desc' ? (
+                              <ChevronDown size={14} className="text-purple-700 font-bold shrink-0" />
+                            ) : (
+                              <ChevronUp size={14} className="text-purple-700 font-bold shrink-0" />
+                            )
+                          ) : (
+                            <ArrowUpDown size={12} className="text-purple-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                          )}
+                        </div>
                       </th>
                       <th className="py-3 px-3 w-36 text-amber-800 bg-amber-50/60 border-r border-slate-200">
                         배송일 / 설치일
