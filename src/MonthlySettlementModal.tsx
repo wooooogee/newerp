@@ -271,24 +271,16 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             }
           }
 
-          let isMatch = false;
-          const hasAll = (rule.targetDivisions?.includes('ALL')) || 
-            ((!rule.targetDivisions || rule.targetDivisions.length === 0) && 
-             ((rule.targetHqs && rule.targetHqs.length > 0 ? rule.targetHqs.includes('ALL') : (rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === ''))));
-
-          if (isSelfHq) {
-            isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
-          } else if (hasAll) {
-            isMatch = rule.targetName ? (item.empName?.includes(rule.targetName) || false) : true;
-          } else {
-            isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
-          }
+          const isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
           if (!isMatch) return;
 
           // 상품 매칭
           if (rule.targetProducts && !rule.targetProducts.includes('ALL')) {
             const normItemProd = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
-            if (!rule.targetProducts.some((p: string) => normItemProd.includes(p.replace(/[\s()]/g, '').toLowerCase()))) return;
+            if (!rule.targetProducts.some((p: string) => {
+              const normP = p.replace(/[\s()]/g, '').toLowerCase();
+              return normItemProd.includes(normP) || normP.includes(normItemProd);
+            })) return;
           }
 
           if (rule.targetItems && !rule.targetItems.includes('ALL')) {

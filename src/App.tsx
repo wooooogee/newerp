@@ -332,6 +332,7 @@ const MASTER_HQ_DATA: Partial<HQSetting>[] = [
   },
   { hqName: '조민경', bankName: '카카오뱅크', accountNumber: '3333027476861', accountHolder: '조민경', productRules: [] },
   { hqName: '조재윤', bankName: '수협', accountNumber: '206000673009', accountHolder: '조재윤', productRules: [] },
+  { hqName: '조재은', bankName: '수협', accountNumber: '206000673009', accountHolder: '조재은', productRules: [] },
   {
     hqName: '다이렉트', bankName: '-', accountNumber: '-', accountHolder: '-',
     enableOverriding: true,
@@ -451,6 +452,7 @@ export const getDisplayPayDate = (item: any) => {
   const isSpecialTarget = 
     item.empName?.includes('조민경') || 
     item.empName?.includes('조재윤') || 
+    item.empName?.includes('조재은') || 
     item.empName?.includes('권성훈') || 
     item.empName?.includes('황미주');
 
@@ -2815,6 +2817,7 @@ const ERP_Dashboard = () => {
         const isSpecialHq = !!(
           item.empName?.includes('조민경') || 
           item.empName?.includes('조재윤') || 
+          item.empName?.includes('조재은') || 
           item.empName?.includes('권성훈') || 
           item.empName?.includes('황미주')
         );
@@ -2936,7 +2939,7 @@ const ERP_Dashboard = () => {
         sheetRows.push(['수급자명', '수당 종류', '지급 수량(구좌)', '최종 수당 금액']);
         specialIncentivesList.forEach(([name, amt]) => {
           const rule = globalIncentiveRules.find(r => r.targetName === name);
-          const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : '특수수당');
+          const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : '특수수당');
           const matchedCount = settlementStats.hqSummary[name]?.count || 0;
           sheetRows.push([
             name,
@@ -3007,6 +3010,7 @@ const ERP_Dashboard = () => {
           const isSpecialTarget = 
             item.empName?.includes('조민경') || 
             item.empName?.includes('조재윤') || 
+            item.empName?.includes('조재은') || 
             item.empName?.includes('권성훈') || 
             item.empName?.includes('황미주');
 
@@ -3433,7 +3437,7 @@ const ERP_Dashboard = () => {
         const isSelfHq = !rule.targetName || rule.targetName.trim() === '' || rule.targetName === 'SELF_HQ' || rule.targetName === '판매본부' || rule.targetName === '해당본부' || rule.targetName === '본부';
 
         let isSettlementDate = false;
-        if (!rule.payDay || rule.payDay === 0) {
+        if (!rule.payDay || rule.payDay === 0 || !payDateFilter || payDateFilter === 'ALL') {
           isSettlementDate = true;
         } else {
           const filterDayMatch = payDateFilter.match(/(\d{1,2})$/);
@@ -3445,106 +3449,109 @@ const ERP_Dashboard = () => {
 
         if (!isSettlementDate) return;
 
-        const filterClean = payDateFilter.replace(/[-./]/g, '');
-        if (filterClean.length >= 6) {
-          const year = parseInt(filterClean.substring(0, 4));
-          const month = parseInt(filterClean.substring(4, 6));
-          const prevDate = new Date(year, month - 2, 1);
-          const prevYearStr = String(prevDate.getFullYear());
-          const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
+        const filterClean = payDateFilter ? payDateFilter.replace(/[-./]/g, '') : '';
+        let year = new Date().getFullYear();
+        let month = new Date().getMonth() + 1;
+        if (filterClean.length === 6) {
+          year = parseInt('20' + filterClean.substring(0, 2));
+          month = parseInt(filterClean.substring(2, 4));
+        } else if (filterClean.length >= 8) {
+          year = parseInt(filterClean.substring(0, 4));
+          month = parseInt(filterClean.substring(4, 6));
+        }
+        const prevDate = new Date(year, month - 2, 1);
+        const prevYearStr = String(prevDate.getFullYear());
+        const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
 
-          const processedRentalNos = new Set<string>();
+        const processedRentalNos = new Set<string>();
 
-          data.forEach(item => {
-            if (item.status?.includes('취소') || item.status?.includes('해약')) return;
-            if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
+        data.forEach(item => {
+          if (item.status?.includes('취소') || item.status?.includes('해약')) return;
+          if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
 
-            // 렌탈계약번호 기준 중복제거 (본부 공급수수료 isSelfHq인 경우에만 1회 지급 중복제거, 개인 지정 수당은 구좌대로 계산)
-            if (isSelfHq) {
-              const rentalKey = item.rentalNo || item.resNo;
-              if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
-                if (processedRentalNos.has(rentalKey)) return;
-              }
+          // 렌탈계약번호 기준 중복제거 (본부 공급수수료 isSelfHq인 경우에만 1회 지급 중복제거, 개인 지정 수당은 구좌대로 계산)
+          if (isSelfHq) {
+            const rentalKey = item.rentalNo || item.resNo;
+            if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+              if (processedRentalNos.has(rentalKey)) return;
             }
-            let isMatch = false;
-            const hasAll = (rule.targetDivisions?.includes('ALL')) || 
-              ((!rule.targetDivisions || rule.targetDivisions.length === 0) && 
-               ((rule.targetHqs && rule.targetHqs.length > 0 ? rule.targetHqs.includes('ALL') : (rule.targetHq === 'ALL' || !rule.targetHq || rule.targetHq.trim() === ''))));
+          }
 
-            if (isSelfHq) {
-              isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
-            } else if (hasAll) {
-              isMatch = rule.targetName ? (item.empName?.includes(rule.targetName) || false) : true;
-            } else {
-              isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
-            }
-            if (!isMatch) return;
+          const isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
+          if (!isMatch) return;
 
-            if (!rule.targetProducts.includes('ALL')) {
-              const normItemProd = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
-              if (!rule.targetProducts.some((p: string) => normItemProd.includes(p.replace(/[\s()]/g, '').toLowerCase()))) return;
-            }
+          if (rule.targetProducts && !rule.targetProducts.includes('ALL')) {
+            const normItemProd = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
+            if (!rule.targetProducts.some((p: string) => {
+              const normP = p.replace(/[\s()]/g, '').toLowerCase();
+              return normItemProd.includes(normP) || normP.includes(normItemProd);
+            })) return;
+          }
 
-            if (rule.targetItems && !rule.targetItems.includes('ALL')) {
-              const isItemMatch = rule.targetItems.some((prod: string) => {
-                const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
-                const cleanRuleProd = prod.replace(/\s+/g, '');
-                return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
-              });
-              if (!isItemMatch) return;
-            }
+          if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+            const isItemMatch = rule.targetItems.some((prod: string) => {
+              const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
+              const cleanRuleProd = prod.replace(/\s+/g, '');
+              return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
+            });
+            if (!isItemMatch) return;
+          }
 
-            let dateStr = '';
-            if (rule.baseDateType === 'DELIVERY') {
-              dateStr = item.deliveryDate || '';
-              if (!dateStr) return;
-              if (item.deliveryStatus && !item.deliveryStatus.includes('완료') && item.deliveryStatus !== '-' && item.deliveryStatus.trim() !== '') return;
-            } else {
-              dateStr = item.contractDate || '';
-            }
+          let dateStr = '';
+          if (rule.baseDateType === 'DELIVERY') {
+            dateStr = item.deliveryDate || '';
+            if (!dateStr) return;
+            if (item.deliveryStatus && !item.deliveryStatus.includes('완료') && item.deliveryStatus !== '-' && item.deliveryStatus.trim() !== '') return;
+          } else {
+            dateStr = item.contractDate || '';
+          }
 
-            let isMatchedDate = false;
-            const itemPayDateDisplay = item.payDate || getDisplayPayDate(item) || '';
-            
-            // 지급일자 필터가 특정 일자(ALL이 아님)로 지정된 경우
-            if (payDateFilter && payDateFilter !== 'ALL') {
-              if (rule.payDay && rule.payDay > 0) {
-                // 1) "지정일 (다음달 N일, 예: 25일)" 수당 정책
-                if (itemPayDateDisplay && itemPayDateDisplay.replace(/[-./]/g, '') === filterClean) {
-                  isMatchedDate = true;
-                } else {
-                  // 실적기준일(배송일자/계약일자)이 전월(prevMonth)인 건만 25일에 산출
-                  const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-                  if (match) {
-                    let y = match[1];
-                    if (y.length === 2) y = '20' + y;
-                    const m = match[2].padStart(2, '0');
-                    if (y === prevYearStr && m === prevMonthStr) {
-                      isMatchedDate = true;
-                    }
-                  }
-                }
+          let isMatchedDate = false;
+          const itemPayDateDisplay = item.payDate || getDisplayPayDate(item) || '';
+          
+          // 지급일자 필터가 특정 일자(ALL이 아님)로 지정된 경우
+          if (payDateFilter && payDateFilter !== 'ALL') {
+            const cleanDisplay = itemPayDateDisplay ? itemPayDateDisplay.replace(/[-./]/g, '') : '';
+            const normDisplay = cleanDisplay.length === 6 ? '20' + cleanDisplay : cleanDisplay;
+            const normFilter = filterClean.length === 6 ? '20' + filterClean : filterClean;
+
+            if (rule.payDay && rule.payDay > 0) {
+              // 1) "지정일 (다음달 N일, 예: 25일)" 수당 정책
+              if (normDisplay && normDisplay === normFilter) {
+                isMatchedDate = true;
               } else {
-                // 2) "기존 정산 지급일과 동일 (연동)" 수당 정책
-                // -> 건별 원래 지급일(itemPayDateDisplay)이 선택된 정산일(payDateFilter)과 정확히 일치할 때만 산출
-                if (itemPayDateDisplay && itemPayDateDisplay !== '지급일 미지정' && itemPayDateDisplay !== '-') {
-                  isMatchedDate = itemPayDateDisplay.replace(/[-./]/g, '') === filterClean;
-                } else {
-                  // 지급일 미지정 시 당월 실적기준일 건만 매칭
-                  const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-                  if (match) {
-                    let y = match[1];
-                    if (y.length === 2) y = '20' + y;
-                    const m = match[2].padStart(2, '0');
-                    if (y === String(year) && m === String(month).padStart(2, '0')) {
-                      isMatchedDate = true;
-                    }
+                // 실적기준일(배송일자/계약일자)이 전월(prevMonth)인 건만 25일에 산출
+                const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+                if (match) {
+                  let y = match[1];
+                  if (y.length === 2) y = '20' + y;
+                  const m = match[2].padStart(2, '0');
+                  if (y === prevYearStr && m === prevMonthStr) {
+                    isMatchedDate = true;
                   }
                 }
               }
             } else {
-              isMatchedDate = true;
+              // 2) "기존 정산 지급일과 동일 (연동)" 수당 정책
+              // -> 건별 원래 지급일(itemPayDateDisplay)이 선택된 정산일(payDateFilter)과 정확히 일치할 때만 산출
+              if (normDisplay && normDisplay !== '지급일미지정' && normDisplay !== '-') {
+                isMatchedDate = normDisplay === normFilter;
+              } else {
+                // 지급일 미지정 시 당월 실적기준일 건만 매칭
+                const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+                if (match) {
+                  let y = match[1];
+                  if (y.length === 2) y = '20' + y;
+                  const m = match[2].padStart(2, '0');
+                  if (y === String(year) && m === String(month).padStart(2, '0')) {
+                    isMatchedDate = true;
+                  }
+                }
+              }
             }
+          } else {
+            isMatchedDate = true;
+          }
 
             if (isMatchedDate) {
               const rentalKey = item.rentalNo || item.resNo;
@@ -3604,7 +3611,7 @@ const ERP_Dashboard = () => {
                 matchedCount++;
                 commission += itemComm;
 
-                const detail = rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
+                const detail = rule.incentiveName || (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
                 specialPayouts.push({
                   id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
                   hq: rule.targetName || item.hq || '-',
@@ -3624,7 +3631,6 @@ const ERP_Dashboard = () => {
               }
             }
           });
-        }
 
         if (!isSelfHq) {
           const finalAmount = Math.max(commission, rule.minimumGuarantee);
@@ -3636,7 +3642,7 @@ const ERP_Dashboard = () => {
             hqSummary[rule.targetName].amount += finalAmount;
             hqSummary[rule.targetName].count += matchedCount;
             
-            const detail = rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
+            const detail = rule.incentiveName || (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
             const specialName = `[${detail}] ${rule.targetName}`;
             if (!summary[specialName]) summary[specialName] = { count: 0, amount: 0 };
             summary[specialName].amount += finalAmount;
@@ -4686,11 +4692,11 @@ const ERP_Dashboard = () => {
         const tax = isIndiv ? Math.floor(gross * 0.033) : (gross - supply);
         const net = gross - (isIndiv ? tax : 0);
 
-        const rule = globalIncentiveRules.find(r => 
-          (r.targetName === hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName) &&
+        const rule = globalIncentiveRules.find(r => r.targetName === hqName) || globalIncentiveRules.find(r => 
+          (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName) &&
           isHqMatchedForSpecialRule(r, hqName, divisionSettings)
         );
-        const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : (hqName === '권성훈' ? '홈페이지 유지' : '특수수당'));
+        const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : (hqName === '권성훈' ? '홈페이지 유지' : '특수수당'));
         const count = settlementStats.globalIncentivesCountSummary?.[hqName] ?? (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === hqName || sp.targetName === hqName).length;
 
         const empBank = employeeBankMap.get(hqName) || employeeBankMap.get(`다이렉트_${hqName}`);
@@ -5780,11 +5786,11 @@ const ERP_Dashboard = () => {
       }
 
       if (specialSum > 0) {
-        const matchedSpecialRule = globalIncentiveRules.find(r => 
-          (r.targetName === hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
+        const matchedSpecialRule = globalIncentiveRules.find(r => r.targetName === hqName) || globalIncentiveRules.find(r => 
+          (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
           isHqMatchedForSpecialRule(r, hqName, divisionSettings)
         );
-        const specialIncentiveName = matchedSpecialRule?.incentiveName || (hqName === '조재윤' ? '모델비' : (hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+        const specialIncentiveName = matchedSpecialRule?.incentiveName || (hqName === '조재윤' || hqName === '조재은' ? '모델비' : (hqName === '조민경' ? '컨설팅비' : '공급수수료'));
 
         rows.push([]);
         rows.push([`[${specialIncentiveName} 상세 내역]`]);
@@ -8367,7 +8373,7 @@ const ERP_Dashboard = () => {
                         if (selectedItem.hq === '조민경') {
                           unitPrice = 5000;
                           salesPart = 5000;
-                        } else if (selectedItem.hq === '조재윤') {
+                        } else if (selectedItem.hq === '조재윤' || selectedItem.hq === '조재은') {
                           unitPrice = 10000;
                           salesPart = 10000;
                         } else if (productRule) {
@@ -8396,9 +8402,9 @@ const ERP_Dashboard = () => {
                               <span className="text-[10px] font-bold text-slate-400">판매촉진비</span>
                               <span className="text-sm font-black text-orange-600">{Math.floor(promo).toLocaleString()}원</span>
                             </div>
-                            {(selectedItem.hq === '조재윤' || selectedItem.hq === '조민경') && (
+                            {(selectedItem.hq === '조재윤' || selectedItem.hq === '조재은' || selectedItem.hq === '조민경') && (
                               <div className="col-span-3 mt-2 p-2 bg-white rounded border border-blue-100 text-[10px] font-bold text-blue-500 italic">
-                                * {selectedItem.hq} 특수 규칙 적용됨: {selectedItem.hq === '조재윤' ? '건당 1만원 (월 최소 200만 보장)' : '건당 5천원'}
+                                * {selectedItem.hq} 특수 규칙 적용됨: {(selectedItem.hq === '조재윤' || selectedItem.hq === '조재은') ? '건당 1만원 (월 최소 200만 보장)' : '건당 5천원'}
                               </div>
                             )}
                           </>
@@ -13008,11 +13014,11 @@ const ERP_Dashboard = () => {
                               if (tab === 'details' && s.items.length === 0) return null;
                               if (tab === 'special' && s.specialSum === 0) return null;
 
-                              const matchedSpecialRule = globalIncentiveRules.find(r => 
-                                (r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
+                              const matchedSpecialRule = globalIncentiveRules.find(r => r.targetName === s.hqName) || globalIncentiveRules.find(r => 
+                                (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
                                 isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)
                               );
-                              const specialIncentiveLabel = matchedSpecialRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+                              const specialIncentiveLabel = matchedSpecialRule?.incentiveName || (s.hqName === '조재윤' || s.hqName === '조재은' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
 
                               const tabNames: Record<string, string> = {
                                 'summary': '정산내역 요약',
@@ -13082,11 +13088,11 @@ const ERP_Dashboard = () => {
                                     <tr>
                                       <td className="border border-slate-300 p-1.5 font-bold text-slate-600">
                                         {(() => {
-                                          const matchedRule = globalIncentiveRules.find(r => 
-                                            (r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
+                                          const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName) || globalIncentiveRules.find(r => 
+                                            (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
                                             isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)
                                           );
-                                          return matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+                                          return matchedRule?.incentiveName || (s.hqName === '조재윤' || s.hqName === '조재은' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
                                         })()}
                                       </td>
                                       <td className="border border-slate-300 p-1.5 text-center">
@@ -13161,7 +13167,7 @@ const ERP_Dashboard = () => {
                                       <td className="border border-slate-300 p-1.5 bg-slate-50 font-bold text-left">
                                         {(() => {
                                           const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
-                                          return matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+                                          return matchedRule?.incentiveName || (s.hqName === '조재윤' || s.hqName === '조재은' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
                                         })()}
                                       </td>
                                       <td className="border border-slate-300 p-1.5">
@@ -13301,11 +13307,11 @@ const ERP_Dashboard = () => {
                           )}
 
                           {activeTab === 'special' && (() => {
-                            const matchedRule = globalIncentiveRules.find(r => 
-                              (r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
+                            const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName) || globalIncentiveRules.find(r => 
+                              (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
                               isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)
                             );
-                            const matchedIncentiveName = matchedRule?.incentiveName || (s.hqName === '조재윤' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+                            const matchedIncentiveName = matchedRule?.incentiveName || (s.hqName === '조재윤' || s.hqName === '조재은' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
 
                             // 실제 정산 로직에서 산출된 수당 발생 목록(specialPayouts)
                             const actualSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === s.hqName);
@@ -13367,7 +13373,9 @@ const ERP_Dashboard = () => {
                             const processedRentalNos = new Set<string>();
                             const specialItems = s.items.filter((item: any) => {
                               if (!matchedRule) return true;
-                              if (!isHqMatchedForSpecialRule(matchedRule, s.hqName, divisionSettings)) return false;
+                              const isPersonRule = matchedRule.targetName === s.hqName;
+                              if (!isPersonRule && !isHqMatchedForSpecialRule(matchedRule, s.hqName, divisionSettings)) return false;
+                              if (isPersonRule && !isHqMatchedForSpecialRule(matchedRule, item.hq, divisionSettings)) return false;
 
                               const targetProducts = matchedRule.targetProducts || ['ALL'];
                               if (!targetProducts.includes('ALL') && !targetProducts.some((p: string) => (item.prodName || item.prodCategory || item.productCategory || '').includes(p))) return false;
