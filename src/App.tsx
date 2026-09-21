@@ -14226,8 +14226,55 @@ const ERP_Dashboard = () => {
                           '비고': d['비고'] || ''
                         }));
 
-                        const normalRows = mappedData.filter(d => d['비고'] === '정상');
-                        const abnormalRows = mappedData.filter(d => d['비고'] !== '정상');
+                        const normalizeDateForSort = (dateStr: any): string => {
+                          if (!dateStr) return '';
+                          const cleaned = String(dateStr).trim().replace(/[./]/g, '-');
+                          const parts = cleaned.split('-');
+                          if (parts.length === 3) {
+                            const y = parts[0].length === 2 ? `20${parts[0]}` : parts[0];
+                            const m = parts[1].padStart(2, '0');
+                            const d = parts[2].padStart(2, '0');
+                            return `${y}-${m}-${d}`;
+                          }
+                          return cleaned;
+                        };
+
+                        const sortRows = (rows: any[], isAbnormal: boolean) => {
+                          return [...rows].sort((a, b) => {
+                            if (isAbnormal) {
+                              const remarkA = String(a['비고'] || '').trim();
+                              const remarkB = String(b['비고'] || '').trim();
+                              const remarkDiff = remarkA.localeCompare(remarkB, 'ko');
+                              if (remarkDiff !== 0) return remarkDiff;
+                            }
+
+                            const dateA = normalizeDateForSort(a['수수료지급일자']);
+                            const dateB = normalizeDateForSort(b['수수료지급일자']);
+                            if (dateA && dateB) {
+                              const dateDiff = dateA.localeCompare(dateB);
+                              if (dateDiff !== 0) return dateDiff;
+                            } else if (dateA && !dateB) {
+                              return -1;
+                            } else if (!dateA && dateB) {
+                              return 1;
+                            }
+
+                            const hqA = String(a['본부명'] || '').trim();
+                            const hqB = String(b['본부명'] || '').trim();
+                            const hqDiff = hqA.localeCompare(hqB, 'ko');
+                            if (hqDiff !== 0) return hqDiff;
+
+                            const custA = String(a['고객명'] || '').trim();
+                            const custB = String(b['고객명'] || '').trim();
+                            const custDiff = custA.localeCompare(custB, 'ko');
+                            if (custDiff !== 0) return custDiff;
+
+                            return String(a['계약ID'] || '').localeCompare(String(b['계약ID'] || ''));
+                          });
+                        };
+
+                        const normalRows = sortRows(mappedData.filter(d => d['비고'] === '정상'), false);
+                        const abnormalRows = sortRows(mappedData.filter(d => d['비고'] !== '정상'), true);
 
                         const normalCount = normalRows.length;
                         const normalGuzwa = normalRows.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
@@ -14360,8 +14407,55 @@ const ERP_Dashboard = () => {
                           '비고': d['비고'] || ''
                         }));
 
-                        const normalRows = mappedData.filter(d => d['비고'] === '정상');
-                        const abnormalRows = mappedData.filter(d => d['비고'] !== '정상');
+                        const normalizeDateForSort = (dateStr: any): string => {
+                          if (!dateStr) return '';
+                          const cleaned = String(dateStr).trim().replace(/[./]/g, '-');
+                          const parts = cleaned.split('-');
+                          if (parts.length === 3) {
+                            const y = parts[0].length === 2 ? `20${parts[0]}` : parts[0];
+                            const m = parts[1].padStart(2, '0');
+                            const d = parts[2].padStart(2, '0');
+                            return `${y}-${m}-${d}`;
+                          }
+                          return cleaned;
+                        };
+
+                        const sortRows = (rows: any[], isAbnormal: boolean) => {
+                          return [...rows].sort((a, b) => {
+                            if (isAbnormal) {
+                              const remarkA = String(a['비고'] || '').trim();
+                              const remarkB = String(b['비고'] || '').trim();
+                              const remarkDiff = remarkA.localeCompare(remarkB, 'ko');
+                              if (remarkDiff !== 0) return remarkDiff;
+                            }
+
+                            const dateA = normalizeDateForSort(a['수수료지급일자']);
+                            const dateB = normalizeDateForSort(b['수수료지급일자']);
+                            if (dateA && dateB) {
+                              const dateDiff = dateA.localeCompare(dateB);
+                              if (dateDiff !== 0) return dateDiff;
+                            } else if (dateA && !dateB) {
+                              return -1;
+                            } else if (!dateA && dateB) {
+                              return 1;
+                            }
+
+                            const hqA = String(a['본부명'] || '').trim();
+                            const hqB = String(b['본부명'] || '').trim();
+                            const hqDiff = hqA.localeCompare(hqB, 'ko');
+                            if (hqDiff !== 0) return hqDiff;
+
+                            const custA = String(a['고객명'] || '').trim();
+                            const custB = String(b['고객명'] || '').trim();
+                            const custDiff = custA.localeCompare(custB, 'ko');
+                            if (custDiff !== 0) return custDiff;
+
+                            return String(a['계약ID'] || '').localeCompare(String(b['계약ID'] || ''));
+                          });
+                        };
+
+                        const normalRows = sortRows(mappedData.filter(d => d['비고'] === '정상'), false);
+                        const abnormalRows = sortRows(mappedData.filter(d => d['비고'] !== '정상'), true);
 
                         const normalCount = normalRows.length;
                         const normalGuzwa = normalRows.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
