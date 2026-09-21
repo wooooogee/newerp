@@ -24,6 +24,7 @@ interface ERPDataItem {
   branch: string;
   empName: string;
   status: string;
+  cancelDate?: string;
   raw: any[];
 }
 
@@ -34,7 +35,7 @@ interface ManualOrderManagementModalProps {
   onOpenReconModal?: () => void;
 }
 
-export type DeliveryState = '발주대기' | '발주완료' | '배송중' | '배송완료';
+export type DeliveryState = '발주대기' | '발주완료' | '배송중' | '배송완료' | '발주취소';
 export type SortField = 'contractDate' | 'requestDate' | 'rentalProdClean' | 'orderDate';
 export type SortDirection = 'asc' | 'desc';
 
@@ -49,6 +50,7 @@ interface OrderRow {
   rentalProdRaw: string; // 원본 렌탈상품명
   rentalProdClean: string; // 정제된 렌탈상품명
   status: string; // B열 가입상태
+  cancelDate?: string; // Z열 해지/취소일자
   address: string; // 수기발주 L열 주소 (11)
   zipCode: string; // 수기발주 K열 우편번호 (10)
 
@@ -388,22 +390,28 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
     data.forEach((item) => {
       const rawProdName = (item.rentalProd || item.prodName || '').trim();
-      if (!rawProdName) return;
+      const contractNo = (item.rentalNo || item.memNo || '').trim();
+      if (!rawProdName && !contractNo) return;
 
       const cleanProdName = cleanProductName(rawProdName);
-      const isTarget = targetProducts.some(
-        (tp) => rawProdName.toLowerCase().includes(tp.toLowerCase()) || cleanProdName.toLowerCase().includes(tp.toLowerCase())
-      );
-      if (!isTarget || String(item.status || '').trim() !== '가입') return;
-
-      const contractNo = (item.rentalNo || item.memNo || '').trim();
-      if (!contractNo || seenContracts.has(contractNo.toUpperCase())) return;
-      seenContracts.add(contractNo.toUpperCase());
-
       const cNoUpper = contractNo.toUpperCase();
       const cNoDigits = contractNo.replace(/[^0-9]/g, '');
+
       const sheetMatch = sheetOrderMap.get(contractNo) || sheetOrderMap.get(cNoUpper) || (cNoDigits ? sheetOrderMap.get(cNoDigits) : undefined);
       const savedData = savedOrderStore[cNoUpper] || savedOrderStore[contractNo] || (cNoDigits ? savedOrderStore[cNoDigits] : undefined);
+
+      const isTarget = targetProducts.some(
+        (tp) => (rawProdName && rawProdName.toLowerCase().includes(tp.toLowerCase())) || (cleanProdName && cleanProdName.toLowerCase().includes(tp.toLowerCase()))
+      ) || !!sheetMatch || !!savedData;
+
+      // 수기발주 대상 상품이 아니면서 기존 시트/저장소 이력도 없으면 제외
+      if (!isTarget) return;
+
+      if (!contractNo || seenContracts.has(cNoUpper)) return;
+      seenContracts.add(cNoUpper);
+
+      const itemStatus = String(item.status || '').trim() || '가입';
+      const isCancelledStatus = itemStatus.includes('취소') || itemStatus.includes('해지') || itemStatus.includes('철회') || itemStatus === '해약';
 
       // 요청일자는 오직 B열 매칭된 수기발주 시트 O열(index 14)에서만 취득
       const reqDate = sheetMatch?.requestDate || '';
@@ -415,10 +423,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : (sheetMatch?.trackingNo || '');
 
       const explicitState = savedData?.deliveryState || (sheetMatch?.raw?.[23] as DeliveryState);
-      let dState: DeliveryState = explicitState || '발주대기';
+      let dState: DeliveryState = '발주대기';
       
       if (explicitState) {
         dState = explicitState;
+      } else if (isCancelledStatus) {
+        // 원장의 가입상태가 취소/해지 등이고 별도로 저장된 배송상태가 없으면 기본값을 '발주취소'로 설정
+        dState = '발주취소';
       } else if (delDate.trim()) {
         dState = '배송완료';
       } else if (tracking.trim() || courier.trim()) {
@@ -437,7 +448,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         phone: item.phone || '',
         rentalProdRaw: rawProdName,
         rentalProdClean: cleanProdName,
-        status: item.status || '가입',
+        status: itemStatus,
+        cancelDate: item.cancelDate || '',
         address: sheetMatch?.address || '',
         zipCode: sheetMatch?.zipCode || '',
         orderDate: ordDate,
@@ -448,8 +460,60 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         rawOrderRow: sheetMatch?.raw,
       });
     });
+
+    // 2. 수기발주 구글 시트 원본 행 중 data(원장)에 누락되었으나 시트에 등록된 발주 건 보존
+    if (Array.isArray(sheetOrderRows) && sheetOrderRows.length >= 2) {
+      sheetOrderRows.slice(1).forEach((row, idx) => {
+        const rawContractNo = String(row[1] || '').trim();
+        if (!rawContractNo || seenContracts.has(rawContractNo.toUpperCase())) return;
+        seenContracts.add(rawContractNo.toUpperCase());
+
+        const cNoUpper = rawContractNo.toUpperCase();
+        const cNoDigits = rawContractNo.replace(/[^0-9]/g, '');
+        const savedData = savedOrderStore[cNoUpper] || savedOrderStore[rawContractNo] || (cNoDigits ? savedOrderStore[cNoDigits] : undefined);
+
+        const rawProdName = String(row[12] || row[6] || '').trim();
+        const cleanProdName = cleanProductName(rawProdName);
+
+        const ordDate = savedData?.orderDate || String(row[14] || '').trim();
+        const delDate = savedData?.deliveryDate !== undefined ? savedData.deliveryDate : String(row[20] || '').trim();
+        const courier = normalizeCourierName(savedData?.courier !== undefined ? savedData.courier : String(row[21] || '').trim());
+        const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : String(row[22] || '').trim();
+        const explicitState = savedData?.deliveryState || (row[23] as DeliveryState);
+
+        let dState: DeliveryState = explicitState || '발주대기';
+        if (!explicitState) {
+          if (delDate.trim()) dState = '배송완료';
+          else if (tracking.trim() || courier.trim()) dState = '배송중';
+          else if (ordDate.trim()) dState = '발주완료';
+        }
+
+        list.push({
+          uniqueKey: `sheet-order-${rawContractNo}-${idx}`,
+          rowIdx: idx + 2,
+          contractNo: rawContractNo,
+          contractDate: String(row[0] || '').trim(),
+          requestDate: String(row[14] || '').trim(),
+          memName: String(row[3] || '').trim(),
+          phone: String(row[5] || '').trim(),
+          rentalProdRaw: rawProdName,
+          rentalProdClean: cleanProdName,
+          status: String(row[1] || '가입').trim(),
+          cancelDate: '',
+          address: String(row[11] || '').trim(),
+          zipCode: String(row[10] || '').trim(),
+          orderDate: ordDate,
+          deliveryDate: delDate,
+          courier,
+          trackingNo: tracking,
+          deliveryState: dState,
+          rawOrderRow: row,
+        });
+      });
+    }
+
     return list;
-  }, [data, targetProducts, sheetOrderMap, savedOrderStore]);
+  }, [data, targetProducts, sheetOrderMap, savedOrderStore, sheetOrderRows]);
 
   // 렌탈상품 목록 옵션
   const availableProductOptions = useMemo(() => {
@@ -646,8 +710,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const matchProd = order.rentalProdClean.toLowerCase().includes(term);
       const matchCourier = getFieldValue(order, 'courier').toLowerCase().includes(term);
       const matchTracking = getFieldValue(order, 'trackingNo').toLowerCase().includes(term);
+      const matchStatus = (order.status || '').toLowerCase().includes(term);
+      const matchDeliveryState = (order.deliveryState || '').toLowerCase().includes(term);
 
-      return matchContract || matchDate || matchReqDate || matchMemName || matchPhone || matchProd || matchCourier || matchTracking;
+      return matchContract || matchDate || matchReqDate || matchMemName || matchPhone || matchProd || matchCourier || matchTracking || matchStatus || matchDeliveryState;
     });
 
     if (!sortField) return list;
@@ -839,6 +905,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       alert('발주서 엑셀을 생성할 항목을 최소 1개 이상 체크해 주세요.');
       return;
     }
+
+    const cancelledCount = selectedOrdersList.filter(
+      (o) => getRowDeliveryState(o) === '발주취소' || (o.status && o.status !== '가입')
+    ).length;
+
+    if (cancelledCount > 0) {
+      const confirmProceed = window.confirm(
+        `선택된 ${selectedOrdersList.length}건 중 취소/해지 건이 ${cancelledCount}건 포함되어 있습니다.\n취소 건도 포함하여 발주서를 생성하시겠습니까?\n\n(취소 건을 제외하시려면 [취소]를 누르고 체크를 해제해 주세요.)`
+      );
+      if (!confirmProceed) return;
+    }
+
     setIsOrderModalOpen(true);
   };
 
@@ -914,6 +992,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         (o) => o.contractNo.toUpperCase() === cKey
       );
 
+      // 발주취소 상태인 건은 에넥스 업로드 대상 제외
+      const currentState = matchedOrder ? getRowDeliveryState(matchedOrder) : (rowCopy[23] as DeliveryState);
+      if (currentState === '발주취소') {
+        return;
+      }
+
       let delDate = String(rowCopy[20] || '').trim();
       let courier = normalizeCourierName(String(rowCopy[21] || '').trim());
       let tracking = String(rowCopy[22] || '').trim();
@@ -986,6 +1070,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       회원명: o.memName,
       핸드폰: o.phone,
       렌탈상품명: o.rentalProdClean,
+      가입상태: o.status,
+      해지일자: o.cancelDate || '',
       배송상태: getRowDeliveryState(o),
       '배송일/설치일': getFieldValue(o, 'deliveryDate'),
       택배사: getFieldValue(o, 'courier'),
@@ -1339,6 +1425,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 >
                   배송완료 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '배송완료').length})
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setStateFilter('발주취소')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    stateFilter === '발주취소' ? 'bg-rose-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  발주취소 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '발주취소').length})
+                </button>
               </div>
             </div>
 
@@ -1392,6 +1487,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   </option>
                   <option value="배송완료" className="bg-white text-slate-800 font-medium">
                     배송완료
+                  </option>
+                  <option value="발주취소" className="bg-white text-rose-700 font-medium">
+                    발주취소
                   </option>
                 </select>
               </div>
@@ -1564,6 +1662,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                         </div>
                       </th>
                       <th className="py-3 px-3 w-28 text-center border-r border-slate-200">
+                        가입상태
+                      </th>
+                      <th className="py-3 px-3 w-28 text-center border-r border-slate-200">
                         배송상태
                       </th>
                       <th
@@ -1608,12 +1709,21 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       const hasTracking = !!(courier.trim() && tracking.trim());
 
                       const currentState = getRowDeliveryState(order);
+                      const isCancelled = order.status !== '가입' || currentState === '발주취소';
 
                       return (
                         <tr
                           key={order.uniqueKey}
                           className={`transition-colors hover:bg-slate-50 ${
-                            isSelected ? 'bg-blue-50/60' : isRowEdited ? 'bg-amber-50/30' : idx % 2 === 1 ? 'bg-slate-50/30' : 'bg-white'
+                            isSelected
+                              ? 'bg-blue-50/60'
+                              : isRowEdited
+                              ? 'bg-amber-50/30'
+                              : isCancelled
+                              ? 'bg-rose-50/20'
+                              : idx % 2 === 1
+                              ? 'bg-slate-50/30'
+                              : 'bg-white'
                           }`}
                         >
                           {/* Checkbox */}
@@ -1673,6 +1783,26 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                             {order.rentalProdClean}
                           </td>
 
+                          {/* 가입상태 */}
+                          <td className="py-2.5 px-3 text-center border-r border-slate-200">
+                            {order.status === '가입' ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                가입
+                              </span>
+                            ) : (
+                              <div className="inline-flex flex-col items-center gap-0.5">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                  {order.status}
+                                </span>
+                                {order.cancelDate ? (
+                                  <span className="text-[10px] text-rose-500 font-mono leading-none" title={`해지일: ${order.cancelDate}`}>
+                                    {order.cancelDate}
+                                  </span>
+                                ) : null}
+                              </div>
+                            )}
+                          </td>
+
                           {/* 배송상태 선택 (드롭다운) */}
                           <td className="py-2.5 px-3 text-center border-r border-slate-200">
                             <select
@@ -1685,6 +1815,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                                   ? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
                                   : currentState === '발주완료'
                                   ? 'bg-purple-100 text-purple-900 border-purple-300 hover:bg-purple-200'
+                                  : currentState === '발주취소'
+                                  ? 'bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200'
                                   : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
                               }`}
                             >
@@ -1699,6 +1831,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                               </option>
                               <option value="배송완료" className="bg-white text-slate-800 font-medium">
                                 배송완료
+                              </option>
+                              <option value="발주취소" className="bg-white text-rose-700 font-medium">
+                                발주취소
                               </option>
                             </select>
                           </td>
@@ -1824,6 +1959,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </span>
               <span>
                 배송완료: <strong className="text-emerald-600 font-mono font-bold">{extractedOrders.filter((o) => o.deliveryState === '배송완료').length}</strong>건
+              </span>
+              <span>
+                발주취소: <strong className="text-rose-600 font-mono font-bold">{extractedOrders.filter((o) => o.deliveryState === '발주취소').length}</strong>건
               </span>
             </div>
 
