@@ -4,6 +4,8 @@ import { google } from 'googleapis';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import fs from 'fs';
+// @ts-ignore
+import XlsxPopulate from 'xlsx-populate';
 
 const isServerless = !!process.env.NETLIFY || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.VERCEL;
 const TOKEN_PATH = isServerless 
@@ -2957,7 +2959,59 @@ app.post('/api/sheets/excel-sync/backup', async (req, res) => {
   }
 });
 
-// 2. 엑셀 동기화 처리 (미리보기 & 실제 반영) API
+// 2. 암호화된 엑셀 파일 복호화 API (비밀번호: 기본값 1111)
+app.post('/api/sheets/excel-sync/decrypt', async (req, res) => {
+  const { fileBase64, password } = req.body as { fileBase64: string; password?: string };
+  if (!fileBase64) {
+    return res.status(400).json({ error: '파일 데이터가 전달되지 않았습니다.' });
+  }
+
+  const pw = password || '1111';
+
+  try {
+    const buffer = Buffer.from(fileBase64, 'base64');
+    // @ts-ignore
+    const workbook = await XlsxPopulate.fromDataAsync(buffer, { password: pw });
+    const sheet = workbook.sheet(0);
+    const usedRange = sheet.usedRange();
+    let rawValues: any[][] = [];
+    if (usedRange) {
+      rawValues = usedRange.value() || [];
+    }
+
+    // 날짜 객체 포맷 변환 및 Latin-1 정제
+    const formattedRows = rawValues.map(row => {
+      if (!Array.isArray(row)) return row;
+      return row.map(cell => {
+        if (cell instanceof Date) {
+          return formatDateToYMD(cell);
+        }
+        if (typeof cell === 'number') {
+          return String(cell);
+        }
+        return cell !== null && cell !== undefined ? String(cell) : '';
+      });
+    });
+
+    const safeRows = autoRepairRowEncodingSync(formattedRows);
+
+    console.log(`[ExcelSync Decrypt] Successfully decrypted excel workbook using password "${pw}". Extracted ${safeRows.length} rows.`);
+
+    return res.json({
+      success: true,
+      rows: safeRows,
+      passwordUsed: pw
+    });
+  } catch (err: any) {
+    console.warn(`[ExcelSync Decrypt Failed with password "${pw}"]:`, err.message);
+    return res.status(422).json({
+      error: 'PASSWORD_FAILED',
+      message: '비밀번호가 올바르지 않거나 지원되지 않는 암호화 형식입니다. 비밀번호를 다시 확인해 주세요.'
+    });
+  }
+});
+
+// 3. 엑셀 동기화 처리 (미리보기 & 실제 반영) API
 app.post('/api/sheets/excel-sync/process', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });

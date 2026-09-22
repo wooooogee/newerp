@@ -57,6 +57,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   const [deliveryFileTables, setDeliveryFileTables] = useState<{ fileName: string; rows: any[][] }[]>([]);
   const [deliveryFilesInfo, setDeliveryFilesInfo] = useState<DeliveryFileInfo[]>([]);
   const [deliveryRows, setDeliveryRows] = useState<any[][] | null>(null);
+  const [deliveryPassword, setDeliveryPassword] = useState<string>('1111');
 
   const [autoBackup, setAutoBackup] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -107,8 +108,37 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     });
   };
 
-  // 엑셀 파일 파싱 헬퍼 (EUC-KR / CP949 / UTF-8 다중 인코딩 완벽 자동 지원)
-  const parseExcelFile = async (file: File): Promise<any[][]> => {
+  // 서버 복호화 API 호출 (비밀번호: 기본값 1111)
+  const decryptExcelViaServer = async (file: File, password: string): Promise<any[][]> => {
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const fileBase64 = btoa(binary);
+
+    const res = await fetch('/api/sheets/excel-sync/decrypt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileBase64,
+        password: password || '1111'
+      })
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.message || '비밀번호가 올바르지 않거나 복호화에 실패했습니다.');
+    }
+
+    const data = await res.json();
+    return data.rows;
+  };
+
+  // 엑셀 파일 파싱 헬퍼 (EUC-KR / CP949 / UTF-8 및 암호화 파일 자동 복호화)
+  const parseExcelFile = async (file: File, password?: string): Promise<any[][]> => {
     const XLSX = (window as any).XLSX;
     if (!XLSX) throw new Error('XLSX 라이브러리를 불러올 수 없습니다. 페이지를 새로고침해 주세요.');
 
@@ -116,56 +146,64 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     const bytes = new Uint8Array(buffer);
 
     // 1. 바이너리 엑셀 포맷 판별
-    // - 진짜 XLSX: ZIP 기반 (PK..) [0x50, 0x4B, 0x03, 0x04]
-    // - 구형 XLS: OLE2/CFB 바이너리 [0xD0, 0xCF, 0x11, 0xE0]
     const isZipXlsx = bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
     const isCfbXls = bytes.length > 4 && bytes[0] === 0xD0 && bytes[1] === 0xCF && bytes[2] === 0x11 && bytes[3] === 0xE0;
 
     let workbook: any = null;
 
-    if (isZipXlsx || isCfbXls) {
-      // 바이너리 엑셀 (XLSX 또는 BIFF8 XLS): codepage: 949 및 cellDates: false
-      workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949 });
-    } else {
-      // 2. 국내 전산 CSV 또는 HTML 테이블형 .xls 파일:
-      // 먼저 EUC-KR 디코딩 시도
-      let decodedText = '';
-      try {
-        const eucDecoder = new TextDecoder('euc-kr');
-        decodedText = eucDecoder.decode(buffer);
-      } catch (e) {
-        decodedText = '';
-      }
-
-      // EUC-KR 디코딩 결과에 유효 한글이 존재하면 텍스트로 바로 파싱
-      if (decodedText && /[가-힣]/.test(decodedText)) {
-        console.log('[ExcelSync] Detected Korean text encoded in EUC-KR / CP949.');
-        workbook = XLSX.read(decodedText, { type: 'string', cellDates: false });
+    try {
+      if (isZipXlsx || isCfbXls) {
+        workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949 });
       } else {
-        // UTF-8 디코딩 시도
+        let decodedText = '';
         try {
-          const utf8Decoder = new TextDecoder('utf-8');
-          const utf8Text = utf8Decoder.decode(buffer);
-          if (/[가-힣]/.test(utf8Text)) {
-            workbook = XLSX.read(utf8Text, { type: 'string', cellDates: false });
-          }
+          decodedText = new TextDecoder('euc-kr').decode(buffer);
         } catch (e) {}
 
-        // Fallback: array
-        if (!workbook) {
-          workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949 });
+        if (decodedText && /[가-힣]/.test(decodedText)) {
+          workbook = XLSX.read(decodedText, { type: 'string', cellDates: false });
+        } else {
+          try {
+            const utf8Text = new TextDecoder('utf-8').decode(buffer);
+            if (/[가-힣]/.test(utf8Text)) {
+              workbook = XLSX.read(utf8Text, { type: 'string', cellDates: false });
+            }
+          } catch (e) {}
+
+          if (!workbook) {
+            workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949 });
+          }
         }
       }
+
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      let jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false }) as any[][];
+      jsonRows = autoRepairRowEncoding(jsonRows);
+      return jsonRows;
+    } catch (parseErr: any) {
+      console.warn('[ExcelSync] Standard XLSX read failed, attempting server password decryption:', parseErr.message);
+
+      // 암호화된 파일 복호화 시도 (기본 비밀번호: 1111)
+      let currentPw = password || deliveryPassword || '1111';
+      try {
+        const decryptedRows = await decryptExcelViaServer(file, currentPw);
+        if (decryptedRows && decryptedRows.length > 0) {
+          return autoRepairRowEncoding(decryptedRows);
+        }
+      } catch (pwErr: any) {
+        // 기본 비밀번호(1111)가 맞지 않는 경우 사용자에게 직접 물어보기
+        const promptPw = window.prompt(`[${file.name}] 파일이 암호화되어 있습니다.\n비밀번호를 입력해 주세요:`, currentPw);
+        if (!promptPw) {
+          throw new Error('암호화된 엑셀 파일의 비밀번호가 입력되지 않았습니다.');
+        }
+        setDeliveryPassword(promptPw);
+        const retryRows = await decryptExcelViaServer(file, promptPw);
+        return autoRepairRowEncoding(retryRows);
+      }
+
+      throw parseErr;
     }
-
-    const firstSheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[firstSheetName];
-    let jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false }) as any[][];
-
-    // 3. 2차 안전망: 혹시라도 남아있는 Latin-1 깨짐 문자열 자동 복구
-    jsonRows = autoRepairRowEncoding(jsonRows);
-
-    return jsonRows;
   };
 
   // 계약원장 파일 선택 핸들러
@@ -635,6 +673,27 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
               </div>
 
               <div>
+                {/* 🔒 암호화된 파일 자동 복호화 설정 */}
+                <div className="mb-3 px-3 py-2 bg-blue-50/70 border border-blue-100 rounded-xl flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5 text-slate-700">
+                    <Lock size={13} className="text-blue-600 shrink-0" />
+                    <span className="font-bold text-[11px]">배송 엑셀 열기 암호:</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      value={deliveryPassword}
+                      onChange={e => setDeliveryPassword(e.target.value)}
+                      placeholder="1111"
+                      className="w-20 px-2 py-1 text-center font-mono font-black text-xs bg-white border border-blue-200 rounded-lg text-blue-900 outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+                      title="전산 다운로드 시 설정한 암호 (기본값: 1111)"
+                    />
+                    <span className="text-[10px] text-blue-600 font-bold bg-blue-100 px-1.5 py-0.5 rounded">
+                      자동 해제
+                    </span>
+                  </div>
+                </div>
+
                 <input
                   type="file"
                   ref={deliveryInputRef}
