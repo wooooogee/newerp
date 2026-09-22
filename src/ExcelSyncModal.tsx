@@ -65,17 +65,99 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
 
   if (!isOpen) return null;
 
-  // 엑셀 파일 파싱 헬퍼 (window.XLSX 사용)
+  // Latin-1 깨짐 감지 헬퍼 (°¡ÀÔ, ÀÌ¿µ¼÷, ·ùÁø¼­ 등)
+  const isBrokenLatin1 = (str: string): boolean => {
+    if (!str || typeof str !== 'string') return false;
+    const latinHighCount = (str.match(/[\u0080-\u00FF]/g) || []).length;
+    return latinHighCount >= 2;
+  };
+
+  // Latin-1 바이트를 EUC-KR 한글로 복구하는 헬퍼
+  const fixLatin1ToEucKr = (str: string): string => {
+    if (!str || typeof str !== 'string') return str;
+    try {
+      const bytes = new Uint8Array(str.length);
+      for (let i = 0; i < str.length; i++) {
+        bytes[i] = str.charCodeAt(i) & 0xFF;
+      }
+      const decoder = new TextDecoder('euc-kr');
+      const decoded = decoder.decode(bytes);
+      if (/[가-힣]/.test(decoded)) {
+        return decoded;
+      }
+    } catch (e) {}
+    return str;
+  };
+
+  // 2차원 배열 전체의 깨진 한글 자동 복원
+  const autoRepairRowEncoding = (rows: any[][]): any[][] => {
+    return rows.map(row => {
+      if (!Array.isArray(row)) return row;
+      return row.map(cell => {
+        if (typeof cell === 'string' && isBrokenLatin1(cell)) {
+          return fixLatin1ToEucKr(cell);
+        }
+        return cell;
+      });
+    });
+  };
+
+  // 엑셀 파일 파싱 헬퍼 (EUC-KR / CP949 / UTF-8 다중 인코딩 완벽 자동 지원)
   const parseExcelFile = async (file: File): Promise<any[][]> => {
     const XLSX = (window as any).XLSX;
     if (!XLSX) throw new Error('XLSX 라이브러리를 불러올 수 없습니다. 페이지를 새로고침해 주세요.');
 
-    const data = await file.arrayBuffer();
-    const workbook = XLSX.read(data, { type: 'array', cellDates: true, dateNF: 'yyyy-mm-dd' });
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+
+    // 1. ZIP 기반 표준 .xlsx 바이너리 파일 판별 (PK..)
+    const isZipXlsx = bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
+
+    let workbook: any = null;
+
+    if (isZipXlsx) {
+      // 진짜 XLSX: cellDates: false로 날짜 왜곡(1900-01-00 등) 방지
+      workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+    } else {
+      // 2. 국내 전산 CSV 또는 HTML형식 .xls 파일:
+      // 먼저 EUC-KR로 디코딩 시도
+      let decodedText = '';
+      try {
+        const eucDecoder = new TextDecoder('euc-kr');
+        decodedText = eucDecoder.decode(buffer);
+      } catch (e) {
+        decodedText = '';
+      }
+
+      // EUC-KR 디코딩 결과에 유효 한글이 존재하면 텍스트로 바로 파싱
+      if (decodedText && /[가-힣]/.test(decodedText)) {
+        console.log('[ExcelSync] Detected Korean text encoded in EUC-KR / CP949.');
+        workbook = XLSX.read(decodedText, { type: 'string', cellDates: false });
+      } else {
+        // UTF-8 디코딩 시도
+        try {
+          const utf8Decoder = new TextDecoder('utf-8');
+          const utf8Text = utf8Decoder.decode(buffer);
+          if (/[가-힣]/.test(utf8Text)) {
+            workbook = XLSX.read(utf8Text, { type: 'string', cellDates: false });
+          }
+        } catch (e) {}
+
+        // Fallback: array
+        if (!workbook) {
+          workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+        }
+      }
+    }
+
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
-    const jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
-    return jsonRows as any[][];
+    let jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false }) as any[][];
+
+    // 3. 2차 안전망: 혹시라도 남아있는 Latin-1 깨짐 문자열 자동 복구
+    jsonRows = autoRepairRowEncoding(jsonRows);
+
+    return jsonRows;
   };
 
   // 계약원장 파일 선택 핸들러

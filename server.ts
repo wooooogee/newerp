@@ -2752,14 +2752,47 @@ function padExcelRow(row: any[], length: number): any[] {
   return r;
 }
 
+// Latin-1 깨짐 감지 및 EUC-KR 복원 유틸리티
+function isBrokenLatin1Sync(str: string): boolean {
+  if (!str || typeof str !== 'string') return false;
+  const latinHighCount = (str.match(/[\u0080-\u00FF]/g) || []).length;
+  return latinHighCount >= 2;
+}
+
+function fixLatin1ToEucKrSync(str: string): string {
+  if (!str || typeof str !== 'string') return str;
+  try {
+    const bytes = Buffer.from(str, 'latin1');
+    const decoded = new TextDecoder('euc-kr').decode(bytes);
+    if (/[가-힣]/.test(decoded)) {
+      return decoded;
+    }
+  } catch (e) {}
+  return str;
+}
+
+function autoRepairRowEncodingSync(rows: any[][]): any[][] {
+  return rows.map(row => {
+    if (!Array.isArray(row)) return row;
+    return row.map(cell => {
+      if (typeof cell === 'string' && isBrokenLatin1Sync(cell)) {
+        return fixLatin1ToEucKrSync(cell);
+      }
+      return cell;
+    });
+  });
+}
+
 function formatPhoneSync(p: any): string {
   if (!p) return "-";
-  let s = String(p).replace(/[^0-9]/g, '');
+  const str = String(p).trim();
+  if (str.startsWith('1900') || str.startsWith('1899') || str === '0') return "-";
+  let s = str.replace(/[^0-9]/g, '');
   if (s.length === 10 && s.indexOf("10") === 0) s = "0" + s;
   if (s.length === 9 && (s.indexOf("11") === 0 || s.indexOf("1") === 0)) s = "0" + s;
   if (s.length === 11) return s.replace(/(\d{3})(\d{4})(\d{4})/, "$1-$2-$3");
   if (s.length === 10) return s.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3");
-  return s;
+  return s || "-";
 }
 
 function formatDateToYMD(d: any): string {
@@ -2941,6 +2974,10 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     return res.status(400).json({ error: '업로드된 엑셀 데이터가 없거나 유효하지 않습니다.' });
   }
 
+  // 2차 안전망: Latin-1 깨짐 감지 시 EUC-KR로 자동 복구
+  const safeContractRows = contractRows ? autoRepairRowEncodingSync(contractRows) : undefined;
+  const safeDeliveryRows = deliveryRows ? autoRepairRowEncodingSync(deliveryRows) : undefined;
+
   let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
   if (sheetId && sheetId.includes('spreadsheets/d/')) {
     sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
@@ -3002,11 +3039,11 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     }
 
     // ===================================================================
-    // [1단계] 배송예정일 시트 데이터(또는 deliveryRows) 사전 맵핑 (expectMap)
+    // [1단계] 배송예정일 시트 데이터(또는 safeDeliveryRows) 사전 맵핑 (expectMap)
     // ===================================================================
     const expectMap = new Map<string, string>();
-    if (deliveryRows && deliveryRows.length > 1) {
-      const delHeaders = (deliveryRows[0] || []).map(h => String(h || '').trim());
+    if (safeDeliveryRows && safeDeliveryRows.length > 1) {
+      const delHeaders = (safeDeliveryRows[0] || []).map(h => String(h || '').trim());
       let expContractIdx = delHeaders.indexOf("계약번호");
       if (expContractIdx === -1) expContractIdx = delHeaders.indexOf("렌탈계약번호");
       if (expContractIdx === -1) expContractIdx = delHeaders.indexOf("렌탈번호");
@@ -3017,9 +3054,9 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       if (expDateIdx === -1) expDateIdx = delHeaders.indexOf("배송예정");
       if (expDateIdx === -1) expDateIdx = 16;
 
-      for (let ed = 1; ed < deliveryRows.length; ed++) {
-        const expContractNo = String(deliveryRows[ed][expContractIdx] || '').trim();
-        const expDateVal = deliveryRows[ed][expDateIdx];
+      for (let ed = 1; ed < safeDeliveryRows.length; ed++) {
+        const expContractNo = String(safeDeliveryRows[ed][expContractIdx] || '').trim();
+        const expDateVal = safeDeliveryRows[ed][expDateIdx];
         if (expContractNo && expDateVal !== undefined && expDateVal !== null && String(expDateVal).trim() !== '') {
           const fDate = formatDateToYMD(expDateVal);
           if (fDate && fDate !== '-' && fDate !== '0') {
@@ -3033,11 +3070,14 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     // [2단계] 계약원장 엑셀 처리 (syncData 로직 완벽 이식)
     // ===================================================================
     const newDataToAppend: any[][] = [];
-    if (contractRows && contractRows.length > 1) {
-      const sHeaders = contractRows[0] || [];
+    if (safeContractRows && safeContractRows.length > 1) {
+      const sHeaders = safeContractRows[0] || [];
       const sIdx: Record<string, number> = {};
       for (let h = 0; h < sHeaders.length; h++) {
-        sIdx[String(sHeaders[h] || '').trim()] = h;
+        const rawH = String(sHeaders[h] || '').trim();
+        sIdx[rawH] = h;
+        const fixedH = fixLatin1ToEucKrSync(rawH);
+        if (fixedH) sIdx[fixedH] = h;
       }
 
       const idxMemberNo = sIdx["회원번호"] !== undefined ? sIdx["회원번호"] : 1;
@@ -3155,7 +3195,9 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
           nr[2] = memberNo;
           nr[3] = row[idxMemberName] !== undefined ? row[idxMemberName] : "";
           nr[4] = row[idxResNo] !== undefined ? row[idxResNo] : "";
-          nr[5] = row[idxPhone] !== undefined ? row[idxPhone] : "";
+          const phoneRaw = row[idxPhone] !== undefined ? String(row[idxPhone]).trim() : "";
+          const phoneFmt = formatPhoneSync(phoneRaw);
+          nr[5] = (phoneFmt && phoneFmt !== "-") ? phoneFmt : (phoneRaw.startsWith("1900") || phoneRaw.startsWith("1899") || phoneRaw === "0" ? "" : phoneRaw);
           nr[6] = row[idxProd] !== undefined ? row[idxProd] : "";
           nr[7] = row[idxHq] !== undefined ? row[idxHq] : "";
           nr[8] = row[idxBranch] !== undefined ? row[idxBranch] : "";
@@ -3226,8 +3268,8 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     // ===================================================================
     // [3단계] 배송데이터 엑셀 처리 (runAllUpdates 로직 완벽 이식)
     // ===================================================================
-    if (deliveryRows && deliveryRows.length > 1) {
-      const delValues = deliveryRows;
+    if (safeDeliveryRows && safeDeliveryRows.length > 1) {
+      const delValues = safeDeliveryRows;
       const delHeaders = (delValues[0] || []).map(h => String(h || '').trim());
 
       let cIdIdx = delHeaders.indexOf("계약번호");
