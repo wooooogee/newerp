@@ -3100,6 +3100,7 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       const idxHc = sIdx["헬스케어"] !== undefined ? sIdx["헬스케어"] : (sIdx["헬스케어대상자"] !== undefined ? sIdx["헬스케어대상자"] : (sIdx["헬스케어 대상자"] !== undefined ? sIdx["헬스케어 대상자"] : (sIdx["케어대상자"] !== undefined ? sIdx["케어대상자"] : (sIdx["헬스케어서비스대상"] !== undefined ? sIdx["헬스케어서비스대상"] : 54))));
       const idxDelivType = sIdx["배송구분"] !== undefined ? sIdx["배송구분"] : 58;
       const idxRentalNo = sIdx["렌탈계약번호"] !== undefined ? sIdx["렌탈계약번호"] : (sIdx["렌탈번호"] !== undefined ? sIdx["렌탈번호"] : 59);
+      const idxRentalProd = sIdx["렌탈계약상품"] !== undefined ? sIdx["렌탈계약상품"] : (sIdx["렌탈상품명"] !== undefined ? sIdx["렌탈상품명"] : (sIdx["렌탈상품"] !== undefined ? sIdx["렌탈상품"] : (sIdx["렌탈계약상품명"] !== undefined ? sIdx["렌탈계약상품명"] : 61)));
       const idxCount = sIdx["구좌수"] !== undefined ? sIdx["구좌수"] : (sIdx["가입구좌수"] !== undefined ? sIdx["가입구좌수"] : 62);
       const idxEmpCode = sIdx["사원코드"] !== undefined ? sIdx["사원코드"] : (sIdx["사원번호"] !== undefined ? sIdx["사원번호"] : (sHeaders.length > 39 ? 39 : -1));
 
@@ -3138,6 +3139,13 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
           if (row[idxEmp] !== undefined) tRow[9] = row[idxEmp];
           if ((!tRow[10] || String(tRow[10]).trim() === '') && row[idxRentalNo] !== undefined) {
             tRow[10] = row[idxRentalNo];
+          }
+
+          // M열(12): 렌탈계약상품(제품명) 보완 (기존 값이 없거나 구좌수 숫자만 적힌 경우 전산 데이터로 갱신)
+          const currentRentalProd = String(tRow[12] || '').trim();
+          const newRentalProd = row[idxRentalProd] !== undefined ? String(row[idxRentalProd]).trim() : "";
+          if (newRentalProd && (!currentRentalProd || /^\d+$/.test(currentRentalProd))) {
+            tRow[12] = newRentalProd;
           }
 
           tRow[19] = (row[idxContractDoc] !== undefined && String(row[idxContractDoc]).trim() !== '') ? "O" : "X";
@@ -3210,7 +3218,16 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
           nr[9] = row[idxEmp] !== undefined ? row[idxEmp] : "";
           nr[10] = row[idxRentalNo] !== undefined ? row[idxRentalNo] : "";
           nr[11] = row[idxDelivType] !== undefined ? row[idxDelivType] : "";
-          nr[12] = row[idxCount] !== undefined ? row[idxCount] : "";
+          // M열(12): 렌탈계약상품 (제품명)
+          const rentalProdVal = row[idxRentalProd] !== undefined ? String(row[idxRentalProd]).trim() : "";
+          const countVal = row[idxCount] !== undefined ? String(row[idxCount]).trim() : "";
+          if (rentalProdVal) {
+            nr[12] = rentalProdVal;
+          } else if (countVal && !isNaN(Number(countVal))) {
+            nr[12] = `${countVal}구좌`;
+          } else {
+            nr[12] = countVal;
+          }
           nr[19] = (row[idxContractDoc] !== undefined && String(row[idxContractDoc]).trim() !== "") ? "O" : "X";
 
           // 헬스케어 P,Q,R열 분배
