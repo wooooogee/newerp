@@ -7415,7 +7415,7 @@ const ERP_Dashboard = () => {
                 </button>
                 {isAdmin && (
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {isSuperAdmin && (
+                    {isManager && (
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => setIsPresidentReportModalOpen(true)}
@@ -7476,13 +7476,15 @@ const ERP_Dashboard = () => {
                         </button>
                       </div>
                     )}
-                    <button
-                      onClick={handleOpenSettings}
-                      className="p-1.5 bg-slate-200 text-slate-700 rounded-full hover:bg-slate-300 transition-colors shadow-sm shrink-0 cursor-pointer"
-                      title="정산 마스터 설정"
-                    >
-                      <Settings size={18} />
-                    </button>
+                    {isSuperAdmin && (
+                      <button
+                        onClick={handleOpenSettings}
+                        className="p-1.5 bg-slate-200 text-slate-700 rounded-full hover:bg-slate-300 transition-colors shadow-sm shrink-0 cursor-pointer"
+                        title="정산 마스터 설정"
+                      >
+                        <Settings size={18} />
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
