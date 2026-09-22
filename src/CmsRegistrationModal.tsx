@@ -449,7 +449,6 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       회원번호: item.memberNo,
       '예금주 생년월일(6자리)': item.ownerBirth6,
       은행코드: item.bankCode,
-      은행명: item.bankName,
       계좌번호: item.accountNo,
       수납방법: item.payMethod,
       상태: item.status
@@ -705,44 +704,23 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
 
                         {/* W열 은행코드 (3자리 패딩 포맷 및 011/012 정밀 자동 검증) (원클릭 복사) */}
                         <td className="py-2.5 px-3">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(item.bankCode, '은행코드', bankKey)}
-                              className={`px-2 py-1 rounded-md font-mono font-black text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
-                                copiedKey === bankKey
-                                  ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
-                                  : item.bankCode === '012'
-                                  ? 'bg-teal-50 text-teal-900 border border-teal-200 hover:bg-teal-100'
-                                  : item.bankCode === '011'
-                                  ? 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100'
-                                  : 'bg-slate-50 text-slate-800 border border-slate-200 hover:bg-slate-100'
-                              }`}
-                              title={`클릭하여 은행코드(${item.bankCode}) 복사${item.bankName ? ` [${item.bankName}]` : ''}${item.isNhAutoCorrected ? ' (전산 011에서 012로 자동 변경됨)' : ''}`}
-                            >
-                              {copiedKey === bankKey ? (
-                                <Check size={12} className="text-emerald-600 shrink-0" />
-                              ) : (
-                                <Copy size={11} className={`${item.bankCode === '012' ? 'text-teal-600' : (item.bankCode === '011' ? 'text-amber-600' : 'text-slate-400')} shrink-0`} />
-                              )}
-                              <span>{item.bankCode || '-'}</span>
-                              {item.bankName && (
-                                <span className={`text-[10px] font-bold ${item.bankCode === '012' ? 'text-teal-700' : (item.bankCode === '011' ? 'text-amber-700' : 'text-slate-500')}`}>
-                                  ({item.bankName})
-                                </span>
-                              )}
-                            </button>
-
-                            {/* 011에서 012로 자동 변경된 경우 알림 배지 */}
-                            {item.isNhAutoCorrected && (
-                              <span
-                                className="px-1.5 py-0.5 bg-teal-100 text-teal-800 border border-teal-300 rounded text-[10px] font-black shrink-0 cursor-help"
-                                title="전산에 011로 접수되었으나, 계좌번호 패턴 분석을 통해 지역농·축협(012)으로 자동 변경되었습니다."
-                              >
-                                011➔012
-                              </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(item.bankCode, '은행코드', bankKey)}
+                            className={`px-2.5 py-1 rounded-md font-mono font-black text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                              copiedKey === bankKey
+                                ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
+                                : 'bg-slate-100 text-slate-800 hover:bg-blue-100 hover:text-blue-900'
+                            }`}
+                            title={`클릭하여 은행코드(${item.bankCode}) 복사`}
+                          >
+                            {copiedKey === bankKey ? (
+                              <Check size={12} className="text-emerald-600 shrink-0" />
+                            ) : (
+                              <Copy size={11} className="text-slate-400 group-hover:text-blue-600 shrink-0" />
                             )}
-                          </div>
+                            <span>{item.bankCode || '-'}</span>
+                          </button>
                         </td>
 
                         {/* Y열 계좌번호 (원클릭 복사) */}
