@@ -49,9 +49,14 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   const [contractRows, setContractRows] = useState<any[][] | null>(null);
   const [contractFileName, setContractFileName] = useState<string>('');
 
-  const [deliveryFile, setDeliveryFile] = useState<File | null>(null);
+  interface DeliveryFileInfo {
+    name: string;
+    rowCount: number;
+  }
+
+  const [deliveryFileTables, setDeliveryFileTables] = useState<{ fileName: string; rows: any[][] }[]>([]);
+  const [deliveryFilesInfo, setDeliveryFilesInfo] = useState<DeliveryFileInfo[]>([]);
   const [deliveryRows, setDeliveryRows] = useState<any[][] | null>(null);
-  const [deliveryFileName, setDeliveryFileName] = useState<string>('');
 
   const [autoBackup, setAutoBackup] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -189,30 +194,127 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     }
   };
 
-  // 배송데이터 파일 선택 핸들러
-  const handleDeliveryFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // 여러 엑셀 테이블을 헤더 이름 기반으로 자동 매핑하여 단일 테이블로 병합
+  const mergeExcelTables = (tables: { fileName: string; rows: any[][] }[]) => {
+    if (!tables || tables.length === 0) {
+      return { combinedRows: null, filesInfo: [] };
+    }
+
+    const masterHeaders: string[] = [];
+    const headerMap = new Map<string, number>();
+
+    // 1. 모든 파일의 헤더를 수집하여 통합 마스터 헤더 생성
+    for (const { rows } of tables) {
+      if (!rows || rows.length === 0) continue;
+      const hRow = rows[0] || [];
+      for (let c = 0; c < hRow.length; c++) {
+        const colName = String(hRow[c] || '').trim();
+        if (colName && !headerMap.has(colName)) {
+          headerMap.set(colName, masterHeaders.length);
+          masterHeaders.push(colName);
+        }
+      }
+    }
+
+    // 2. 각 파일의 행 데이터를 마스터 헤더에 맞추어 재배치
+    const combinedDataRows: any[][] = [];
+    const filesInfo: DeliveryFileInfo[] = [];
+
+    for (const { fileName, rows } of tables) {
+      if (!rows || rows.length < 2) continue;
+      const hRow = rows[0] || [];
+      const colToMasterIdx: number[] = [];
+      for (let c = 0; c < hRow.length; c++) {
+        const colName = String(hRow[c] || '').trim();
+        colToMasterIdx[c] = colName ? (headerMap.get(colName) ?? -1) : -1;
+      }
+
+      let count = 0;
+      for (let r = 1; r < rows.length; r++) {
+        const srcRow = rows[r];
+        const hasValue = srcRow.some((val: any) => val !== null && val !== undefined && String(val).trim() !== '');
+        if (!hasValue) continue;
+
+        const newRow = new Array(masterHeaders.length).fill('');
+        for (let c = 0; c < srcRow.length; c++) {
+          const mIdx = colToMasterIdx[c];
+          if (mIdx !== -1 && mIdx !== undefined) {
+            newRow[mIdx] = srcRow[c] !== undefined && srcRow[c] !== null ? srcRow[c] : '';
+          }
+        }
+        combinedDataRows.push(newRow);
+        count++;
+      }
+
+      filesInfo.push({
+        name: fileName,
+        rowCount: count
+      });
+    }
+
+    return {
+      combinedRows: combinedDataRows.length > 0 ? [masterHeaders, ...combinedDataRows] : null,
+      filesInfo
+    };
+  };
+
+  // 배송데이터 파일(들) 선택 핸들러 (다중 파일 지원)
+  const handleDeliveryFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
     try {
       setIsLoading(true);
-      setLoadingText('배송데이터 엑셀을 읽고 분석하는 중...');
-      const rows = await parseExcelFile(file);
-      if (!rows || rows.length < 2) {
-        alert('엑셀에 데이터가 없거나 올바른 형식이 아닙니다.');
-        return;
+      const newTables = [...deliveryFileTables];
+
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        setLoadingText(`배송데이터 [${file.name}] 읽는 중 (${i + 1}/${fileList.length})...`);
+        const rows = await parseExcelFile(file);
+        if (rows && rows.length >= 2) {
+          // 이미 같은 파일명이 있으면 교체, 없으면 추가
+          const existingIdx = newTables.findIndex(t => t.fileName === file.name);
+          if (existingIdx !== -1) {
+            newTables[existingIdx] = { fileName: file.name, rows };
+          } else {
+            newTables.push({ fileName: file.name, rows });
+          }
+        }
       }
-      setDeliveryFile(file);
-      setDeliveryFileName(file.name);
-      setDeliveryRows(rows);
+
+      const { combinedRows, filesInfo } = mergeExcelTables(newTables);
+      setDeliveryFileTables(newTables);
+      setDeliveryFilesInfo(filesInfo);
+      setDeliveryRows(combinedRows);
       setPreviewStats(null);
       setCompletedResult(null);
     } catch (err: any) {
       console.error(err);
-      alert('파일을 읽는 중 오류가 발생했습니다: ' + err.message);
+      alert('배송데이터 파일을 읽는 중 오류가 발생했습니다: ' + err.message);
     } finally {
       setIsLoading(false);
       if (deliveryInputRef.current) deliveryInputRef.current.value = '';
     }
+  };
+
+  // 특정 배송 파일 제거 핸들러
+  const handleRemoveDeliveryFile = (fileName: string) => {
+    const updatedTables = deliveryFileTables.filter(t => t.fileName !== fileName);
+    const { combinedRows, filesInfo } = mergeExcelTables(updatedTables);
+    setDeliveryFileTables(updatedTables);
+    setDeliveryFilesInfo(filesInfo);
+    setDeliveryRows(combinedRows);
+    setPreviewStats(null);
+    setCompletedResult(null);
+  };
+
+  // 배송데이터 전체 비우기 핸들러
+  const handleClearDeliveryFiles = () => {
+    setDeliveryFileTables([]);
+    setDeliveryFilesInfo([]);
+    setDeliveryRows(null);
+    setPreviewStats(null);
+    setCompletedResult(null);
   };
 
   // 미리보기(Dry-run) 실행
@@ -312,9 +414,9 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     setContractFile(null);
     setContractRows(null);
     setContractFileName('');
-    setDeliveryFile(null);
+    setDeliveryFileTables([]);
+    setDeliveryFilesInfo([]);
     setDeliveryRows(null);
-    setDeliveryFileName('');
     setPreviewStats(null);
     setCompletedResult(null);
   };
@@ -454,7 +556,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
               </div>
             </div>
 
-            {/* 2-B. 배송데이터 엑셀 업로드 카드 */}
+            {/* 2-B. 배송데이터 엑셀 업로드 카드 (다중 파일 지원) */}
             <div className={`p-5 rounded-2xl border-2 transition-all flex flex-col justify-between ${
               deliveryRows ? 'bg-blue-50/40 border-blue-300' : 'bg-slate-50/60 border-dashed border-slate-300 hover:border-blue-400'
             }`}>
@@ -465,31 +567,69 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                       <Truck size={18} />
                     </div>
                     <div>
-                      <h4 className="text-sm font-black text-slate-800">2. 배송데이터 엑셀</h4>
-                      <span className="text-[11px] text-slate-400">기존 '배송데이터' 대체 (배송/개통/해지 등)</span>
+                      <div className="flex items-center gap-1.5">
+                        <h4 className="text-sm font-black text-slate-800">2. 배송데이터 엑셀</h4>
+                        <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 text-[10px] font-extrabold rounded-md">
+                          다중 파일 가능
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400">렌탈사별/일자별 엑셀 여러 개 동시 선택 가능</span>
                     </div>
                   </div>
                   {deliveryRows && (
                     <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-[11px] font-black rounded-lg border border-blue-200">
-                      총 {deliveryRows.length - 1}건 준비됨
+                      총 {deliveryFilesInfo.length}개 파일 ({deliveryRows.length - 1}건)
                     </span>
                   )}
                 </div>
 
-                {deliveryRows ? (
-                  <div className="p-3 bg-white rounded-xl border border-blue-200 text-xs space-y-1 mb-3 shadow-2xs">
-                    <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
-                      <CheckCircle size={14} className="text-blue-500 shrink-0" />
-                      <span className="truncate">{deliveryFileName}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 flex items-center justify-between">
-                      <span>행 수: {deliveryRows.length.toLocaleString()}행</span>
-                      <span className="text-blue-600 font-bold">익월 20일/25일 수수료 계산 대기</span>
+                {deliveryRows && deliveryFilesInfo.length > 0 ? (
+                  <div className="space-y-2 mb-3">
+                    <div className="p-3 bg-white rounded-xl border border-blue-200 text-xs shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                        <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                          <CheckCircle size={14} className="text-blue-500 shrink-0" />
+                          취합된 배송 파일 목록 ({deliveryFilesInfo.length}개)
+                        </span>
+                        <span className="text-blue-600 font-black text-[11px]">
+                          총 {(deliveryRows.length - 1).toLocaleString()}건 병합 완료
+                        </span>
+                      </div>
+
+                      <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                        {deliveryFilesInfo.map((fi, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 hover:bg-blue-50/60 border border-slate-100 text-[11px] transition-colors"
+                          >
+                            <span className="font-semibold text-slate-700 truncate max-w-[190px]" title={fi.name}>
+                              📄 {fi.name}
+                            </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-slate-400 font-mono text-[10px]">+{fi.rowCount.toLocaleString()}건</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveDeliveryFile(fi.name)}
+                                className="text-slate-400 hover:text-rose-500 p-0.5 rounded cursor-pointer"
+                                title="이 파일 제외"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100">
+                        <span>💡 다른 렌탈사 엑셀도 언제든 추가 선택 가능</span>
+                        <span className="text-blue-600 font-bold">익월 20일/25일 수수료 계산 준비</span>
+                      </div>
                     </div>
                   </div>
                 ) : (
                   <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                    배송 및 개통 현황 파일(.xlsx)을 업로드하면 렌탈계약번호를 매칭하여 배송완료, 예정일, 해지일 및 수수료지급일자를 갱신합니다.
+                    배송 및 개통 현황 파일(.xlsx)을 업로드하세요. <br />
+                    <strong className="text-blue-600">Ctrl 키 또는 Shift 키를 누르고 여러 파일</strong>을 선택하면 한 번에 취합됩니다.
                   </p>
                 )}
               </div>
@@ -499,7 +639,8 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                   type="file"
                   ref={deliveryInputRef}
                   accept=".xlsx, .xls, .csv"
-                  onChange={handleDeliveryFileChange}
+                  multiple
+                  onChange={handleDeliveryFilesChange}
                   className="hidden"
                 />
                 <div className="flex gap-2">
@@ -510,15 +651,15 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                     className="flex-1 py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                   >
                     <Upload size={14} />
-                    {deliveryRows ? '파일 다시 선택' : '배송데이터 파일 선택'}
+                    {deliveryRows ? '+ 파일 추가 / 다시 선택' : '배송데이터 파일 선택 (복수 가능)'}
                   </button>
                   {deliveryRows && (
                     <button
                       type="button"
-                      onClick={() => { setDeliveryFile(null); setDeliveryRows(null); setDeliveryFileName(''); setPreviewStats(null); }}
+                      onClick={handleClearDeliveryFiles}
                       className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                     >
-                      취소
+                      전체 비우기
                     </button>
                   )}
                 </div>
