@@ -6837,6 +6837,28 @@ const ERP_Dashboard = () => {
             </AnimatePresence>
           </section>
 
+          {/* CMS 등록 (모든 사용자 공통 노출) */}
+          <section className="mt-1">
+            <button
+              type="button"
+              onClick={() => setIsCmsRegistrationModalOpen(true)}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 hover:from-blue-100/90 hover:to-indigo-100/90 border border-blue-200/90 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="p-1 bg-blue-600 text-white rounded-lg group-hover:scale-105 transition-transform shadow-xs">
+                  <CreditCard size={18} />
+                </div>
+                <div className="text-left">
+                  <span className="text-sm font-black text-slate-900 tracking-tight block">CMS 등록</span>
+                </div>
+              </div>
+              <ChevronRight
+                size={18}
+                className="text-blue-500 group-hover:translate-x-0.5 transition-all"
+              />
+            </button>
+          </section>
+
           {isManager && (
             <>
               {/* 발주 관리 */}
@@ -6982,26 +7004,6 @@ const ERP_Dashboard = () => {
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </section>
-
-              {/* CMS 등록 */}
-              <section className="mt-1">
-                <button
-                  type="button"
-                  onClick={() => setIsCmsRegistrationModalOpen(true)}
-                  className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-1 bg-blue-100 text-blue-600 rounded-lg group-hover:scale-105 transition-transform">
-                      <CreditCard size={18} />
-                    </div>
-                    <span className="text-sm font-bold text-slate-800 tracking-tight">CMS 등록</span>
-                  </div>
-                  <ChevronRight
-                    size={18}
-                    className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all"
-                  />
-                </button>
               </section>
 
               {/* 헬스케어 */}
@@ -7279,6 +7281,14 @@ const ERP_Dashboard = () => {
                         >
                           <FileSpreadsheet size={13} />
                           <span className="hidden sm:inline">전산 엑셀 업로드</span>
+                        </button>
+                        <button
+                          onClick={() => setIsCmsRegistrationModalOpen(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
+                          title="시트1 수납방법 CMS 건 조회 및 계좌번호/은행코드 원클릭 복사"
+                        >
+                          <CreditCard size={13} />
+                          <span className="hidden sm:inline">CMS 등록</span>
                         </button>
                       </div>
                     )}

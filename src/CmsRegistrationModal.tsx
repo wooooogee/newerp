@@ -228,30 +228,29 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // 시트1 데이터 로드
+  // 시트1 데이터 로드 함수
+  const fetchSheet1Data = async () => {
+    setIsLoading(true);
+    try {
+      const timestamp = Date.now();
+      const res = await fetch(`/api/sheets/sheetData?sheetName=시트1&fresh=true&t=${timestamp}`);
+      if (!res.ok) {
+        throw new Error('시트1 데이터를 가져오는데 실패했습니다.');
+      }
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setSheet1Rows(data);
+      }
+    } catch (err: any) {
+      console.error('[CmsRegistrationModal Error]', err);
+      alert(err.message || '시트1 데이터를 불러오는 중 오류가 발생했습니다.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!isOpen) return;
-
-    const fetchSheet1Data = async () => {
-      setIsLoading(true);
-      try {
-        const timestamp = Date.now();
-        const res = await fetch(`/api/sheets/sheetData?sheetName=시트1&t=${timestamp}`);
-        if (!res.ok) {
-          throw new Error('시트1 데이터를 가져오는데 실패했습니다.');
-        }
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setSheet1Rows(data);
-        }
-      } catch (err: any) {
-        console.error('[CmsRegistrationModal Error]', err);
-        alert(err.message || '시트1 데이터를 불러오는 중 오류가 발생했습니다.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchSheet1Data();
   }, [isOpen]);
 
@@ -300,32 +299,25 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
 
     const headers = (sheet1Rows[0] || []).map(h => String(h || '').trim());
     
-    // 헤더 동적 인덱스 탐색 (기본값: B=1, C=2, F=5, I=8, T=19, W=22, Y=24, AA=26)
-    let idxMemberNo = headers.indexOf('회원번호');
-    if (idxMemberNo === -1) idxMemberNo = 1;
+    // 유연한 열 인덱스 탐색 헬퍼 (공백 무시 및 포함 검색, 실패 시 기본 인덱스 사용)
+    const findCol = (names: string[], defaultIdx: number) => {
+      for (const name of names) {
+        const cleanTarget = name.replace(/\s+/g, '');
+        const found = headers.findIndex(h => h.replace(/\s+/g, '').includes(cleanTarget));
+        if (found !== -1) return found;
+      }
+      return defaultIdx;
+    };
 
-    let idxContractDate = headers.indexOf('계약일자');
-    if (idxContractDate === -1) idxContractDate = 2;
-
-    let idxMemberName = headers.indexOf('회원명');
-    if (idxMemberName === -1) idxMemberName = 5;
-
-    let idxStatus = headers.indexOf('회원상태');
-    if (idxStatus === -1) idxStatus = headers.indexOf('계약상태');
-    if (idxStatus === -1) idxStatus = 8;
-
-    let idxPayMethod = headers.indexOf('수납방법');
-    if (idxPayMethod === -1) idxPayMethod = 19;
-
-    let idxBankCode = headers.indexOf('은행코드');
-    if (idxBankCode === -1) idxBankCode = 22;
-
-    let idxAccountNo = headers.indexOf('계좌번호');
-    if (idxAccountNo === -1) idxAccountNo = 24;
-
-    let idxOwnerResNo = headers.indexOf('예금주주민번호');
-    if (idxOwnerResNo === -1) idxOwnerResNo = headers.indexOf('예금주주민등록번호');
-    if (idxOwnerResNo === -1) idxOwnerResNo = 26;
+    // B=1, C=2, F=5, I=8, T=19, W=22, Y=24, AA=26
+    const idxMemberNo = findCol(['회원번호'], 1);
+    const idxContractDate = findCol(['계약일자'], 2);
+    const idxMemberName = findCol(['회원명'], 5);
+    const idxStatus = findCol(['회원상태', '계약상태'], 8);
+    const idxPayMethod = findCol(['수납방법', '결제방법'], 19);
+    const idxBankCode = findCol(['은행코드'], 22);
+    const idxAccountNo = findCol(['계좌번호'], 24);
+    const idxOwnerResNo = findCol(['예금주주민번호', '예금주주민등록번호', '주민등록번호'], 26);
 
     const parsedList: CmsRecord[] = [];
     const monthSet = new Set<string>();
@@ -491,14 +483,26 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-xl text-white/80 hover:text-white transition-all cursor-pointer"
-            title="닫기"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={fetchSheet1Data}
+              disabled={isLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 border border-white/20 rounded-xl text-xs font-bold text-white transition-all cursor-pointer disabled:opacity-50 shadow-2xs"
+              title="구글 시트 '시트1' 데이터를 즉시 새로고침합니다"
+            >
+              <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
+              <span>새로고침</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 hover:bg-white/10 rounded-xl text-white/80 hover:text-white transition-all cursor-pointer"
+              title="닫기"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* 필터 및 통계 바 */}

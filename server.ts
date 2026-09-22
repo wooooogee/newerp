@@ -2304,9 +2304,10 @@ app.get('/api/sheets/sheetData', async (req, res) => {
   try {
     const sheets = google.sheets({ version: 'v4', auth: client });
     
+    const safeSheetName = sheetName.replace(/'/g, '');
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: `${sheetName}!A:ZZ`,
+      range: `'${safeSheetName}'!A:ZZ`,
     });
 
     const rows = response.data.values;
@@ -3009,22 +3010,21 @@ app.post('/api/sheets/excel-sync/decrypt', async (req, res) => {
       message: '비밀번호가 올바르지 않거나 지원되지 않는 암호화 형식입니다. 비밀번호를 다시 확인해 주세요.'
     });
   }
-// 구글 시트 특정 탭에 2차원 데이터를 안전하게 덮어쓰는 헬퍼 (시트 자동생성, 그리드 자동 확장, 청크 분할 쓰기)
+// 구글 시트 특정 탭에 2차원 데이터를 안전하게 덮어쓰는 헬퍼 (시트 자동생성, 그리드 자동 확장, updateCells 안전 초기화, 청크 분할 쓰기)
 async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, targetTitle: string, rows: any[][]): Promise<number> {
   if (!rows || rows.length === 0) return 0;
 
   const safeRows = autoRepairRowEncodingSync(rows);
   const requiredRowCount = Math.max(safeRows.length + 50, 100);
 
-  // 최대 열 개수 파악
+  // 전체 행을 철저히 검사하여 실제 최대 열 개수 파악
   let maxColCount = 26;
-  const sampleLen = Math.min(safeRows.length, 100);
-  for (let i = 0; i < sampleLen; i++) {
+  for (let i = 0; i < safeRows.length; i++) {
     if (safeRows[i] && safeRows[i].length > maxColCount) {
       maxColCount = safeRows[i].length;
     }
   }
-  const requiredColCount = Math.max(maxColCount + 10, 40);
+  const requiredColCount = Math.max(maxColCount + 10, 80);
 
   // 1. 스프레드시트 메타데이터 조회
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
@@ -3039,10 +3039,11 @@ async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, target
   }
 
   let actualTitle = targetTitle;
+  let targetSheetId = 0;
 
   if (!targetSheet) {
     // 시트가 없으면 충분한 크기로 신규 생성
-    await sheets.spreadsheets.batchUpdate({
+    const addRes = await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {
         requests: [{
@@ -3058,15 +3059,16 @@ async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, target
         }]
       }
     });
+    targetSheetId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId ?? 0;
     console.log(`[ExcelSync] Created new sheet '${targetTitle}' with ${requiredRowCount} rows, ${requiredColCount} cols.`);
   } else {
     actualTitle = targetSheet.properties.title;
-    const sheetId = targetSheet.properties.sheetId;
+    targetSheetId = targetSheet.properties.sheetId;
     const currentGrid = targetSheet.properties.gridProperties || {};
     const currentRowCount = currentGrid.rowCount || 1000;
     const currentColCount = currentGrid.columnCount || 26;
 
-    // 현재 그리드 크기가 부족하면 확장 (Requested writing to cell beyond end of grid 방지)
+    // 현재 그리드 크기가 부족하면 확장 (Requested writing to cell beyond end of grid 원천 방지)
     const needMoreRows = currentRowCount < requiredRowCount;
     const needMoreCols = currentColCount < requiredColCount;
 
@@ -3079,7 +3081,7 @@ async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, target
           requests: [{
             updateSheetProperties: {
               properties: {
-                sheetId,
+                sheetId: targetSheetId,
                 gridProperties: {
                   rowCount: newRowCount,
                   columnCount: newColCount
@@ -3094,36 +3096,82 @@ async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, target
     }
   }
 
-  // 2. 기존 시트 데이터 전체 클리어 (시트명 전체 범위로 안전 클리어)
+  // 2. 기존 시트 데이터 전체 클리어 (updateCells로 sheetId 기준 100% 안전하게 셀 내용 비우기)
   try {
-    await sheets.spreadsheets.values.clear({
+    await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
-      range: `'${actualTitle}'`
+      requestBody: {
+        requests: [{
+          updateCells: {
+            range: { sheetId: targetSheetId },
+            fields: 'userEnteredValue'
+          }
+        }]
+      }
     });
   } catch (clearErr: any) {
-    console.warn(`[ExcelSync] Clear warning for '${actualTitle}':`, clearErr.message);
+    console.warn(`[ExcelSync] updateCells clear warning for '${actualTitle}':`, clearErr.message);
+    try {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: `'${actualTitle.replace(/'/g, '')}'!A:ZZ`
+      });
+    } catch (vClearErr: any) {
+      console.warn(`[ExcelSync] values.clear fallback warning:`, vClearErr.message);
+    }
   }
 
-  // 3. 데이터 쓰기 (대용량 엑셀 안정성 확보를 위해 1000행 단위 청크 분할 쓰기)
+  // 3. 데이터 쓰기 (대용량 엑셀 안정성 확보를 위해 1000행 단위 청크 분할 쓰기 및 undefined 정제)
   const CHUNK_SIZE = 1000;
   for (let start = 0; start < safeRows.length; start += CHUNK_SIZE) {
     const chunk = safeRows.slice(start, start + CHUNK_SIZE);
+    const cleanChunk = chunk.map(row =>
+      (Array.isArray(row) ? row : []).map(cell => (cell === undefined || cell === null ? '' : typeof cell === 'object' ? JSON.stringify(cell) : String(cell)))
+    );
     const startRowIndex = start + 1; // 1-indexed
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `'${actualTitle}'!A${startRowIndex}`,
+      range: `'${actualTitle.replace(/'/g, '')}'!A${startRowIndex}`,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: chunk }
+      requestBody: { values: cleanChunk }
     });
   }
 
   // 4. 인메모리 캐시 무효화
   sheetDataCache.delete(targetTitle);
   sheetDataCache.delete(actualTitle);
+  sheetDataCache.delete('시트1');
 
   console.log(`[ExcelSync] Successfully overwrote '${actualTitle}' with ${safeRows.length} rows.`);
   return safeRows.length;
 }
+
+// 2-1. 계약원장 엑셀을 '시트1' 탭에 단독 즉시 덮어쓰기 API
+app.post('/api/sheets/excel-sync/overwrite-sheet1', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { contractRows } = req.body as { contractRows?: any[][] };
+  if (!contractRows || contractRows.length < 2) {
+    return res.status(400).json({ error: '유효한 계약원장 데이터가 없습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+  if (!sheetId) return res.status(500).json({ error: 'GOOGLE_SHEET_ID 설정이 없습니다.' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const count = await overwriteSheetDataSafe(sheets, sheetId, '시트1', contractRows);
+    res.json({ success: true, overwrittenCount: count });
+  } catch (err: any) {
+    console.error(`[ExcelSync] Single overwrite '시트1' failed:`, err);
+    res.status(500).json({ error: err.message || '시트1 덮어쓰기에 실패했습니다.' });
+  }
+});
 
 // 3. 엑셀 동기화 처리 (미리보기 & 실제 반영) API
 app.post('/api/sheets/excel-sync/process', async (req, res) => {
@@ -3624,21 +3672,25 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
 
     // 4-1. '시트1' 시트에 계약원장 엑셀 원본 덮어쓰기
     let sheet1OverwrittenCount = 0;
+    let sheet1Error: string | null = null;
     if (safeContractRows && safeContractRows.length > 0) {
       try {
         sheet1OverwrittenCount = await overwriteSheetDataSafe(sheets, sheetId, '시트1', safeContractRows);
       } catch (err: any) {
-        console.error(`[ExcelSync] Failed to overwrite '시트1':`, err.message);
+        sheet1Error = err.message || '시트1 덮어쓰기 실패';
+        console.error(`[ExcelSync] Failed to overwrite '시트1':`, err);
       }
     }
 
     // 4-2. '배송데이터' 시트에 배송데이터 엑셀 원본 덮어쓰기
     let deliveryOverwrittenCount = 0;
+    let deliveryError: string | null = null;
     if (safeDeliveryRows && safeDeliveryRows.length > 0) {
       try {
         deliveryOverwrittenCount = await overwriteSheetDataSafe(sheets, sheetId, '배송데이터', safeDeliveryRows);
       } catch (err: any) {
-        console.error(`[ExcelSync] Failed to overwrite '배송데이터':`, err.message);
+        deliveryError = err.message || '배송데이터 덮어쓰기 실패';
+        console.error(`[ExcelSync] Failed to overwrite '배송데이터':`, err);
       }
     }
 
@@ -3650,13 +3702,13 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     // 기존 시트 내용 지우기 (행 수가 줄었을 때 잔여 데이터 방지)
     await sheets.spreadsheets.values.clear({
       spreadsheetId: sheetId,
-      range: `'${targetSheetName}'!A:AC`
+      range: `'${targetSheetName.replace(/'/g, '')}'!A:AC`
     });
 
     // 전체 데이터 일괄 쓰기
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: `'${targetSheetName}'!A1`,
+      range: `'${targetSheetName.replace(/'/g, '')}'!A1`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: fullValuesToWrite }
     });
@@ -3668,7 +3720,9 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       preview: false,
       backupTitle: backupSheetName,
       sheet1OverwrittenCount,
+      sheet1Error,
       deliveryOverwrittenCount,
+      deliveryError,
       stats
     });
   } catch (error: any) {

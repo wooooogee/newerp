@@ -68,7 +68,9 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   const [completedResult, setCompletedResult] = useState<{
     backupTitle?: string;
     sheet1OverwrittenCount?: number;
+    sheet1Error?: string | null;
     deliveryOverwrittenCount?: number;
+    deliveryError?: string | null;
     stats: SyncStats;
   } | null>(null);
 
@@ -398,6 +400,45 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     }
   };
 
+  // 계약원장 엑셀을 구글 시트 [시트1] 탭에 즉시 덮어쓰기 단독 실행
+  const handleDirectOverwriteSheet1 = async () => {
+    if (!contractRows || contractRows.length < 2) {
+      alert('계약원장 엑셀 파일이 준비되지 않았습니다.');
+      return;
+    }
+
+    const confirmMsg = `[안전 확인] 구글 시트 [시트1] 탭에 업로드된 계약원장 (${(contractRows.length - 1).toLocaleString()}건)을 지금 즉시 등록(덮어쓰기)하시겠습니까?`;
+    const isConfirmed = (window as any).customConfirm
+      ? await (window as any).customConfirm(confirmMsg, '시트1 즉시 등록')
+      : window.confirm(confirmMsg);
+
+    if (!isConfirmed) return;
+
+    setIsLoading(true);
+    setLoadingText('구글 시트 [시트1] 탭에 즉시 등록(덮어쓰기)하는 중...');
+
+    try {
+      const res = await fetch('/api/sheets/excel-sync/overwrite-sheet1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contractRows })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || '시트1 덮어쓰기 실패');
+      }
+
+      const data = await res.json();
+      alert(`✓ 구글 시트 [시트1] 탭에 총 ${data.overwrittenCount.toLocaleString()}개 행이 성공적으로 등록되었습니다!`);
+    } catch (err: any) {
+      console.error('[Direct Overwrite Sheet1 Error]', err);
+      alert('시트1 등록 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // 관리대장 시트에 실제 안전 반영
   const handleExecuteSync = async () => {
     if (!contractRows && !deliveryRows) {
@@ -441,9 +482,15 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       setCompletedResult({
         backupTitle: data.backupTitle,
         sheet1OverwrittenCount: data.sheet1OverwrittenCount,
+        sheet1Error: data.sheet1Error,
         deliveryOverwrittenCount: data.deliveryOverwrittenCount,
+        deliveryError: data.deliveryError,
         stats: data.stats
       });
+
+      if (data.sheet1Error) {
+        alert(`[경고] 관리대장은 동기화되었으나, '시트1' 시트 덮어쓰기 중 오류가 발생했습니다: ${data.sheet1Error}`);
+      }
 
       // 메인 ERP 데이터 자동 리로드
       await onSyncSuccess();
@@ -579,23 +626,39 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                   onChange={handleContractFileChange}
                   className="hidden"
                 />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => contractInputRef.current?.click()}
-                    disabled={isLoading}
-                    className="flex-1 py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    <Upload size={14} />
-                    {contractRows ? '파일 다시 선택' : '계약원장 파일 선택'}
-                  </button>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => contractInputRef.current?.click()}
+                      disabled={isLoading}
+                      className="flex-1 py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload size={14} />
+                      {contractRows ? '파일 다시 선택' : '계약원장 파일 선택'}
+                    </button>
+                    {contractRows && (
+                      <button
+                        type="button"
+                        onClick={() => { setContractFile(null); setContractRows(null); setContractFileName(''); setPreviewStats(null); }}
+                        className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        취소
+                      </button>
+                    )}
+                  </div>
+
+                  {/* ⚡ 계약원장 시트1 즉시 덮어쓰기 단독 버튼 */}
                   {contractRows && (
                     <button
                       type="button"
-                      onClick={() => { setContractFile(null); setContractRows(null); setContractFileName(''); setPreviewStats(null); }}
-                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                      onClick={handleDirectOverwriteSheet1}
+                      disabled={isLoading}
+                      className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="구글 시트의 '시트1' 탭에 이 엑셀 원본 데이터를 즉시 덮어씁니다"
                     >
-                      취소
+                      <Database size={14} />
+                      <span>[시트1] 탭에 지금 즉시 등록 (덮어쓰기)</span>
                     </button>
                   )}
                 </div>
@@ -826,10 +889,22 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                     <span>[시트1] 계약원장 원본 덮어쓰기 완료 ({completedResult.sheet1OverwrittenCount}행)</span>
                   </div>
                 )}
+                {completedResult.sheet1Error && (
+                  <div className="px-3 py-1.5 bg-rose-50 text-rose-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-rose-200 shadow-2xs">
+                    <AlertTriangle size={13} className="text-rose-600 shrink-0" />
+                    <span>[시트1 오류] {completedResult.sheet1Error}</span>
+                  </div>
+                )}
                 {completedResult.deliveryOverwrittenCount !== undefined && completedResult.deliveryOverwrittenCount > 0 && (
                   <div className="px-3 py-1.5 bg-white text-indigo-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-indigo-200 shadow-2xs">
                     <Truck size={13} className="text-indigo-600 shrink-0" />
                     <span>[배송데이터] 배송 원본 덮어쓰기 완료 ({completedResult.deliveryOverwrittenCount}행)</span>
+                  </div>
+                )}
+                {completedResult.deliveryError && (
+                  <div className="px-3 py-1.5 bg-rose-50 text-rose-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-rose-200 shadow-2xs">
+                    <AlertTriangle size={13} className="text-rose-600 shrink-0" />
+                    <span>[배송데이터 오류] {completedResult.deliveryError}</span>
                   </div>
                 )}
               </div>
