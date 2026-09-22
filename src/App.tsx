@@ -3631,26 +3631,28 @@ const ERP_Dashboard = () => {
                   totalPendingAmount += itemComm;
                 }
               } else {
-                matchedCount++;
-                commission += itemComm;
+                if (itemComm > 0) {
+                  matchedCount++;
+                  commission += itemComm;
 
-                const detail = rule.incentiveName || (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
-                specialPayouts.push({
-                  id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
-                  hq: rule.targetName || item.hq || '-',
-                  branch: item.branch || '-',
-                  targetName: rule.targetName,
-                  incentiveName: detail,
-                  rentalNo: item.rentalNo || item.resNo || '-',
-                  memName: item.memName || '-',
-                  empName: item.empName || '-',
-                  prodName: item.prodName || '-',
-                  rentalProd: item.rentalProd || '-',
-                  amount: itemComm,
-                  contractDate: item.contractDate || '-',
-                  deliveryDate: item.deliveryDate || '-',
-                  payDate: (payDateFilter && payDateFilter !== 'ALL') ? payDateFilter : (item.payDate || getDisplayPayDate(item) || '-')
-                });
+                  const detail = rule.incentiveName || (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
+                  specialPayouts.push({
+                    id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
+                    hq: rule.targetName || item.hq || '-',
+                    branch: item.branch || '-',
+                    targetName: rule.targetName,
+                    incentiveName: detail,
+                    rentalNo: item.rentalNo || item.resNo || '-',
+                    memName: item.memName || '-',
+                    empName: item.empName || '-',
+                    prodName: item.prodName || '-',
+                    rentalProd: item.rentalProd || '-',
+                    amount: itemComm,
+                    contractDate: item.contractDate || '-',
+                    deliveryDate: item.deliveryDate || '-',
+                    payDate: (payDateFilter && payDateFilter !== 'ALL') ? payDateFilter : (item.payDate || getDisplayPayDate(item) || '-')
+                  });
+                }
               }
             }
           });
@@ -4374,46 +4376,15 @@ const ERP_Dashboard = () => {
         []
       ];
 
-      const generalHqs = combinedHqs.filter(hq => {
-        const items = settlementStats.hqGroups[hq] || [];
-        const maintenanceSum = maintenancePayouts.filter(m => m.hq === hq).reduce((sum, m) => sum + m.amount, 0);
-        return items.length > 0 || maintenanceSum > 0;
-      });
-
-      const specialEntries = Object.entries(specialAdditions).filter(([_, amt]) => (amt as number) > 0);
-      const allHqNames = Array.from(new Set([
-        ...generalHqs,
-        ...maintenancePayouts.map(m => m.hq),
-        ...specialEntries.map(([name]) => name)
-      ]));
-
-      // 1. 사업단 및 본부별 지급 계좌
-      reportRows.push(['1. 사업단 및 본부별 지급 계좌']);
-      reportRows.push(['구분 / 본부명', '정산유형', '실지급액', '지급계좌', '예금주명']);
-      
-      let accountTotalPay = 0;
-
-      // 각 본부별 실지급액 및 계좌정보를 먼저 산출
-      interface HqPayInfo {
-        hqName: string;
-        settlementType: string;
-        net: number;
-        fullAcctStr: string;
-        holderStr: string;
-        bankName: string;
-        acctNumber: string;
-      }
-
-      const hqPayInfoMap = new Map<string, HqPayInfo>();
-
-      allHqNames.forEach(hqName => {
-        const setting = hqSettings.find(h => h.hqName === hqName);
-        const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨' || hqName === '다이렉트';
-        const empBank = employeeBankMap.get(hqName) || employeeBankMap.get(`다이렉트_${hqName}`);
+      // 은행 계좌 정보 헬퍼
+      const getBankInfo = (name: string) => {
+        const setting = hqSettings.find(h => h.hqName === name);
+        const isIndiv = setting?.settlementType?.includes('개인') || name === '글로씨' || name === '다이렉트';
+        const empBank = employeeBankMap.get(name) || employeeBankMap.get(`다이렉트_${name}`);
         
         let bankName = setting?.bankName || '-';
         let acctNumber = setting?.accountNumber || '-';
-        let holderStr = setting?.accountHolder || '-';
+        let holderStr = setting?.accountHolder || name;
 
         if (isIndiv && empBank && (empBank.bank || empBank.account)) {
           if (empBank.bank) bankName = empBank.bank;
@@ -4422,47 +4393,194 @@ const ERP_Dashboard = () => {
         }
 
         const fullAcctStr = (bankName !== '-' || acctNumber !== '-') ? `${bankName} ${acctNumber}` : '-';
+        return {
+          bankName,
+          acctNumber,
+          holderStr,
+          fullAcctStr,
+          settlementType: setting?.settlementType || (isIndiv ? '개인' : '사업자'),
+          isIndiv
+        };
+      };
 
+      // 1. 일반 본부 실적 수수료 계산
+      interface HqSalesStat {
+        hqName: string;
+        count: number;
+        gross: number;
+        supply: number;
+        tax: number;
+        net: number;
+        settlementType: string;
+        fullAcctStr: string;
+        holderStr: string;
+        isIndiv: boolean;
+      }
+
+      const salesHqMap = new Map<string, HqSalesStat>();
+      const generalHqs = Object.keys(settlementStats.hqGroups).filter(hq => (settlementStats.hqGroups[hq] || []).length > 0);
+
+      generalHqs.forEach(hqName => {
         const items = settlementStats.hqGroups[hqName] || [];
-        const maintenanceSum = maintenancePayouts.filter(m => m.hq === hqName).reduce((sum, m) => sum + m.amount, 0);
         let generalSum = 0;
         items.forEach((item: any) => {
           const { totalCommission } = calculateCommissionDetails(item, statsMap);
           generalSum += totalCommission;
         });
-        const specialSum = Number(specialAdditions[hqName] || 0);
-        const totalGross = generalSum + maintenanceSum + specialSum;
-        const tax = isIndiv ? Math.floor(totalGross * 0.033) : 0;
-        const net = totalGross - tax;
-        accountTotalPay += net;
 
-        hqPayInfoMap.set(hqName, {
+        const bank = getBankInfo(hqName);
+        const supply = bank.isIndiv ? generalSum : Math.round(generalSum / 1.1);
+        const tax = bank.isIndiv ? Math.floor(generalSum * 0.033) : (generalSum - supply);
+        const net = generalSum - (bank.isIndiv ? tax : 0);
+
+        salesHqMap.set(hqName, {
           hqName,
-          settlementType: setting?.settlementType || (isIndiv ? '개인' : '사업자'),
+          count: items.length,
+          gross: generalSum,
+          supply,
+          tax: bank.isIndiv ? -tax : tax,
           net,
-          fullAcctStr,
-          holderStr,
-          bankName,
-          acctNumber
+          settlementType: bank.settlementType,
+          fullAcctStr: bank.fullAcctStr,
+          holderStr: bank.holderStr,
+          isIndiv: bank.isIndiv
         });
       });
 
-      // 사업단별 출력
-      const processedPayHqs = new Set<string>();
+      // 2. 특수수당/인센티브 및 개인 항목 분류 (영업수수료 / 유지수수료 / 특수수당)
+      interface ExtraPayStat {
+        targetName: string;
+        category: 'SALES' | 'MAINTENANCE' | 'SPECIAL';
+        detail: string;
+        count: number;
+        gross: number;
+        supply: number;
+        tax: number;
+        net: number;
+        settlementType: string;
+        bankName: string;
+        acctNumber: string;
+        holderStr: string;
+        fullAcctStr: string;
+        acctStr: string;
+        isIndiv: boolean;
+      }
 
+      const extraItems: ExtraPayStat[] = [];
+
+      Object.entries(specialAdditions).forEach(([name, amt]) => {
+        const gross = Number(amt) || 0;
+        if (gross <= 0) return;
+
+        const bank = getBankInfo(name);
+        const supply = bank.isIndiv ? gross : Math.round(gross / 1.1);
+        const tax = bank.isIndiv ? Math.floor(gross * 0.033) : (gross - supply);
+        const net = gross - (bank.isIndiv ? tax : 0);
+
+        const rule = globalIncentiveRules.find(r => r.targetName === name) || globalIncentiveRules.find(r => 
+          (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName) &&
+          isHqMatchedForSpecialRule(r, name, divisionSettings)
+        );
+        const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : (name === '권성훈' ? '올케이지 유지' : (name === '이종연' ? '영업수수료' : '특수수당')));
+        const count = settlementStats.globalIncentivesCountSummary?.[name] ?? (settlementStats.specialPayouts || []).filter((sp: any) => (sp.hq === name || sp.targetName === name) && Number(sp.amount || 0) > 0 && sp.rentalNo !== '-').length;
+
+        // 카테고리 분류 (유지수수료 / 영업수수료 / 특수수당)
+        let category: 'SALES' | 'MAINTENANCE' | 'SPECIAL' = 'SPECIAL';
+        if (detail.includes('유지') || name === '권성훈' || name.includes('유지')) {
+          category = 'MAINTENANCE';
+        } else if (detail.includes('영업') || detail.includes('수수료') || name === '이종연') {
+          category = 'SALES';
+        }
+
+        const acctStr = (bank.bankName !== '-' || bank.acctNumber !== '-') ? `${bank.bankName} ${bank.acctNumber} (${bank.holderStr})` : '-';
+
+        extraItems.push({
+          targetName: name,
+          category,
+          detail,
+          count,
+          gross,
+          supply,
+          tax: bank.isIndiv ? -tax : tax,
+          net,
+          settlementType: bank.settlementType,
+          bankName: bank.bankName,
+          acctNumber: bank.acctNumber,
+          holderStr: bank.holderStr,
+          fullAcctStr: bank.fullAcctStr,
+          acctStr,
+          isIndiv: bank.isIndiv
+        });
+      });
+
+      // 3. 유지수수료(회차별 maintenancePayouts) 항목 추가
+      const maintPayoutMap = new Map<string, { count: number, gross: number }>();
+      maintenancePayouts.forEach(m => {
+        const cur = maintPayoutMap.get(m.hq) || { count: 0, gross: 0 };
+        maintPayoutMap.set(m.hq, { count: cur.count + 1, gross: cur.gross + m.amount });
+      });
+
+      maintPayoutMap.forEach((val, hq) => {
+        if (!extraItems.some(item => item.targetName === hq && item.category === 'MAINTENANCE')) {
+          const bank = getBankInfo(hq);
+          const supply = bank.isIndiv ? val.gross : Math.round(val.gross / 1.1);
+          const tax = bank.isIndiv ? Math.floor(val.gross * 0.033) : (val.gross - supply);
+          const net = val.gross - (bank.isIndiv ? tax : 0);
+          const acctStr = (bank.bankName !== '-' || bank.acctNumber !== '-') ? `${bank.bankName} ${bank.acctNumber} (${bank.holderStr})` : '-';
+          extraItems.push({
+            targetName: hq,
+            category: 'MAINTENANCE',
+            detail: '유지수수료',
+            count: val.count,
+            gross: val.gross,
+            supply,
+            tax: bank.isIndiv ? -tax : tax,
+            net,
+            settlementType: bank.settlementType,
+            bankName: bank.bankName,
+            acctNumber: bank.acctNumber,
+            holderStr: bank.holderStr,
+            fullAcctStr: bank.fullAcctStr,
+            acctStr,
+            isIndiv: bank.isIndiv
+          });
+        }
+      });
+
+      // extraItems를 세 카테고리로 분리
+      const extraSales = extraItems.filter(e => e.category === 'SALES');
+      const maintItems = extraItems.filter(e => e.category === 'MAINTENANCE');
+      const specialItems = extraItems.filter(e => e.category === 'SPECIAL');
+
+      // -------------------------------------------------------------
+      // 1. 사업단 및 본부별 지급 계좌 (구분별 완벽 분리)
+      // -------------------------------------------------------------
+      reportRows.push(['1. 정산 항목별 지급 계좌 목록']);
+      reportRows.push(['구분', '본부 / 대상자명', '정산유형', '실지급액', '지급계좌', '예금주명']);
+
+      let salesTotalNet = 0;
+      let maintTotalNet = 0;
+      let specialTotalNet = 0;
+
+      // 1-1. [영업수수료 지급 계좌]
+      reportRows.push(['[영업수수료]', '', '', '', '', '']);
+      const processedSalesHqs = new Set<string>();
+
+      // 사업단 소속 본부들
       (divisionSettings || []).forEach(div => {
-        const memberHqNames = (div.hqNames || []).filter(name => hqPayInfoMap.has(name));
+        const memberHqNames = (div.hqNames || []).filter(name => salesHqMap.has(name));
         if (memberHqNames.length === 0) return;
 
-        const divTotalNet = memberHqNames.reduce((sum, name) => sum + (hqPayInfoMap.get(name)?.net || 0), 0);
-        const divBankStr = (div.bankName && div.accountNumber) ? `${div.bankName} ${div.accountNumber}` : (hqPayInfoMap.get(memberHqNames[0])?.fullAcctStr || '-');
-        const divHolderStr = div.accountHolder || hqPayInfoMap.get(memberHqNames[0])?.holderStr || '-';
+        const divTotalNet = memberHqNames.reduce((sum, name) => sum + (salesHqMap.get(name)?.net || 0), 0);
+        const divBankStr = (div.bankName && div.accountNumber) ? `${div.bankName} ${div.accountNumber}` : (salesHqMap.get(memberHqNames[0])?.fullAcctStr || '-');
+        const divHolderStr = div.accountHolder || salesHqMap.get(memberHqNames[0])?.holderStr || '-';
 
-        // 사업단 소속 개별 본부 행 (소속 본부 먼저 출력, 화살표 제거, 공백 들여쓰기)
         memberHqNames.forEach(hqName => {
-          processedPayHqs.add(hqName);
-          const info = hqPayInfoMap.get(hqName)!;
+          processedSalesHqs.add(hqName);
+          const info = salesHqMap.get(hqName)!;
+          salesTotalNet += info.net;
           reportRows.push([
+            '영업수수료',
             `  ${info.hqName}`,
             info.settlementType,
             { v: info.net, t: 'n', z: '#,##0' },
@@ -4471,8 +4589,8 @@ const ERP_Dashboard = () => {
           ]);
         });
 
-        // 사업단 제일 하단에 소계 행 출력
         reportRows.push([
+          '영업수수료',
           `${div.name} 사업단 소계`,
           div.settlementType || '사업자',
           { v: divTotalNet, t: 'n', z: '#,##0' },
@@ -4481,290 +4599,337 @@ const ERP_Dashboard = () => {
         ]);
       });
 
-      // 독립본부 출력
-      const independentPayHqs = allHqNames.filter(name => !processedPayHqs.has(name));
-      if (independentPayHqs.length > 0) {
-        if (divisionSettings && divisionSettings.length > 0 && processedPayHqs.size > 0) {
-          reportRows.push(['독립본부', '', '', '', '']);
-        }
-        independentPayHqs.forEach(hqName => {
-          const info = hqPayInfoMap.get(hqName)!;
-          reportRows.push([
-            info.hqName,
-            info.settlementType,
-            { v: info.net, t: 'n', z: '#,##0' },
-            info.fullAcctStr,
-            info.holderStr
-          ]);
-        });
+      // 독립 본부들
+      const independentSalesHqs = generalHqs.filter(name => !processedSalesHqs.has(name));
+      independentSalesHqs.forEach(hqName => {
+        const info = salesHqMap.get(hqName)!;
+        salesTotalNet += info.net;
+        reportRows.push([
+          '영업수수료',
+          info.hqName,
+          info.settlementType,
+          { v: info.net, t: 'n', z: '#,##0' },
+          info.fullAcctStr,
+          info.holderStr
+        ]);
+      });
 
-        // 사업단이 존재하는 경우, 독립본부 목록 아래에 독립본부 소계 추가
-        if (divisionSettings && divisionSettings.length > 0 && processedPayHqs.size > 0) {
-          const indepTotalNet = independentPayHqs.reduce((sum, hqName) => sum + (hqPayInfoMap.get(hqName)?.net || 0), 0);
-          reportRows.push([
-            '독립본부 소계',
-            '',
-            { v: indepTotalNet, t: 'n', z: '#,##0' },
-            '',
-            ''
-          ]);
-        }
-      }
+      // 개인 영업수수료 (이종연 등)
+      extraSales.forEach(item => {
+        salesTotalNet += item.net;
+        reportRows.push([
+          '영업수수료',
+          `${item.targetName} (${item.detail})`,
+          item.settlementType,
+          { v: item.net, t: 'n', z: '#,##0' },
+          item.fullAcctStr,
+          item.holderStr
+        ]);
+      });
 
-      // 1. 본부별 지급 계좌 합계 행
+      reportRows.push([
+        '영업수수료 소계',
+        '',
+        '',
+        { v: salesTotalNet, t: 'n', z: '#,##0' },
+        '',
+        ''
+      ]);
+
+      // 1-2. [유지수수료 지급 계좌]
+      reportRows.push(['[유지수수료]', '', '', '', '', '']);
+      maintItems.forEach(item => {
+        maintTotalNet += item.net;
+        reportRows.push([
+          '유지수수료',
+          `${item.targetName} (${item.detail})`,
+          item.settlementType,
+          { v: item.net, t: 'n', z: '#,##0' },
+          item.fullAcctStr,
+          item.holderStr
+        ]);
+      });
+
+      reportRows.push([
+        '유지수수료 소계',
+        '',
+        '',
+        { v: maintTotalNet, t: 'n', z: '#,##0' },
+        '',
+        ''
+      ]);
+
+      // 1-3. [특수수당 지급 계좌]
+      reportRows.push(['[특수수당]', '', '', '', '', '']);
+      specialItems.forEach(item => {
+        specialTotalNet += item.net;
+        reportRows.push([
+          '특수수당',
+          `${item.targetName} (${item.detail})`,
+          item.settlementType,
+          { v: item.net, t: 'n', z: '#,##0' },
+          item.fullAcctStr,
+          item.holderStr
+        ]);
+      });
+
+      reportRows.push([
+        '특수수당 소계',
+        '',
+        '',
+        { v: specialTotalNet, t: 'n', z: '#,##0' },
+        '',
+        ''
+      ]);
+
+      // 1-4. 지급 계좌 총합계
+      const grandTotalNet = salesTotalNet + maintTotalNet + specialTotalNet;
       reportRows.push([
         '총합계',
         '',
-        { v: accountTotalPay, t: 'n', z: '#,##0' },
+        '',
+        { v: grandTotalNet, t: 'n', z: '#,##0' },
         '',
         ''
       ]);
 
       reportRows.push([]);
 
+      // -------------------------------------------------------------
       // 2. 전체 정산 개요
+      // -------------------------------------------------------------
       reportRows.push(['2. 전체 정산 개요']);
-      reportRows.push(['지급 기준일', '총 집계 본부수', '총 계약 건수', '총 실지급 합계액']);
+      reportRows.push(['지급 기준일', '총 집계 대상', '총 계약 건수', '영업수수료 실지급액', '유지수수료 실지급액', '특수수당 실지급액', '총 실지급 합계액']);
+      const allTargetCount = generalHqs.length + extraItems.length;
       reportRows.push([
         payDateSample,
-        allHqNames.length,
+        allTargetCount,
         settlementStats.totalCount || filteredData.length,
-        { v: accountTotalPay, t: 'n', z: '#,##0' }
+        { v: salesTotalNet, t: 'n', z: '#,##0' },
+        { v: maintTotalNet, t: 'n', z: '#,##0' },
+        { v: specialTotalNet, t: 'n', z: '#,##0' },
+        { v: grandTotalNet, t: 'n', z: '#,##0' }
       ]);
 
       reportRows.push([]);
 
-      // 3. 본부별 정산 현황 (사업단 묶음 및 소계 적용)
-      if (generalHqs.length > 0) {
-        reportRows.push(['3. 사업단 및 본부별 정산 현황']);
-        reportRows.push(['구분 / 본부명', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액']);
+      // -------------------------------------------------------------
+      // 3. 영업수수료 정산 현황 (사업단/본부 + 개인 영업수수료)
+      // -------------------------------------------------------------
+      reportRows.push(['3. 영업수수료 정산 현황']);
+      reportRows.push(['구분 / 본부명(대상자)', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액']);
 
-        interface HqStatInfo {
-          hqName: string;
-          totalCountVal: number;
-          hqGross: number;
-          supply: number;
-          tax: number;
-          net: number;
-          isIndiv: boolean;
-        }
+      let salesGrossTotal = 0;
+      let salesSupplyTotal = 0;
+      let salesTaxTotal = 0;
+      let salesCountTotal = 0;
 
-        const hqStatMap = new Map<string, HqStatInfo>();
-        let overallCount = 0;
-        let overallGross = 0;
-        let overallSupply = 0;
-        let overallTax = 0;
-        let overallNet = 0;
+      // 사업단 그룹별 출력
+      const processedSalesStatHqs = new Set<string>();
+      (divisionSettings || []).forEach(div => {
+        const memberHqs = (div.hqNames || []).filter(name => salesHqMap.has(name));
+        if (memberHqs.length === 0) return;
 
-        generalHqs.forEach(hqName => {
-          const items = settlementStats.hqGroups[hqName] || [];
-          const maintenanceSum = maintenancePayouts.filter(m => m.hq === hqName).reduce((sum, m) => sum + m.amount, 0);
-          
-          let generalSum = 0;
-          items.forEach((item: any) => {
-            const { totalCommission } = calculateCommissionDetails(item, statsMap);
-            generalSum += totalCommission;
-          });
+        let divCount = 0;
+        let divGross = 0;
+        let divSupply = 0;
+        let divTax = 0;
+        let divNet = 0;
 
-          const hqGross = generalSum + maintenanceSum;
-          const setting = hqSettings.find(h => h.hqName === hqName);
-          const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
-          const supply = isIndiv ? hqGross : Math.round(hqGross / 1.1);
-          const tax = isIndiv ? Math.floor(hqGross * 0.033) : (hqGross - supply);
-          const net = hqGross - (isIndiv ? tax : 0);
-          
-          const maintCount = maintenancePayouts.filter(m => m.hq === hqName).length;
-          const totalCountVal = items.length + maintCount;
-
-          overallCount += totalCountVal;
-          overallGross += hqGross;
-          overallSupply += supply;
-          overallTax += (isIndiv ? -tax : tax);
-          overallNet += net;
-
-          hqStatMap.set(hqName, {
-            hqName,
-            totalCountVal,
-            hqGross,
-            supply,
-            tax: isIndiv ? -tax : tax,
-            net,
-            isIndiv
-          });
+        memberHqs.forEach(name => {
+          const s = salesHqMap.get(name)!;
+          divCount += s.count;
+          divGross += s.gross;
+          divSupply += s.supply;
+          divTax += s.tax;
+          divNet += s.net;
         });
 
-        const processedStatHqs = new Set<string>();
-
-        // 사업단별 그룹 및 소계 출력
-        (divisionSettings || []).forEach(div => {
-          const memberHqs = (div.hqNames || []).filter(name => hqStatMap.has(name));
-          if (memberHqs.length === 0) return;
-
-          let divCount = 0;
-          let divGross = 0;
-          let divSupply = 0;
-          let divTax = 0;
-          let divNet = 0;
-
-          memberHqs.forEach(name => {
-            const s = hqStatMap.get(name)!;
-            divCount += s.totalCountVal;
-            divGross += s.hqGross;
-            divSupply += s.supply;
-            divTax += s.tax;
-            divNet += s.net;
-          });
-
-          // 소속 개별 본부 행들 먼저 출력 (화살표 제거, 공백 들여쓰기)
-          memberHqs.forEach(name => {
-            processedStatHqs.add(name);
-            const s = hqStatMap.get(name)!;
-            reportRows.push([
-              `  ${s.hqName}`,
-              s.totalCountVal,
-              { v: s.hqGross, t: 'n', z: '#,##0' },
-              { v: s.supply, t: 'n', z: '#,##0' },
-              { v: s.tax, t: 'n', z: '#,##0' },
-              { v: s.net, t: 'n', z: '#,##0' }
-            ]);
-          });
-
-          // 사업단 제일 하단에 소계 행 출력
+        // 소속 개별 본부 행
+        memberHqs.forEach(name => {
+          processedSalesStatHqs.add(name);
+          const s = salesHqMap.get(name)!;
+          salesCountTotal += s.count;
+          salesGrossTotal += s.gross;
+          salesSupplyTotal += s.supply;
+          salesTaxTotal += s.tax;
           reportRows.push([
-            `${div.name} 사업단 소계`,
-            divCount,
-            { v: divGross, t: 'n', z: '#,##0' },
-            { v: divSupply, t: 'n', z: '#,##0' },
-            { v: divTax, t: 'n', z: '#,##0' },
-            { v: divNet, t: 'n', z: '#,##0' }
+            `  ${s.hqName}`,
+            s.count,
+            { v: s.gross, t: 'n', z: '#,##0' },
+            { v: s.supply, t: 'n', z: '#,##0' },
+            { v: s.tax, t: 'n', z: '#,##0' },
+            { v: s.net, t: 'n', z: '#,##0' }
           ]);
         });
 
-        // 독립본부 출력
-        const indepStatHqs = generalHqs.filter(name => !processedStatHqs.has(name));
-        if (indepStatHqs.length > 0) {
-          if (divisionSettings && divisionSettings.length > 0 && processedStatHqs.size > 0) {
-            reportRows.push(['독립본부', '', '', '', '', '']);
-          }
-          let indepCount = 0;
-          let indepGross = 0;
-          let indepSupply = 0;
-          let indepTax = 0;
-          let indepNet = 0;
-
-          indepStatHqs.forEach(name => {
-            const s = hqStatMap.get(name)!;
-            indepCount += s.totalCountVal;
-            indepGross += s.hqGross;
-            indepSupply += s.supply;
-            indepTax += s.tax;
-            indepNet += s.net;
-
-            reportRows.push([
-              s.hqName,
-              s.totalCountVal,
-              { v: s.hqGross, t: 'n', z: '#,##0' },
-              { v: s.supply, t: 'n', z: '#,##0' },
-              { v: s.tax, t: 'n', z: '#,##0' },
-              { v: s.net, t: 'n', z: '#,##0' }
-            ]);
-          });
-
-          // 사업단이 존재하는 경우, 독립본부 목록 아래에 독립본부 소계 추가
-          if (divisionSettings && divisionSettings.length > 0 && processedStatHqs.size > 0) {
-            reportRows.push([
-              '독립본부 소계',
-              indepCount,
-              { v: indepGross, t: 'n', z: '#,##0' },
-              { v: indepSupply, t: 'n', z: '#,##0' },
-              { v: indepTax, t: 'n', z: '#,##0' },
-              { v: indepNet, t: 'n', z: '#,##0' }
-            ]);
-          }
-        }
-
-        // 3. 본부별 정산 현황 총합계 행
+        // 사업단 소계
         reportRows.push([
-          '총합계',
-          overallCount,
-          { v: overallGross, t: 'n', z: '#,##0' },
-          { v: overallSupply, t: 'n', z: '#,##0' },
-          { v: overallTax, t: 'n', z: '#,##0' },
-          { v: overallNet, t: 'n', z: '#,##0' }
-        ]);
-      }
-
-      reportRows.push([]);
-
-      // 4. 특수수당 지급 요약
-      reportRows.push(['4. 특수수당 지급 요약']);
-      reportRows.push(['대상자명', '수당 종류', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액', '지급계좌']);
-
-      let specTotalCount = 0;
-      let specTotalGross = 0;
-      let specTotalSupply = 0;
-      let specTotalTax = 0;
-      let specTotalNet = 0;
-
-      Object.entries(specialAdditions).forEach(([hqName, amt]) => {
-        const setting = hqSettings.find(s => s.hqName === hqName);
-        const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨' || hqName === '다이렉트';
-        
-        const gross = Number(amt) || 0;
-        const supply = isIndiv ? gross : Math.round(gross / 1.1);
-        const tax = isIndiv ? Math.floor(gross * 0.033) : (gross - supply);
-        const net = gross - (isIndiv ? tax : 0);
-
-        const rule = globalIncentiveRules.find(r => r.targetName === hqName) || globalIncentiveRules.find(r => 
-          (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName) &&
-          isHqMatchedForSpecialRule(r, hqName, divisionSettings)
-        );
-        const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : (hqName === '권성훈' ? '홈페이지 유지' : '특수수당'));
-        const count = settlementStats.globalIncentivesCountSummary?.[hqName] ?? (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === hqName || sp.targetName === hqName).length;
-
-        const empBank = employeeBankMap.get(hqName) || employeeBankMap.get(`다이렉트_${hqName}`);
-        let bankName = setting?.bankName || '-';
-        let acctNumber = setting?.accountNumber || '-';
-        let holderStr = setting?.accountHolder || hqName;
-
-        if (empBank && (empBank.bank || empBank.account)) {
-          if (empBank.bank) bankName = empBank.bank;
-          if (empBank.account) acctNumber = empBank.account;
-          if (empBank.holder) holderStr = empBank.holder;
-        }
-
-        const acctStr = (bankName !== '-' || acctNumber !== '-') ? `${bankName} ${acctNumber} (${holderStr})` : '-';
-
-        specTotalCount += count;
-        specTotalGross += gross;
-        specTotalSupply += supply;
-        specTotalTax += (isIndiv ? -tax : tax);
-        specTotalNet += net;
-
-        reportRows.push([
-          hqName,
-          detail,
-          count,
-          { v: gross, t: 'n', z: '#,##0' },
-          { v: supply, t: 'n', z: '#,##0' },
-          { v: isIndiv ? -tax : tax, t: 'n', z: '#,##0' },
-          { v: net, t: 'n', z: '#,##0' },
-          acctStr
+          `${div.name} 사업단 소계`,
+          divCount,
+          { v: divGross, t: 'n', z: '#,##0' },
+          { v: divSupply, t: 'n', z: '#,##0' },
+          { v: divTax, t: 'n', z: '#,##0' },
+          { v: divNet, t: 'n', z: '#,##0' }
         ]);
       });
 
-      if (Object.keys(specialAdditions).length > 0) {
-        reportRows.push([
-          '총합계',
-          '',
-          specTotalCount,
-          { v: specTotalGross, t: 'n', z: '#,##0' },
-          { v: specTotalSupply, t: 'n', z: '#,##0' },
-          { v: specTotalTax, t: 'n', z: '#,##0' },
-          { v: specTotalNet, t: 'n', z: '#,##0' },
-          ''
-        ]);
+      // 독립 본부 출력
+      const indepSalesHqs = generalHqs.filter(name => !processedSalesStatHqs.has(name));
+      if (indepSalesHqs.length > 0) {
+        if (divisionSettings && divisionSettings.length > 0 && processedSalesStatHqs.size > 0) {
+          reportRows.push(['독립본부', '', '', '', '', '']);
+        }
+        let indepCount = 0;
+        let indepGross = 0;
+        let indepSupply = 0;
+        let indepTax = 0;
+        let indepNet = 0;
+
+        indepSalesHqs.forEach(name => {
+          const s = salesHqMap.get(name)!;
+          indepCount += s.count;
+          indepGross += s.gross;
+          indepSupply += s.supply;
+          indepTax += s.tax;
+          indepNet += s.net;
+
+          salesCountTotal += s.count;
+          salesGrossTotal += s.gross;
+          salesSupplyTotal += s.supply;
+          salesTaxTotal += s.tax;
+
+          reportRows.push([
+            s.hqName,
+            s.count,
+            { v: s.gross, t: 'n', z: '#,##0' },
+            { v: s.supply, t: 'n', z: '#,##0' },
+            { v: s.tax, t: 'n', z: '#,##0' },
+            { v: s.net, t: 'n', z: '#,##0' }
+          ]);
+        });
+
+        if (divisionSettings && divisionSettings.length > 0 && processedSalesStatHqs.size > 0) {
+          reportRows.push([
+            '독립본부 소계',
+            indepCount,
+            { v: indepGross, t: 'n', z: '#,##0' },
+            { v: indepSupply, t: 'n', z: '#,##0' },
+            { v: indepTax, t: 'n', z: '#,##0' },
+            { v: indepNet, t: 'n', z: '#,##0' }
+          ]);
+        }
       }
+
+      // 개인 영업수수료 (이종연 등)
+      extraSales.forEach(item => {
+        salesCountTotal += item.count;
+        salesGrossTotal += item.gross;
+        salesSupplyTotal += item.supply;
+        salesTaxTotal += item.tax;
+        reportRows.push([
+          `${item.targetName} (${item.detail})`,
+          item.count,
+          { v: item.gross, t: 'n', z: '#,##0' },
+          { v: item.supply, t: 'n', z: '#,##0' },
+          { v: item.tax, t: 'n', z: '#,##0' },
+          { v: item.net, t: 'n', z: '#,##0' }
+        ]);
+      });
+
+      // 영업수수료 총합계
+      reportRows.push([
+        '총합계',
+        salesCountTotal,
+        { v: salesGrossTotal, t: 'n', z: '#,##0' },
+        { v: salesSupplyTotal, t: 'n', z: '#,##0' },
+        { v: salesTaxTotal, t: 'n', z: '#,##0' },
+        { v: salesTotalNet, t: 'n', z: '#,##0' }
+      ]);
+
+      reportRows.push([]);
+
+      // -------------------------------------------------------------
+      // 4. 유지수수료 정산 현황 (완전 분리된 독립 테이블)
+      // -------------------------------------------------------------
+      reportRows.push(['4. 유지수수료 정산 현황']);
+      reportRows.push(['대상자 / 본부명', '수당 종류', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액', '지급계좌']);
+
+      let maintGrossTotal = 0;
+      let maintSupplyTotal = 0;
+      let maintTaxTotal = 0;
+      let maintCountTotal = 0;
+
+      maintItems.forEach(item => {
+        maintCountTotal += item.count;
+        maintGrossTotal += item.gross;
+        maintSupplyTotal += item.supply;
+        maintTaxTotal += item.tax;
+
+        reportRows.push([
+          item.targetName,
+          item.detail,
+          item.count,
+          { v: item.gross, t: 'n', z: '#,##0' },
+          { v: item.supply, t: 'n', z: '#,##0' },
+          { v: item.tax, t: 'n', z: '#,##0' },
+          { v: item.net, t: 'n', z: '#,##0' },
+          item.acctStr
+        ]);
+      });
+
+      reportRows.push([
+        '총합계',
+        '',
+        maintCountTotal,
+        { v: maintGrossTotal, t: 'n', z: '#,##0' },
+        { v: maintSupplyTotal, t: 'n', z: '#,##0' },
+        { v: maintTaxTotal, t: 'n', z: '#,##0' },
+        { v: maintTotalNet, t: 'n', z: '#,##0' },
+        ''
+      ]);
+
+      reportRows.push([]);
+
+      // -------------------------------------------------------------
+      // 5. 특수수당 정산 현황 (순수 특수수당 독립 테이블)
+      // -------------------------------------------------------------
+      reportRows.push(['5. 특수수당 정산 현황']);
+      reportRows.push(['대상자명', '수당 종류', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액', '지급계좌']);
+
+      let specGrossTotal = 0;
+      let specSupplyTotal = 0;
+      let specTaxTotal = 0;
+      let specCountTotal = 0;
+
+      specialItems.forEach(item => {
+        specCountTotal += item.count;
+        specGrossTotal += item.gross;
+        specSupplyTotal += item.supply;
+        specTaxTotal += item.tax;
+
+        reportRows.push([
+          item.targetName,
+          item.detail,
+          item.count,
+          { v: item.gross, t: 'n', z: '#,##0' },
+          { v: item.supply, t: 'n', z: '#,##0' },
+          { v: item.tax, t: 'n', z: '#,##0' },
+          { v: item.net, t: 'n', z: '#,##0' },
+          item.acctStr
+        ]);
+      });
+
+      reportRows.push([
+        '총합계',
+        '',
+        specCountTotal,
+        { v: specGrossTotal, t: 'n', z: '#,##0' },
+        { v: specSupplyTotal, t: 'n', z: '#,##0' },
+        { v: specTaxTotal, t: 'n', z: '#,##0' },
+        { v: specialTotalNet, t: 'n', z: '#,##0' },
+        ''
+      ]);
 
       const wsReport = XLSX.utils.aoa_to_sheet(reportRows);
       
@@ -4818,10 +4983,11 @@ const ERP_Dashboard = () => {
             if (R === 0) ws[addr].s = titleStyle;
             const val = String(ws[addr].v || '');
             const isHeader = [
-              '지급 기준일', '구분 / 본부명', '본부명', '정산유형', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액', '지급계좌', '예금주명',
-              '총 집계 본부수', '총 계약 건수', '총 실지급 합계액', '사원명', '역할', '대상자명', '수당 종류', '성명', '상품명', '지급일', '독립본부'
+              '지급 기준일', '구분 / 본부명', '구분 / 본부명(대상자)', '본부명', '정산유형', '건수', '총합계액', '공급가액', '부가세/원천세', '실지급액', '지급계좌', '예금주명',
+              '총 집계 대상', '총 집계 본부수', '총 계약 건수', '총 실지급 합계액', '영업수수료 실지급액', '유지수수료 실지급액', '특수수당 실지급액',
+              '사원명', '역할', '대상자명', '대상자 / 본부명', '수당 종류', '성명', '상품명', '지급일', '독립본부', '구분', '본부 / 대상자명'
             ].some(h => val === h) || (
-              val.includes('1.') || val.includes('2.') || val.includes('3.') || val.includes('4.') || (val.startsWith('[') && val.endsWith(']'))
+              val.includes('1.') || val.includes('2.') || val.includes('3.') || val.includes('4.') || val.includes('5.') || (val.startsWith('[') && val.endsWith(']'))
             );
             if (isHeader) {
               ws[addr].s = headerStyle;
@@ -5034,6 +5200,14 @@ const ERP_Dashboard = () => {
       // --- SHEET 4: 특수수당 상세 명세 ---
       const specialRows: any[][] = [['본부', '지사', '사원명', '고객명', '상품명', '제품명', '계약일자', '배송일자', '수수료']];
       const rawSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => {
+        // 1) 실제 수당 금액이 0보다 큰 유효 계약 건만 포함
+        if (!sp.amount || Number(sp.amount) <= 0) return false;
+        // 2) 최저보장 가상 행 및 계약번호 없는 건 제외
+        if (!sp.rentalNo || sp.rentalNo === '-' || String(sp.id || '').startsWith('guarantee_')) return false;
+        // 3) 유지수수료 및 일반영업수수료 성격 제외 (특수수당만 표기)
+        const incName = sp.incentiveName || '';
+        if (incName.includes('유지') || incName.includes('영업수수료') || sp.hq === '권성훈' || sp.targetName === '권성훈') return false;
+
         if (payDateFilter && payDateFilter !== 'ALL') {
           if (sp.payDate && sp.payDate !== '-' && sp.payDate !== '지급일 미지정') {
             return sp.payDate.replace(/[-./]/g, '') === payDateFilter.replace(/[-./]/g, '');
