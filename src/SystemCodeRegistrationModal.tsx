@@ -7,6 +7,7 @@ import {
   Copy,
   Check,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   Search,
   CheckSquare,
@@ -42,6 +43,10 @@ export interface SystemCodeRow {
   normalizedPhone: string;
   isDuplicate: boolean; // 사원리스트 L열 중복 여부
   matchedEmps: EmpRowData[]; // 사원리스트에서 일치하는 사원 정보들
+
+  // 본부/지사 사원리스트 존재 여부 (C열, D열)
+  isHqMissing: boolean;
+  isBranchMissing: boolean;
 
   // 선택 & 상태
   isSelected: boolean;
@@ -92,7 +97,7 @@ export function SystemCodeRegistrationModal({
 }: SystemCodeRegistrationModalProps) {
   const [rows, setRows] = useState<SystemCodeRow[]>([]);
   const [fileName, setFileName] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'all' | 'new' | 'duplicate'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'new' | 'duplicate' | 'org_missing'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCellId, setCopiedCellId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -103,6 +108,54 @@ export function SystemCodeRegistrationModal({
   const [editingRows, setEditingRows] = useState<{ [id: string]: SystemCodeRow }>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 사원리스트 시트 C열(본부명) Set
+  const validHqSet = useMemo(() => {
+    const set = new Set<string>();
+    (empRows || []).forEach(emp => {
+      const h = (emp.hq || '').trim();
+      if (h && h !== '-' && h !== '본부') {
+        set.add(h);
+      }
+    });
+    return set;
+  }, [empRows]);
+
+  // 사원리스트 시트 D열(지사명) Set
+  const validBranchSet = useMemo(() => {
+    const set = new Set<string>();
+    (empRows || []).forEach(emp => {
+      const b = (emp.branch || '').trim();
+      if (b && b !== '-' && b !== '지사') {
+        set.add(b);
+      }
+    });
+    return set;
+  }, [empRows]);
+
+  // 본부명 유효성 검사 (사원리스트 C열 존재 여부)
+  const checkIsValidHq = (hqName: string) => {
+    const h = (hqName || '').trim();
+    if (!h || h === '-') return false;
+    if (validHqSet.has(h)) return true;
+    const noSpace = h.replace(/\s+/g, '');
+    for (const valid of validHqSet) {
+      if (valid.replace(/\s+/g, '') === noSpace) return true;
+    }
+    return false;
+  };
+
+  // 지사명 유효성 검사 (사원리스트 D열 존재 여부)
+  const checkIsValidBranch = (branchName: string) => {
+    const b = (branchName || '').trim();
+    if (!b || b === '-') return false;
+    if (validBranchSet.has(b)) return true;
+    const noSpace = b.replace(/\s+/g, '');
+    for (const valid of validBranchSet) {
+      if (valid.replace(/\s+/g, '') === noSpace) return true;
+    }
+    return false;
+  };
 
   // 사원리스트 시트 L열(연락처) 기반 매핑 맵
   const empPhoneMap = useMemo(() => {
@@ -229,6 +282,10 @@ export function SystemCodeRegistrationModal({
             systemPw = normalizedPhone;
           }
 
+          // 본부/지사 사원리스트 C열/D열 대사
+          const isHqMissing = !checkIsValidHq(hq);
+          const isBranchMissing = !checkIsValidBranch(branch);
+
           parsedRows.push({
             id: `row_${i}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
             position,
@@ -242,6 +299,8 @@ export function SystemCodeRegistrationModal({
             normalizedPhone,
             isDuplicate,
             matchedEmps,
+            isHqMissing,
+            isBranchMissing,
             isSelected: !isDuplicate, // 중복이 아니면 기본 선택, 중복이면 기본 선택 해제
             isIgnored: false
           });
@@ -356,7 +415,9 @@ export function SystemCodeRegistrationModal({
     // 전화번호 정규화 및 재대사
     const norm = normalizePhone(edited.phone);
     const matchedEmps = norm ? (empPhoneMap.get(norm) || []) : [];
-    const isDup = matchedEmps.length > 0;
+    // 본부/지사 사원리스트 C열/D열 재대사
+    const isHqMissing = !checkIsValidHq(edited.hq);
+    const isBranchMissing = !checkIsValidBranch(edited.branch);
 
     setRows(prev => prev.map(r => {
       if (r.id === id) {
@@ -365,6 +426,8 @@ export function SystemCodeRegistrationModal({
           normalizedPhone: norm,
           isDuplicate: isDup,
           matchedEmps,
+          isHqMissing,
+          isBranchMissing,
           // 수정해서 중복이 풀렸다면 자동으로 선택 처리
           isSelected: r.isSelected || !isDup
         };
@@ -441,6 +504,7 @@ export function SystemCodeRegistrationModal({
       // 탭 필터
       if (activeTab === 'new' && row.isDuplicate) return false;
       if (activeTab === 'duplicate' && !row.isDuplicate) return false;
+      if (activeTab === 'org_missing' && !row.isHqMissing && !row.isBranchMissing) return false;
 
       // 검색어 필터
       if (searchQuery.trim()) {
@@ -453,6 +517,7 @@ export function SystemCodeRegistrationModal({
           row.hq.toLowerCase().includes(q) ||
           row.branch.toLowerCase().includes(q) ||
           row.position.toLowerCase().includes(q) ||
+          (q.includes('미확인') && (row.isHqMissing || row.isBranchMissing)) ||
           (row.matchedEmps && row.matchedEmps.some(e => e.name.toLowerCase().includes(q) || e.hq.toLowerCase().includes(q)));
         if (!match) return false;
       }
@@ -466,8 +531,9 @@ export function SystemCodeRegistrationModal({
     const total = rows.length;
     const duplicates = rows.filter(r => r.isDuplicate).length;
     const newItems = total - duplicates;
+    const orgMissing = rows.filter(r => r.isHqMissing || r.isBranchMissing).length;
     const selectedCount = rows.filter(r => r.isSelected && !r.isIgnored).length;
-    return { total, duplicates, newItems, selectedCount };
+    return { total, duplicates, newItems, orgMissing, selectedCount };
   }, [rows]);
 
   // 최종 계정 생성 처리
@@ -625,6 +691,13 @@ export function SystemCodeRegistrationModal({
                 <div className="px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg shadow-2xs font-medium">
                   번호 중복: <span className="font-bold text-amber-600">{stats.duplicates}</span>건
                 </div>
+                {stats.orgMissing > 0 && (
+                  <div className="px-2.5 py-1 bg-rose-50 border border-rose-300 text-rose-800 rounded-lg shadow-2xs font-medium flex items-center gap-1">
+                    <AlertCircle size={12} className="text-rose-600 shrink-0" />
+                    <span>본부/지사 미확인:</span>
+                    <span className="font-black text-rose-600">{stats.orgMissing}</span>건
+                  </div>
+                )}
                 <div className="px-2.5 py-1 bg-cyan-50 border border-cyan-200 text-cyan-800 rounded-lg shadow-2xs font-medium">
                   선택됨: <span className="font-black text-cyan-600">{stats.selectedCount}</span>건
                 </div>
@@ -679,6 +752,19 @@ export function SystemCodeRegistrationModal({
                   <AlertTriangle size={12} />
                   중복/확인필요 ({stats.duplicates})
                 </button>
+                {stats.orgMissing > 0 && (
+                  <button
+                    onClick={() => setActiveTab('org_missing')}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                      activeTab === 'org_missing' 
+                        ? 'bg-rose-600 text-white shadow-2xs' 
+                        : 'text-rose-700 hover:bg-rose-50'
+                    }`}
+                  >
+                    <AlertCircle size={12} />
+                    본부·지사 미확인 ({stats.orgMissing})
+                  </button>
+                )}
               </div>
 
               {/* 검색 및 복사 액션 */}
@@ -714,12 +800,20 @@ export function SystemCodeRegistrationModal({
             </div>
 
             {/* 테이블 안내 및 원클릭 복사 팁 */}
-            <div className="px-6 py-2 bg-cyan-50/50 border-b border-cyan-100 text-[11px] text-cyan-800 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-1.5">
-                <Info size={13} className="text-cyan-600 shrink-0" />
-                <span>
-                  <strong>원클릭 복사 팁:</strong> 테이블의 셀(이름, 연락처, ID, PW 등)을 클릭하면 해당 내용이 즉시 클립보드에 복사됩니다.
-                </span>
+            <div className="px-6 py-2 bg-cyan-50/50 border-b border-cyan-100 text-[11px] text-cyan-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <Info size={13} className="text-cyan-600 shrink-0" />
+                  <span>
+                    <strong>원클릭 복사:</strong> 셀 클릭 시 즉시 클립보드에 복사됩니다.
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-rose-700 font-medium">
+                  <AlertCircle size={12} className="text-rose-500 shrink-0" />
+                  <span>
+                    <strong>빨간색 표시:</strong> 사원리스트 시트(C열 본부명, D열 지사명)에 없는 값입니다.
+                  </span>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -793,8 +887,8 @@ export function SystemCodeRegistrationModal({
 
                         {/* 상태 뱃지 */}
                         <td className="p-2.5 whitespace-nowrap">
-                          {row.isDuplicate ? (
-                            <div className="flex flex-col gap-0.5">
+                          <div className="flex flex-col gap-0.5">
+                            {row.isDuplicate ? (
                               <span 
                                 className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md font-bold text-[10px] border border-amber-300 inline-flex items-center gap-1 w-fit"
                                 title={`사원리스트 L열 중복: ${row.matchedEmps.map(e => `${e.name}(${e.hq}/${e.branch})`).join(', ')}`}
@@ -802,25 +896,32 @@ export function SystemCodeRegistrationModal({
                                 <AlertTriangle size={10} className="text-amber-600 shrink-0" />
                                 번호중복
                               </span>
-                              {row.matchedEmps.length > 0 && (
-                                <span className="text-[10px] text-amber-700 truncate max-w-[90px]" title={row.matchedEmps[0].name}>
-                                  기존: {row.matchedEmps[0].name}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-0.5">
+                            ) : (
                               <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md font-bold text-[10px] border border-emerald-300 inline-flex items-center gap-1 w-fit">
                                 <CheckCircle2 size={10} className="text-emerald-600 shrink-0" />
                                 신규생성
                               </span>
-                              {isExistingUsername && (
-                                <span className="text-[10px] text-purple-600 font-bold" title="계정관리 목록에 동일 ID 존재">
-                                  ID기존존재
-                                </span>
-                              )}
-                            </div>
-                          )}
+                            )}
+                            {(row.isHqMissing || row.isBranchMissing) && (
+                              <span 
+                                className="px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-bold text-[9px] border border-rose-200 inline-flex items-center gap-0.5 w-fit"
+                                title="사원리스트 C열 본부명 또는 D열 지사명에 없는 조직입니다."
+                              >
+                                <AlertCircle size={9} className="text-rose-600 shrink-0" />
+                                조직미확인
+                              </span>
+                            )}
+                            {row.isDuplicate && row.matchedEmps.length > 0 && (
+                              <span className="text-[10px] text-amber-700 truncate max-w-[90px]" title={row.matchedEmps[0].name}>
+                                기존: {row.matchedEmps[0].name}
+                              </span>
+                            )}
+                            {isExistingUsername && (
+                              <span className="text-[10px] text-purple-600 font-bold" title="계정관리 목록에 동일 ID 존재">
+                                ID기존존재
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* 직급 (Col A) */}
@@ -850,16 +951,32 @@ export function SystemCodeRegistrationModal({
                               type="text"
                               value={editData.hq}
                               onChange={(e) => handleEditChange(row.id, 'hq', e.target.value)}
-                              className="w-20 px-1.5 py-0.5 border border-cyan-400 rounded bg-white text-xs"
+                              className={`w-24 px-1.5 py-0.5 border rounded text-xs ${
+                                !checkIsValidHq(editData.hq)
+                                  ? 'border-rose-400 bg-rose-50 text-rose-700 font-bold focus:ring-1 focus:ring-rose-500'
+                                  : 'border-cyan-400 bg-white font-medium'
+                              }`}
+                              title={!checkIsValidHq(editData.hq) ? '사원리스트 C열에 등록되지 않은 본부명입니다' : ''}
                             />
                           ) : (
-                            <span 
-                              onClick={() => copyToClipboard(row.hq, `hq_${row.id}`, '본부')}
-                              className="cursor-pointer hover:text-cyan-600 hover:underline font-medium"
-                              title="클릭하여 복사"
-                            >
-                              {row.hq || '-'}
-                            </span>
+                            row.isHqMissing ? (
+                              <span 
+                                onClick={() => copyToClipboard(row.hq, `hq_${row.id}`, '본부')}
+                                className="cursor-pointer font-black text-rose-600 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded border border-rose-300 inline-flex items-center gap-1 shadow-2xs transition-colors"
+                                title="사원리스트 C열에 등록되지 않은 본부명입니다 (클릭하여 복사)"
+                              >
+                                <AlertTriangle size={11} className="text-rose-500 shrink-0" />
+                                <span>{row.hq || '(본부 미입력)'}</span>
+                              </span>
+                            ) : (
+                              <span 
+                                onClick={() => copyToClipboard(row.hq, `hq_${row.id}`, '본부')}
+                                className="cursor-pointer hover:text-cyan-600 hover:underline font-medium"
+                                title="클릭하여 복사"
+                              >
+                                {row.hq || '-'}
+                              </span>
+                            )
                           )}
                         </td>
 
@@ -870,16 +987,32 @@ export function SystemCodeRegistrationModal({
                               type="text"
                               value={editData.branch}
                               onChange={(e) => handleEditChange(row.id, 'branch', e.target.value)}
-                              className="w-20 px-1.5 py-0.5 border border-cyan-400 rounded bg-white text-xs"
+                              className={`w-24 px-1.5 py-0.5 border rounded text-xs ${
+                                !checkIsValidBranch(editData.branch)
+                                  ? 'border-rose-400 bg-rose-50 text-rose-700 font-bold focus:ring-1 focus:ring-rose-500'
+                                  : 'border-cyan-400 bg-white font-medium'
+                              }`}
+                              title={!checkIsValidBranch(editData.branch) ? '사원리스트 D열에 등록되지 않은 지사명입니다' : ''}
                             />
                           ) : (
-                            <span 
-                              onClick={() => copyToClipboard(row.branch, `br_${row.id}`, '지사')}
-                              className="cursor-pointer hover:text-cyan-600 hover:underline font-medium"
-                              title="클릭하여 복사"
-                            >
-                              {row.branch || '-'}
-                            </span>
+                            row.isBranchMissing ? (
+                              <span 
+                                onClick={() => copyToClipboard(row.branch, `br_${row.id}`, '지사')}
+                                className="cursor-pointer font-black text-rose-600 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded border border-rose-300 inline-flex items-center gap-1 shadow-2xs transition-colors"
+                                title="사원리스트 D열에 등록되지 않은 지사명입니다 (클릭하여 복사)"
+                              >
+                                <AlertTriangle size={11} className="text-rose-500 shrink-0" />
+                                <span>{row.branch || '(지사 미입력)'}</span>
+                              </span>
+                            ) : (
+                              <span 
+                                onClick={() => copyToClipboard(row.branch, `br_${row.id}`, '지사')}
+                                className="cursor-pointer hover:text-cyan-600 hover:underline font-medium"
+                                title="클릭하여 복사"
+                              >
+                                {row.branch || '-'}
+                              </span>
+                            )
                           )}
                         </td>
 
