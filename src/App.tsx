@@ -4481,14 +4481,22 @@ const ERP_Dashboard = () => {
           (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName) &&
           isHqMatchedForSpecialRule(r, name, divisionSettings)
         );
-        const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : (name === '권성훈' ? '올케이지 유지' : (name === '이종연' ? '영업수수료' : '특수수당')));
+        let detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' || rule.targetName === '이종연' ? '컨설팅' : '글로벌인센티브')) : (name === '권성훈' ? '올케이지 유지' : (name === '이종연' || name === '조민경' ? '컨설팅' : '특수수당')));
+
+        // 컨설팅 관련 수당은 명칭을 '컨설팅'으로 통일
+        if (detail.includes('컨설팅') || name === '이종연' || name === '조민경') {
+          detail = '컨설팅';
+        }
+
         const count = settlementStats.globalIncentivesCountSummary?.[name] ?? (settlementStats.specialPayouts || []).filter((sp: any) => (sp.hq === name || sp.targetName === name) && Number(sp.amount || 0) > 0 && sp.rentalNo !== '-').length;
 
         // 카테고리 분류 (유지수수료 / 영업수수료 / 특수수당)
         let category: 'SALES' | 'MAINTENANCE' | 'SPECIAL' = 'SPECIAL';
         if (detail.includes('유지') || name === '권성훈' || name.includes('유지')) {
           category = 'MAINTENANCE';
-        } else if (detail.includes('영업') || detail.includes('수수료') || name === '이종연') {
+        } else if (detail.includes('컨설팅') || detail.includes('모델') || name === '이종연' || name === '조민경' || name === '조재윤' || name === '조재은') {
+          category = 'SPECIAL';
+        } else if (detail.includes('영업') || detail.includes('판매')) {
           category = 'SALES';
         }
 
@@ -5207,6 +5215,8 @@ const ERP_Dashboard = () => {
         // 3) 유지수수료 및 일반영업수수료 성격 제외 (특수수당만 표기)
         const incName = sp.incentiveName || '';
         if (incName.includes('유지') || incName.includes('영업수수료') || sp.hq === '권성훈' || sp.targetName === '권성훈') return false;
+        // 4) 컨설팅 관련 내용은 특수수당상세 명세에 포함하지 않음 (사용자 요청)
+        if (incName.includes('컨설팅') || sp.hq === '조민경' || sp.targetName === '조민경' || sp.hq === '이종연' || sp.targetName === '이종연') return false;
 
         if (payDateFilter && payDateFilter !== 'ALL') {
           if (sp.payDate && sp.payDate !== '-' && sp.payDate !== '지급일 미지정') {
