@@ -3009,7 +3009,51 @@ app.post('/api/sheets/excel-sync/decrypt', async (req, res) => {
       message: '비밀번호가 올바르지 않거나 지원되지 않는 암호화 형식입니다. 비밀번호를 다시 확인해 주세요.'
     });
   }
-});
+// 구글 시트 특정 탭에 2차원 데이터를 안전하게 덮어쓰는 헬퍼 (시트가 없으면 자동 생성)
+async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, sheetName: string, rows: any[][]): Promise<number> {
+  if (!rows || rows.length === 0) return 0;
+
+  // 1. 시트 존재 여부 확인 및 없으면 생성
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheetExists = (meta.data.sheets || []).some((s: any) => s.properties?.title === sheetName);
+    if (!sheetExists) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: sheetName } } }]
+        }
+      });
+      console.log(`[ExcelSync] Created new sheet '${sheetName}'.`);
+    }
+  } catch (sheetCheckErr: any) {
+    console.warn(`[ExcelSync] Sheet check warning for '${sheetName}':`, sheetCheckErr.message);
+  }
+
+  // 2. 인코딩 안전화
+  const safeRows = autoRepairRowEncodingSync(rows);
+
+  // 3. 기존 시트 데이터 클리어
+  try {
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: `'${sheetName}'!A:ZZ`
+    });
+  } catch (clearErr: any) {
+    console.warn(`[ExcelSync] Clear warning for '${sheetName}':`, clearErr.message);
+  }
+
+  // 4. 새 데이터 일괄 쓰기
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${sheetName}'!A1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: safeRows }
+  });
+
+  console.log(`[ExcelSync] Successfully overwrote '${sheetName}' with ${safeRows.length} rows.`);
+  return safeRows.length;
+}
 
 // 3. 엑셀 동기화 처리 (미리보기 & 실제 반영) API
 app.post('/api/sheets/excel-sync/process', async (req, res) => {
@@ -3497,7 +3541,7 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     }
 
     // ===================================================================
-    // [4단계] 실제 반영: 자동 백업 생성 후 구글 시트 '관리대장'에 쓰기
+    // [4단계] 실제 반영: 원본 시트('시트1', '배송데이터') 및 '관리대장' 쓰기
     // ===================================================================
     let backupSheetName = "";
     if (autoBackup !== false) {
@@ -3508,7 +3552,27 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       }
     }
 
-    // 1행 헤더 + 데이터 전체 행 결합 전 최종 Latin-1 깨짐 방어 정제
+    // 4-1. '시트1' 시트에 계약원장 엑셀 원본 덮어쓰기
+    let sheet1OverwrittenCount = 0;
+    if (safeContractRows && safeContractRows.length > 0) {
+      try {
+        sheet1OverwrittenCount = await overwriteSheetDataSafe(sheets, sheetId, '시트1', safeContractRows);
+      } catch (err: any) {
+        console.error(`[ExcelSync] Failed to overwrite '시트1':`, err.message);
+      }
+    }
+
+    // 4-2. '배송데이터' 시트에 배송데이터 엑셀 원본 덮어쓰기
+    let deliveryOverwrittenCount = 0;
+    if (safeDeliveryRows && safeDeliveryRows.length > 0) {
+      try {
+        deliveryOverwrittenCount = await overwriteSheetDataSafe(sheets, sheetId, '배송데이터', safeDeliveryRows);
+      } catch (err: any) {
+        console.error(`[ExcelSync] Failed to overwrite '배송데이터':`, err.message);
+      }
+    }
+
+    // 4-3. 1행 헤더 + 데이터 전체 행 결합 전 최종 Latin-1 깨짐 방어 정제 후 '관리대장' 쓰기
     allProcessedData = autoRepairRowEncodingSync(allProcessedData);
     headerRow = headerRow.map(c => (typeof c === 'string' && isBrokenLatin1Sync(c)) ? fixLatin1ToEucKrSync(c) : c);
     const fullValuesToWrite = [headerRow, ...allProcessedData];
@@ -3533,6 +3597,8 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       success: true,
       preview: false,
       backupTitle: backupSheetName,
+      sheet1OverwrittenCount,
+      deliveryOverwrittenCount,
       stats
     });
   } catch (error: any) {

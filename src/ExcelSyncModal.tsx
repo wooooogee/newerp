@@ -65,7 +65,12 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   const [loadingText, setLoadingText] = useState<string>('');
 
   const [previewStats, setPreviewStats] = useState<SyncStats | null>(null);
-  const [completedResult, setCompletedResult] = useState<{ backupTitle?: string; stats: SyncStats } | null>(null);
+  const [completedResult, setCompletedResult] = useState<{
+    backupTitle?: string;
+    sheet1OverwrittenCount?: number;
+    deliveryOverwrittenCount?: number;
+    stats: SyncStats;
+  } | null>(null);
 
   const contractInputRef = useRef<HTMLInputElement>(null);
   const deliveryInputRef = useRef<HTMLInputElement>(null);
@@ -435,6 +440,8 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       const data = await res.json();
       setCompletedResult({
         backupTitle: data.backupTitle,
+        sheet1OverwrittenCount: data.sheet1OverwrittenCount,
+        deliveryOverwrittenCount: data.deliveryOverwrittenCount,
         stats: data.stats
       });
 
@@ -812,6 +819,20 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
               <p className="text-xs text-emerald-800 leading-relaxed">
                 총 <strong>{completedResult.stats.finalTotalCount}건</strong>의 데이터가 구글 시트 [관리대장]에 최신화되었으며, ERP 웹사이트 화면 데이터도 자동으로 새로고침되었습니다.
               </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {completedResult.sheet1OverwrittenCount !== undefined && completedResult.sheet1OverwrittenCount > 0 && (
+                  <div className="px-3 py-1.5 bg-white text-blue-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-blue-200 shadow-2xs">
+                    <Database size={13} className="text-blue-600 shrink-0" />
+                    <span>[시트1] 계약원장 원본 덮어쓰기 완료 ({completedResult.sheet1OverwrittenCount}행)</span>
+                  </div>
+                )}
+                {completedResult.deliveryOverwrittenCount !== undefined && completedResult.deliveryOverwrittenCount > 0 && (
+                  <div className="px-3 py-1.5 bg-white text-indigo-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-indigo-200 shadow-2xs">
+                    <Truck size={13} className="text-indigo-600 shrink-0" />
+                    <span>[배송데이터] 배송 원본 덮어쓰기 완료 ({completedResult.deliveryOverwrittenCount}행)</span>
+                  </div>
+                )}
+              </div>
               {completedResult.backupTitle && (
                 <div className="p-3 bg-white rounded-xl border border-emerald-200 text-xs flex items-center gap-2">
                   <ShieldCheck size={16} className="text-emerald-600 shrink-0" />
