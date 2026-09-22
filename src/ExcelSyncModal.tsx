@@ -15,7 +15,8 @@ import {
   HelpCircle,
   Clock,
   Sparkles,
-  Info
+  Info,
+  Lock
 } from 'lucide-react';
 
 interface ExcelSyncModalProps {
