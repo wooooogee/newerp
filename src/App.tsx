@@ -7291,11 +7291,12 @@ const ERP_Dashboard = () => {
                   const deliveryDateStr = d.deliveryDate ? d.deliveryDate.replace(/\./g, '-').substring(0, 7) : '';
 
                   const isDeliveryComplete = d.deliveryStatus === '배송완료';
+                  const isJoined = d.status === '가입';
 
                   const matchesDeliveryMonth = !targetMonth || deliveryDateStr === targetMonth;
                   const matchesMonth = !targetMonth || contractDateStr === targetMonth;
 
-                  if (isDeliveryComplete && matchesDeliveryMonth) {
+                  if (isDeliveryComplete && matchesDeliveryMonth && isJoined) {
                     if (topDashboardMode === '상품개수' && d.rentalNo) {
                       if (!deliveryCompleteSeenRentalNos.has(d.rentalNo)) {
                         deliveryCompleteSeenRentalNos.add(d.rentalNo);

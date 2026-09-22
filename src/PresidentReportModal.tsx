@@ -276,9 +276,9 @@ export function PresidentReportModal({ isOpen, onClose, data }: PresidentReportM
         }
       }
 
-      // 2. 배송완료건수 판단 (배송상태 '배송완료' & 배송일자 기준)
+      // 2. 배송완료건수 판단 (배송상태 '배송완료' & 가입상태 '가입' & 배송일자 기준)
       const dDate = parseDate(item.deliveryDate);
-      const isDeliveryComplete = item.deliveryStatus === '배송완료';
+      const isDeliveryComplete = item.deliveryStatus === '배송완료' && item.status === '가입';
 
       if (isDeliveryComplete && dDate && dDate >= startDate && dDate <= endDate) {
         const prod = (item.prodName || '미지정').trim();

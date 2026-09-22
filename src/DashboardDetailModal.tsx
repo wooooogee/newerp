@@ -220,11 +220,12 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       const deliveryDateStr = d.deliveryDate ? d.deliveryDate.replace(/\./g, '-').substring(0, 7) : '';
 
       if (type === 'delivery') {
+        const isJoined = d.status === '가입';
         // 배송완료 조건: 전체 기간 보기 활성화 시 날짜 필터 무시
         if (viewAllMonths) {
-          return d.deliveryStatus === '배송완료';
+          return d.deliveryStatus === '배송완료' && isJoined;
         }
-        return d.deliveryStatus === '배송완료' && deliveryDateStr === month;
+        return d.deliveryStatus === '배송완료' && deliveryDateStr === month && isJoined;
       } else {
         // 취소/해약 조건: 전체 기간 보기 활성화 시 날짜 필터 무시
         const isCancelled = d.status.includes('취소') || d.status.includes('해약') || d.deliveryStatus.includes('취소') || d.deliveryStatus.includes('반품');

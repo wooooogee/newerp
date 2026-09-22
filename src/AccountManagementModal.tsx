@@ -7,6 +7,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { AutoAccountGeneratorModal } from './AutoAccountGeneratorModal';
 import { MissingAccountCleanupModal, EmpRowData } from './MissingAccountCleanupModal';
+import { SystemCodeRegistrationModal } from './SystemCodeRegistrationModal';
 import { customConfirm } from './CustomDialog';
 
 const XLSX = (window as any).XLSX;
@@ -94,6 +95,9 @@ export function AccountManagementModal({
   // 사원리스트 미존재 계정 일괄 정리 모달 상태
   const [isMissingCleanupOpen, setIsMissingCleanupOpen] = useState(false);
   const [isRefreshingEmpSheet, setIsRefreshingEmpSheet] = useState(false);
+
+  // 전산코드등록 모달 상태
+  const [isSystemCodeModalOpen, setIsSystemCodeModalOpen] = useState(false);
 
   // 테이블 페이지네이션 상태 (대용량 1,000건 렌더링 성능 최적화)
   const [currentPage, setCurrentPage] = useState(1);
@@ -287,6 +291,24 @@ export function AccountManagementModal({
     const deletedMsg = deletedUsernames && deletedUsernames.length > 0 ? `${deletedUsernames.length}개 사라진 계정 정리` : '';
     const resultMsg = [addedMsg, deletedMsg].filter(Boolean).join(', ');
     alert(`${resultMsg} 완료!\n상단 [시트에 최종 저장] 버튼을 눌러 구글 시트에 반영해 주세요.`);
+  };
+
+  // 전산코드등록 모달에서 신규 계정 추가 처리
+  const handleAddMembersFromSystemCode = (newMembers: MemberAccount[]) => {
+    if (!newMembers || newMembers.length === 0) return;
+    setMembers(prev => {
+      const existingKeySet = new Set(
+        prev.map(m => `${m.username.trim().toUpperCase()}|${m.role}|${m.orgName}`)
+      );
+      const trulyNew = newMembers.filter(
+        a => !existingKeySet.has(`${a.username.trim().toUpperCase()}|${a.role}|${a.orgName}`)
+      );
+      return [...trulyNew, ...prev];
+    });
+
+    setHasChanges(true);
+    setSelectedRoleFilter('전체');
+    setSearchTerm('');
   };
 
   useEffect(() => {
@@ -877,6 +899,16 @@ export function AccountManagementModal({
             >
               <Sparkles size={14} className="text-indigo-600" />
               <span className="whitespace-nowrap">계정 자동생성</span>
+            </button>
+
+            {/* 전산코드등록 버튼 */}
+            <button
+              onClick={() => setIsSystemCodeModalOpen(true)}
+              className="px-3.5 py-2 text-xs font-black text-cyan-800 bg-cyan-50 hover:bg-cyan-100 border border-cyan-300 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs hover:scale-102 whitespace-nowrap shrink-0"
+              title="엑셀 업로드를 통한 사원리스트 L열 대사 및 전산코드/계정 간편 등록"
+            >
+              <FileSpreadsheet size={14} className="text-cyan-600 shrink-0" />
+              <span className="whitespace-nowrap">전산코드등록</span>
             </button>
 
             {/* 사원리스트 미존재 계정 정리 버튼 */}
@@ -1924,6 +1956,19 @@ export function AccountManagementModal({
             currentUser={currentUser}
             onRefreshEmpList={fetchEmpSheet}
             isRefreshing={isRefreshingEmpSheet}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 전산코드등록 모달 */}
+      <AnimatePresence>
+        {isSystemCodeModalOpen && (
+          <SystemCodeRegistrationModal
+            isOpen={isSystemCodeModalOpen}
+            onClose={() => setIsSystemCodeModalOpen(false)}
+            empRows={empSheetRows}
+            existingMembers={members}
+            onAddMembers={handleAddMembersFromSystemCode}
           />
         )}
       </AnimatePresence>
