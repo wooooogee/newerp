@@ -30,8 +30,8 @@ interface DashboardDetailModalProps {
   type: 'delivery' | 'cancel' | null;
   month: string;
   mode: '구좌수' | '상품개수';
-  onUpdateCell: (rowIdx: number, colIdx: number, newValue: string) => Promise<void> | void;
-  onBatchUpdateCells: (updates: { rowIdx: number, colIdx: number, newValue: string }[]) => Promise<void> | void;
+  onUpdateCell: (rowIdx: number, colIdx: number, newValue: string, expectedMemNo?: string, expectedRentalNo?: string) => Promise<void> | void;
+  onBatchUpdateCells: (updates: { rowIdx: number, colIdx: number, newValue: string, expectedMemNo?: string, expectedRentalNo?: string }[]) => Promise<void> | void;
   isAdmin: boolean;
 }
 
@@ -187,11 +187,13 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      // 구글시트 B열 (status, 인덱스 1) 일괄 업데이트 데이터 생성
+      // 구글시트 B열 (status, 인덱스 1) 일괄 업데이트 데이터 생성 (회원번호 검증 안전장치 포함)
       const updates = selectedContracts.map(c => ({
         rowIdx: c.originalRowIdx,
         colIdx: 1, // B열 (status)
         newValue: newStatus,
+        expectedMemNo: c.memNo,
+        expectedRentalNo: c.rentalNo
       }));
 
       // 일괄 처리 API 호출

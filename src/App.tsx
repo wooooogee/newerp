@@ -919,23 +919,32 @@ const ERP_Dashboard = () => {
 
   // 동일 렌탈계약 묶음의 관련 회원 데이터 전체 조회 (상세 모달의 개별 상태 변경용)
   const getRelatedMembers = React.useCallback((rentalNo: string, currentMemNo: string) => {
-    if (!rentalNo) {
+    const cleanRentalNo = (rentalNo || '').trim();
+    // 렌탈번호가 없거나 '-', '미지정', 공백, 또는 3자리 미만 등 유효한 고유 식별자가 아닌 경우 단일 회원 건만 반환하여 타 회원 오염 원천 차단
+    if (!cleanRentalNo || cleanRentalNo === '-' || cleanRentalNo === '미지정' || cleanRentalNo === 'null' || cleanRentalNo === 'undefined' || cleanRentalNo.length < 3) {
       const currentItem = data.find(d => d.memNo === currentMemNo);
       return currentItem ? [currentItem] : [];
     }
     return data
-      .filter(d => d.rentalNo === rentalNo)
+      .filter(d => (d.rentalNo || '').trim() === cleanRentalNo)
       .sort((a, b) => a.originalRowIdx - b.originalRowIdx);
   }, [data]);
 
-  // 셀 값 업데이트 (구글 시트 연동)
-  const updateCell = async (rowIdx: number, colIdx: number, newValue: string) => {
+  // 셀 값 업데이트 (구글 시트 연동) - 회원번호(expectedMemNo) 실시간 대조 및 행 보정 안전장치 포함
+  const updateCell = async (rowIdx: number, colIdx: number, newValue: string, expectedMemNo?: string, expectedRentalNo?: string) => {
     setIsUpdating(true);
     try {
       const res = await fetch('/api/sheets/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rowIdx, colIdx, newValue, operator: currentUser?.username || '관리자' })
+        body: JSON.stringify({ 
+          rowIdx, 
+          colIdx, 
+          newValue, 
+          expectedMemNo,
+          expectedRentalNo,
+          operator: currentUser?.username || '관리자' 
+        })
       });
 
       if (!res.ok) {
@@ -955,7 +964,8 @@ const ERP_Dashboard = () => {
         setSelectedItem(prev => {
           if (!prev) return null;
           const updated = { ...prev };
-          if (prev.originalRowIdx === rowIdx) {
+          const isTarget = expectedMemNo ? prev.memNo === expectedMemNo : prev.originalRowIdx === rowIdx;
+          if (isTarget) {
             if (colIdx === 1) updated.status = newValue;
             if (colIdx === 14) updated.payDate = newValue;
             if (colIdx === 19) updated.paymentStatus = newValue;
@@ -964,21 +974,26 @@ const ERP_Dashboard = () => {
           return updated;
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('업데이트 중 오류가 발생했습니다.');
+      alert(err.message || '업데이트 중 오류가 발생했습니다.');
     } finally {
       setIsUpdating(false);
     }
   };
 
-  // 동일 렌탈계약번호를 지닌 모든 데이터 행 수집
+  // 동일 렌탈계약번호를 지닌 모든 데이터 행 수집 (유효하지 않은 번호 철저히 필터링)
   const collectSameRentalNoRows = (targetRentalNos: string[]) => {
-    const validNos = new Set(targetRentalNos.map(r => String(r || '').trim().toUpperCase()).filter(Boolean));
+    const invalidValues = new Set(['-', '미지정', 'NULL', 'UNDEFINED', '']);
+    const validNos = new Set(
+      targetRentalNos
+        .map(r => String(r || '').trim().toUpperCase())
+        .filter(r => r && !invalidValues.has(r) && r.length >= 3)
+    );
     if (validNos.size === 0) return [];
     
     return data.filter(item => {
-      const rNo = String(item.rentalNo || item.memNo || '').trim().toUpperCase();
+      const rNo = String(item.rentalNo || '').trim().toUpperCase();
       return rNo && validNos.has(rNo);
     });
   };
@@ -1055,7 +1070,7 @@ const ERP_Dashboard = () => {
     }
   };
 
-  // 모달 내 관련 회원 계약 상태 일괄 변경
+  // 모달 내 관련 회원 계약 상태 일괄 변경 (회원번호 검증 안전장치 포함)
   const handleBatchStatusUpdate = async (members: ERPDataItem[], targetStatus: string) => {
     if (!members || members.length === 0) return;
     setIsUpdating(true);
@@ -1063,7 +1078,9 @@ const ERP_Dashboard = () => {
       const updates = members.map(m => ({
         rowIdx: m.originalRowIdx,
         colIdx: 1,
-        newValue: targetStatus
+        newValue: targetStatus,
+        expectedMemNo: m.memNo,
+        expectedRentalNo: m.rentalNo
       }));
 
       const res = await fetch('/api/sheets/batch-update', {
@@ -1088,7 +1105,7 @@ const ERP_Dashboard = () => {
       if (selectedItem) {
         setSelectedItem(prev => {
           if (!prev) return null;
-          const isIncluded = members.some(m => m.originalRowIdx === prev.originalRowIdx);
+          const isIncluded = members.some(m => m.memNo ? m.memNo === prev.memNo : m.originalRowIdx === prev.originalRowIdx);
           return isIncluded ? { ...prev, status: targetStatus } : prev;
         });
       }
@@ -2330,8 +2347,8 @@ const ERP_Dashboard = () => {
     }
   }, [isAuthenticated, currentUser]);
 
-  // 일괄 업데이트 기능 (지급완료/취소 등)
-  const batchUpdateCells = async (updates: { rowIdx: number, colIdx: number, newValue: string }[]) => {
+  // 일괄 업데이트 기능 (지급완료/취소 등) - 회원번호 실시간 보정 지원
+  const batchUpdateCells = async (updates: { rowIdx: number, colIdx: number, newValue: string, expectedMemNo?: string, expectedRentalNo?: string }[]) => {
     if (updates.length === 0) return;
     setIsUpdating(true);
     try {
@@ -6493,7 +6510,10 @@ const ERP_Dashboard = () => {
         <IndividualSalesMobileView
           currentUser={currentUser}
           data={data}
-          onUpdateDeliveryMemo={(rowIdx, val) => updateCell(rowIdx, 24, val)}
+          onUpdateDeliveryMemo={(rowIdx, val) => {
+            const item = data.find(d => d.originalRowIdx === rowIdx);
+            updateCell(rowIdx, 24, val, item?.memNo, item?.rentalNo);
+          }}
           onLogout={async () => {
             if (await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')) {
               try {
@@ -8083,7 +8103,9 @@ const ERP_Dashboard = () => {
                           const updates = validItems.map(item => ({
                             rowIdx: item.originalRowIdx,
                             colIdx: 19,
-                            newValue: '지급완료'
+                            newValue: '지급완료',
+                            expectedMemNo: item.memNo,
+                            expectedRentalNo: item.rentalNo
                           }));
                           batchUpdateCells(updates);
                         }
@@ -8532,7 +8554,7 @@ const ERP_Dashboard = () => {
                                     <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200 shadow-sm shrink-0">
                                       <select
                                         defaultValue={m.status}
-                                        id={`editStatus-${m.originalRowIdx}`}
+                                        id={`editStatus-${m.memNo || m.originalRowIdx}`}
                                         className="text-[12px] font-bold text-slate-700 bg-transparent px-2 py-1 focus:outline-none"
                                       >
                                         <option value="가입">가입</option>
@@ -8542,11 +8564,12 @@ const ERP_Dashboard = () => {
                                       </select>
                                       <button
                                         onClick={async () => {
-                                          const selectEl = document.getElementById(`editStatus-${m.originalRowIdx}`) as HTMLSelectElement;
-                                          const val = selectEl.value;
+                                          const selectEl = (document.getElementById(`editStatus-${m.memNo || m.originalRowIdx}`) || document.getElementById(`editStatus-${m.originalRowIdx}`)) as HTMLSelectElement;
+                                          const val = selectEl?.value;
+                                          if (!val) return;
                                           const confirmMsg = `${m.memName || selectedItem.memName}님 (${m.memNo})의 계약 상태를 '${val}'(으)로 변경하시겠습니까?`;
                                           if (await (window as any).customConfirm(confirmMsg, '계약 상태 개별 변경')) {
-                                            await updateCell(m.originalRowIdx, 1, val);
+                                            await updateCell(m.originalRowIdx, 1, val, m.memNo, m.rentalNo);
                                           }
                                         }}
                                         disabled={isUpdating}
@@ -8731,7 +8754,7 @@ const ERP_Dashboard = () => {
                       <button
                         onClick={async () => {
                           if (await (window as any).customConfirm('해당 건의 지급 완료 처리를 취소하시겠습니까?')) {
-                            updateCell(selectedItem.originalRowIdx, 18, '');
+                            updateCell(selectedItem.originalRowIdx, 18, '', selectedItem.memNo, selectedItem.rentalNo);
                             setSelectedItem(null);
                           }
                         }}
@@ -12050,8 +12073,10 @@ const ERP_Dashboard = () => {
                     <button
                       onClick={async () => {
                         try {
-                          // 동일 렌탈번호 묶음 건들 수집
-                          const sameRentalRows = singleChangePending.rentalNo ? collectSameRentalNoRows([singleChangePending.rentalNo]) : [];
+                          // 동일 렌탈번호 묶음 건들 수집 (유효한 렌탈번호인 경우에만 동일 묶음 전파)
+                          const cleanRental = (singleChangePending.rentalNo || '').trim();
+                          const isValidRental = cleanRental && cleanRental !== '-' && cleanRental !== '미지정' && cleanRental.length >= 3;
+                          const sameRentalRows = isValidRental ? collectSameRentalNoRows([cleanRental]) : [];
                           const updatesMap = new Map<number, any>();
 
                           // 대상 행 추가
@@ -12175,9 +12200,11 @@ const ERP_Dashboard = () => {
                         if (!batchPayDateInput.trim()) return alert('수수료 지급일자를 입력해 주세요.');
 
                         try {
-                          // 선택된 항목들과 연관 렌탈번호 항목들 수집
+                          // 선택된 항목들과 연관 렌탈번호 항목들 수집 (유효한 렌탈번호만 추출)
                           const selectedItems = data.filter(d => selectedTableKeys.has(d.uniqueKey));
-                          const targetRentalNos = selectedItems.map(d => d.rentalNo || d.memNo || '').filter(Boolean);
+                          const targetRentalNos = selectedItems
+                            .map(d => (d.rentalNo || '').trim())
+                            .filter(r => r && r !== '-' && r !== '미지정' && r !== 'null' && r !== 'undefined' && r.length >= 3);
                           const sameRentalItems = collectSameRentalNoRows(targetRentalNos);
 
                           const allTargetItemsMap = new Map<string, any>();
@@ -12283,13 +12310,21 @@ const ERP_Dashboard = () => {
             isOpen={isDeliveryStatusModalOpen}
             onClose={() => setIsDeliveryStatusModalOpen(false)}
             data={data}
-            onUpdateDeliveryMemo={(rowIdx, val) => updateCell(rowIdx, 24, val)}
+            onUpdateDeliveryMemo={(rowIdx, val) => {
+              const item = data.find(d => d.originalRowIdx === rowIdx);
+              updateCell(rowIdx, 24, val, item?.memNo, item?.rentalNo);
+            }}
             onBatchUpdateDeliveryMemos={(updates) => {
-              const formattedUpdates = updates.map(u => ({
-                rowIdx: u.rowIdx,
-                colIdx: 24,
-                newValue: u.val
-              }));
+              const formattedUpdates = updates.map(u => {
+                const item = data.find(d => d.originalRowIdx === u.rowIdx);
+                return {
+                  rowIdx: u.rowIdx,
+                  colIdx: 24,
+                  newValue: u.val,
+                  expectedMemNo: item?.memNo,
+                  expectedRentalNo: item?.rentalNo
+                };
+              });
               batchUpdateCells(formattedUpdates);
             }}
           />

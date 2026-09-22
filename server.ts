@@ -1953,7 +1953,7 @@ app.post('/api/sheets/update', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
 
-  const { rowIdx, colIdx, newValue, operator } = req.body;
+  const { rowIdx, colIdx, newValue, operator, expectedMemNo, expectedRentalNo } = req.body;
   let sheetId = process.env.GOOGLE_SHEET_ID;
   if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
 
@@ -1976,6 +1976,58 @@ app.post('/api/sheets/update', async (req, res) => {
       sheetName = targetSheet?.properties?.title || 'Sheet1';
     }
 
+    let targetRowIdx = Number(rowIdx);
+
+    // ⭐ [안전 검증] 회원번호(C열) 실시간 대조 및 행 번호 자동 보정 (다른 행 오염 원천 차단)
+    if (expectedMemNo && (sheetName === '관리대장' || sheetName.includes('회원현황'))) {
+      const cleanExpectedMemNo = String(expectedMemNo).trim();
+      let isVerified = false;
+
+      // 1단계: 지정된 rowIdx의 C열(회원번호)이 일치하는지 먼저 초고속 확인
+      if (targetRowIdx && targetRowIdx >= 2) {
+        try {
+          const checkResp = await sheets.spreadsheets.values.get({
+            spreadsheetId: sheetId,
+            range: `'${sheetName}'!C${targetRowIdx}`
+          });
+          const actualMemNo = String(checkResp.data.values?.[0]?.[0] || '').trim();
+          if (actualMemNo === cleanExpectedMemNo) {
+            isVerified = true;
+          }
+        } catch (e) {
+          console.warn('[update] Row verification check failed:', e);
+        }
+      }
+
+      // 2단계: 일치하지 않는 경우(시트 정렬/행 삽입/삭제 등으로 행이 밀린 경우) 시트 전체에서 실시간 검색 보정
+      if (!isVerified) {
+        console.warn(`[update] Row ${targetRowIdx} does NOT match memNo '${cleanExpectedMemNo}'. Searching entire sheet to locate real row...`);
+        const allMemResp = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: `'${sheetName}'!C:C`
+        });
+        const allMemRows = allMemResp.data.values || [];
+        let foundRow = -1;
+        for (let r = 0; r < allMemRows.length; r++) {
+          const mNo = String(allMemRows[r]?.[0] || '').trim();
+          if (mNo === cleanExpectedMemNo) {
+            foundRow = r + 1; // 1-based index
+            break;
+          }
+        }
+
+        if (foundRow > 0) {
+          console.log(`[update] Corrected row position for memNo '${cleanExpectedMemNo}': row ${foundRow} (was ${targetRowIdx})`);
+          targetRowIdx = foundRow;
+        } else {
+          console.error(`[update] CRITICAL ERROR: memNo '${cleanExpectedMemNo}' NOT FOUND in sheet. Aborting to protect other rows!`);
+          return res.status(404).json({
+            error: `시트에서 회원번호 '${cleanExpectedMemNo}'를 찾을 수 없습니다. 다른 행이 잘못 변경되는 사고를 막기 위해 수정을 중단했습니다. 데이터를 새로고침해 주세요.`
+          });
+        }
+      }
+    }
+
     // colIdx to letter (0 -> A, 1 -> B, ...)
     const getColLetter = (n: number) => {
       let letter = '';
@@ -1986,7 +2038,7 @@ app.post('/api/sheets/update', async (req, res) => {
       return letter;
     };
 
-    const range = `${sheetName}!${getColLetter(colIdx)}${rowIdx}`;
+    const range = `'${sheetName}'!${getColLetter(colIdx)}${targetRowIdx}`;
     
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
@@ -2006,10 +2058,10 @@ app.post('/api/sheets/update', async (req, res) => {
         } catch (e) {}
       }
       if (!opName) opName = '관리자';
-      logStatusChangesToCancelSheet(sheets, sheetId, [{ rowIdx, newStatus: newValue }], opName).catch(e => console.error(e));
+      logStatusChangesToCancelSheet(sheets, sheetId, [{ rowIdx: targetRowIdx, newStatus: newValue }], opName).catch(e => console.error(e));
     }
 
-    res.json({ success: true });
+    res.json({ success: true, updatedRow: targetRowIdx });
   } catch (error: any) {
     return handleGoogleError(error, res);
   }
@@ -2019,7 +2071,10 @@ app.post('/api/sheets/batch-update', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
 
-  const { updates, operator } = req.body as { updates: { rowIdx: number, colIdx: number, newValue: string }[]; operator?: string };
+  const { updates, operator } = req.body as { 
+    updates: { rowIdx: number; colIdx: number; newValue: string; expectedMemNo?: string; expectedRentalNo?: string }[]; 
+    operator?: string 
+  };
   if (!updates || !Array.isArray(updates)) return res.status(400).json({ error: 'Invalid updates' });
 
   let sheetId = process.env.GOOGLE_SHEET_ID;
@@ -2056,10 +2111,45 @@ app.post('/api/sheets/batch-update', async (req, res) => {
       return letter;
     };
 
+    // ⭐ 회원번호 맵(C열 전체)을 한 번만 읽어 캐싱하여 일괄 검색 보정 성능 극대화
+    let memNoRowMap: Map<string, number> | null = null;
+    const hasExpectedMemNos = updates.some(u => u.expectedMemNo);
+    if (hasExpectedMemNos && (sheetName === '관리대장' || sheetName.includes('회원현황'))) {
+      try {
+        const allMemResp = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: `'${sheetName}'!C:C`
+        });
+        const allRows = allMemResp.data.values || [];
+        memNoRowMap = new Map();
+        for (let r = 0; r < allRows.length; r++) {
+          const m = String(allRows[r]?.[0] || '').trim();
+          if (m) memNoRowMap.set(m, r + 1);
+        }
+      } catch (e) {
+        console.warn('[batch-update] Could not preload C:C column:', e);
+      }
+    }
+
     console.log(`[batch-update] Updating ${updates.length} items in sheet: '${sheetName}'`);
+    const successfulRowUpdates: { rowIdx: number; newStatus: string }[] = [];
+
     for (const u of updates) {
-      const range = `'${sheetName}'!${getColLetter(u.colIdx)}${u.rowIdx}`;
-      console.log(`[batch-update] Range: ${range}, Value: ${u.newValue}`);
+      let targetRow = Number(u.rowIdx);
+
+      // 회원번호 기반 실시간 행 보정
+      if (u.expectedMemNo && memNoRowMap) {
+        const cleanNo = String(u.expectedMemNo).trim();
+        const found = memNoRowMap.get(cleanNo);
+        if (found) {
+          targetRow = found;
+        } else {
+          console.warn(`[batch-update] memNo '${cleanNo}' not found in sheet. Skipping this item to prevent corrupting other rows!`);
+          continue; // 다른 엉뚱한 행 오염 방지를 위해 안전 스킵!
+        }
+      }
+
+      const range = `'${sheetName}'!${getColLetter(u.colIdx)}${targetRow}`;
       await sheets.spreadsheets.values.update({
         spreadsheetId: sheetId,
         range,
@@ -2068,13 +2158,16 @@ app.post('/api/sheets/batch-update', async (req, res) => {
           values: [[u.newValue]]
         }
       });
+
+      if (u.colIdx === 1) {
+        successfulRowUpdates.push({ rowIdx: targetRow, newStatus: u.newValue });
+      }
     }
 
     // 계약상태(colIdx === 1)가 취소 또는 해약으로 변경된 항목들 취소해약내역 시트에 일괄 로그 기록
     if (sheetName === '관리대장' || sheetName.includes('회원현황')) {
-      const statusUpdates = updates
-        .filter(u => u.colIdx === 1)
-        .map(u => ({ rowIdx: u.rowIdx, newStatus: u.newValue }));
+      const statusUpdates = successfulRowUpdates
+        .filter(u => u.newStatus && (u.newStatus.includes('취소') || u.newStatus.includes('해약')));
       if (statusUpdates.length > 0) {
         let opName = operator;
         if (!opName && (req as any).signedCookies?.user_auth) {
@@ -2087,7 +2180,7 @@ app.post('/api/sheets/batch-update', async (req, res) => {
       }
     }
 
-    res.json({ success: true, updatedCount: updates.length });
+    res.json({ success: true, updatedCount: successfulRowUpdates.length });
   } catch (error: any) {
     console.error('[batch-update] Error:', error);
     return handleGoogleError(error, res);
@@ -2478,24 +2571,75 @@ app.post('/api/sheets/commission-log/batch-update', async (req, res) => {
   try {
     const sheets = google.sheets({ version: 'v4', auth: client });
     
-    // 1. 원본 시트 셀 업데이트
+    // 대상 시트 이름 확인 (관리대장 등)
+    let sheetName = (req.body as any).sheetName;
+    if (!sheetName) {
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+      const sheetsList = spreadsheet.data.sheets || [];
+      const targetSheet = sheetsList.find(s => s.properties?.title === '관리대장') || 
+                          sheetsList.find(s => s.properties?.title?.includes('회원현황')) ||
+                          sheetsList[0];
+      sheetName = targetSheet?.properties?.title || '관리대장';
+    }
+
+    const getColLetter = (n: number) => {
+      let letter = '';
+      while (n >= 0) {
+        letter = String.fromCharCode((n % 26) + 65) + letter;
+        n = Math.floor(n / 26) - 1;
+      }
+      return letter;
+    };
+
+    // 회원번호 맵(C열 전체) 캐싱하여 행 밀림 실시간 자동 보정
+    let memNoRowMap: Map<string, number> | null = null;
+    const hasContractNos = updates.some(u => u.contractNo);
+    if (hasContractNos && (sheetName === '관리대장' || sheetName.includes('회원현황'))) {
+      try {
+        const allMemResp = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: `'${sheetName}'!C:C`
+        });
+        const allRows = allMemResp.data.values || [];
+        memNoRowMap = new Map();
+        for (let r = 0; r < allRows.length; r++) {
+          const m = String(allRows[r]?.[0] || '').trim();
+          if (m) memNoRowMap.set(m, r + 1);
+        }
+      } catch (e) {
+        console.warn('[commission-log] Could not preload C:C column:', e);
+      }
+    }
+
+    // 1. 원본 시트 셀 업데이트 (실시간 행 위치 보정 적용)
+    const validUpdatedItems: typeof updates = [];
     for (const u of updates) {
-      const colLetter = String.fromCharCode(65 + u.colIdx);
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: sheetId,
-        range: `A${u.rowIdx}:${colLetter}${u.rowIdx}`,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [[u.newValue]] }
-      }).catch(async () => {
-        // 단일 셀 업데이트 fallback
-        const singleRange = `'접수'!${colLetter}${u.rowIdx}`;
+      let targetRow = Number(u.rowIdx);
+      if (u.contractNo && memNoRowMap) {
+        const cleanContractNo = String(u.contractNo).trim();
+        const found = memNoRowMap.get(cleanContractNo);
+        if (found) {
+          targetRow = found;
+        } else {
+          console.warn(`[commission-log] contractNo '${cleanContractNo}' not found in sheet '${sheetName}'. Skipping to protect data!`);
+          continue;
+        }
+      }
+
+      const colLetter = getColLetter(u.colIdx);
+      const targetRange = `'${sheetName}'!${colLetter}${targetRow}`;
+      
+      try {
         await sheets.spreadsheets.values.update({
           spreadsheetId: sheetId,
-          range: singleRange,
+          range: targetRange,
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: [[u.newValue]] }
-        }).catch(e => console.warn('Cell update fallback warn:', e));
-      });
+        });
+        validUpdatedItems.push({ ...u, rowIdx: targetRow });
+      } catch (cellErr) {
+        console.error(`[commission-log] Failed to update cell at ${targetRange}:`, cellErr);
+      }
     }
 
     // 2. '수수료변경이력' 탭 확인 및 생성
@@ -2522,7 +2666,8 @@ app.post('/api/sheets/commission-log/batch-update', async (req, res) => {
 
     // 3. 로그 행 생성 및 Append
     const nowStr = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
-    const logRows: any[][] = updates.map(u => [
+    const itemsToLog = validUpdatedItems.length > 0 ? validUpdatedItems : updates;
+    const logRows: any[][] = itemsToLog.map(u => [
       nowStr,
       u.contractNo || '-',
       u.rentalNo || '-',
@@ -2535,13 +2680,15 @@ app.post('/api/sheets/commission-log/batch-update', async (req, res) => {
       worker || 'admin'
     ]);
 
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: sheetId,
-      range: '수수료변경이력!A1',
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: logRows }
-    }).catch(e => console.warn('Log sheet append warn:', e));
+    if (logRows.length > 0) {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '수수료변경이력!A1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: logRows }
+      }).catch(e => console.warn('Log sheet append warn:', e));
+    }
 
     // 4. 로컬 캐시 .commission_logs.json 저장
     const logCachePath = path.join(process.cwd(), '.commission_logs.json');
@@ -2549,7 +2696,7 @@ app.post('/api/sheets/commission-log/batch-update', async (req, res) => {
     if (fs.existsSync(logCachePath)) {
       try { localLogs = JSON.parse(fs.readFileSync(logCachePath, 'utf8')); } catch (e) {}
     }
-    const newLogObjs = updates.map(u => ({
+    const newLogObjs = itemsToLog.map(u => ({
       timestamp: nowStr,
       contractNo: u.contractNo || '-',
       rentalNo: u.rentalNo || '-',
@@ -2564,7 +2711,7 @@ app.post('/api/sheets/commission-log/batch-update', async (req, res) => {
     localLogs.unshift(...newLogObjs);
     fs.writeFileSync(logCachePath, JSON.stringify(localLogs.slice(0, 1000), null, 2), 'utf8');
 
-    res.json({ success: true, updatedCount: updates.length });
+    res.json({ success: true, updatedCount: validUpdatedItems.length });
   } catch (error: any) {
     console.error("[Commission Log Batch Update Error]", error);
     return handleGoogleError(error, res);
