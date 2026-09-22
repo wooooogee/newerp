@@ -26,6 +26,7 @@ import { VocManagementModal } from './VocManagementModal';
 import { AccountManagementModal } from './AccountManagementModal';
 import { OrganizationChartModal } from './OrganizationChartModal';
 import { MonthlySettlementModal } from './MonthlySettlementModal';
+import { TargetItemsSelectorModal } from './TargetItemsSelectorModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -766,6 +767,7 @@ const ERP_Dashboard = () => {
   const [reconLoading, setReconLoading] = useState(false);
   const [activeHqId, setActiveHqId] = useState<string | null>(null);
   const [activeIncentiveId, setActiveIncentiveId] = useState<string | null>(null);
+  const [targetItemsModalRuleIdx, setTargetItemsModalRuleIdx] = useState<number | null>(null);
   const [isAddHqModalOpen, setIsAddHqModalOpen] = useState(false);
   const [newHqNameInput, setNewHqNameInput] = useState('');
   const [copySourceHqId, setCopySourceHqId] = useState<string>('NONE');
@@ -10662,6 +10664,15 @@ const ERP_Dashboard = () => {
                                   ))}
                                 </div>
                               )}
+                              {rule.targetItems && !rule.targetItems.includes('ALL') && rule.targetItems.length > 0 && (
+                                <div className="flex items-center gap-1 mt-0.5 overflow-hidden">
+                                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold truncate max-w-full ${
+                                    isActive ? 'bg-white/20 text-white' : 'bg-purple-50 text-purple-700 border border-purple-200'
+                                  }`}>
+                                    📦 {rule.targetItems[0]}{rule.targetItems.length > 1 ? ` 외 ${rule.targetItems.length - 1}개` : ''}
+                                  </span>
+                                </div>
+                              )}
                               <span className={`text-[10px] font-bold ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
                                 건당 {(rule.commissionPerUnit || 0).toLocaleString()}원
                               </span>
@@ -11006,41 +11017,68 @@ const ERP_Dashboard = () => {
 
                                   {/* 대상 제품 */}
                                   <div className="flex flex-col gap-1.5">
-                                    <label className="text-xs font-bold text-slate-600">대상 제품 (렌탈상품명)</label>
-                                    <select onChange={e => {
-                                      if (!e.target.value) return;
-                                      const n = [...globalIncentiveRules];
-                                      if (!n[idx].targetItems) n[idx].targetItems = ['ALL'];
-                                      if (e.target.value === 'ALL') n[idx].targetItems = ['ALL'];
-                                      else {
-                                        if (n[idx].targetItems.includes('ALL')) n[idx].targetItems = [];
-                                        if (!n[idx].targetItems.includes(e.target.value)) n[idx].targetItems.push(e.target.value);
-                                      }
-                                      setGlobalIncentiveRules(n);
-                                      e.target.value = '';
-                                    }} className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all">
-                                      <option value="">제품 선택 추가...</option>
-                                      <option value="ALL">전체 제품</option>
-                                      {Array.from(new Set(data.map(d => d.rentalProd).filter(Boolean))).sort().map(p => (
-                                        <option key={p} value={p}>{p}</option>
-                                      ))}
-                                    </select>
-                                    <div className="flex flex-wrap gap-1.5 min-h-[32px] p-1.5 bg-slate-50 rounded-xl border border-slate-100">
-                                      {(!rule.targetItems || rule.targetItems.includes('ALL')) ? (
-                                        <span className="px-2.5 py-0.5 bg-purple-50 text-purple-700 rounded-lg text-xs font-bold border border-purple-200/60">전체 제품</span>
-                                      ) : (
-                                        rule.targetItems.map(p => (
-                                          <span key={p} className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-purple-50 text-purple-700 rounded-lg text-xs font-bold border border-purple-200/60 truncate max-w-[160px]" title={p}>
-                                            <span className="truncate">{p}</span>
-                                            <button onClick={() => {
-                                              const n = [...globalIncentiveRules];
-                                              n[idx].targetItems = (n[idx].targetItems || []).filter(x => x !== p);
-                                              if (n[idx].targetItems.length === 0) n[idx].targetItems = ['ALL'];
-                                              setGlobalIncentiveRules(n);
-                                            }} className="hover:text-rose-600 transition-colors flex-shrink-0"><X size={12} /></button>
-                                          </span>
-                                        ))
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                                        <Package size={13} className="text-purple-600" />
+                                        <span>대상 제품 (렌탈상품명)</span>
+                                      </label>
+                                      {rule.targetItems && !rule.targetItems.includes('ALL') && rule.targetItems.length > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const n = [...globalIncentiveRules];
+                                            n[idx].targetItems = ['ALL'];
+                                            setGlobalIncentiveRules(n);
+                                          }}
+                                          className="text-[11px] text-purple-600 hover:text-purple-800 hover:underline font-bold cursor-pointer"
+                                        >
+                                          전체로 초기화
+                                        </button>
                                       )}
+                                    </div>
+
+                                    {/* 요약 박스 & 상세보기 버튼 */}
+                                    <div 
+                                      onClick={() => setTargetItemsModalRuleIdx(idx)}
+                                      className="w-full min-h-[38px] p-1.5 px-2 bg-white hover:bg-purple-50/30 border border-slate-200 hover:border-purple-300 rounded-xl transition-all cursor-pointer shadow-2xs group flex items-center justify-between gap-2"
+                                      title="클릭하여 제품 검색 및 대량 선택 모달 열기"
+                                    >
+                                      <div className="flex items-center gap-1.5 overflow-hidden flex-1">
+                                        {(!rule.targetItems || rule.targetItems.includes('ALL') || rule.targetItems.length === 0) ? (
+                                          <span className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-lg text-xs font-black border border-purple-200/80 flex items-center gap-1 shrink-0">
+                                            <Globe size={13} />
+                                            <span>전체 제품 (ALL)</span>
+                                          </span>
+                                        ) : rule.targetItems.length === 1 ? (
+                                          <span className="px-2.5 py-1 bg-purple-100 text-purple-800 rounded-lg text-xs font-black border border-purple-300 truncate max-w-[200px]" title={rule.targetItems[0]}>
+                                            {rule.targetItems[0]}
+                                          </span>
+                                        ) : (
+                                          <div className="flex items-center gap-1.5 truncate">
+                                            <span 
+                                              className="px-2.5 py-1 bg-purple-100 text-purple-800 rounded-lg text-xs font-black border border-purple-300 truncate max-w-[180px]"
+                                              title={rule.targetItems.join(', ')}
+                                            >
+                                              {rule.targetItems[0]} 외 {rule.targetItems.length - 1}개
+                                            </span>
+                                            <span className="text-[11px] text-purple-600 font-bold shrink-0">
+                                              (총 {rule.targetItems.length}개)
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setTargetItemsModalRuleIdx(idx);
+                                        }}
+                                        className="px-2.5 py-1 text-[11px] font-black text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg transition-all flex items-center gap-1 shrink-0 group-hover:scale-102 cursor-pointer shadow-2xs"
+                                      >
+                                        <Search size={12} />
+                                        <span>상세선택</span>
+                                      </button>
                                     </div>
                                   </div>
 
@@ -11457,6 +11495,25 @@ const ERP_Dashboard = () => {
                 )}
               </motion.div>
             </div>
+          )}
+        </AnimatePresence>
+
+        {/* 특수수당 대상 제품(렌탈상품명) 상세 선택 모달 */}
+        <AnimatePresence>
+          {targetItemsModalRuleIdx !== null && globalIncentiveRules[targetItemsModalRuleIdx] && (
+            <TargetItemsSelectorModal
+              isOpen={targetItemsModalRuleIdx !== null}
+              onClose={() => setTargetItemsModalRuleIdx(null)}
+              ruleIndex={targetItemsModalRuleIdx}
+              ruleName={globalIncentiveRules[targetItemsModalRuleIdx].incentiveName}
+              initialSelected={globalIncentiveRules[targetItemsModalRuleIdx].targetItems || ['ALL']}
+              availableProducts={Array.from(new Set(data.map(d => d.rentalProd).filter(Boolean))).sort()}
+              onSave={(newSelected) => {
+                const n = [...globalIncentiveRules];
+                n[targetItemsModalRuleIdx].targetItems = newSelected;
+                setGlobalIncentiveRules(n);
+              }}
+            />
           )}
         </AnimatePresence>
 
