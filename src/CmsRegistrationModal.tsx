@@ -320,15 +320,6 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
     });
   };
 
-  // 행 전체 복사 헬퍼 (탭 구분)
-  const handleCopyRow = (item: CmsRecord) => {
-    const rowText = `${item.memberName}\t${item.memberNo}\t${item.bankCode}\t${item.accountNo}\t${item.ownerBirth6}`;
-    navigator.clipboard.writeText(rowText).then(() => {
-      setToastMessage(`✓ [${item.memberName}] 전체 정보가 복사되었습니다.`);
-      setTimeout(() => setToastMessage(null), 2500);
-    });
-  };
-
   // 관리대장의 수기 취소/해약 회원번호 맵 (교차 검증용)
   const manualCancelledMap = useMemo(() => {
     const set = new Set<string>();
@@ -661,33 +652,32 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                 <thead>
                   <tr className="bg-slate-100/90 text-slate-700 font-bold border-b border-slate-200 select-none">
                     <th className="py-3 px-3.5 text-center w-12">No</th>
-                    <th className="py-3 px-3 w-28">C. 계약일자</th>
-                    <th className="py-3 px-3 w-24">F. 회원명</th>
+                    <th className="py-3 px-3 w-28">계약일자</th>
+                    <th className="py-3 px-3 w-24">회원명</th>
                     <th className="py-3 px-3 w-32">
                       <div className="flex items-center gap-1">
-                        <span>B. 회원번호</span>
+                        <span>회원번호</span>
                         <Copy size={11} className="text-slate-400" />
                       </div>
                     </th>
                     <th className="py-3 px-3 w-32">
                       <div className="flex items-center gap-1">
-                        <span>AA. 생년월일(6자리)</span>
+                        <span>생년월일(6자리)</span>
                         <Copy size={11} className="text-slate-400" />
                       </div>
                     </th>
                     <th className="py-3 px-3 w-28">
                       <div className="flex items-center gap-1">
-                        <span>W. 은행코드</span>
+                        <span>은행코드</span>
                         <Copy size={11} className="text-slate-400" />
                       </div>
                     </th>
                     <th className="py-3 px-3">
                       <div className="flex items-center gap-1">
-                        <span>Y. 계좌번호</span>
+                        <span>계좌번호</span>
                         <Copy size={11} className="text-slate-400" />
                       </div>
                     </th>
-                    <th className="py-3 px-3 w-20 text-center">전체복사</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
@@ -798,18 +788,6 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                               <Copy size={11} className="text-blue-400 group-hover:text-blue-700 shrink-0" />
                             )}
                             <span className="tracking-wide">{item.accountNo || '-'}</span>
-                          </button>
-                        </td>
-
-                        {/* 전체 복사 버튼 */}
-                        <td className="py-2.5 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleCopyRow(item)}
-                            className="px-2 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-600 rounded text-[11px] font-semibold transition-all border border-slate-200 cursor-pointer"
-                            title="이름, 회원번호, 은행코드, 계좌, 생년월일을 탭으로 구분하여 한번에 복사"
-                          >
-                            전체복사
                           </button>
                         </td>
                       </tr>
