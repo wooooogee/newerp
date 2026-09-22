@@ -6242,10 +6242,24 @@ const ERP_Dashboard = () => {
     return ['전체', ...names];
   }, [data, hqFilter, branchFilter]);
 
-  const uniqueDeliveryStatus = React.useMemo(() =>
-    Array.from(new Set(data.map(item => item.deliveryStatus).filter(Boolean))),
-    [data]
-  );
+  const safeDecodeLatin1 = (str: string): string => {
+    if (!str || typeof str !== 'string') return str;
+    if ((str.match(/[\u0080-\u00FF]/g) || []).length >= 2) {
+      try {
+        const bytes = new Uint8Array(str.length);
+        for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i) & 0xFF;
+        const decoded = new TextDecoder('euc-kr').decode(bytes);
+        if (/[가-힣]/.test(decoded)) return decoded;
+      } catch (e) {}
+    }
+    return str;
+  };
+
+  const uniqueDeliveryStatus = React.useMemo(() => {
+    const rawList = data.map(item => safeDecodeLatin1(String(item.deliveryStatus || '').trim())).filter(Boolean);
+    const validList = rawList.filter(s => !(s.match(/[\u0080-\u00FF]/g) || []).length);
+    return Array.from(new Set(validList));
+  }, [data]);
 
   const uniqueContractMonths = React.useMemo(() => {
     const months = new Set<string>();
