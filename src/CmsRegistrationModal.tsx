@@ -190,9 +190,62 @@ const formatBankCode = (rawVal: any): string => {
 const parseContractDate = (val: any): { dateStr: string; monthStr: string } => {
   if (!val) return { dateStr: '', monthStr: '' };
   const str = String(val).trim();
-  const digits = str.replace(/[^0-9]/g, '');
+  if (!str) return { dateStr: '', monthStr: '' };
 
-  if (digits.length >= 8) {
+  // 1. YYYY-MM-DD 또는 YYYY.MM.DD 포맷 (예: '2001-09-26', '2026-09-22', '2026.09.22')
+  const ymdDashMatch = str.match(/^(\d{4})[-.](\d{1,2})[-.](\d{1,2})/);
+  if (ymdDashMatch) {
+    const yyyy = ymdDashMatch[1];
+    const mm = ymdDashMatch[2].padStart(2, '0');
+    const dd = ymdDashMatch[3].padStart(2, '0');
+    return {
+      dateStr: `${yyyy}-${mm}-${dd}`,
+      monthStr: `${yyyy}-${mm}`
+    };
+  }
+
+  // 2. 슬래시(/) 포맷 (예: '2/26/26', '9/22/26', '2026/09/22', '26/09/22')
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      const p0 = parseInt(parts[0], 10);
+      if (p0 > 12) {
+        // 첫 번째 숫자가 12 초과이면 Y/M/D (예: '2026/09/22', '26/09/22')
+        const yyyy = parts[0].length === 2 ? `20${parts[0]}` : parts[0];
+        const mm = parts[1].padStart(2, '0');
+        const dd = parts[2].padStart(2, '0');
+        return {
+          dateStr: `${yyyy}-${mm}-${dd}`,
+          monthStr: `${yyyy}-${mm}`
+        };
+      }
+      // 미국식 M/D/YY (전산 엑셀 표준, 예: '2/26/26' -> 2026년 2월 26일, '9/22/26' -> 2026년 9월 22일)
+      const rawYear = parts[2];
+      const yyyy = rawYear.length === 2 ? `20${rawYear}` : rawYear;
+      const mm = parts[0].padStart(2, '0');
+      const dd = parts[1].padStart(2, '0');
+      return {
+        dateStr: `${yyyy}-${mm}-${dd}`,
+        monthStr: `${yyyy}-${mm}`
+      };
+    }
+  }
+
+  // 3. 하이픈 2자리 연도 (예: '26-09-22', '26.09.22')
+  const ymdShortMatch = str.match(/^(\d{2})[-.](\d{1,2})[-.](\d{1,2})/);
+  if (ymdShortMatch) {
+    const yyyy = `20${ymdShortMatch[1]}`;
+    const mm = ymdShortMatch[2].padStart(2, '0');
+    const dd = ymdShortMatch[3].padStart(2, '0');
+    return {
+      dateStr: `${yyyy}-${mm}-${dd}`,
+      monthStr: `${yyyy}-${mm}`
+    };
+  }
+
+  // 4. 순수 숫자 8자리 (YYYYMMDD) (예: '20260922')
+  const digits = str.replace(/[^0-9]/g, '');
+  if (digits.length === 8) {
     const yyyy = digits.substring(0, 4);
     const mm = digits.substring(4, 6);
     const dd = digits.substring(6, 8);
@@ -201,18 +254,18 @@ const parseContractDate = (val: any): { dateStr: string; monthStr: string } => {
       monthStr: `${yyyy}-${mm}`
     };
   }
-  if (str.includes('-') || str.includes('.') || str.includes('/')) {
-    const parts = str.split(/[-./]/);
-    if (parts.length >= 2) {
-      const yyyy = parts[0].padStart(4, '20');
-      const mm = parts[1].padStart(2, '0');
-      const dd = parts[2] ? parts[2].padStart(2, '0') : '01';
-      return {
-        dateStr: `${yyyy}-${mm}-${dd}`,
-        monthStr: `${yyyy}-${mm}`
-      };
-    }
+
+  // 5. 순수 숫자 6자리 (YYMMDD) (예: '260922')
+  if (digits.length === 6) {
+    const yyyy = `20${digits.substring(0, 2)}`;
+    const mm = digits.substring(2, 4);
+    const dd = digits.substring(4, 6);
+    return {
+      dateStr: `${yyyy}-${mm}-${dd}`,
+      monthStr: `${yyyy}-${mm}`
+    };
   }
+
   return { dateStr: str, monthStr: '' };
 };
 
