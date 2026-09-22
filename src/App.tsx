@@ -28,6 +28,7 @@ import { OrganizationChartModal } from './OrganizationChartModal';
 import { MonthlySettlementModal } from './MonthlySettlementModal';
 import { TargetItemsSelectorModal } from './TargetItemsSelectorModal';
 import { ExcelSyncModal } from './ExcelSyncModal';
+import { CmsRegistrationModal } from './CmsRegistrationModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -598,6 +599,7 @@ const ERP_Dashboard = () => {
   const [isManualSettlementModalOpen, setIsManualSettlementModalOpen] = useState(false);
   const [isMonthlySettlementModalOpen, setIsMonthlySettlementModalOpen] = useState(false);
   const [isExcelSyncModalOpen, setIsExcelSyncModalOpen] = useState(false);
+  const [isCmsRegistrationModalOpen, setIsCmsRegistrationModalOpen] = useState(false);
   const [topSearchQuery, setTopSearchQuery] = useState('');
 
   // searchTerm이 변경될 때 상단 검색어 동기화
@@ -6982,6 +6984,26 @@ const ERP_Dashboard = () => {
                 </AnimatePresence>
               </section>
 
+              {/* CMS 등록 */}
+              <section className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsCmsRegistrationModalOpen(true)}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-1 bg-blue-100 text-blue-600 rounded-lg group-hover:scale-105 transition-transform">
+                      <CreditCard size={18} />
+                    </div>
+                    <span className="text-sm font-bold text-slate-800 tracking-tight">CMS 등록</span>
+                  </div>
+                  <ChevronRight
+                    size={18}
+                    className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all"
+                  />
+                </button>
+              </section>
+
               {/* 헬스케어 */}
               <section className="mt-1">
                 <button
@@ -12405,6 +12427,11 @@ const ERP_Dashboard = () => {
           <MembershipApplicationModal
             isOpen={isMembershipApplicationModalOpen}
             onClose={() => setIsMembershipApplicationModalOpen(false)}
+            data={data}
+          />
+          <CmsRegistrationModal
+            isOpen={isCmsRegistrationModalOpen}
+            onClose={() => setIsCmsRegistrationModalOpen(false)}
             data={data}
           />
           <MonthlySettlementModal
