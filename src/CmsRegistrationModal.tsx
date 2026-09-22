@@ -14,7 +14,8 @@ import {
   AlertCircle,
   RefreshCw,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  ChevronLeft
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -277,6 +278,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
   const [sheet1Rows, setSheet1Rows] = useState<any[][]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  const [monthInput, setMonthInput] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -445,17 +447,71 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
 
   // 모달 오픈 시 최신 월을 기본 선택
   useEffect(() => {
-    if (availableMonths.length > 0 && selectedMonth === 'ALL') {
+    if (availableMonths.length > 0 && (selectedMonth === 'ALL' || !monthInput)) {
       setSelectedMonth(availableMonths[0]);
+      setMonthInput(availableMonths[0]);
     }
   }, [availableMonths]);
 
-  // 필터링 적용 (월 선택 & 검색어)
+  // 현재 선택된 월의 availableMonths 인덱스
+  const currentMonthIdx = useMemo(() => {
+    if (selectedMonth === 'ALL') return -1;
+    const target = (monthInput || selectedMonth).trim();
+    return availableMonths.findIndex(m => m === target || m.replace('-', '') === target.replace(/[^0-9]/g, ''));
+  }, [selectedMonth, monthInput, availableMonths]);
+
+  // 이전 달 (과거 방향)
+  const handlePrevMonth = () => {
+    if (availableMonths.length === 0) return;
+    if (selectedMonth === 'ALL' || currentMonthIdx === -1) {
+      setSelectedMonth(availableMonths[0]);
+      setMonthInput(availableMonths[0]);
+      return;
+    }
+    if (currentMonthIdx < availableMonths.length - 1) {
+      const nextTarget = availableMonths[currentMonthIdx + 1];
+      setSelectedMonth(nextTarget);
+      setMonthInput(nextTarget);
+    }
+  };
+
+  // 다음 달 (최신 방향)
+  const handleNextMonth = () => {
+    if (availableMonths.length === 0) return;
+    if (selectedMonth === 'ALL' || currentMonthIdx === -1) {
+      setSelectedMonth(availableMonths[0]);
+      setMonthInput(availableMonths[0]);
+      return;
+    }
+    if (currentMonthIdx > 0) {
+      const nextTarget = availableMonths[currentMonthIdx - 1];
+      setSelectedMonth(nextTarget);
+      setMonthInput(nextTarget);
+    }
+  };
+
+  // 필터링 적용 (월 선택/직접입력 & 검색어)
   const filteredRecords = useMemo(() => {
     return records.filter(item => {
       // 월 필터
-      if (selectedMonth !== 'ALL' && item.monthStr !== selectedMonth) {
-        return false;
+      if (selectedMonth !== 'ALL') {
+        const cleanInput = (monthInput || selectedMonth).trim().replace(/[^0-9]/g, '');
+        if (cleanInput.length === 6) {
+          // YYYYMM 형태 (예: 202609)
+          const itemCleanMonth = (item.monthStr || '').replace(/[^0-9]/g, '');
+          if (itemCleanMonth !== cleanInput) return false;
+        } else if (cleanInput.length === 4) {
+          // YYMM 또는 YYYY 형태
+          const itemCleanMonth = (item.monthStr || '').replace(/[^0-9]/g, '');
+          const itemCleanDate = (item.contractDate || '').replace(/[^0-9]/g, '');
+          if (!itemCleanMonth.includes(cleanInput) && !itemCleanDate.includes(cleanInput)) return false;
+        } else if (cleanInput.length > 0) {
+          const itemCleanMonth = (item.monthStr || '').replace(/[^0-9]/g, '');
+          const itemCleanDate = (item.contractDate || '').replace(/[^0-9]/g, '');
+          if (!itemCleanMonth.includes(cleanInput) && !itemCleanDate.includes(cleanInput)) return false;
+        } else if (selectedMonth) {
+          if (item.monthStr !== selectedMonth) return false;
+        }
       }
       // 검색어 필터
       if (searchQuery.trim()) {
@@ -469,7 +525,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       }
       return true;
     });
-  }, [records, selectedMonth, searchQuery]);
+  }, [records, selectedMonth, monthInput, searchQuery]);
 
   // 엑셀 다운로드
   const handleExportExcel = () => {
@@ -551,42 +607,109 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
 
         {/* 필터 및 통계 바 */}
         <div className="px-6 py-3.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
-          {/* 월 선택 필터 */}
+          {/* 계약월 입력 및 선택 필터 */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+            <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
               <Calendar size={14} className="text-blue-600" />
-              계약월 선택:
+              계약월:
             </span>
-            <div className="flex items-center gap-1.5 flex-wrap">
+
+            {/* 전체 보기 버튼 */}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedMonth('ALL');
+                setMonthInput('');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                selectedMonth === 'ALL'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
+              }`}
+            >
+              전체 ({records.length})
+            </button>
+
+            {/* 이전 달 / 다음 달 & 월 직접 입력/선택 바 */}
+            <div className="flex items-center bg-white border border-slate-300 rounded-lg overflow-hidden shadow-2xs focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
               <button
                 type="button"
-                onClick={() => setSelectedMonth('ALL')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  selectedMonth === 'ALL'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
+                onClick={handlePrevMonth}
+                disabled={currentMonthIdx >= availableMonths.length - 1 || selectedMonth === 'ALL'}
+                className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors"
+                title="이전 달 이동 (과거)"
+              >
+                <ChevronLeft size={14} />
+              </button>
+
+              <input
+                type="text"
+                list="cms-available-months"
+                value={monthInput}
+                onChange={e => {
+                  const val = e.target.value;
+                  setMonthInput(val);
+                  if (!val.trim()) {
+                    setSelectedMonth('ALL');
+                  } else {
+                    const norm = val.replace(/[^0-9]/g, '');
+                    if (norm.length === 6) {
+                      setSelectedMonth(`${norm.substring(0, 4)}-${norm.substring(4, 6)}`);
+                    } else if (norm.length === 4) {
+                      setSelectedMonth(`20${norm.substring(0, 2)}-${norm.substring(2, 4)}`);
+                    } else {
+                      setSelectedMonth(val.trim());
+                    }
+                  }
+                }}
+                placeholder="YYYY-MM (예: 2026-09)"
+                className="w-28 px-2 py-1 text-xs text-center font-bold text-slate-800 focus:outline-none placeholder-slate-400"
+              />
+
+              <datalist id="cms-available-months">
+                {availableMonths.map(m => (
+                  <option key={m} value={m}>
+                    {m} ({records.filter(r => r.monthStr === m).length}건)
+                  </option>
+                ))}
+              </datalist>
+
+              <button
+                type="button"
+                onClick={handleNextMonth}
+                disabled={currentMonthIdx <= 0 || selectedMonth === 'ALL'}
+                className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors"
+                title="다음 달 이동 (최신)"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+
+            {/* 최신월 바로가기 버튼 */}
+            {availableMonths.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const latest = availableMonths[0];
+                  setSelectedMonth(latest);
+                  setMonthInput(latest);
+                }}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  selectedMonth === availableMonths[0] && monthInput === availableMonths[0]
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-white text-indigo-700 hover:bg-indigo-50 border border-indigo-200'
                 }`}
               >
-                전체 ({records.length})
+                최신월 ({availableMonths[0]})
               </button>
-              {availableMonths.map(month => {
-                const count = records.filter(r => r.monthStr === month).length;
-                return (
-                  <button
-                    key={month}
-                    type="button"
-                    onClick={() => setSelectedMonth(month)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      selectedMonth === month
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-300'
-                    }`}
-                  >
-                    {month} ({count})
-                  </button>
-                );
-              })}
-            </div>
+            )}
+
+            {/* 선택 월 건수 배지 */}
+            {selectedMonth !== 'ALL' && (
+              <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-200">
+                {filteredRecords.length}건
+              </span>
+            )}
           </div>
 
           {/* 검색 및 액션 버튼 */}
