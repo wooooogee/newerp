@@ -3009,49 +3009,119 @@ app.post('/api/sheets/excel-sync/decrypt', async (req, res) => {
       message: '비밀번호가 올바르지 않거나 지원되지 않는 암호화 형식입니다. 비밀번호를 다시 확인해 주세요.'
     });
   }
-// 구글 시트 특정 탭에 2차원 데이터를 안전하게 덮어쓰는 헬퍼 (시트가 없으면 자동 생성)
-async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, sheetName: string, rows: any[][]): Promise<number> {
+// 구글 시트 특정 탭에 2차원 데이터를 안전하게 덮어쓰는 헬퍼 (시트 자동생성, 그리드 자동 확장, 청크 분할 쓰기)
+async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, targetTitle: string, rows: any[][]): Promise<number> {
   if (!rows || rows.length === 0) return 0;
 
-  // 1. 시트 존재 여부 확인 및 없으면 생성
-  try {
-    const meta = await sheets.spreadsheets.get({ spreadsheetId });
-    const sheetExists = (meta.data.sheets || []).some((s: any) => s.properties?.title === sheetName);
-    if (!sheetExists) {
+  const safeRows = autoRepairRowEncodingSync(rows);
+  const requiredRowCount = Math.max(safeRows.length + 50, 100);
+
+  // 최대 열 개수 파악
+  let maxColCount = 26;
+  const sampleLen = Math.min(safeRows.length, 100);
+  for (let i = 0; i < sampleLen; i++) {
+    if (safeRows[i] && safeRows[i].length > maxColCount) {
+      maxColCount = safeRows[i].length;
+    }
+  }
+  const requiredColCount = Math.max(maxColCount + 10, 40);
+
+  // 1. 스프레드시트 메타데이터 조회
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetList = meta.data.sheets || [];
+
+  // 시트 이름 유연한 매칭 (정확 매칭 -> 트림/소문자 매칭)
+  let targetSheet = sheetList.find((s: any) => s.properties?.title === targetTitle);
+  if (!targetSheet) {
+    targetSheet = sheetList.find((s: any) =>
+      String(s.properties?.title || '').trim().toLowerCase() === targetTitle.trim().toLowerCase()
+    );
+  }
+
+  let actualTitle = targetTitle;
+
+  if (!targetSheet) {
+    // 시트가 없으면 충분한 크기로 신규 생성
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          addSheet: {
+            properties: {
+              title: targetTitle,
+              gridProperties: {
+                rowCount: requiredRowCount,
+                columnCount: requiredColCount
+              }
+            }
+          }
+        }]
+      }
+    });
+    console.log(`[ExcelSync] Created new sheet '${targetTitle}' with ${requiredRowCount} rows, ${requiredColCount} cols.`);
+  } else {
+    actualTitle = targetSheet.properties.title;
+    const sheetId = targetSheet.properties.sheetId;
+    const currentGrid = targetSheet.properties.gridProperties || {};
+    const currentRowCount = currentGrid.rowCount || 1000;
+    const currentColCount = currentGrid.columnCount || 26;
+
+    // 현재 그리드 크기가 부족하면 확장 (Requested writing to cell beyond end of grid 방지)
+    const needMoreRows = currentRowCount < requiredRowCount;
+    const needMoreCols = currentColCount < requiredColCount;
+
+    if (needMoreRows || needMoreCols) {
+      const newRowCount = Math.max(currentRowCount, requiredRowCount);
+      const newColCount = Math.max(currentColCount, requiredColCount);
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId,
         requestBody: {
-          requests: [{ addSheet: { properties: { title: sheetName } } }]
+          requests: [{
+            updateSheetProperties: {
+              properties: {
+                sheetId,
+                gridProperties: {
+                  rowCount: newRowCount,
+                  columnCount: newColCount
+                }
+              },
+              fields: 'gridProperties(rowCount,columnCount)'
+            }
+          }]
         }
       });
-      console.log(`[ExcelSync] Created new sheet '${sheetName}'.`);
+      console.log(`[ExcelSync] Resized sheet '${actualTitle}' to ${newRowCount} rows, ${newColCount} cols.`);
     }
-  } catch (sheetCheckErr: any) {
-    console.warn(`[ExcelSync] Sheet check warning for '${sheetName}':`, sheetCheckErr.message);
   }
 
-  // 2. 인코딩 안전화
-  const safeRows = autoRepairRowEncodingSync(rows);
-
-  // 3. 기존 시트 데이터 클리어
+  // 2. 기존 시트 데이터 전체 클리어 (시트명 전체 범위로 안전 클리어)
   try {
     await sheets.spreadsheets.values.clear({
       spreadsheetId,
-      range: `'${sheetName}'!A:ZZ`
+      range: `'${actualTitle}'`
     });
   } catch (clearErr: any) {
-    console.warn(`[ExcelSync] Clear warning for '${sheetName}':`, clearErr.message);
+    console.warn(`[ExcelSync] Clear warning for '${actualTitle}':`, clearErr.message);
   }
 
-  // 4. 새 데이터 일괄 쓰기
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `'${sheetName}'!A1`,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values: safeRows }
-  });
+  // 3. 데이터 쓰기 (대용량 엑셀 안정성 확보를 위해 1000행 단위 청크 분할 쓰기)
+  const CHUNK_SIZE = 1000;
+  for (let start = 0; start < safeRows.length; start += CHUNK_SIZE) {
+    const chunk = safeRows.slice(start, start + CHUNK_SIZE);
+    const startRowIndex = start + 1; // 1-indexed
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${actualTitle}'!A${startRowIndex}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: chunk }
+    });
+  }
 
-  console.log(`[ExcelSync] Successfully overwrote '${sheetName}' with ${safeRows.length} rows.`);
+  // 4. 인메모리 캐시 무효화
+  sheetDataCache.delete(targetTitle);
+  sheetDataCache.delete(actualTitle);
+
+  console.log(`[ExcelSync] Successfully overwrote '${actualTitle}' with ${safeRows.length} rows.`);
   return safeRows.length;
 }
 
