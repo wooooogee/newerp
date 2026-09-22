@@ -32,8 +32,10 @@ export interface CmsRecord {
   memberName: string;      // F열 (Index 5) 회원명
   status: string;          // I열 (Index 8) 계약/회원상태
   payMethod: string;       // T열 (Index 19) 수납방법 ("CMS")
-  bankCode: string;        // W열 (Index 22) 은행코드 (3자리 포맷팅, e.g. 011)
+  bankCode: string;        // W열 (Index 22) 은행코드 (011/012 정밀 검증 및 3자리 포맷팅)
+  rawBankCode: string;     // 원본 은행코드 (전산 원시값)
   bankName: string;        // 은행명 (은행코드 기반 친절 매핑)
+  isNhAutoCorrected: boolean; // 전산 011에서 계좌번호 검증을 통해 012로 자동 보정되었는지 여부
   accountNo: string;       // Y열 (Index 24) 계좌번호
   ownerBirth6: string;     // AA열 (Index 26) 예금주 생년월일 6자리
   raw: any[];
@@ -66,6 +68,88 @@ const BANK_CODE_NAMES: Record<string, string> = {
   '089': '케이뱅크',
   '090': '카카오뱅크',
   '092': '토스뱅크'
+};
+
+// 농협 계좌번호 기반 011(농협은행) vs 012(지역농·축협) 정밀 자동 검증/판별 헬퍼
+export const verifyAndCorrectNhBankCode = (
+  inputBankCode: string,
+  accountNo: string
+): { correctedCode: string; bankName: string; isAutoCorrected: boolean } => {
+  const code = (inputBankCode || '').replace(/[^0-9]/g, '').padStart(3, '0');
+
+  // 농협(011 또는 012)이 아닌 다른 은행은 그대로 반환
+  if (code !== '011' && code !== '012') {
+    return {
+      correctedCode: code,
+      bankName: BANK_CODE_NAMES[code] || '',
+      isAutoCorrected: false
+    };
+  }
+
+  const rawAcc = String(accountNo || '').trim();
+  const cleanAcc = rawAcc.replace(/[^0-9]/g, '');
+
+  let detected: '011' | '012' | null = null;
+
+  // 1. 하이픈 기준 과목코드 탐색 (-51-, -52-, -56- 등)
+  if (rawAcc.includes('-')) {
+    const parts = rawAcc.split('-');
+    // 구계좌 3-2-6 구조 (중앙회): parts[1] === '01' | '02' | '12'
+    // 구계좌 6-2-6 구조 (지역농협): parts[1] === '51' | '52' | '56'
+    if (parts.length >= 2) {
+      const subjectCode = parts[1].trim();
+      if (['51', '52', '56', '53', '54', '55'].includes(subjectCode)) {
+        detected = '012';
+      } else if (['01', '02', '12', '03', '04'].includes(subjectCode)) {
+        detected = '011';
+      }
+    }
+  }
+
+  // 2. 신계좌 (13자리 계좌): 앞 3자리로 판별
+  if (!detected) {
+    // 351, 352, 356 등 35X번대 = 지역농·축협(012)
+    if (/^35[0-9]/.test(cleanAcc)) {
+      detected = '012';
+    } 
+    // 301, 302, 312 등 30X, 31X번대 = 농협은행(중앙회, 011)
+    else if (/^3[0-1][0-9]/.test(cleanAcc)) {
+      detected = '011';
+    }
+  }
+
+  // 3. 구계좌 (숫자 자릿수 기반 과목코드 추출)
+  if (!detected) {
+    if (cleanAcc.length === 11) {
+      // 3자리(지점) + 2자리(과목) + 6자리(일련)
+      const sub = cleanAcc.substring(3, 5);
+      if (['51', '52', '56', '53', '54', '55'].includes(sub)) detected = '012';
+      else if (['01', '02', '12', '03', '04'].includes(sub)) detected = '011';
+    } else if (cleanAcc.length === 14) {
+      // 6자리(지점) + 2자리(과목) + 6자리(일련)
+      const sub = cleanAcc.substring(6, 8);
+      if (['51', '52', '56', '53', '54', '55'].includes(sub)) detected = '012';
+      else if (['01', '02', '12', '03', '04'].includes(sub)) detected = '011';
+    }
+  }
+
+  // 4. 문자열 내 과목코드 부분 패턴 검색 (-51-, -52-, -56-)
+  if (!detected) {
+    if (/-51-|-52-|-56-/.test(rawAcc)) {
+      detected = '012';
+    } else if (/-01-|-02-|-12-/.test(rawAcc)) {
+      detected = '011';
+    }
+  }
+
+  const finalCode = detected || code;
+  const isAutoCorrected = finalCode !== code;
+
+  return {
+    correctedCode: finalCode,
+    bankName: finalCode === '012' ? '지역농·축협' : (finalCode === '011' ? '농협은행' : (BANK_CODE_NAMES[finalCode] || '')),
+    isAutoCorrected
+  };
 };
 
 // 생년월일 6자리 정규화 (13자리 주민번호, 8자리 생년월일, 6자리 생년월일 등 대응)
@@ -277,11 +361,15 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       const rawContractDate = row[idxContractDate];
       const { dateStr, monthStr } = parseContractDate(rawContractDate);
 
-      const rawBankCode = row[idxBankCode];
-      const bankCode = formatBankCode(rawBankCode);
-      const bankName = BANK_CODE_NAMES[bankCode] || '';
-
       const accountNo = String(row[idxAccountNo] || '').trim();
+      const rawBankCode = formatBankCode(row[idxBankCode]);
+
+      // 🌟 [농협 011/012 정밀 검증] 전산에서 모두 011로 접수되는 문제 자동 보정
+      const { correctedCode: bankCode, bankName, isAutoCorrected: isNhAutoCorrected } = verifyAndCorrectNhBankCode(
+        rawBankCode,
+        accountNo
+      );
+
       const rawOwnerResNo = row[idxOwnerResNo];
       const ownerBirth6 = extractBirth6(rawOwnerResNo);
 
@@ -298,7 +386,9 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
         status: statusVal || '가입',
         payMethod: 'CMS',
         bankCode,
+        rawBankCode,
         bankName,
+        isNhAutoCorrected,
         accountNo,
         ownerBirth6,
         raw: row
@@ -477,12 +567,19 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
         </div>
 
         {/* 안내 배너 */}
-        <div className="px-6 py-2 bg-blue-50/70 border-b border-blue-100 flex items-center justify-between text-xs text-blue-900">
-          <div className="flex items-center gap-2">
-            <Sparkles size={14} className="text-blue-600 shrink-0" />
-            <span>
-              <strong className="font-bold text-blue-800">💡 원클릭 복사 팁:</strong> 회원번호, 생년월일(6자리), 은행코드, 계좌번호를 클릭하면 전산에 바로 붙여넣을 수 있도록 클립보드에 즉시 복사됩니다.
-            </span>
+        <div className="px-6 py-2 bg-blue-50/70 border-b border-blue-100 flex flex-wrap items-center justify-between gap-2 text-xs text-blue-900">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <Sparkles size={14} className="text-blue-600 shrink-0" />
+              <span>
+                <strong className="font-bold text-blue-800">💡 원클릭 복사:</strong> 셀 클릭 시 즉시 복사됩니다.
+              </span>
+            </div>
+            <span className="text-blue-300 hidden sm:inline">|</span>
+            <div className="flex items-center gap-1.5 text-[11px] text-teal-800 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200">
+              <span className="font-bold">🌾 농협 자동판별:</span>
+              <span>계좌번호(신계좌 35X, 구계좌 5X 등)를 분석하여 011(농협은행)과 012(지역농협)를 자동 판별하여 제공합니다.</span>
+            </div>
           </div>
           <span className="text-[11px] font-bold text-blue-700 shrink-0">
             총 {filteredRecords.length}건
@@ -606,30 +703,46 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                           </button>
                         </td>
 
-                        {/* W열 은행코드 (3자리 패딩 포맷) (원클릭 복사) */}
+                        {/* W열 은행코드 (3자리 패딩 포맷 및 011/012 정밀 자동 검증) (원클릭 복사) */}
                         <td className="py-2.5 px-3">
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(item.bankCode, '은행코드', bankKey)}
-                            className={`px-2 py-1 rounded-md font-mono font-black text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
-                              copiedKey === bankKey
-                                ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
-                                : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
-                            }`}
-                            title={`클릭하여 은행코드(${item.bankCode}) 복사${item.bankName ? ` [${item.bankName}]` : ''}`}
-                          >
-                            {copiedKey === bankKey ? (
-                              <Check size={12} className="text-emerald-600 shrink-0" />
-                            ) : (
-                              <Copy size={11} className="text-amber-500 group-hover:text-amber-800 shrink-0" />
-                            )}
-                            <span>{item.bankCode || '-'}</span>
-                            {item.bankName && (
-                              <span className="text-[10px] font-normal text-amber-700/80">
-                                ({item.bankName})
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(item.bankCode, '은행코드', bankKey)}
+                              className={`px-2 py-1 rounded-md font-mono font-black text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                                copiedKey === bankKey
+                                  ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
+                                  : item.bankCode === '012'
+                                  ? 'bg-teal-50 text-teal-900 border border-teal-200 hover:bg-teal-100'
+                                  : item.bankCode === '011'
+                                  ? 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100'
+                                  : 'bg-slate-50 text-slate-800 border border-slate-200 hover:bg-slate-100'
+                              }`}
+                              title={`클릭하여 은행코드(${item.bankCode}) 복사${item.bankName ? ` [${item.bankName}]` : ''}${item.isNhAutoCorrected ? ' (전산 011에서 012로 자동 변경됨)' : ''}`}
+                            >
+                              {copiedKey === bankKey ? (
+                                <Check size={12} className="text-emerald-600 shrink-0" />
+                              ) : (
+                                <Copy size={11} className={`${item.bankCode === '012' ? 'text-teal-600' : (item.bankCode === '011' ? 'text-amber-600' : 'text-slate-400')} shrink-0`} />
+                              )}
+                              <span>{item.bankCode || '-'}</span>
+                              {item.bankName && (
+                                <span className={`text-[10px] font-bold ${item.bankCode === '012' ? 'text-teal-700' : (item.bankCode === '011' ? 'text-amber-700' : 'text-slate-500')}`}>
+                                  ({item.bankName})
+                                </span>
+                              )}
+                            </button>
+
+                            {/* 011에서 012로 자동 변경된 경우 알림 배지 */}
+                            {item.isNhAutoCorrected && (
+                              <span
+                                className="px-1.5 py-0.5 bg-teal-100 text-teal-800 border border-teal-300 rounded text-[10px] font-black shrink-0 cursor-help"
+                                title="전산에 011로 접수되었으나, 계좌번호 패턴 분석을 통해 지역농·축협(012)으로 자동 변경되었습니다."
+                              >
+                                011➔012
                               </span>
                             )}
-                          </button>
+                          </div>
                         </td>
 
                         {/* Y열 계좌번호 (원클릭 복사) */}
