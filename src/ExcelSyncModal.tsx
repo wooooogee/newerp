@@ -110,17 +110,20 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
 
-    // 1. ZIP 기반 표준 .xlsx 바이너리 파일 판별 (PK..)
+    // 1. 바이너리 엑셀 포맷 판별
+    // - 진짜 XLSX: ZIP 기반 (PK..) [0x50, 0x4B, 0x03, 0x04]
+    // - 구형 XLS: OLE2/CFB 바이너리 [0xD0, 0xCF, 0x11, 0xE0]
     const isZipXlsx = bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
+    const isCfbXls = bytes.length > 4 && bytes[0] === 0xD0 && bytes[1] === 0xCF && bytes[2] === 0x11 && bytes[3] === 0xE0;
 
     let workbook: any = null;
 
-    if (isZipXlsx) {
-      // 진짜 XLSX: cellDates: false로 날짜 왜곡(1900-01-00 등) 방지
-      workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+    if (isZipXlsx || isCfbXls) {
+      // 바이너리 엑셀 (XLSX 또는 BIFF8 XLS): codepage: 949 및 cellDates: false
+      workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949 });
     } else {
-      // 2. 국내 전산 CSV 또는 HTML형식 .xls 파일:
-      // 먼저 EUC-KR로 디코딩 시도
+      // 2. 국내 전산 CSV 또는 HTML 테이블형 .xls 파일:
+      // 먼저 EUC-KR 디코딩 시도
       let decodedText = '';
       try {
         const eucDecoder = new TextDecoder('euc-kr');
@@ -145,7 +148,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
 
         // Fallback: array
         if (!workbook) {
-          workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+          workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949 });
         }
       }
     }

@@ -3016,7 +3016,9 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     if (existingRows.length > 0) {
       headerRow = padExcelRow(existingRows[0], 29);
       if (!headerRow[28] || String(headerRow[28]).trim() === '') headerRow[28] = '배송예정일';
+      headerRow = headerRow.map(c => (typeof c === 'string' && isBrokenLatin1Sync(c)) ? fixLatin1ToEucKrSync(c) : c);
       tData = existingRows.slice(1).map(r => padExcelRow(r, 29));
+      tData = autoRepairRowEncodingSync(tData);
     } else {
       headerRow = defaultHeaders;
       tData = [];
@@ -3095,14 +3097,14 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       const idxContractDoc = sIdx["계약서"] !== undefined ? sIdx["계약서"] : 28;
       const idxOverdue = sIdx["연체차"] !== undefined ? sIdx["연체차"] : 31;
       const idxHq = sIdx["본부"] !== undefined ? sIdx["본부"] : 38;
-      const idxHc = sIdx["헬스케어"] !== undefined ? sIdx["헬스케어"] : (sIdx["헬스케어대상자"] !== undefined ? sIdx["헬스케어대상자"] : (sIdx["헬스케어 대상자"] !== undefined ? sIdx["헬스케어 대상자"] : (sIdx["케어대상자"] !== undefined ? sIdx["케어대상자"] : 54)));
+      const idxHc = sIdx["헬스케어"] !== undefined ? sIdx["헬스케어"] : (sIdx["헬스케어대상자"] !== undefined ? sIdx["헬스케어대상자"] : (sIdx["헬스케어 대상자"] !== undefined ? sIdx["헬스케어 대상자"] : (sIdx["케어대상자"] !== undefined ? sIdx["케어대상자"] : (sIdx["헬스케어서비스대상"] !== undefined ? sIdx["헬스케어서비스대상"] : 54))));
       const idxDelivType = sIdx["배송구분"] !== undefined ? sIdx["배송구분"] : 58;
       const idxRentalNo = sIdx["렌탈계약번호"] !== undefined ? sIdx["렌탈계약번호"] : (sIdx["렌탈번호"] !== undefined ? sIdx["렌탈번호"] : 59);
-      const idxCount = sIdx["구좌수"] !== undefined ? sIdx["구좌수"] : 61;
+      const idxCount = sIdx["구좌수"] !== undefined ? sIdx["구좌수"] : (sIdx["가입구좌수"] !== undefined ? sIdx["가입구좌수"] : 62);
       const idxEmpCode = sIdx["사원코드"] !== undefined ? sIdx["사원코드"] : (sIdx["사원번호"] !== undefined ? sIdx["사원번호"] : (sHeaders.length > 39 ? 39 : -1));
 
-      for (let j = 1; j < contractRows.length; j++) {
-        const row = contractRows[j];
+      for (let j = 1; j < safeContractRows.length; j++) {
+        const row = safeContractRows[j];
         const memberNo = String(row[idxMemberNo] || '').trim();
         if (!memberNo || !row[idxContractDate]) continue;
 
@@ -3118,7 +3120,11 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
           }
 
           // ⭐ [핵심 안전장치] 기존 관리대장에 등록된 건은 B열 계약상태를 절대 덮어쓰지 않고 기존 값 보존!
-          const currentStatus = String(tRow[1] || '').trim();
+          let currentStatus = String(tRow[1] || '').trim();
+          if (isBrokenLatin1Sync(currentStatus)) {
+            currentStatus = fixLatin1ToEucKrSync(currentStatus);
+            tRow[1] = currentStatus;
+          }
           const newStatus = String(row[idxStatus] !== undefined ? row[idxStatus] : '').trim();
           if (!currentStatus || currentStatus === '') {
             tRow[1] = newStatus;
@@ -3431,7 +3437,9 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       }
     }
 
-    // 1행 헤더 + 데이터 전체 행 결합
+    // 1행 헤더 + 데이터 전체 행 결합 전 최종 Latin-1 깨짐 방어 정제
+    allProcessedData = autoRepairRowEncodingSync(allProcessedData);
+    headerRow = headerRow.map(c => (typeof c === 'string' && isBrokenLatin1Sync(c)) ? fixLatin1ToEucKrSync(c) : c);
     const fullValuesToWrite = [headerRow, ...allProcessedData];
 
     // 기존 시트 내용 지우기 (행 수가 줄었을 때 잔여 데이터 방지)
