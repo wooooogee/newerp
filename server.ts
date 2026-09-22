@@ -2741,6 +2741,685 @@ app.get('/api/sheets/commission-log/list', async (req, res) => {
   res.json({ logs: localLogs.slice(0, 200) });
 });
 
+// ===================================================================
+// 🚀 전산 엑셀(계약원장/배송데이터) 직접 업로드 및 [관리대장] 자동 동기화 엔진
+// ===================================================================
+
+// 유틸리티 함수들
+function padExcelRow(row: any[], length: number): any[] {
+  const r = [...row];
+  while (r.length < length) r.push("");
+  return r;
+}
+
+function formatPhoneSync(p: any): string {
+  if (!p) return "-";
+  let s = String(p).replace(/[^0-9]/g, '');
+  if (s.length === 10 && s.indexOf("10") === 0) s = "0" + s;
+  if (s.length === 9 && (s.indexOf("11") === 0 || s.indexOf("1") === 0)) s = "0" + s;
+  if (s.length === 11) return s.replace(/(\d{3})(\d{4})(\d{4})/, "$1-$2-$3");
+  if (s.length === 10) return s.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3");
+  return s;
+}
+
+function formatDateToYMD(d: any): string {
+  if (!d) return "";
+  const dt = (d instanceof Date) ? d : new Date(d);
+  if (isNaN(dt.getTime())) {
+    const s = String(d).trim();
+    if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(s)) {
+      const parts = s.split(/[-/.]/);
+      return `${parts[0]}-${String(parts[1]).padStart(2, '0')}-${String(parts[2]).padStart(2, '0')}`;
+    }
+    return s;
+  }
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function isSameDateSync(d1: any, d2: any): boolean {
+  if (!d1 || !d2) return false;
+  const s1 = formatDateToYMD(d1);
+  const s2 = formatDateToYMD(d2);
+  return Boolean(s1 && s2 && s1 === s2);
+}
+
+// 수수료지급일자 계산 함수 (GAS 스크립트 100% 동일)
+function calculateExpectedFeeDateSync(delDate: any, prod: any, rId: any, hq: any, forceLegacy?: boolean): string | null {
+  if (!delDate) return null;
+  const dt = (delDate instanceof Date) ? delDate : new Date(delDate);
+  if (isNaN(dt.getTime())) return null;
+
+  const y = dt.getFullYear();
+  const m = dt.getMonth(); // 0-indexed (8 = 9월)
+  const d = dt.getDate();
+
+  const isAfterSep2026 = !forceLegacy && ((y > 2026) || (y === 2026 && m >= 8));
+
+  let resDt: Date;
+  if (isAfterSep2026) {
+    const hqStr = String(hq || "").trim();
+    if (hqStr.includes("언바운드컴퍼니")) {
+      resDt = new Date(y, m + 1, 20);
+    } else {
+      resDt = new Date(y, m + 1, 25);
+    }
+  } else {
+    const prodStr = String(prod || "").trim();
+    const rIdStr = String(rId || "").trim();
+    if (prodStr.includes("하이브리드698") || prodStr.includes("라이즈") || prodStr.includes("굿라이프") || prodStr.includes("프리미엄540")) {
+      if (rIdStr.toUpperCase().startsWith("R")) {
+        resDt = new Date(y, m + 1, 25);
+      } else {
+        resDt = (d <= 15) ? new Date(y, m + 1, 5) : new Date(y, m + 1, 18);
+      }
+    } else {
+      resDt = new Date(y, m + 1, 25);
+    }
+  }
+  return formatDateToYMD(resDt);
+}
+
+// 수기 수정된 수수료지급일자인지 판별 (GAS 스크립트 100% 동일)
+function isManualFeePayDateSync(row: any[]): boolean {
+  const feeDateVal = row[14]; // O열
+  if (!feeDateVal || feeDateVal === "") return false;
+
+  const delDate = row[13]; // N열: 배송일자
+  const delStatus = String(row[11] || "").trim(); // L열: 배송구분
+  const prod = String(row[6] || "").trim();
+  const hq = String(row[7] || "").trim();
+  const rId = String(row[10] || "").trim();
+
+  if (!delDate || delStatus !== "배송완료") return true;
+
+  const expectedDate = calculateExpectedFeeDateSync(delDate, prod, rId, hq);
+  if (!expectedDate) return true;
+
+  return !isSameDateSync(feeDateVal, expectedDate);
+}
+
+// 관리대장 시트 자동 백업 헬퍼
+async function backupManagementSheetSync(sheets: any, spreadsheetId: string, sheetName: string = '관리대장'): Promise<string> {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const backupTitle = `백업_${sheetName}_${timestamp}`;
+
+  try {
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    const srcSheet = sheetsList.find((s: any) => s.properties?.title === sheetName);
+
+    if (srcSheet && srcSheet.properties?.sheetId !== undefined) {
+      const copyResp = await sheets.spreadsheets.sheets.copyTo({
+        spreadsheetId,
+        sheetId: srcSheet.properties.sheetId,
+        requestBody: { destinationSpreadsheetId: spreadsheetId }
+      });
+      const newSheetId = copyResp.data.sheetId;
+      if (newSheetId !== undefined) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [{
+              updateSheetProperties: {
+                properties: { sheetId: newSheetId, title: backupTitle },
+                fields: 'title'
+              }
+            }]
+          }
+        });
+        console.log(`[ExcelSync] Backup sheet created successfully: ${backupTitle}`);
+        return backupTitle;
+      }
+    }
+  } catch (copyErr) {
+    console.warn('[ExcelSync] sheets.copyTo fallback to value copy:', copyErr);
+  }
+
+  // Fallback: 값 복사 방식
+  const valResp = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${sheetName}'!A:AC`
+  });
+  const values = valResp.data.values || [];
+  if (values.length > 0) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title: backupTitle } } }]
+      }
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${backupTitle}'!A1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values }
+    });
+  }
+  return backupTitle;
+}
+
+// 1. 단독 백업 API
+app.post('/api/sheets/excel-sync/backup', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const backupTitle = await backupManagementSheetSync(sheets, sheetId, '관리대장');
+    res.json({ success: true, backupTitle });
+  } catch (error: any) {
+    console.error('[ExcelSync Backup Error]', error);
+    return handleGoogleError(error, res);
+  }
+});
+
+// 2. 엑셀 동기화 처리 (미리보기 & 실제 반영) API
+app.post('/api/sheets/excel-sync/process', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { contractRows, deliveryRows, previewOnly, autoBackup, operator } = req.body as {
+    contractRows?: any[][];
+    deliveryRows?: any[][];
+    previewOnly?: boolean;
+    autoBackup?: boolean;
+    operator?: string;
+  };
+
+  if ((!contractRows || contractRows.length < 2) && (!deliveryRows || deliveryRows.length < 2)) {
+    return res.status(400).json({ error: '업로드된 엑셀 데이터가 없거나 유효하지 않습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const targetSheetName = '관리대장';
+
+    // 1. 구글 시트에서 현재 '관리대장' 최신 데이터 가져오기
+    const currentSheetResp = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `'${targetSheetName}'!A:AC`
+    }).catch(async () => {
+      // 관리대장 시트가 아직 없는 경우 생성
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: targetSheetName } } }]
+        }
+      });
+      return { data: { values: [] } };
+    });
+
+    const existingRows = currentSheetResp.data.values || [];
+    let headerRow: any[] = [];
+    let tData: any[][] = [];
+
+    const defaultHeaders = [
+      "계약일자", "회원상태", "회원번호", "회원명", "주민등록번호", "핸드폰", "상품명", "본부", "지사", "사원",
+      "렌탈계약번호", "배송구분", "구좌수", "배송일자", "수수료지급일자", "헬스케어_성함", "헬스케어_생년월일", "헬스케어_휴대폰",
+      "지급상태", "계약서", "연체차", "최초납입일", "최종납입일", "수납방법", "배송메모", "해지일", "출금일자", "사원코드", "배송예정일"
+    ];
+
+    if (existingRows.length > 0) {
+      headerRow = padExcelRow(existingRows[0], 29);
+      if (!headerRow[28] || String(headerRow[28]).trim() === '') headerRow[28] = '배송예정일';
+      tData = existingRows.slice(1).map(r => padExcelRow(r, 29));
+    } else {
+      headerRow = defaultHeaders;
+      tData = [];
+    }
+
+    const totalExistingCount = tData.length;
+    let newContractCount = 0;
+    let updatedContractCount = 0;
+    let preservedManualStatusCount = 0;
+    let deliveryCompletedCount = 0;
+    let deliveryExpectedCount = 0;
+    let feeDateCalculatedCount = 0;
+    let preservedManualFeeDateCount = 0;
+
+    // 기존 회원번호 인덱스 맵 (Key: 회원번호 -> tData 인덱스)
+    const targetMap = new Map<string, number>();
+    for (let i = 0; i < tData.length; i++) {
+      const mNo = String(tData[i][2] || '').trim();
+      if (mNo) targetMap.set(mNo, i);
+    }
+
+    // ===================================================================
+    // [1단계] 배송예정일 시트 데이터(또는 deliveryRows) 사전 맵핑 (expectMap)
+    // ===================================================================
+    const expectMap = new Map<string, string>();
+    if (deliveryRows && deliveryRows.length > 1) {
+      const delHeaders = (deliveryRows[0] || []).map(h => String(h || '').trim());
+      let expContractIdx = delHeaders.indexOf("계약번호");
+      if (expContractIdx === -1) expContractIdx = delHeaders.indexOf("렌탈계약번호");
+      if (expContractIdx === -1) expContractIdx = delHeaders.indexOf("렌탈번호");
+      if (expContractIdx === -1) expContractIdx = 1;
+
+      let expDateIdx = delHeaders.indexOf("배송예정일");
+      if (expDateIdx === -1) expDateIdx = delHeaders.indexOf("배송예정일자");
+      if (expDateIdx === -1) expDateIdx = delHeaders.indexOf("배송예정");
+      if (expDateIdx === -1) expDateIdx = 16;
+
+      for (let ed = 1; ed < deliveryRows.length; ed++) {
+        const expContractNo = String(deliveryRows[ed][expContractIdx] || '').trim();
+        const expDateVal = deliveryRows[ed][expDateIdx];
+        if (expContractNo && expDateVal !== undefined && expDateVal !== null && String(expDateVal).trim() !== '') {
+          const fDate = formatDateToYMD(expDateVal);
+          if (fDate && fDate !== '-' && fDate !== '0') {
+            expectMap.set(expContractNo, fDate);
+          }
+        }
+      }
+    }
+
+    // ===================================================================
+    // [2단계] 계약원장 엑셀 처리 (syncData 로직 완벽 이식)
+    // ===================================================================
+    const newDataToAppend: any[][] = [];
+    if (contractRows && contractRows.length > 1) {
+      const sHeaders = contractRows[0] || [];
+      const sIdx: Record<string, number> = {};
+      for (let h = 0; h < sHeaders.length; h++) {
+        sIdx[String(sHeaders[h] || '').trim()] = h;
+      }
+
+      const idxMemberNo = sIdx["회원번호"] !== undefined ? sIdx["회원번호"] : 1;
+      const idxContractDate = sIdx["계약일자"] !== undefined ? sIdx["계약일자"] : 2;
+      const idxMemberName = sIdx["회원명"] !== undefined ? sIdx["회원명"] : 5;
+      const idxResNo = sIdx["주민등록번호"] !== undefined ? sIdx["주민등록번호"] : (sIdx["주민번호"] !== undefined ? sIdx["주민번호"] : 7);
+      const idxStatus = sIdx["회원상태"] !== undefined ? sIdx["회원상태"] : 8;
+      const idxBranch = sIdx["지사"] !== undefined ? sIdx["지사"] : 9;
+      const idxEmp = sIdx["사원"] !== undefined ? sIdx["사원"] : 10;
+      const idxProd = sIdx["상품명"] !== undefined ? sIdx["상품명"] : 11;
+      const idxPayMethod = sIdx["수납방법"] !== undefined ? sIdx["수납방법"] : 19;
+      const idxFirstPay = sIdx["최초납입일"] !== undefined ? sIdx["최초납입일"] : 20;
+      const idxLastPay = sIdx["최종납입일"] !== undefined ? sIdx["최종납입일"] : 21;
+      const idxPhone = sIdx["핸드폰"] !== undefined ? sIdx["핸드폰"] : (sIdx["휴대폰"] !== undefined ? sIdx["휴대폰"] : 27);
+      const idxContractDoc = sIdx["계약서"] !== undefined ? sIdx["계약서"] : 28;
+      const idxOverdue = sIdx["연체차"] !== undefined ? sIdx["연체차"] : 31;
+      const idxHq = sIdx["본부"] !== undefined ? sIdx["본부"] : 38;
+      const idxHc = sIdx["헬스케어"] !== undefined ? sIdx["헬스케어"] : (sIdx["헬스케어대상자"] !== undefined ? sIdx["헬스케어대상자"] : (sIdx["헬스케어 대상자"] !== undefined ? sIdx["헬스케어 대상자"] : (sIdx["케어대상자"] !== undefined ? sIdx["케어대상자"] : 54)));
+      const idxDelivType = sIdx["배송구분"] !== undefined ? sIdx["배송구분"] : 58;
+      const idxRentalNo = sIdx["렌탈계약번호"] !== undefined ? sIdx["렌탈계약번호"] : (sIdx["렌탈번호"] !== undefined ? sIdx["렌탈번호"] : 59);
+      const idxCount = sIdx["구좌수"] !== undefined ? sIdx["구좌수"] : 61;
+      const idxEmpCode = sIdx["사원코드"] !== undefined ? sIdx["사원코드"] : (sIdx["사원번호"] !== undefined ? sIdx["사원번호"] : (sHeaders.length > 39 ? 39 : -1));
+
+      for (let j = 1; j < contractRows.length; j++) {
+        const row = contractRows[j];
+        const memberNo = String(row[idxMemberNo] || '').trim();
+        if (!memberNo || !row[idxContractDate]) continue;
+
+        if (targetMap.has(memberNo)) {
+          // 기존 관리대장 데이터 업데이트
+          const tIdx = targetMap.get(memberNo)!;
+          const tRow = tData[tIdx];
+
+          // 헬스케어 상품이 아닌 경우에만 계약일자 업데이트
+          const currentProd = String(tRow[6] || '').trim();
+          if (!currentProd.includes("헬스케어")) {
+            tRow[0] = formatDateToYMD(row[idxContractDate]);
+          }
+
+          // ⭐ [핵심 안전장치] 기존 관리대장에 등록된 건은 B열 계약상태를 절대 덮어쓰지 않고 기존 값 보존!
+          const currentStatus = String(tRow[1] || '').trim();
+          const newStatus = String(row[idxStatus] !== undefined ? row[idxStatus] : '').trim();
+          if (!currentStatus || currentStatus === '') {
+            tRow[1] = newStatus;
+          } else {
+            preservedManualStatusCount++;
+          }
+
+          if (row[idxResNo] !== undefined) tRow[4] = row[idxResNo];
+          if (row[idxHq] !== undefined) tRow[7] = row[idxHq];
+          if (row[idxBranch] !== undefined) tRow[8] = row[idxBranch];
+          if (row[idxEmp] !== undefined) tRow[9] = row[idxEmp];
+          if ((!tRow[10] || String(tRow[10]).trim() === '') && row[idxRentalNo] !== undefined) {
+            tRow[10] = row[idxRentalNo];
+          }
+
+          tRow[19] = (row[idxContractDoc] !== undefined && String(row[idxContractDoc]).trim() !== '') ? "O" : "X";
+          if (row[idxOverdue] !== undefined) tRow[20] = row[idxOverdue];
+          if (row[idxFirstPay] !== undefined) tRow[21] = formatDateToYMD(row[idxFirstPay]);
+          if (row[idxLastPay] !== undefined) tRow[22] = formatDateToYMD(row[idxLastPay]);
+          if (row[idxPayMethod] !== undefined) tRow[23] = row[idxPayMethod];
+
+          // 사원코드(AN열)
+          let empCodeVal = "";
+          if (idxEmpCode !== -1 && row[idxEmpCode] !== undefined) {
+            empCodeVal = row[idxEmpCode];
+          } else if (row.length > 39) {
+            empCodeVal = row[39];
+          }
+          if (empCodeVal !== undefined && empCodeVal !== "") tRow[27] = empCodeVal;
+
+          // 헬스케어 P,Q,R열 분배
+          const hcVal = row[idxHc];
+          const hcRaw = hcVal ? String(hcVal).trim() : "";
+          if (hcRaw && hcRaw !== "undefined" && hcRaw !== "null" && hcRaw !== "NaN") {
+            const hcParts = hcRaw.split(/\s+/);
+            const pName = hcParts[0] ? String(hcParts[0]).trim() : "";
+            if (pName && pName !== "undefined" && pName !== "null" && pName !== "NaN") {
+              tRow[15] = pName;
+              const rawQ = hcParts[1] ? String(hcParts[1]).trim() : "";
+              if (rawQ && rawQ !== "undefined" && rawQ !== "null") {
+                const qParts = rawQ.split("-");
+                let qFront = qParts[0].replace(/[^0-9]/g, "");
+                const qBack = qParts.length > 1 ? qParts[1].substring(0, 1) : "1";
+                if (qFront.length === 6) {
+                  const prefix = parseInt(qFront.substring(0, 2)) < 30 ? "20" : "19";
+                  qFront = prefix + qFront;
+                }
+                tRow[16] = qFront + "-" + qBack;
+              }
+              const rawPhone = hcParts[2] ? String(hcParts[2]).trim() : "";
+              if (rawPhone && rawPhone !== "undefined" && rawPhone !== "null") {
+                tRow[17] = formatPhoneSync(rawPhone);
+              }
+            }
+          }
+
+          // 배송예정일(AC열) 매칭
+          const matchRentalNo = String(tRow[10] || '').trim();
+          let expDate = "";
+          if (matchRentalNo && expectMap.has(matchRentalNo)) {
+            expDate = expectMap.get(matchRentalNo)!;
+          } else if (memberNo && expectMap.has(memberNo)) {
+            expDate = expectMap.get(memberNo)!;
+          }
+          if (expDate) tRow[28] = expDate;
+
+          tData[tIdx] = tRow;
+          updatedContractCount++;
+        } else {
+          // 신규 가입자 추가
+          const nr = new Array(29).fill("");
+          nr[0] = formatDateToYMD(row[idxContractDate]);
+          nr[1] = row[idxStatus] !== undefined ? String(row[idxStatus]).trim() : "";
+          nr[2] = memberNo;
+          nr[3] = row[idxMemberName] !== undefined ? row[idxMemberName] : "";
+          nr[4] = row[idxResNo] !== undefined ? row[idxResNo] : "";
+          nr[5] = row[idxPhone] !== undefined ? row[idxPhone] : "";
+          nr[6] = row[idxProd] !== undefined ? row[idxProd] : "";
+          nr[7] = row[idxHq] !== undefined ? row[idxHq] : "";
+          nr[8] = row[idxBranch] !== undefined ? row[idxBranch] : "";
+          nr[9] = row[idxEmp] !== undefined ? row[idxEmp] : "";
+          nr[10] = row[idxRentalNo] !== undefined ? row[idxRentalNo] : "";
+          nr[11] = row[idxDelivType] !== undefined ? row[idxDelivType] : "";
+          nr[12] = row[idxCount] !== undefined ? row[idxCount] : "";
+          nr[19] = (row[idxContractDoc] !== undefined && String(row[idxContractDoc]).trim() !== "") ? "O" : "X";
+
+          // 헬스케어 P,Q,R열 분배
+          const hcValNew = row[idxHc];
+          const hcRawNew = hcValNew ? String(hcValNew).trim() : "";
+          if (hcRawNew && hcRawNew !== "undefined" && hcRawNew !== "null" && hcRawNew !== "NaN") {
+            const hcPartsNew = hcRawNew.split(/\s+/);
+            const pNameNew = hcPartsNew[0] ? String(hcPartsNew[0]).trim() : "";
+            if (pNameNew && pNameNew !== "undefined" && pNameNew !== "null" && pNameNew !== "NaN") {
+              nr[15] = pNameNew;
+              const rawQNew = hcPartsNew[1] ? String(hcPartsNew[1]).trim() : "";
+              if (rawQNew) {
+                const qnParts = rawQNew.split("-");
+                let qnFront = qnParts[0].replace(/[^0-9]/g, "");
+                const qnBack = qnParts.length > 1 ? qnParts[1].substring(0, 1) : "1";
+                if (qnFront.length === 6) {
+                  const prefixNew = parseInt(qnFront.substring(0, 2)) < 30 ? "20" : "19";
+                  qnFront = prefixNew + qnFront;
+                }
+                nr[16] = qnFront + "-" + qnBack;
+              }
+              const rawPhoneNew = hcPartsNew[2] ? String(hcPartsNew[2]).trim() : "";
+              if (rawPhoneNew && rawPhoneNew !== "undefined" && rawPhoneNew !== "null") {
+                nr[17] = formatPhoneSync(rawPhoneNew);
+              }
+            }
+          }
+
+          nr[20] = row[idxOverdue] !== undefined ? row[idxOverdue] : "";
+          nr[21] = row[idxFirstPay] !== undefined ? formatDateToYMD(row[idxFirstPay]) : "";
+          nr[22] = row[idxLastPay] !== undefined ? formatDateToYMD(row[idxLastPay]) : "";
+          nr[23] = row[idxPayMethod] !== undefined ? row[idxPayMethod] : "";
+
+          let empCodeValNew = "";
+          if (idxEmpCode !== -1 && row[idxEmpCode] !== undefined) {
+            empCodeValNew = row[idxEmpCode];
+          } else if (row.length > 39) {
+            empCodeValNew = row[39];
+          }
+          nr[27] = empCodeValNew !== undefined ? empCodeValNew : "";
+
+          const newRentalNo = row[idxRentalNo] !== undefined ? String(row[idxRentalNo]).trim() : "";
+          let expDateNew = "";
+          if (newRentalNo && expectMap.has(newRentalNo)) {
+            expDateNew = expectMap.get(newRentalNo)!;
+          } else if (memberNo && expectMap.has(memberNo)) {
+            expDateNew = expectMap.get(memberNo)!;
+          }
+          nr[28] = expDateNew;
+
+          newDataToAppend.push(nr);
+          targetMap.set(memberNo, tData.length + newDataToAppend.length - 1);
+          newContractCount++;
+        }
+      }
+    }
+
+    // 전체 결합 데이터
+    let allProcessedData = tData.concat(newDataToAppend);
+
+    // ===================================================================
+    // [3단계] 배송데이터 엑셀 처리 (runAllUpdates 로직 완벽 이식)
+    // ===================================================================
+    if (deliveryRows && deliveryRows.length > 1) {
+      const delValues = deliveryRows;
+      const delHeaders = (delValues[0] || []).map(h => String(h || '').trim());
+
+      let cIdIdx = delHeaders.indexOf("계약번호");
+      if (cIdIdx === -1) cIdIdx = delHeaders.indexOf("렌탈계약번호");
+      if (cIdIdx === -1) cIdIdx = delHeaders.indexOf("렌탈번호");
+      if (cIdIdx === -1) cIdIdx = 1;
+
+      let termDateIdx = delHeaders.indexOf("해지일");
+      if (termDateIdx === -1) termDateIdx = delHeaders.indexOf("해지일자");
+      if (termDateIdx === -1) termDateIdx = delHeaders.indexOf("해약일");
+      if (termDateIdx === -1) termDateIdx = 7;
+
+      let actDateIdx = delHeaders.indexOf("개통일");
+      if (actDateIdx === -1) actDateIdx = delHeaders.indexOf("개통일자");
+      if (actDateIdx === -1) actDateIdx = 6;
+
+      let delivDateIdx = delHeaders.indexOf("배송일");
+      if (delivDateIdx === -1) delivDateIdx = delHeaders.indexOf("배송일자");
+      if (delivDateIdx === -1) delivDateIdx = delHeaders.indexOf("배송 완료일");
+      if (delivDateIdx === -1) delivDateIdx = delHeaders.indexOf("배송완료일");
+      if (delivDateIdx === -1) delivDateIdx = 15;
+
+      let expDateIdx = delHeaders.indexOf("배송예정일");
+      if (expDateIdx === -1) expDateIdx = delHeaders.indexOf("배송예정일자");
+      if (expDateIdx === -1) expDateIdx = delHeaders.indexOf("배송예정");
+      if (expDateIdx === -1) expDateIdx = 16;
+
+      let taskIdx = delHeaders.indexOf("처리중업무");
+      if (taskIdx === -1) taskIdx = delHeaders.indexOf("진행상태");
+      if (taskIdx === -1) taskIdx = 11;
+
+      let withdrawDateIdx = delHeaders.indexOf("출금일자");
+      if (withdrawDateIdx === -1) withdrawDateIdx = delHeaders.indexOf("1회차출금일자");
+      if (withdrawDateIdx === -1) withdrawDateIdx = delHeaders.indexOf("출금일");
+      if (withdrawDateIdx === -1) withdrawDateIdx = 23;
+
+      const deliveryDict = new Map<string, any>();
+      for (let d = 1; d < delValues.length; d++) {
+        const cId = String(delValues[d][cIdIdx] || '').trim();
+        const actDate = formatDateToYMD(delValues[d][actDateIdx]);
+        const delivDate = formatDateToYMD(delValues[d][delivDateIdx]);
+        const finalDelivDate = delivDate || actDate;
+        const termDate = formatDateToYMD(delValues[d][termDateIdx]);
+        const withdrawDate = formatDateToYMD(delValues[d][withdrawDateIdx]);
+        const expectedDate = formatDateToYMD(delValues[d][expDateIdx]);
+        const processingTask = delValues[d][taskIdx];
+
+        if (cId) {
+          deliveryDict.set(cId, {
+            deliveryDate: finalDelivDate,
+            activationDate: actDate,
+            terminationDate: termDate,
+            task: processingTask,
+            withdrawDate,
+            expectedDate
+          });
+        }
+      }
+
+      for (let i = 0; i < allProcessedData.length; i++) {
+        const row = padExcelRow(allProcessedData[i], 29);
+        const rId = String(row[10] || '').trim(); // K열: 렌탈계약번호
+        const memNo = String(row[2] || '').trim();  // C열: 회원번호
+        const prod = String(row[6] || '');
+        const hq = String(row[7] || '').trim();
+
+        // 렌탈번호 또는 회원번호로 배송데이터 매칭
+        const matchedData = (rId && deliveryDict.get(rId)) || (memNo && deliveryDict.get(memNo));
+        if (matchedData) {
+          // Z열: 해지일
+          row[25] = matchedData.terminationDate || "";
+          // AA열: 출금일자
+          row[26] = matchedData.withdrawDate || "";
+
+          const targetDate = matchedData.deliveryDate || matchedData.activationDate;
+          if (targetDate) {
+            if (row[11] !== "배송완료") deliveryCompletedCount++;
+            if (row[13] !== targetDate) row[13] = targetDate;
+            row[11] = "배송완료";
+          }
+
+          // Y열: 처리중업무 매핑
+          if (matchedData.task !== undefined) row[24] = matchedData.task;
+
+          // AC열: 배송예정일 매핑
+          if (matchedData.expectedDate) {
+            if (row[28] !== matchedData.expectedDate) deliveryExpectedCount++;
+            row[28] = matchedData.expectedDate;
+          }
+        }
+
+        // O열 수수료지급일자 정산 자동 계산
+        const delDate = row[13];
+        const delStatus = String(row[11] || '').trim();
+
+        if (!delDate || delStatus !== "배송완료") {
+          if (!row[14] || row[14] === "") row[14] = "";
+        } else {
+          const expectedFeeDate = calculateExpectedFeeDateSync(delDate, prod, rId, hq);
+          if (expectedFeeDate) {
+            if (!row[14] || row[14] === "") {
+              row[14] = expectedFeeDate;
+              feeDateCalculatedCount++;
+            } else {
+              // 이미 등록된 경우: 수기 지정일자(선지급 등) 보호
+              if (isManualFeePayDateSync(row)) {
+                preservedManualFeeDateCount++;
+              } else {
+                // 구 공식 계산 건이면 신 공식으로 업데이트
+                const legacyExpected = calculateExpectedFeeDateSync(delDate, prod, rId, hq, true);
+                if (isSameDateSync(row[14], legacyExpected)) {
+                  row[14] = expectedFeeDate;
+                  feeDateCalculatedCount++;
+                } else {
+                  preservedManualFeeDateCount++;
+                }
+              }
+            }
+          }
+        }
+
+        allProcessedData[i] = row;
+      }
+    }
+
+    // 결과 통계 요약
+    const stats = {
+      totalExistingCount,
+      newContractCount,
+      updatedContractCount,
+      preservedManualStatusCount,
+      deliveryCompletedCount,
+      deliveryExpectedCount,
+      feeDateCalculatedCount,
+      preservedManualFeeDateCount,
+      finalTotalCount: allProcessedData.length,
+      sampleNewRows: newDataToAppend.slice(0, 5).map(r => ({ memNo: r[2], memName: r[3], prodName: r[6], status: r[1] })),
+      sampleUpdatedRows: tData.slice(0, 5).map(r => ({ memNo: r[2], memName: r[3], status: r[1], delivStatus: r[11], payDate: r[14] }))
+    };
+
+    // 미리보기(Dry-run) 모드인 경우 시트에 쓰지 않고 통계만 반환
+    if (previewOnly) {
+      return res.json({
+        success: true,
+        preview: true,
+        stats
+      });
+    }
+
+    // ===================================================================
+    // [4단계] 실제 반영: 자동 백업 생성 후 구글 시트 '관리대장'에 쓰기
+    // ===================================================================
+    let backupSheetName = "";
+    if (autoBackup !== false) {
+      try {
+        backupSheetName = await backupManagementSheetSync(sheets, sheetId, targetSheetName);
+      } catch (bkErr) {
+        console.warn('[ExcelSync] Automatic backup failed, continuing update:', bkErr);
+      }
+    }
+
+    // 1행 헤더 + 데이터 전체 행 결합
+    const fullValuesToWrite = [headerRow, ...allProcessedData];
+
+    // 기존 시트 내용 지우기 (행 수가 줄었을 때 잔여 데이터 방지)
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: sheetId,
+      range: `'${targetSheetName}'!A:AC`
+    });
+
+    // 전체 데이터 일괄 쓰기
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `'${targetSheetName}'!A1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: fullValuesToWrite }
+    });
+
+    console.log(`[ExcelSync] Successfully synchronized ${allProcessedData.length} rows to '${targetSheetName}'.`);
+
+    res.json({
+      success: true,
+      preview: false,
+      backupTitle: backupSheetName,
+      stats
+    });
+  } catch (error: any) {
+    console.error('[ExcelSync Process Error]', error);
+    return handleGoogleError(error, res);
+  }
+});
+
 app.post('/api/sheets/saveCertificateDispatch', async (req, res) => {
   const auth = await getAuthenticatedClient(req, res);
   if (!auth) return res.status(401).json({ error: '인증되지 않았습니다.' });

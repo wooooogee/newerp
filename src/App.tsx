@@ -27,6 +27,7 @@ import { AccountManagementModal } from './AccountManagementModal';
 import { OrganizationChartModal } from './OrganizationChartModal';
 import { MonthlySettlementModal } from './MonthlySettlementModal';
 import { TargetItemsSelectorModal } from './TargetItemsSelectorModal';
+import { ExcelSyncModal } from './ExcelSyncModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -596,6 +597,7 @@ const ERP_Dashboard = () => {
   const [isMembershipApplicationModalOpen, setIsMembershipApplicationModalOpen] = useState(false);
   const [isManualSettlementModalOpen, setIsManualSettlementModalOpen] = useState(false);
   const [isMonthlySettlementModalOpen, setIsMonthlySettlementModalOpen] = useState(false);
+  const [isExcelSyncModalOpen, setIsExcelSyncModalOpen] = useState(false);
   const [topSearchQuery, setTopSearchQuery] = useState('');
 
   // searchTerm이 변경될 때 상단 검색어 동기화
@@ -7234,6 +7236,14 @@ const ERP_Dashboard = () => {
                           <FolderTree size={13} />
                           <span className="hidden sm:inline">조직도</span>
                         </button>
+                        <button
+                          onClick={() => setIsExcelSyncModalOpen(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
+                          title="전산 계약원장 엑셀 및 배송데이터 엑셀을 업로드하여 관리대장 구글 시트를 자동 동기화합니다"
+                        >
+                          <FileSpreadsheet size={13} />
+                          <span className="hidden sm:inline">전산 엑셀 업로드</span>
+                        </button>
                       </div>
                     )}
                     <button
@@ -12590,6 +12600,16 @@ const ERP_Dashboard = () => {
               members={members}
               availableHqs={uniqueHqs}
               initialEmpRows={cachedEmpRows}
+            />
+          )}
+          {isExcelSyncModalOpen && (
+            <ExcelSyncModal
+              isOpen={isExcelSyncModalOpen}
+              onClose={() => setIsExcelSyncModalOpen(false)}
+              onSyncSuccess={async () => {
+                await loadData();
+              }}
+              currentUser={currentUser}
             />
           )}
         </AnimatePresence>
