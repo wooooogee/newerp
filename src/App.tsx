@@ -6637,7 +6637,7 @@ const ERP_Dashboard = () => {
           </motion.div>
           <h1 className="text-lg font-bold tracking-tight">
             The Better Life ERP
-            <span className="text-[11px] font-normal text-slate-400 ml-2">v2.1.0</span>
+            <span className="text-[11px] font-normal text-slate-400 ml-2">v2.2.0</span>
           </h1>
         </div>
 

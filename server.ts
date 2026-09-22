@@ -3010,6 +3010,8 @@ app.post('/api/sheets/excel-sync/decrypt', async (req, res) => {
       message: '비밀번호가 올바르지 않거나 지원되지 않는 암호화 형식입니다. 비밀번호를 다시 확인해 주세요.'
     });
   }
+});
+
 // 구글 시트 특정 탭에 2차원 데이터를 안전하게 덮어쓰는 헬퍼 (시트 자동생성, 그리드 자동 확장, updateCells 안전 초기화, 청크 분할 쓰기)
 async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, targetTitle: string, rows: any[][]): Promise<number> {
   if (!rows || rows.length === 0) return 0;
