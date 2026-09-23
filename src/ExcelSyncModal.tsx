@@ -827,92 +827,58 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         className="relative bg-white w-full max-w-4xl max-h-[92vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-slate-100 z-10"
       >
         {/* 헤더 */}
-        <div className="px-6 py-5 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-500/20 text-indigo-400 rounded-2xl border border-indigo-400/30 flex items-center justify-center shadow-inner">
-              <FileSpreadsheet size={24} />
+        <div className="px-6 py-4 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-400/30 flex items-center justify-center">
+              <FileSpreadsheet size={20} />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-black tracking-tight">전산 엑셀 직접 업로드 & 관리대장 동기화</h3>
-                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-bold rounded-full border border-emerald-400/30">
-                  수기 수정 100% 보존
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 mt-0.5">
-                전산에서 다운로드한 엑셀을 올리면, 기존 스크립트와 동일한 공식으로 관리대장을 완벽하게 생성/동기화합니다.
-              </p>
-            </div>
+            <h3 className="text-base font-black tracking-tight">전산 엑셀 직접 업로드 & 관리대장 동기화</h3>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors cursor-pointer"
             title="닫기"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
         {/* 바디 컨텐츠 */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* 1. 핵심 안전 안내 바 */}
-          <div className="p-4 bg-indigo-50/60 rounded-2xl border border-indigo-100/80 flex items-start gap-3 text-xs text-indigo-950">
-            <ShieldCheck size={20} className="text-indigo-600 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <span className="font-black text-[13px] text-indigo-900 block">
-                🛡️ 데이터 유실 및 엉킴 방지 4대 안전장치 가동 중
-              </span>
-              <p className="text-[11px] text-indigo-800 leading-relaxed">
-                ① <strong>수기 수정 데이터 100% 영구 보존</strong>: 기존 관리대장의 실시간 계약상태(해약/취소 등 B열) 및 선지급일자(23일 등 O열), 배송메모는 절대 덮어써지지 않습니다.<br />
-                ② <strong>자동 백업</strong>: 동기화 직전 <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-indigo-200">백업_관리대장_날짜</span> 시트를 자동 생성하여 언제든 1초 만에 롤백 가능합니다.<br />
-                ③ <strong>비동기 업로드</strong>: 계약원장만 올리기, 배송데이터만 올리기, 둘 다 한 번에 올리기가 모두 가능합니다.
-              </p>
-            </div>
-          </div>
-
-          {/* 2. 파일 업로드 2단 그리드 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* 2-A. 계약원장 엑셀 업로드 카드 */}
-            <div className={`p-5 rounded-2xl border-2 transition-all flex flex-col justify-between ${
-              contractRows ? 'bg-emerald-50/40 border-emerald-300' : 'bg-slate-50/60 border-dashed border-slate-300 hover:border-indigo-400'
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* 4개 파일 업로드 2x2 그리드 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {/* 1. 계약 원장 카드 */}
+            <div className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+              contractRows ? 'bg-emerald-50/50 border-emerald-300' : 'bg-slate-50/70 border-slate-200'
             }`}>
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-2.5">
                   <div className="flex items-center gap-2">
-                    <div className={`p-2 rounded-xl ${contractRows ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                      <FileText size={18} />
+                    <div className={`p-1.5 rounded-lg ${contractRows ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                      <FileText size={16} />
                     </div>
-                    <div>
-                      <h4 className="text-sm font-black text-slate-800">1. 계약 원장 엑셀</h4>
-                      <span className="text-[11px] text-slate-400">기존 '시트1' 대체 (회원/상품/조직 등)</span>
-                    </div>
+                    <h4 className="text-sm font-black text-slate-800">1. 계약 원장</h4>
                   </div>
                   {contractRows && (
-                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[11px] font-black rounded-lg border border-emerald-200">
-                      총 {contractRows.length - 1}건 준비됨
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-lg border border-emerald-200">
+                      총 {(contractRows.length - 1).toLocaleString()}건
                     </span>
                   )}
                 </div>
 
-                {contractRows ? (
-                  <div className="p-3 bg-white rounded-xl border border-emerald-200 text-xs space-y-1 mb-3 shadow-2xs">
-                    <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
-                      <CheckCircle size={14} className="text-emerald-500 shrink-0" />
-                      <span className="truncate">{contractFileName}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 flex items-center justify-between">
-                      <span>행 수: {contractRows.length.toLocaleString()}행</span>
-                      <span className="text-emerald-600 font-bold">헬스케어 PQR 분배 대기</span>
-                    </div>
+                {contractRows && (
+                  <div className="p-2.5 bg-white rounded-xl border border-emerald-200 text-xs mb-2.5 shadow-2xs flex items-center justify-between">
+                    <span className="font-bold text-slate-800 truncate mr-2" title={contractFileName}>
+                      📄 {contractFileName}
+                    </span>
+                    <span className="text-emerald-700 font-bold text-[11px] shrink-0">
+                      {(contractRows.length - 1).toLocaleString()}건 준비됨
+                    </span>
                   </div>
-                ) : (
-                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                    전산에서 다운로드한 계약 원장 파일(.xlsx)을 업로드하면 신규 회원을 자동 등록하고 조직 정보를 최신화합니다.
-                  </p>
                 )}
               </div>
 
-              <div>
+              <div className="mt-2 space-y-1.5">
                 <input
                   type="file"
                   ref={contractInputRef}
@@ -920,143 +886,106 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                   onChange={handleContractFileChange}
                   className="hidden"
                 />
-                <div className="space-y-2">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => contractInputRef.current?.click()}
-                      disabled={isLoading}
-                      className="flex-1 py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                      <Upload size={14} />
-                      {contractRows ? '파일 다시 선택' : '계약원장 파일 선택'}
-                    </button>
-                    {contractRows && (
-                      <button
-                        type="button"
-                        onClick={() => { setContractFile(null); setContractRows(null); setContractFileName(''); setPreviewStats(null); }}
-                        className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                      >
-                        취소
-                      </button>
-                    )}
-                  </div>
-
-                  {/* ⚡ 계약원장 시트1 즉시 스마트 병합 단독 버튼 */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => contractInputRef.current?.click()}
+                    disabled={isLoading}
+                    className="flex-1 py-2 px-3 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Upload size={13} />
+                    {contractRows ? '파일 변경' : '계약원장 파일 선택'}
+                  </button>
                   {contractRows && (
                     <button
                       type="button"
-                      onClick={handleDirectOverwriteSheet1}
-                      disabled={isLoading}
-                      className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      title="구글 시트의 [시트1] 탭에 기존 데이터를 안전하게 보존하며, 동일 회원번호는 최신화하고 신규 계약은 누적 등록합니다"
+                      onClick={() => { setContractFile(null); setContractRows(null); setContractFileName(''); setPreviewStats(null); }}
+                      className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                     >
-                      <Database size={14} />
-                      <span>[시트1] 탭에 지금 즉시 스마트 병합 (기존 보존 + 덮어쓰기/추가)</span>
+                      취소
                     </button>
                   )}
                 </div>
+
+                {contractRows && (
+                  <button
+                    type="button"
+                    onClick={handleDirectOverwriteSheet1}
+                    disabled={isLoading}
+                    className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Database size={13} />
+                    <span>[시트1] 탭에 즉시 스마트 병합 등록</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* 2-B. 배송데이터 엑셀 업로드 카드 (다중 파일 지원) */}
-            <div className={`p-5 rounded-2xl border-2 transition-all flex flex-col justify-between ${
-              deliveryRows ? 'bg-blue-50/40 border-blue-300' : 'bg-slate-50/60 border-dashed border-slate-300 hover:border-blue-400'
+            {/* 2. 배송 데이터 카드 */}
+            <div className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+              deliveryRows ? 'bg-blue-50/50 border-blue-300' : 'bg-slate-50/70 border-slate-200'
             }`}>
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-2.5">
                   <div className="flex items-center gap-2">
-                    <div className={`p-2 rounded-xl ${deliveryRows ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                      <Truck size={18} />
+                    <div className={`p-1.5 rounded-lg ${deliveryRows ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                      <Truck size={16} />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="text-sm font-black text-slate-800">2. 배송데이터 엑셀</h4>
-                        <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 text-[10px] font-extrabold rounded-md">
-                          다중 파일 가능
-                        </span>
-                      </div>
-                      <span className="text-[11px] text-slate-400">렌탈사별/일자별 엑셀 여러 개 동시 선택 가능</span>
+                    <div className="flex items-center gap-1.5">
+                      <h4 className="text-sm font-black text-slate-800">2. 배송 데이터</h4>
+                      <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 text-[10px] font-bold rounded">
+                        복수 가능
+                      </span>
                     </div>
                   </div>
                   {deliveryRows && (
-                    <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-[11px] font-black rounded-lg border border-blue-200">
-                      총 {deliveryFilesInfo.length}개 파일 ({deliveryRows.length - 1}건)
+                    <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-[11px] font-bold rounded-lg border border-blue-200">
+                      {deliveryFilesInfo.length}개 파일 ({(deliveryRows.length - 1).toLocaleString()}건)
                     </span>
                   )}
                 </div>
 
-                {deliveryRows && deliveryFilesInfo.length > 0 ? (
-                  <div className="space-y-2 mb-3">
-                    <div className="p-3 bg-white rounded-xl border border-blue-200 text-xs shadow-2xs space-y-2">
-                      <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-                        <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                          <CheckCircle size={14} className="text-blue-500 shrink-0" />
-                          취합된 배송 파일 목록 ({deliveryFilesInfo.length}개)
-                        </span>
-                        <span className="text-blue-600 font-black text-[11px]">
-                          총 {(deliveryRows.length - 1).toLocaleString()}건 병합 완료
-                        </span>
-                      </div>
-
-                      <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
-                        {deliveryFilesInfo.map((fi, idx) => (
-                          <div
-                            key={idx}
-                            className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 hover:bg-blue-50/60 border border-slate-100 text-[11px] transition-colors"
-                          >
-                            <span className="font-semibold text-slate-700 truncate max-w-[190px]" title={fi.name}>
-                              📄 {fi.name}
-                            </span>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-slate-400 font-mono text-[10px]">+{fi.rowCount.toLocaleString()}건</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveDeliveryFile(fi.name)}
-                                className="text-slate-400 hover:text-rose-500 p-0.5 rounded cursor-pointer"
-                                title="이 파일 제외"
-                              >
-                                <X size={12} />
-                              </button>
-                            </div>
+                {deliveryRows && deliveryFilesInfo.length > 0 && (
+                  <div className="p-2.5 bg-white rounded-xl border border-blue-200 text-xs mb-2.5 shadow-2xs space-y-1.5">
+                    <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
+                      {deliveryFilesInfo.map((fi, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between py-0.5 px-2 rounded bg-slate-50 border border-slate-100 text-[11px]"
+                        >
+                          <span className="font-medium text-slate-700 truncate max-w-[190px]" title={fi.name}>
+                            📄 {fi.name}
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-slate-400 font-mono text-[10px]">+{fi.rowCount.toLocaleString()}건</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDeliveryFile(fi.name)}
+                              className="text-slate-400 hover:text-rose-500 cursor-pointer"
+                            >
+                              <X size={11} />
+                            </button>
                           </div>
-                        ))}
-                      </div>
-
-                      <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100">
-                        <span>💡 다른 렌탈사 엑셀도 언제든 추가 선택 가능</span>
-                        <span className="text-blue-600 font-bold">익월 20일/25일 수수료 계산 준비</span>
-                      </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ) : (
-                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                    배송 및 개통 현황 파일(.xlsx)을 업로드하세요. <br />
-                    <strong className="text-blue-600">Ctrl 키 또는 Shift 키를 누르고 여러 파일</strong>을 선택하면 한 번에 취합됩니다.
-                  </p>
                 )}
               </div>
 
-              <div>
-                {/* 🔒 암호화된 파일 자동 복호화 설정 */}
-                <div className="mb-3 px-3 py-2 bg-blue-50/70 border border-blue-100 rounded-xl flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 text-slate-700">
-                    <Lock size={13} className="text-blue-600 shrink-0" />
-                    <span className="font-bold text-[11px]">배송 엑셀 열기 암호:</span>
+              <div className="mt-2 space-y-1.5">
+                <div className="px-2.5 py-1 bg-white border border-slate-200 rounded-xl flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1 text-slate-600 text-[11px]">
+                    <Lock size={12} className="text-slate-400" />
+                    <span>파일 암호:</span>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="text"
-                      value={deliveryPassword}
-                      onChange={e => setDeliveryPassword(e.target.value)}
-                      placeholder="1111"
-                      className="w-20 px-2 py-1 text-center font-mono font-black text-xs bg-white border border-blue-200 rounded-lg text-blue-900 outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
-                      title="전산 다운로드 시 설정한 암호 (기본값: 1111)"
-                    />
-                    <span className="text-[10px] text-blue-600 font-bold bg-blue-100 px-1.5 py-0.5 rounded">
-                      자동 해제
-                    </span>
-                  </div>
+                  <input
+                    type="text"
+                    value={deliveryPassword}
+                    onChange={e => setDeliveryPassword(e.target.value)}
+                    placeholder="1111"
+                    className="w-16 px-1.5 py-0.5 text-center font-mono font-bold text-xs bg-slate-50 border border-slate-200 rounded text-slate-800 outline-none focus:ring-1 focus:ring-blue-500"
+                  />
                 </div>
 
                 <input
@@ -1072,73 +1001,61 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                     type="button"
                     onClick={() => deliveryInputRef.current?.click()}
                     disabled={isLoading}
-                    className="flex-1 py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="flex-1 py-2 px-3 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
-                    <Upload size={14} />
-                    {deliveryRows ? '+ 파일 추가 / 다시 선택' : '배송데이터 파일 선택 (복수 가능)'}
+                    <Upload size={13} />
+                    {deliveryRows ? '+ 파일 추가' : '배송데이터 파일 선택'}
                   </button>
                   {deliveryRows && (
                     <button
                       type="button"
                       onClick={handleClearDeliveryFiles}
-                      className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                      className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                     >
-                      전체 비우기
+                      비우기
                     </button>
                   )}
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* 2-2. 사원리스트 및 수기발주 엑셀 업로드 2단 그리드 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* 2-C. 사원리스트 명단 엑셀 업로드 카드 (I열 '재직' 선별) */}
-            <div className={`p-5 rounded-2xl border-2 transition-all flex flex-col justify-between ${
-              employeeRows ? 'bg-amber-50/40 border-amber-300' : 'bg-slate-50/60 border-dashed border-slate-300 hover:border-amber-400'
+            {/* 3. 사원 리스트 카드 */}
+            <div className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+              employeeRows ? 'bg-amber-50/50 border-amber-300' : 'bg-slate-50/70 border-slate-200'
             }`}>
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-2.5">
                   <div className="flex items-center gap-2">
-                    <div className={`p-2 rounded-xl ${employeeRows ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                      <UserCheck size={18} />
+                    <div className={`p-1.5 rounded-lg ${employeeRows ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                      <UserCheck size={16} />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="text-sm font-black text-slate-800">3. 사원리스트 명단 엑셀</h4>
-                        <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 text-[10px] font-extrabold rounded-md">
-                          I열 재직 선별
-                        </span>
-                      </div>
-                      <span className="text-[11px] text-slate-400">[사원리스트] 탭에 I열이 '재직'인 값만 등록</span>
+                    <div className="flex items-center gap-1.5">
+                      <h4 className="text-sm font-black text-slate-800">3. 사원 리스트</h4>
+                      <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
+                        I열 재직 선별
+                      </span>
                     </div>
                   </div>
                   {employeeRows && (
-                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[11px] font-black rounded-lg border border-amber-200">
+                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[11px] font-bold rounded-lg border border-amber-200">
                       재직 {employeeActiveCount.toLocaleString()}명 / 전체 {(employeeRows.length - 1).toLocaleString()}건
                     </span>
                   )}
                 </div>
 
-                {employeeRows ? (
-                  <div className="p-3 bg-white rounded-xl border border-amber-200 text-xs space-y-1 mb-3 shadow-2xs">
-                    <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
-                      <CheckCircle size={14} className="text-amber-500 shrink-0" />
-                      <span className="truncate">{employeeFileName}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 flex items-center justify-between">
-                      <span>전체 행: {employeeRows.length.toLocaleString()}행</span>
-                      <span className="text-amber-600 font-bold">I열 '재직' 사원: {employeeActiveCount.toLocaleString()}명 선별 완료</span>
-                    </div>
+                {employeeRows && (
+                  <div className="p-2.5 bg-white rounded-xl border border-amber-200 text-xs mb-2.5 shadow-2xs flex items-center justify-between">
+                    <span className="font-bold text-slate-800 truncate mr-2" title={employeeFileName}>
+                      📄 {employeeFileName}
+                    </span>
+                    <span className="text-amber-700 font-bold text-[11px] shrink-0">
+                      재직 {employeeActiveCount.toLocaleString()}명
+                    </span>
                   </div>
-                ) : (
-                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                    전산에서 다운로드한 사원명단 엑셀 파일을 업로드하면 <strong>I열이 '재직'인 사원만 자동 선별</strong>하여 [사원리스트] 시트에 안전하게 덮어씁니다.
-                  </p>
                 )}
               </div>
 
-              <div>
+              <div className="mt-2 space-y-1.5">
                 <input
                   type="file"
                   ref={employeeInputRef}
@@ -1146,85 +1063,73 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                   onChange={handleEmployeeFileChange}
                   className="hidden"
                 />
-                <div className="space-y-2">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => employeeInputRef.current?.click()}
-                      disabled={isLoading}
-                      className="flex-1 py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                      <Upload size={14} />
-                      {employeeRows ? '파일 다시 선택' : '사원리스트 파일 선택'}
-                    </button>
-                    {employeeRows && (
-                      <button
-                        type="button"
-                        onClick={() => { setEmployeeFile(null); setEmployeeRows(null); setEmployeeFileName(''); setEmployeeActiveCount(0); }}
-                        className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                      >
-                        취소
-                      </button>
-                    )}
-                  </div>
-
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => employeeInputRef.current?.click()}
+                    disabled={isLoading}
+                    className="flex-1 py-2 px-3 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Upload size={13} />
+                    {employeeRows ? '파일 변경' : '사원리스트 파일 선택'}
+                  </button>
                   {employeeRows && (
                     <button
                       type="button"
-                      onClick={handleDirectOverwriteEmployees}
-                      disabled={isLoading}
-                      className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      title="구글 시트의 '사원리스트' 탭에 재직 사원만 지금 즉시 덮어씁니다"
+                      onClick={() => { setEmployeeFile(null); setEmployeeRows(null); setEmployeeFileName(''); setEmployeeActiveCount(0); }}
+                      className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                     >
-                      <UserCheck size={14} />
-                      <span>[사원리스트] 탭에 지금 즉시 등록 (재직 {employeeActiveCount}명 덮어쓰기)</span>
+                      취소
                     </button>
                   )}
                 </div>
+
+                {employeeRows && (
+                  <button
+                    type="button"
+                    onClick={handleDirectOverwriteEmployees}
+                    disabled={isLoading}
+                    className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <UserCheck size={13} />
+                    <span>[사원리스트] 탭에 즉시 등록 (재직 {employeeActiveCount}명)</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* 2-D. 수기발주 엑셀 업로드 카드 */}
-            <div className={`p-5 rounded-2xl border-2 transition-all flex flex-col justify-between ${
-              manualOrderRows ? 'bg-teal-50/40 border-teal-300' : 'bg-slate-50/60 border-dashed border-slate-300 hover:border-teal-400'
+            {/* 4. 수기 발주 카드 */}
+            <div className={`p-4 rounded-2xl border transition-all flex flex-col justify-between ${
+              manualOrderRows ? 'bg-teal-50/50 border-teal-300' : 'bg-slate-50/70 border-slate-200'
             }`}>
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-2.5">
                   <div className="flex items-center gap-2">
-                    <div className={`p-2 rounded-xl ${manualOrderRows ? 'bg-teal-500 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                      <Package size={18} />
+                    <div className={`p-1.5 rounded-lg ${manualOrderRows ? 'bg-teal-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                      <Package size={16} />
                     </div>
-                    <div>
-                      <h4 className="text-sm font-black text-slate-800">4. 수기발주 엑셀</h4>
-                      <span className="text-[11px] text-slate-400">[수기발주] 탭에 원본 그대로 덮어쓰기</span>
-                    </div>
+                    <h4 className="text-sm font-black text-slate-800">4. 수기 발주</h4>
                   </div>
                   {manualOrderRows && (
-                    <span className="px-2 py-0.5 bg-teal-100 text-teal-800 text-[11px] font-black rounded-lg border border-teal-200">
-                      총 {(manualOrderRows.length - 1).toLocaleString()}건 준비됨
+                    <span className="px-2 py-0.5 bg-teal-100 text-teal-800 text-[11px] font-bold rounded-lg border border-teal-200">
+                      총 {(manualOrderRows.length - 1).toLocaleString()}건
                     </span>
                   )}
                 </div>
 
-                {manualOrderRows ? (
-                  <div className="p-3 bg-white rounded-xl border border-teal-200 text-xs space-y-1 mb-3 shadow-2xs">
-                    <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
-                      <CheckCircle size={14} className="text-teal-500 shrink-0" />
-                      <span className="truncate">{manualOrderFileName}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 flex items-center justify-between">
-                      <span>행 수: {manualOrderRows.length.toLocaleString()}행</span>
-                      <span className="text-teal-600 font-bold">수기발주 등록 대기</span>
-                    </div>
+                {manualOrderRows && (
+                  <div className="p-2.5 bg-white rounded-xl border border-teal-200 text-xs mb-2.5 shadow-2xs flex items-center justify-between">
+                    <span className="font-bold text-slate-800 truncate mr-2" title={manualOrderFileName}>
+                      📄 {manualOrderFileName}
+                    </span>
+                    <span className="text-teal-700 font-bold text-[11px] shrink-0">
+                      {(manualOrderRows.length - 1).toLocaleString()}건 준비됨
+                    </span>
                   </div>
-                ) : (
-                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                    수기발주 엑셀 파일(.xlsx)을 업로드하면 구글 시트의 [수기발주] 탭에 원본 그대로 안전하게 덮어씁니다.
-                  </p>
                 )}
               </div>
 
-              <div>
+              <div className="mt-2 space-y-1.5">
                 <input
                   type="file"
                   ref={manualOrderInputRef}
@@ -1232,61 +1137,58 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                   onChange={handleManualOrderFileChange}
                   className="hidden"
                 />
-                <div className="space-y-2">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => manualOrderInputRef.current?.click()}
-                      disabled={isLoading}
-                      className="flex-1 py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                      <Upload size={14} />
-                      {manualOrderRows ? '파일 다시 선택' : '수기발주 파일 선택'}
-                    </button>
-                    {manualOrderRows && (
-                      <button
-                        type="button"
-                        onClick={() => { setManualOrderFile(null); setManualOrderRows(null); setManualOrderFileName(''); }}
-                        className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                      >
-                        취소
-                      </button>
-                    )}
-                  </div>
-
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => manualOrderInputRef.current?.click()}
+                    disabled={isLoading}
+                    className="flex-1 py-2 px-3 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Upload size={13} />
+                    {manualOrderRows ? '파일 변경' : '수기발주 파일 선택'}
+                  </button>
                   {manualOrderRows && (
                     <button
                       type="button"
-                      onClick={handleDirectOverwriteManualOrders}
-                      disabled={isLoading}
-                      className="w-full py-2 px-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      title="구글 시트의 '수기발주' 탭에 이 엑셀 원본 데이터를 즉시 덮어씁니다"
+                      onClick={() => { setManualOrderFile(null); setManualOrderRows(null); setManualOrderFileName(''); }}
+                      className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                     >
-                      <Package size={14} />
-                      <span>[수기발주] 탭에 지금 즉시 등록 (덮어쓰기)</span>
+                      취소
                     </button>
                   )}
                 </div>
+
+                {manualOrderRows && (
+                  <button
+                    type="button"
+                    onClick={handleDirectOverwriteManualOrders}
+                    disabled={isLoading}
+                    className="w-full py-2 px-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Package size={13} />
+                    <span>[수기발주] 탭에 지금 즉시 등록</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
 
-          {/* 3. 옵션 바 */}
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+          {/* 옵션 바 */}
+          <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
             <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={autoBackup}
                 onChange={e => setAutoBackup(e.target.checked)}
-                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500"
               />
-              <span>반영 직전 구글 시트 자동 백업 탭 생성 (적극 권장)</span>
+              <span>관리대장 자동 백업 탭 생성</span>
             </label>
-            {(contractRows || deliveryRows) && (
+            {(contractRows || deliveryRows || employeeRows || manualOrderRows) && (
               <button
                 type="button"
                 onClick={handleReset}
-                className="text-slate-400 hover:text-rose-600 font-bold transition-colors"
+                className="text-slate-400 hover:text-rose-600 text-xs font-bold transition-colors cursor-pointer"
               >
                 전체 초기화
               </button>
@@ -1432,11 +1334,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         </div>
 
         {/* 푸터 액션 버튼 */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
-          <div className="text-xs text-slate-400 flex items-center gap-1.5">
-            <Info size={14} />
-            <span>반영 후에도 언제든 구글 시트의 백업 탭을 통해 원클릭 롤백할 수 있습니다.</span>
-          </div>
+        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5 shrink-0">
 
           <div className="flex items-center gap-2">
             <button
