@@ -3714,7 +3714,7 @@ app.post('/api/sheets/excel-sync/overwrite-sheet1', async (req, res) => {
   }
 });
 
-// 2-2. 사원리스트 엑셀을 '사원리스트' 탭에 덮어쓰기 (I열 '재직' 필터링)
+// 2-2. 사원리스트 엑셀을 '사원리스트' 탭에 스마트 병합(기존 보존 + 사원코드 기준 덮어쓰기 및 신규 추가) API
 app.post('/api/sheets/excel-sync/overwrite-employees', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
@@ -3734,42 +3734,137 @@ app.post('/api/sheets/excel-sync/overwrite-employees', async (req, res) => {
   try {
     const sheets = google.sheets({ version: 'v4', auth: client });
 
-    // I열 (인덱스 8) 또는 헤더에서 '재직' 열 탐색
-    const headers = (employeeRows[0] || []).map(h => String(h || '').trim());
-    let idxStatus = headers.findIndex(h => h.includes('재직') || h.includes('재직구분') || h.includes('상태'));
-    if (idxStatus === -1) idxStatus = 8; // 기본 I열 (0-based index 8)
+    // 1. 기존 사원리스트 데이터 읽기
+    let existingRows: any[][] = [];
+    try {
+      const gRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: `'사원리스트'!A:ZZ`
+      });
+      existingRows = gRes.data.values || [];
+    } catch (readErr: any) {
+      console.warn(`[ExcelSync] Could not read existing rows for '사원리스트':`, readErr.message);
+      existingRows = [];
+    }
 
-    const filteredRows: any[][] = [employeeRows[0]];
-    let activeSeq = 1;
+    // 기존 데이터가 없거나 헤더만 있는 경우: 신규 전체 쓰기
+    if (existingRows.length <= 1) {
+      const rowsWithSeq = employeeRows.map((r, idx) => {
+        if (idx === 0) return r;
+        const row = [...r];
+        row[0] = String(idx);
+        return row;
+      });
+      const writtenCount = await overwriteSheetDataSafe(sheets, sheetId, '사원리스트', rowsWithSeq);
+      sheetDataCache.delete('사원리스트');
+      return res.json({
+        success: true,
+        totalCount: Math.max(0, writtenCount - 1),
+        updatedCount: 0,
+        newCount: Math.max(0, employeeRows.length - 1),
+        existingCount: 0
+      });
+    }
 
-    for (let i = 1; i < employeeRows.length; i++) {
-      const row = [...employeeRows[i]];
-      const statusVal = String(row[idxStatus] || '').trim();
-      // I열이 '재직'인 행만 포함
-      if (statusVal === '재직' || statusVal.includes('재직')) {
-        if (row.length > 0) {
-          row[0] = String(activeSeq++);
-        }
-        filteredRows.push(row);
+    // 2. 키 컬럼 및 헤더 매핑 인덱스 탐색
+    const existingHeaders = (existingRows[0] || []).map(h => String(h || '').trim());
+    const newHeaders = (employeeRows[0] || []).map(h => String(h || '').trim());
+
+    // 사원 식별 키 후보 (사원코드/사원번호/사번)
+    const keyCandidates = ['사원코드', '사원번호', '사번', '코드'];
+    let existingKeyIdx = -1;
+    let newKeyIdx = -1;
+
+    for (const cand of keyCandidates) {
+      if (existingKeyIdx === -1) {
+        existingKeyIdx = existingHeaders.findIndex(h => h.replace(/\s+/g, '').includes(cand));
+      }
+      if (newKeyIdx === -1) {
+        newKeyIdx = newHeaders.findIndex(h => h.replace(/\s+/g, '').includes(cand));
+      }
+    }
+    if (existingKeyIdx === -1) existingKeyIdx = 1; // 기본 B열
+    if (newKeyIdx === -1) newKeyIdx = 1;
+
+    // 3. 기존 행 키 매핑 (사원코드 -> 행 인덱스)
+    const keyToRowIndex = new Map<string, number>();
+    for (let i = 1; i < existingRows.length; i++) {
+      const k = String(existingRows[i][existingKeyIdx] || '').trim().toUpperCase();
+      if (k) {
+        keyToRowIndex.set(k, i);
       }
     }
 
-    const count = await overwriteSheetDataSafe(sheets, sheetId, '사원리스트', filteredRows);
+    // 4. 업로드된 새 행 순회하며 동일 사원은 덮어쓰고(Update), 없는 사원은 추가(Append)
+    const mergedRows: any[][] = existingRows.map(r => [...r]);
+    let updatedCount = 0;
+    let newCount = 0;
+
+    for (let j = 1; j < employeeRows.length; j++) {
+      const nRow = employeeRows[j];
+      const k = String(nRow[newKeyIdx] || '').trim().toUpperCase();
+      if (!k) continue;
+
+      if (keyToRowIndex.has(k)) {
+        // 기존 사원 최신 정보로 덮어쓰기 (컬럼명 매핑 반영)
+        const existingIdx = keyToRowIndex.get(k)!;
+        const currentTargetRow = [...mergedRows[existingIdx]];
+
+        for (let c = 0; c < newHeaders.length; c++) {
+          const colName = newHeaders[c]?.replace(/\s+/g, '');
+          if (!colName) continue;
+          const targetColIdx = existingHeaders.findIndex(eh => eh.replace(/\s+/g, '') === colName);
+          if (targetColIdx > 0) { // 0번 No 열 제외
+            const val = nRow[c];
+            if (val !== undefined && val !== null) {
+              currentTargetRow[targetColIdx] = val;
+            }
+          }
+        }
+        mergedRows[existingIdx] = currentTargetRow;
+        updatedCount++;
+      } else {
+        // 신규 사원 행 생성 (existingHeaders 길이에 맞추어 정규화)
+        const brandNewRow = new Array(existingHeaders.length).fill('');
+        for (let c = 0; c < newHeaders.length; c++) {
+          const colName = newHeaders[c]?.replace(/\s+/g, '');
+          if (!colName) continue;
+          const targetColIdx = existingHeaders.findIndex(eh => eh.replace(/\s+/g, '') === colName);
+          if (targetColIdx > 0) {
+            brandNewRow[targetColIdx] = nRow[c] !== undefined && nRow[c] !== null ? nRow[c] : '';
+          }
+        }
+        mergedRows.push(brandNewRow);
+        keyToRowIndex.set(k, mergedRows.length - 1);
+        newCount++;
+      }
+    }
+
+    // 5. No 열(A열, 인덱스 0) 순번 1부터 순차 재정렬
+    for (let i = 1; i < mergedRows.length; i++) {
+      if (mergedRows[i] && mergedRows[i].length > 0) {
+        mergedRows[i][0] = String(i);
+      }
+    }
+
+    // 6. 구글 시트 안전 쓰기
+    await overwriteSheetDataSafe(sheets, sheetId, '사원리스트', mergedRows);
 
     // 사원리스트 캐시 무효화
     sheetDataCache.delete('사원리스트');
 
-    console.log(`[ExcelSync] Successfully overwrote '사원리스트': ${filteredRows.length - 1} active / ${employeeRows.length - 1} total rows.`);
+    console.log(`[ExcelSync] Successfully merged '사원리스트': total ${mergedRows.length - 1} rows (existing: ${existingRows.length - 1}, updated: ${updatedCount}, new: ${newCount})`);
 
     res.json({
       success: true,
-      overwrittenCount: count,
-      totalInputCount: employeeRows.length - 1,
-      activeCount: filteredRows.length - 1
+      totalCount: mergedRows.length - 1,
+      updatedCount,
+      newCount,
+      existingCount: existingRows.length - 1
     });
   } catch (err: any) {
-    console.error(`[ExcelSync] Overwrite '사원리스트' failed:`, err);
-    res.status(500).json({ error: err.message || '사원리스트 덮어쓰기에 실패했습니다.' });
+    console.error(`[ExcelSync] Smart merge '사원리스트' failed:`, err);
+    res.status(500).json({ error: err.message || '사원리스트 스마트 병합에 실패했습니다.' });
   }
 });
 

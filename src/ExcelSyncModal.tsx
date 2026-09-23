@@ -87,7 +87,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   const contractInputRef = useRef<HTMLInputElement>(null);
   const deliveryInputRef = useRef<HTMLInputElement>(null);
 
-  // 사원리스트 상태 (I열 '재직' 필터링)
+  // 사원리스트 상태 (스마트 병합)
   const [employeeFile, setEmployeeFile] = useState<File | null>(null);
   const [employeeRows, setEmployeeRows] = useState<any[][] | null>(null);
   const [employeeFileName, setEmployeeFileName] = useState<string>('');
@@ -601,7 +601,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     }
   };
 
-  // 사원리스트 파일 선택 핸들러 (I열 '재직' 선별 카운팅)
+  // 사원리스트 파일 선택 핸들러
   const handleEmployeeFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -614,23 +614,10 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         throw new Error('유효한 데이터 행이 없는 사원리스트 파일입니다.');
       }
 
-      // I열(인덱스 8) 또는 헤더에서 '재직' 컬럼 탐색
-      const headers = (rows[0] || []).map((h: any) => String(h || '').trim());
-      let idxStatus = headers.findIndex((h: string) => h.includes('재직') || h.includes('재직구분') || h.includes('상태'));
-      if (idxStatus === -1) idxStatus = 8; // 기본 I열 (0-based 8)
-
-      let activeCount = 0;
-      for (let i = 1; i < rows.length; i++) {
-        const val = String(rows[i][idxStatus] || '').trim();
-        if (val === '재직' || val.includes('재직')) {
-          activeCount++;
-        }
-      }
-
       setEmployeeFile(file);
       setEmployeeRows(rows);
       setEmployeeFileName(file.name);
-      setEmployeeActiveCount(activeCount);
+      setEmployeeActiveCount(rows.length - 1);
     } catch (err: any) {
       console.error(err);
       alert('사원리스트 파일을 읽는 중 오류가 발생했습니다: ' + err.message);
@@ -640,25 +627,24 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     }
   };
 
-  // 사원리스트 즉시 덮어쓰기 실행 (I열 '재직' 사원만 선별 등록)
+  // 사원리스트 스마트 병합 실행 (기존 보존 + 사원코드 기준 덮어쓰기 & 신규 추가)
   const handleDirectOverwriteEmployees = async () => {
     if (!employeeRows || employeeRows.length < 2) {
       alert('사원리스트 엑셀 파일이 준비되지 않았습니다.');
       return;
     }
 
-    const confirmMsg = `[안전 확인] 업로드된 전체 사원 ${(employeeRows.length - 1).toLocaleString()}건 중 ` +
-      `I열이 '재직'인 사원 ${employeeActiveCount.toLocaleString()}명만 자동 선별하여 ` +
-      `구글 시트 [사원리스트] 탭에 지금 즉시 등록(덮어쓰기)하시겠습니까?`;
+    const totalCount = employeeRows.length - 1;
+    const confirmMsg = `[안전 확인] 구글 시트 [사원리스트] 탭의 기존 사원 데이터를 100% 보존하면서, 업로드된 사원 명단 (${totalCount.toLocaleString()}건)의 동일 사원은 최신 정보로 덮어쓰고(갱신), 신규 사원은 추가 등록하시겠습니까?`;
 
     const isConfirmed = (window as any).customConfirm
-      ? await (window as any).customConfirm(confirmMsg, '사원리스트 즉시 등록')
+      ? await (window as any).customConfirm(confirmMsg, '사원리스트 스마트 병합 등록')
       : window.confirm(confirmMsg);
 
     if (!isConfirmed) return;
 
     setIsLoading(true);
-    setLoadingText('구글 시트 [사원리스트] 탭에 재직자 명단을 등록하는 중...');
+    setLoadingText('구글 시트 [사원리스트] 탭에 기존 사원 데이터를 보존하며 스마트 병합하는 중...');
 
     try {
       const res = await fetch('/api/sheets/excel-sync/overwrite-employees', {
@@ -669,13 +655,18 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || '사원리스트 덮어쓰기 실패');
+        throw new Error(errData.error || '사원리스트 스마트 병합 실패');
       }
 
       const data = await res.json();
-      alert(`✓ 구글 시트 [사원리스트] 탭에 총 ${data.activeCount.toLocaleString()}명의 재직 사원이 성공적으로 등록되었습니다! (전체 ${data.totalInputCount.toLocaleString()}건 중 재직자 선별 완료)`);
+      alert(`✓ 구글 시트 [사원리스트] 탭에 성공적으로 병합되었습니다!\n\n` +
+        `• 기존 유지 사원: ${(data.existingCount || 0).toLocaleString()}명\n` +
+        `• 최신 정보 덮어쓰기(갱신): ${(data.updatedCount || 0).toLocaleString()}명\n` +
+        `• 신규 사원 추가: ${(data.newCount || 0).toLocaleString()}명\n` +
+        `(최종 총계: ${data.totalCount.toLocaleString()}명)`
+      );
     } catch (err: any) {
-      console.error('[Direct Overwrite Employees Error]', err);
+      console.error('[Direct Smart Merge Employees Error]', err);
       alert('사원리스트 등록 중 오류가 발생했습니다: ' + err.message);
     } finally {
       setIsLoading(false);
@@ -1076,14 +1067,11 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                     </div>
                     <div className="flex items-center gap-1.5">
                       <h4 className="text-sm font-black text-slate-800">3. 사원 리스트</h4>
-                      <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
-                        I열 재직 선별
-                      </span>
                     </div>
                   </div>
                   {employeeRows && (
                     <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[11px] font-bold rounded-lg border border-amber-200">
-                      재직 {employeeActiveCount.toLocaleString()}명 / 전체 {(employeeRows.length - 1).toLocaleString()}건
+                      총 {(employeeRows.length - 1).toLocaleString()}건
                     </span>
                   )}
                 </div>
@@ -1094,7 +1082,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                       📄 {employeeFileName}
                     </span>
                     <span className="text-amber-700 font-bold text-[11px] shrink-0">
-                      재직 {employeeActiveCount.toLocaleString()}명
+                      {(employeeRows.length - 1).toLocaleString()}건
                     </span>
                   </div>
                 )}
@@ -1137,7 +1125,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                     className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
                     <UserCheck size={13} />
-                    <span>[사원리스트] 탭에 즉시 등록 (재직 {employeeActiveCount}명)</span>
+                    <span>[사원리스트] 탭에 즉시 스마트 병합 등록 ({(employeeRows.length - 1).toLocaleString()}건)</span>
                   </button>
                 )}
               </div>
