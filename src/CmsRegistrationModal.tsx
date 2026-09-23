@@ -506,9 +506,9 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
     }
   };
 
-  // 필터링 적용 (월 선택/직접입력 & 검색어)
+  // 필터링 적용 (월 선택/직접입력 & 검색어) 및 정렬(계약일자, 회원번호 내림차순/올림차순)
   const filteredRecords = useMemo(() => {
-    return records.filter(item => {
+    const filtered = records.filter(item => {
       // 월 필터
       if (selectedMonth !== 'ALL') {
         const cleanInput = (monthInput || selectedMonth).trim().replace(/[^0-9]/g, '');
@@ -542,17 +542,17 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       return true;
     });
 
-    // 🌟 계약일자, 회원번호 내림차순/올림차순 정렬
+    // 🌟 계약일자, 회원번호 내림차순/올림차순 정렬 (자연수 정렬 포함)
     return [...filtered].sort((a, b) => {
       let cmp = 0;
       if (sortField === 'contractDate') {
         cmp = (a.contractDate || '').localeCompare(b.contractDate || '');
         if (cmp === 0) {
-          cmp = (a.memberNo || '').localeCompare(b.memberNo || '');
+          cmp = (a.memberNo || '').localeCompare(b.memberNo || '', undefined, { numeric: true });
         }
       } else {
         // memberNo 기준
-        cmp = (a.memberNo || '').localeCompare(b.memberNo || '');
+        cmp = (a.memberNo || '').localeCompare(b.memberNo || '', undefined, { numeric: true });
         if (cmp === 0) {
           cmp = (a.contractDate || '').localeCompare(b.contractDate || '');
         }
