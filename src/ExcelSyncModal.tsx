@@ -168,7 +168,53 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     return data.rows;
   };
 
-  // 엑셀 파일 파싱 헬퍼 (EUC-KR / CP949 / UTF-8 및 암호화 파일 자동 복호화)
+  // HTML 테이블 파싱 헬퍼 (ASP.NET GridView 및 HTML 기반 가짜 .xls 엑셀 지원)
+  const parseHtmlTableToRows = (html: string): any[][] => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      // 모든 table 요소 중 tr이 가장 많은 메인 데이터 테이블 찾기
+      const tables = Array.from(doc.querySelectorAll('table'));
+      if (tables.length === 0) return [];
+
+      let mainTable = tables[0];
+      let maxTr = 0;
+      for (const tbl of tables) {
+        const trCount = tbl.querySelectorAll('tr').length;
+        if (trCount > maxTr) {
+          maxTr = trCount;
+          mainTable = tbl;
+        }
+      }
+
+      const trList = mainTable.querySelectorAll('tr');
+      const rows: any[][] = [];
+
+      for (const tr of Array.from(trList)) {
+        const cells = tr.querySelectorAll('th, td');
+        if (cells.length === 0) continue;
+
+        const rowData: string[] = [];
+        cells.forEach(cell => {
+          let text = cell.textContent || '';
+          text = text.replace(/[\u00a0\r\n\t]+/g, ' ').trim();
+          rowData.push(text);
+        });
+
+        if (rowData.some(val => val !== '')) {
+          rows.push(rowData);
+        }
+      }
+
+      return rows;
+    } catch (err) {
+      console.warn('[ExcelSync] parseHtmlTableToRows error:', err);
+      return [];
+    }
+  };
+
+  // 엑셀 파일 파싱 헬퍼 (EUC-KR / CP949 / UTF-8 및 HTML .xls, 암호화 파일 자동 복호화)
   const parseExcelFile = async (file: File, password?: string): Promise<any[][]> => {
     const XLSX = (window as any).XLSX;
     if (!XLSX) throw new Error('XLSX 라이브러리를 불러올 수 없습니다. 페이지를 새로고침해 주세요.');
@@ -179,6 +225,49 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     // 1. 바이너리 엑셀 포맷 판별
     const isZipXlsx = bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
     const isCfbXls = bytes.length > 4 && bytes[0] === 0xD0 && bytes[1] === 0xCF && bytes[2] === 0x11 && bytes[3] === 0xE0;
+
+    // 🌟 1-1. 텍스트/HTML 기반 엑셀 (ASP.NET GridView 출력물 등 .xls 확장자로 저장된 HTML 테이블) 우선 감지
+    if (!isZipXlsx && !isCfbXls) {
+      let eucText = '';
+      let utfText = '';
+      try { eucText = new TextDecoder('euc-kr', { fatal: false }).decode(buffer); } catch (e) {}
+      try { utfText = new TextDecoder('utf-8', { fatal: false }).decode(buffer); } catch (e) {}
+
+      // 인코딩 판별: charset 메타태그 우선 확인
+      let chosenText = eucText;
+      const combined = (utfText || '') + (eucText || '');
+      const charsetMatch = combined.match(/charset=["']?([a-zA-Z0-9_-]+)/i);
+
+      if (charsetMatch) {
+        const cs = charsetMatch[1].toLowerCase();
+        if (cs.includes('utf') || cs.includes('65001')) {
+          chosenText = utfText;
+        } else {
+          chosenText = eucText;
+        }
+      } else {
+        // charset 명시가 없으면 한글 검출 개수 및 깨짐(FFFD) 비교
+        const eucHangul = (eucText.match(/[가-힣]/g) || []).length;
+        const eucBroken = (eucText.match(/\uFFFD/g) || []).length;
+        const utfHangul = (utfText.match(/[가-힣]/g) || []).length;
+        const utfBroken = (utfText.match(/\uFFFD/g) || []).length;
+
+        if (utfHangul > eucHangul && utfBroken === 0) {
+          chosenText = utfText;
+        } else {
+          chosenText = eucText;
+        }
+      }
+
+      // HTML 태그 포함 여부 확인 (<table, <tr, <td 등)
+      const lower = chosenText.toLowerCase();
+      if (lower.includes('<table') || (lower.includes('<tr') && lower.includes('<td'))) {
+        const parsedRows = parseHtmlTableToRows(chosenText);
+        if (parsedRows && parsedRows.length > 0) {
+          return autoRepairRowEncoding(parsedRows);
+        }
+      }
+    }
 
     let workbook: any = null;
 
