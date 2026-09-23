@@ -139,6 +139,50 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     });
   };
 
+  // 엑셀 파싱 시 앞자리 0이 유실되기 쉬운 은행코드 및 계좌번호(국민은행/우체국/하나은행 등 13자리 계좌) 자동 정규화 및 복원
+  const autoRepairAccountAndBankCodes = (rows: any[][]): any[][] => {
+    if (!rows || rows.length < 2) return rows;
+    const header = rows[0] || [];
+    const idxBankCode = header.findIndex((h: any) => String(h || '').replace(/\s+/g, '').includes('은행코드'));
+    const idxBankName = header.findIndex((h: any) => String(h || '').replace(/\s+/g, '').includes('은행명'));
+    const idxAccountNo = header.findIndex((h: any) => String(h || '').replace(/\s+/g, '').includes('계좌번호'));
+
+    if (idxBankCode === -1 && idxAccountNo === -1) return rows;
+
+    return rows.map((row, rIdx) => {
+      if (rIdx === 0 || !Array.isArray(row)) return row;
+      const newRow = [...row];
+
+      // 은행코드 1~2자리 숫자인 경우 3자리 패딩 (예: 4 -> 004, 88 -> 088)
+      if (idxBankCode !== -1 && newRow[idxBankCode] !== undefined) {
+        const bCode = String(newRow[idxBankCode] || '').trim();
+        if (/^[0-9]{1,2}$/.test(bCode)) {
+          newRow[idxBankCode] = bCode.padStart(3, '0');
+        }
+      }
+
+      // 계좌번호 앞자리 0 누락 복원
+      if (idxAccountNo !== -1 && newRow[idxAccountNo] !== undefined) {
+        const acc = String(newRow[idxAccountNo] || '').trim();
+        const bCode = idxBankCode !== -1 ? String(newRow[idxBankCode] || '').trim() : '';
+        const bName = idxBankName !== -1 ? String(newRow[idxBankName] || '').trim() : '';
+
+        // 국민(004), 우체국(071), 하나(081) 13자리 순수 숫자 계좌 -> 앞자리 0 추가하여 14자리로 복원
+        if (/^[0-9]{13}$/.test(acc)) {
+          if (bCode === '004' || bCode === '4' || bName.includes('국민')) {
+            newRow[idxAccountNo] = '0' + acc;
+          } else if (bCode === '071' || bCode === '71' || bName.includes('우체국')) {
+            newRow[idxAccountNo] = '0' + acc;
+          } else if (bCode === '081' || bCode === '81' || bName.includes('하나')) {
+            newRow[idxAccountNo] = '0' + acc;
+          }
+        }
+      }
+
+      return newRow;
+    });
+  };
+
   // 서버 복호화 API 호출 (비밀번호: 기본값 1111)
   const decryptExcelViaServer = async (file: File, password: string): Promise<any[][]> => {
     const buffer = await file.arrayBuffer();
@@ -264,7 +308,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       if (lower.includes('<table') || (lower.includes('<tr') && lower.includes('<td'))) {
         const parsedRows = parseHtmlTableToRows(chosenText);
         if (parsedRows && parsedRows.length > 0) {
-          return autoRepairRowEncoding(parsedRows);
+          return autoRepairAccountAndBankCodes(autoRepairRowEncoding(parsedRows));
         }
       }
     }
@@ -273,7 +317,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
 
     try {
       if (isZipXlsx || isCfbXls) {
-        workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949 });
+        workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949, raw: false, cellText: true });
       } else {
         let decodedText = '';
         try {
@@ -281,17 +325,17 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         } catch (e) {}
 
         if (decodedText && /[가-힣]/.test(decodedText)) {
-          workbook = XLSX.read(decodedText, { type: 'string', cellDates: false });
+          workbook = XLSX.read(decodedText, { type: 'string', cellDates: false, raw: false, cellText: true });
         } else {
           try {
             const utf8Text = new TextDecoder('utf-8').decode(buffer);
             if (/[가-힣]/.test(utf8Text)) {
-              workbook = XLSX.read(utf8Text, { type: 'string', cellDates: false });
+              workbook = XLSX.read(utf8Text, { type: 'string', cellDates: false, raw: false, cellText: true });
             }
           } catch (e) {}
 
           if (!workbook) {
-            workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949 });
+            workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949, raw: false, cellText: true });
           }
         }
       }
@@ -300,6 +344,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       const worksheet = workbook.Sheets[firstSheetName];
       let jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false }) as any[][];
       jsonRows = autoRepairRowEncoding(jsonRows);
+      jsonRows = autoRepairAccountAndBankCodes(jsonRows);
       return jsonRows;
     } catch (parseErr: any) {
       console.warn('[ExcelSync] Standard XLSX read failed, attempting server password decryption:', parseErr.message);
@@ -309,7 +354,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       try {
         const decryptedRows = await decryptExcelViaServer(file, currentPw);
         if (decryptedRows && decryptedRows.length > 0) {
-          return autoRepairRowEncoding(decryptedRows);
+          return autoRepairAccountAndBankCodes(autoRepairRowEncoding(decryptedRows));
         }
       } catch (pwErr: any) {
         // 기본 비밀번호(1111)가 맞지 않는 경우 사용자에게 직접 물어보기
@@ -319,7 +364,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         }
         setDeliveryPassword(promptPw);
         const retryRows = await decryptExcelViaServer(file, promptPw);
-        return autoRepairRowEncoding(retryRows);
+        return autoRepairAccountAndBankCodes(autoRepairRowEncoding(retryRows));
       }
 
       throw parseErr;

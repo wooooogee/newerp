@@ -3459,12 +3459,58 @@ async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, target
   }
 
   // 3. 데이터 쓰기 (대용량 엑셀 안정성 확보를 위해 1000행 단위 청크 분할 쓰기 및 undefined 정제)
+  // [중요] Google Sheets values.update의 USER_ENTERED 모드는 0으로 시작하는 연속된 숫자(계좌번호, 은행코드, 전화번호, 생년월일 등)를
+  // 사용자가 일반 숫자를 입력한 것으로 취급하여 앞자리 '0'을 전부 탈락시키는 치명적 문제가 발생합니다.
+  // 따라서 선행 0이 있는 숫자 문자열(^0\d+$)의 경우 앞에 작은따옴표(')를 붙여 전송하면,
+  // Google Sheets가 선행 따옴표를 텍스트 탈출 기호로 소진하여 셀에는 따옴표 없이 '0'이 보존된 문자열로 완벽히 저장됩니다.
+
+  // 헤더 행 기반 식별자 텍스트 컬럼 인덱스 파악
+  const headerRow = safeRows[0] || [];
+  const textColIndices = new Set<number>();
+  for (let c = 0; c < headerRow.length; c++) {
+    const colName = String(headerRow[c] || '').replace(/\s+/g, '');
+    if (
+      colName.includes('계좌번호') ||
+      colName.includes('은행코드') ||
+      colName.includes('회원번호') ||
+      colName.includes('전화') ||
+      colName.includes('핸드폰') ||
+      colName.includes('주민') ||
+      colName.includes('생년월일')
+    ) {
+      textColIndices.add(c);
+    }
+  }
+
   const CHUNK_SIZE = 1000;
   for (let start = 0; start < safeRows.length; start += CHUNK_SIZE) {
     const chunk = safeRows.slice(start, start + CHUNK_SIZE);
-    const cleanChunk = chunk.map(row =>
-      (Array.isArray(row) ? row : []).map(cell => (cell === undefined || cell === null ? '' : typeof cell === 'object' ? JSON.stringify(cell) : String(cell)))
-    );
+    const cleanChunk = chunk.map((row, rIdx) => {
+      const globalRowIdx = start + rIdx;
+      if (globalRowIdx === 0) {
+        // 헤더 행은 그대로 유지
+        return (Array.isArray(row) ? row : []).map(cell => (cell === undefined || cell === null ? '' : String(cell)));
+      }
+      return (Array.isArray(row) ? row : []).map((cell, cIdx) => {
+        if (cell === undefined || cell === null) return '';
+        if (typeof cell === 'object') return JSON.stringify(cell);
+        let str = String(cell).trim();
+
+        // 1) 0으로 시작하는 2자리 이상 연속 숫자열 (예: 004, 08950104336789, 01012345678, 010520 등)
+        if (/^0\d+$/.test(str)) {
+          return `'${str}`;
+        }
+        // 2) 식별자 텍스트 컬럼이면서 숫자만 있는 경우 (은행코드가 1~2자리면 3자리 패딩)
+        if (textColIndices.has(cIdx) && /^\d+$/.test(str)) {
+          const colName = String(headerRow[cIdx] || '').replace(/\s+/g, '');
+          if (colName.includes('은행코드') && str.length <= 2) {
+            str = str.padStart(3, '0');
+          }
+          return `'${str}`;
+        }
+        return str;
+      });
+    });
     const startRowIndex = start + 1; // 1-indexed
     await sheets.spreadsheets.values.update({
       spreadsheetId,
@@ -3549,14 +3595,45 @@ async function mergeSheetDataByKeySafe(
   }
 
   // 4. 새 행들을 순회하며 동일 키는 덮어쓰고(Update), 없는 키는 신규 추가(Append)
+  // [중요] 계좌번호 및 은행코드 정규화 인덱스 탐색
+  const nBankCodeIdx = newHeaders.findIndex(h => h.replace(/\s+/g, '').includes('은행코드'));
+  const nBankNameIdx = newHeaders.findIndex(h => h.replace(/\s+/g, '').includes('은행명'));
+  const nAccountNoIdx = newHeaders.findIndex(h => h.replace(/\s+/g, '').includes('계좌번호'));
+
   const mergedRows: any[][] = existingRows.map(r => [...r]);
   let updatedCount = 0;
   let newCount = 0;
 
   for (let j = 1; j < newRows.length; j++) {
-    const nRow = newRows[j];
-    const k = String(nRow[newKeyIdx] || '').trim();
+    const rawNRow = newRows[j];
+    const k = String(rawNRow[newKeyIdx] || '').trim();
     if (!k) continue;
+
+    const nRow = [...rawNRow];
+
+    // 은행코드 1~2자리 3자리 패딩
+    if (nBankCodeIdx !== -1 && nRow[nBankCodeIdx] !== undefined) {
+      const bCode = String(nRow[nBankCodeIdx] || '').trim();
+      if (/^[0-9]{1,2}$/.test(bCode)) {
+        nRow[nBankCodeIdx] = bCode.padStart(3, '0');
+      }
+    }
+
+    // 계좌번호 앞자리 0 탈락(국민 004, 우체국 071, 하나 081 13자리 계좌) 자동 복원
+    if (nAccountNoIdx !== -1 && nRow[nAccountNoIdx] !== undefined) {
+      const acc = String(nRow[nAccountNoIdx] || '').trim();
+      const bCode = nBankCodeIdx !== -1 ? String(nRow[nBankCodeIdx] || '').trim() : '';
+      const bName = nBankNameIdx !== -1 ? String(nRow[nBankNameIdx] || '').trim() : '';
+      if (/^[0-9]{13}$/.test(acc)) {
+        if (bCode === '004' || bCode === '4' || bName.includes('국민')) {
+          nRow[nAccountNoIdx] = '0' + acc;
+        } else if (bCode === '071' || bCode === '71' || bName.includes('우체국')) {
+          nRow[nAccountNoIdx] = '0' + acc;
+        } else if (bCode === '081' || bCode === '81' || bName.includes('하나')) {
+          nRow[nAccountNoIdx] = '0' + acc;
+        }
+      }
+    }
 
     if (keyToRowIndex.has(k)) {
       // 기존 건 최신 정보로 덮어쓰기
@@ -4293,12 +4370,25 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       range: `'${targetSheetName.replace(/'/g, '')}'!A:AC`
     });
 
-    // 전체 데이터 일괄 쓰기
+    // 전체 데이터 일괄 쓰기 (선행 0 보존을 위해 작은따옴표 이스케이프 적용)
+    const cleanFullValues = fullValuesToWrite.map((row, rIdx) => {
+      if (rIdx === 0) return row;
+      return (Array.isArray(row) ? row : []).map(cell => {
+        if (cell === undefined || cell === null) return '';
+        if (typeof cell === 'object') return JSON.stringify(cell);
+        const str = String(cell).trim();
+        if (/^0\d+$/.test(str)) {
+          return `'${str}`;
+        }
+        return str;
+      });
+    });
+
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
       range: `'${targetSheetName.replace(/'/g, '')}'!A1`,
       valueInputOption: 'USER_ENTERED',
-      requestBody: { values: fullValuesToWrite }
+      requestBody: { values: cleanFullValues }
     });
 
     console.log(`[ExcelSync] Successfully synchronized ${allProcessedData.length} rows to '${targetSheetName}'.`);

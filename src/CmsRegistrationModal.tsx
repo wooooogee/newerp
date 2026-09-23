@@ -190,6 +190,30 @@ const formatBankCode = (rawVal: any): string => {
   return digits.padStart(3, '0');
 };
 
+// 계좌번호 선행 0 누락 방어 및 자동 복원 헬퍼 (국민 004, 우체국 071, 하나 081 등)
+const normalizeAccountNumber = (rawAcc: any, bankCode: string, bankName?: string): string => {
+  if (!rawAcc) return '';
+  const str = String(rawAcc).trim();
+
+  // 13자리 순수 숫자인 경우 주요 은행의 14자리 신계좌 앞자리 0 누락 자동 복원
+  if (/^[0-9]{13}$/.test(str)) {
+    // 국민은행(004): 신계좌 14자리 (예: 08950104336789)
+    if (bankCode === '004' || bankCode === '4' || bankName?.includes('국민')) {
+      return '0' + str;
+    }
+    // 우체국(071): 신계좌 14자리
+    if (bankCode === '071' || bankCode === '71' || bankName?.includes('우체국')) {
+      return '0' + str;
+    }
+    // 하나은행(081): 신계좌 14자리
+    if (bankCode === '081' || bankCode === '81' || bankName?.includes('하나')) {
+      return '0' + str;
+    }
+  }
+
+  return str;
+};
+
 // 계약일자 정규화 (YYYY-MM-DD 및 YYYY-MM 추출)
 const parseContractDate = (val: any): { dateStr: string; monthStr: string } => {
   if (!val) return { dateStr: '', monthStr: '' };
@@ -415,14 +439,17 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       const rawContractDate = row[idxContractDate];
       const { dateStr, monthStr } = parseContractDate(rawContractDate);
 
-      const accountNo = String(row[idxAccountNo] || '').trim();
       const rawBankCode = formatBankCode(row[idxBankCode]);
+      const rawAccountNo = String(row[idxAccountNo] || '').trim();
 
       // 🌟 [농협 011/012 정밀 검증] 전산에서 모두 011로 접수되는 문제 자동 보정
       const { correctedCode: bankCode, bankName, isAutoCorrected: isNhAutoCorrected } = verifyAndCorrectNhBankCode(
         rawBankCode,
-        accountNo
+        rawAccountNo
       );
+
+      // 🌟 [계좌번호 선행 0 누락 정밀 복원] 국민(004)/우체국(071)/하나(081) 13자리 계좌 등
+      const accountNo = normalizeAccountNumber(rawAccountNo, bankCode, bankName);
 
       const rawOwnerResNo = row[idxOwnerResNo];
       const ownerBirth6 = extractBirth6(rawOwnerResNo);
