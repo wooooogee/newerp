@@ -62,7 +62,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   const [deliveryRows, setDeliveryRows] = useState<any[][] | null>(null);
   const [deliveryPassword, setDeliveryPassword] = useState<string>('1111');
 
-  const [autoBackup, setAutoBackup] = useState<boolean>(true);
+  const [autoBackup, setAutoBackup] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingText, setLoadingText] = useState<string>('');
 
