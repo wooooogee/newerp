@@ -2939,6 +2939,341 @@ async function backupManagementSheetSync(sheets: any, spreadsheetId: string, she
   return backupTitle;
 }
 
+// 연속된 숫자 인덱스를 [start, end] (end는 exclusive) 구간들로 묶는 헬퍼
+function groupContinuousIndices(indices: number[]): [number, number][] {
+  if (!indices || indices.length === 0) return [];
+  const sorted = Array.from(new Set(indices)).sort((a, b) => a - b);
+  const ranges: [number, number][] = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i];
+    if (cur === prev + 1) {
+      prev = cur;
+    } else {
+      ranges.push([start, prev + 1]);
+      start = cur;
+      prev = cur;
+    }
+  }
+  ranges.push([start, prev + 1]);
+  return ranges;
+}
+
+// 관리대장 시트의 1행 필터 재설정 및 서식양식 풀기/재설정 일괄 처리 엔진
+async function applyManagementSheetFormatAndFilter(
+  sheets: any,
+  spreadsheetId: string,
+  sheetTitle: string = '관리대장',
+  fullValuesToWrite: any[][]
+): Promise<void> {
+  if (!fullValuesToWrite || fullValuesToWrite.length === 0) return;
+
+  const totalRows = fullValuesToWrite.length;
+  const totalCols = Math.max(fullValuesToWrite[0]?.length || 29, 29);
+
+  // 1. 관리대장 시트 메타데이터 조회
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetsList = spreadsheet.data.sheets || [];
+  const mgmtSheet = sheetsList.find((s: any) => s.properties?.title === sheetTitle);
+
+  if (!mgmtSheet || mgmtSheet.properties?.sheetId === undefined) {
+    console.warn(`[applyManagementSheetFormatAndFilter] Sheet '${sheetTitle}' not found.`);
+    return;
+  }
+
+  const mgmtSheetId = mgmtSheet.properties.sheetId;
+  const currentGridRows = mgmtSheet.properties?.gridProperties?.rowCount || 0;
+  const hasBasicFilter = Boolean(mgmtSheet.basicFilter);
+
+  // 2. 1행 필터 먼저 확실하게 풀기 (기존 필터 해제)
+  if (hasBasicFilter) {
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{ clearBasicFilter: { sheetId: mgmtSheetId } }]
+        }
+      });
+      console.log(`[applyManagementSheetFormatAndFilter] Cleared existing basicFilter on '${sheetTitle}'.`);
+    } catch (clearErr) {
+      console.warn('[applyManagementSheetFormatAndFilter] Failed to clearBasicFilter (may not exist):', clearErr);
+    }
+  }
+
+  // 3. 서식 풀기 및 전체 서식 재설정 + 1행 필터 재설정 배치 요청 조립
+  const batchRequests: any[] = [];
+
+  // 3-1. 행 수가 부족한 경우 안전하게 확장
+  if (totalRows > currentGridRows) {
+    batchRequests.push({
+      updateSheetProperties: {
+        properties: {
+          sheetId: mgmtSheetId,
+          gridProperties: { rowCount: totalRows + 100 }
+        },
+        fields: 'gridProperties.rowCount'
+      }
+    });
+  }
+
+  // 3-2. 데이터 영역 전체 서식 풀기 (Clear format)
+  // 1행(헤더) 제외한 데이터 전체(1행~totalRows-1행) 서식 초기화
+  batchRequests.push({
+    repeatCell: {
+      range: {
+        sheetId: mgmtSheetId,
+        startRowIndex: 1,
+        endRowIndex: totalRows,
+        startColumnIndex: 0,
+        endColumnIndex: totalCols
+      },
+      cell: {},
+      fields: 'userEnteredFormat'
+    }
+  });
+
+  // 3-3. 1행 헤더 서식 재설정 (Arial, Bold, 좌측/하단 정렬)
+  batchRequests.push({
+    repeatCell: {
+      range: {
+        sheetId: mgmtSheetId,
+        startRowIndex: 0,
+        endRowIndex: 1,
+        startColumnIndex: 0,
+        endColumnIndex: totalCols
+      },
+      cell: {
+        userEnteredFormat: {
+          textFormat: { bold: true, fontFamily: 'Arial' },
+          horizontalAlignment: 'LEFT',
+          verticalAlignment: 'BOTTOM'
+        }
+      },
+      fields: 'userEnteredFormat.textFormat,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment'
+    }
+  });
+
+  // 3-4. 데이터 행 전체 기본 서식 재설정 (Arial 10pt, 세로 가운데, 가로 좌측)
+  batchRequests.push({
+    repeatCell: {
+      range: {
+        sheetId: mgmtSheetId,
+        startRowIndex: 1,
+        endRowIndex: totalRows,
+        startColumnIndex: 0,
+        endColumnIndex: totalCols
+      },
+      cell: {
+        userEnteredFormat: {
+          textFormat: { fontFamily: 'Arial' },
+          horizontalAlignment: 'LEFT',
+          verticalAlignment: 'MIDDLE'
+        }
+      },
+      fields: 'userEnteredFormat.textFormat,userEnteredFormat.horizontalAlignment,userEnteredFormat.verticalAlignment'
+    }
+  });
+
+  // 3-5. 날짜 컬럼 9개 (A:0, N:13, O:14, S:18, V:21, W:22, Z:25, AA:26, AC:28)
+  const dateCols = [0, 13, 14, 18, 21, 22, 25, 26, 28];
+  for (const c of dateCols) {
+    if (c < totalCols) {
+      batchRequests.push({
+        repeatCell: {
+          range: {
+            sheetId: mgmtSheetId,
+            startRowIndex: 1,
+            endRowIndex: totalRows,
+            startColumnIndex: c,
+            endColumnIndex: c + 1
+          },
+          cell: {
+            userEnteredFormat: {
+              numberFormat: { type: 'DATE', pattern: 'yyyy-MM-dd' }
+            }
+          },
+          fields: 'userEnteredFormat.numberFormat'
+        }
+      });
+    }
+  }
+
+  // 3-6. I열 (지사, [8]): TEXT 서식 (@)
+  if (8 < totalCols) {
+    batchRequests.push({
+      repeatCell: {
+        range: {
+          sheetId: mgmtSheetId,
+          startRowIndex: 1,
+          endRowIndex: totalRows,
+          startColumnIndex: 8,
+          endColumnIndex: 9
+        },
+        cell: {
+          userEnteredFormat: {
+            numberFormat: { type: 'TEXT', pattern: '@' }
+          }
+        },
+        fields: 'userEnteredFormat.numberFormat'
+      }
+    });
+  }
+
+  // 3-7. R열 (헬스케어_휴대폰, [17]): NUMBER 서식 (000-0000-0000)
+  if (17 < totalCols) {
+    batchRequests.push({
+      repeatCell: {
+        range: {
+          sheetId: mgmtSheetId,
+          startRowIndex: 1,
+          endRowIndex: totalRows,
+          startColumnIndex: 17,
+          endColumnIndex: 18
+        },
+        cell: {
+          userEnteredFormat: {
+            numberFormat: { type: 'NUMBER', pattern: '000-0000-0000' }
+          }
+        },
+        fields: 'userEnteredFormat.numberFormat'
+      }
+    });
+  }
+
+  // 3-8. M열 (렌탈계약상품, [12]): 줄바꿈 CLIP
+  if (12 < totalCols) {
+    batchRequests.push({
+      repeatCell: {
+        range: {
+          sheetId: mgmtSheetId,
+          startRowIndex: 1,
+          endRowIndex: totalRows,
+          startColumnIndex: 12,
+          endColumnIndex: 13
+        },
+        cell: {
+          userEnteredFormat: {
+            wrapStrategy: 'CLIP'
+          }
+        },
+        fields: 'userEnteredFormat.wrapStrategy'
+      }
+    });
+  }
+
+  // 3-9. 상태별 배경색 지정 (연속 행 구간 묶기 최적화)
+  const cancelRows: number[] = [];      // '해약' 행
+  const abortRows: number[] = [];       // '취소' 행
+  const waitingDelivRows: number[] = []; // '배송대기' 행
+
+  for (let r = 1; r < fullValuesToWrite.length; r++) {
+    const row = fullValuesToWrite[r];
+    const statusVal = String(row[1] || '').trim();
+    if (statusVal === '해약') {
+      cancelRows.push(r);
+    } else if (statusVal === '취소') {
+      abortRows.push(r);
+    }
+
+    const delivVal = String(row[11] || '').trim();
+    if (delivVal === '배송대기') {
+      waitingDelivRows.push(r);
+    }
+  }
+
+  // 해약: 전체 행 연분홍 배경 (#F4CCCC)
+  const cancelRanges = groupContinuousIndices(cancelRows);
+  for (const [st, ed] of cancelRanges) {
+    batchRequests.push({
+      repeatCell: {
+        range: {
+          sheetId: mgmtSheetId,
+          startRowIndex: st,
+          endRowIndex: ed,
+          startColumnIndex: 0,
+          endColumnIndex: totalCols
+        },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.95686275, green: 0.8, blue: 0.8 }
+          }
+        },
+        fields: 'userEnteredFormat.backgroundColor'
+      }
+    });
+  }
+
+  // 취소: 전체 행 진분홍 배경 (#EA9999)
+  const abortRanges = groupContinuousIndices(abortRows);
+  for (const [st, ed] of abortRanges) {
+    batchRequests.push({
+      repeatCell: {
+        range: {
+          sheetId: mgmtSheetId,
+          startRowIndex: st,
+          endRowIndex: ed,
+          startColumnIndex: 0,
+          endColumnIndex: totalCols
+        },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.91764706, green: 0.6, blue: 0.6 }
+          }
+        },
+        fields: 'userEnteredFormat.backgroundColor'
+      }
+    });
+  }
+
+  // 배송대기: L열 연주황 배경 (#F6B26B)
+  const delivRanges = groupContinuousIndices(waitingDelivRows);
+  for (const [st, ed] of delivRanges) {
+    batchRequests.push({
+      repeatCell: {
+        range: {
+          sheetId: mgmtSheetId,
+          startRowIndex: st,
+          endRowIndex: ed,
+          startColumnIndex: 11,
+          endColumnIndex: 12
+        },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.9647059, green: 0.69803923, blue: 0.41960785 }
+          }
+        },
+        fields: 'userEnteredFormat.backgroundColor'
+      }
+    });
+  }
+
+  // 3-10. 1행 필터 재설정 (전체 데이터 행 범위 포함)
+  batchRequests.push({
+    setBasicFilter: {
+      filter: {
+        range: {
+          sheetId: mgmtSheetId,
+          startRowIndex: 0,
+          endRowIndex: totalRows,
+          startColumnIndex: 0,
+          endColumnIndex: totalCols
+        },
+        sortSpecs: [{ dimensionIndex: 2, sortOrder: 'DESCENDING' }]
+      }
+    }
+  });
+
+  // 4. batchUpdate 실행
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: batchRequests }
+  });
+
+  console.log(`[applyManagementSheetFormatAndFilter] Successfully refreshed filter (0..${totalRows}) and applied formats with ${batchRequests.length} actions.`);
+}
+
 // 1. 단독 백업 API
 app.post('/api/sheets/excel-sync/backup', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
@@ -3717,6 +4052,17 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
 
     console.log(`[ExcelSync] Successfully synchronized ${allProcessedData.length} rows to '${targetSheetName}'.`);
 
+    // 4-4. [핵심] 1행 필터 풀었다가 재설정 & 서식양식 풀었다가 재설정 일괄 적용
+    let filterAndFormatApplied = false;
+    let filterAndFormatError: string | null = null;
+    try {
+      await applyManagementSheetFormatAndFilter(sheets, sheetId, targetSheetName, fullValuesToWrite);
+      filterAndFormatApplied = true;
+    } catch (fmtFilterErr: any) {
+      filterAndFormatError = fmtFilterErr.message || '필터 및 서식 재설정 실패';
+      console.error(`[ExcelSync] Failed to apply format and filter:`, fmtFilterErr);
+    }
+
     res.json({
       success: true,
       preview: false,
@@ -3725,6 +4071,8 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       sheet1Error,
       deliveryOverwrittenCount,
       deliveryError,
+      filterAndFormatApplied,
+      filterAndFormatError,
       stats
     });
   } catch (error: any) {

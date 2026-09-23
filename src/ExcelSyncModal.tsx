@@ -71,6 +71,8 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     sheet1Error?: string | null;
     deliveryOverwrittenCount?: number;
     deliveryError?: string | null;
+    filterAndFormatApplied?: boolean;
+    filterAndFormatError?: string | null;
     stats: SyncStats;
   } | null>(null);
 
@@ -485,6 +487,8 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         sheet1Error: data.sheet1Error,
         deliveryOverwrittenCount: data.deliveryOverwrittenCount,
         deliveryError: data.deliveryError,
+        filterAndFormatApplied: data.filterAndFormatApplied,
+        filterAndFormatError: data.filterAndFormatError,
         stats: data.stats
       });
 
@@ -905,6 +909,18 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                   <div className="px-3 py-1.5 bg-rose-50 text-rose-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-rose-200 shadow-2xs">
                     <AlertTriangle size={13} className="text-rose-600 shrink-0" />
                     <span>[배송데이터 오류] {completedResult.deliveryError}</span>
+                  </div>
+                )}
+                {completedResult.filterAndFormatApplied && (
+                  <div className="px-3 py-1.5 bg-white text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-emerald-200 shadow-2xs">
+                    <CheckCircle size={13} className="text-emerald-600 shrink-0" />
+                    <span>[관리대장] 1행 필터 재설정(마지막 행 포함) 및 상태/배송 서식양식 풀기·재설정 완료</span>
+                  </div>
+                )}
+                {completedResult.filterAndFormatError && (
+                  <div className="px-3 py-1.5 bg-amber-50 text-amber-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-amber-200 shadow-2xs">
+                    <AlertTriangle size={13} className="text-amber-600 shrink-0" />
+                    <span>[필터/서식 안내] {completedResult.filterAndFormatError}</span>
                   </div>
                 )}
               </div>
