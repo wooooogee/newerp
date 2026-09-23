@@ -70,8 +70,14 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   const [completedResult, setCompletedResult] = useState<{
     backupTitle?: string;
     sheet1OverwrittenCount?: number;
+    sheet1UpdatedCount?: number;
+    sheet1NewCount?: number;
+    sheet1ExistingCount?: number;
     sheet1Error?: string | null;
     deliveryOverwrittenCount?: number;
+    deliveryUpdatedCount?: number;
+    deliveryNewCount?: number;
+    deliveryExistingCount?: number;
     deliveryError?: string | null;
     filterAndFormatApplied?: boolean;
     filterAndFormatError?: string | null;
@@ -417,22 +423,22 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     }
   };
 
-  // 계약원장 엑셀을 구글 시트 [시트1] 탭에 즉시 덮어쓰기 단독 실행
+  // 계약원장 엑셀을 구글 시트 [시트1] 탭에 스마트 병합(기존 보존 + 회원번호 기준 덮어쓰기 & 신규 추가) 단독 실행
   const handleDirectOverwriteSheet1 = async () => {
     if (!contractRows || contractRows.length < 2) {
       alert('계약원장 엑셀 파일이 준비되지 않았습니다.');
       return;
     }
 
-    const confirmMsg = `[안전 확인] 구글 시트 [시트1] 탭에 업로드된 계약원장 (${(contractRows.length - 1).toLocaleString()}건)을 지금 즉시 등록(덮어쓰기)하시겠습니까?`;
+    const confirmMsg = `[안전 확인] 구글 시트 [시트1] 탭의 기존 데이터를 100% 보존하면서, 업로드된 계약원장 (${(contractRows.length - 1).toLocaleString()}건)의 동일 회원번호는 최신 정보로 덮어쓰고(갱신), 신규 회원번호는 추가 등록하시겠습니까?`;
     const isConfirmed = (window as any).customConfirm
-      ? await (window as any).customConfirm(confirmMsg, '시트1 즉시 등록')
+      ? await (window as any).customConfirm(confirmMsg, '시트1 스마트 병합 등록')
       : window.confirm(confirmMsg);
 
     if (!isConfirmed) return;
 
     setIsLoading(true);
-    setLoadingText('구글 시트 [시트1] 탭에 즉시 등록(덮어쓰기)하는 중...');
+    setLoadingText('구글 시트 [시트1] 탭에 기존 데이터를 보존하며 스마트 병합하는 중...');
 
     try {
       const res = await fetch('/api/sheets/excel-sync/overwrite-sheet1', {
@@ -443,11 +449,16 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || '시트1 덮어쓰기 실패');
+        throw new Error(errData.error || '시트1 병합 실패');
       }
 
       const data = await res.json();
-      alert(`✓ 구글 시트 [시트1] 탭에 총 ${data.overwrittenCount.toLocaleString()}개 행이 성공적으로 등록되었습니다!`);
+      alert(`✓ 구글 시트 [시트1] 탭에 성공적으로 병합되었습니다!\n\n` +
+        `• 기존 유지 데이터: ${(data.existingCount || 0).toLocaleString()}건\n` +
+        `• 최신 정보 덮어쓰기(갱신): ${(data.updatedCount || 0).toLocaleString()}건\n` +
+        `• 신규 계약 추가: ${(data.newCount || 0).toLocaleString()}건\n` +
+        `(최종 총계: ${data.overwrittenCount.toLocaleString()}행)`
+      );
     } catch (err: any) {
       console.error('[Direct Overwrite Sheet1 Error]', err);
       alert('시트1 등록 중 오류가 발생했습니다: ' + err.message);
@@ -645,8 +656,14 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       setCompletedResult({
         backupTitle: data.backupTitle,
         sheet1OverwrittenCount: data.sheet1OverwrittenCount,
+        sheet1UpdatedCount: data.sheet1UpdatedCount,
+        sheet1NewCount: data.sheet1NewCount,
+        sheet1ExistingCount: data.sheet1ExistingCount,
         sheet1Error: data.sheet1Error,
         deliveryOverwrittenCount: data.deliveryOverwrittenCount,
+        deliveryUpdatedCount: data.deliveryUpdatedCount,
+        deliveryNewCount: data.deliveryNewCount,
+        deliveryExistingCount: data.deliveryExistingCount,
         deliveryError: data.deliveryError,
         filterAndFormatApplied: data.filterAndFormatApplied,
         filterAndFormatError: data.filterAndFormatError,
@@ -657,14 +674,20 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       let successDetailMsg = `✓ 관리대장 구글 시트 동기화가 성공적으로 완료되었습니다!\n\n`;
       if (contractRows) {
         successDetailMsg += `• 신규 계약: ${data.stats.newContractCount.toLocaleString()}건 추가\n• 기존 계약 갱신: ${data.stats.updatedContractCount.toLocaleString()}건 최신화\n`;
+        if (data.sheet1OverwrittenCount) {
+          successDetailMsg += `• [시트1] 기존 보존 스마트 병합 (신규 +${data.sheet1NewCount || 0}건, 갱신 ${data.sheet1UpdatedCount || 0}건)\n`;
+        }
       }
       if (deliveryRows) {
         successDetailMsg += `• 배송완료 전환: ${data.stats.deliveryCompletedCount.toLocaleString()}건 완료\n• 배송예정일 매칭: ${data.stats.deliveryExpectedCount.toLocaleString()}건\n`;
+        if (data.deliveryOverwrittenCount) {
+          successDetailMsg += `• [배송데이터] 스마트 병합 (신규 +${data.deliveryNewCount || 0}건, 갱신 ${data.deliveryUpdatedCount || 0}건)\n`;
+        }
       }
       alert(successDetailMsg);
 
       if (data.sheet1Error) {
-        alert(`[경고] 관리대장은 동기화되었으나, '시트1' 시트 덮어쓰기 중 오류가 발생했습니다: ${data.sheet1Error}`);
+        alert(`[경고] 관리대장은 동기화되었으나, '시트1' 시트 병합 중 오류가 발생했습니다: ${data.sheet1Error}`);
       }
 
       // 메인 ERP 데이터 자동 리로드
@@ -830,17 +853,17 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                     )}
                   </div>
 
-                  {/* ⚡ 계약원장 시트1 즉시 덮어쓰기 단독 버튼 */}
+                  {/* ⚡ 계약원장 시트1 즉시 스마트 병합 단독 버튼 */}
                   {contractRows && (
                     <button
                       type="button"
                       onClick={handleDirectOverwriteSheet1}
                       disabled={isLoading}
                       className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      title="구글 시트의 '시트1' 탭에 이 엑셀 원본 데이터를 즉시 덮어씁니다"
+                      title="구글 시트의 [시트1] 탭에 기존 데이터를 안전하게 보존하며, 동일 회원번호는 최신화하고 신규 계약은 누적 등록합니다"
                     >
                       <Database size={14} />
-                      <span>[시트1] 탭에 지금 즉시 등록 (덮어쓰기)</span>
+                      <span>[시트1] 탭에 지금 즉시 스마트 병합 (기존 보존 + 덮어쓰기/추가)</span>
                     </button>
                   )}
                 </div>
@@ -1269,7 +1292,9 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                 {completedResult.sheet1OverwrittenCount !== undefined && completedResult.sheet1OverwrittenCount > 0 && (
                   <div className="px-3 py-1.5 bg-white text-blue-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-blue-200 shadow-2xs">
                     <Database size={13} className="text-blue-600 shrink-0" />
-                    <span>[시트1] 계약원장 원본 덮어쓰기 완료 ({completedResult.sheet1OverwrittenCount}행)</span>
+                    <span>
+                      [시트1] 스마트 병합 완료 (신규 +{completedResult.sheet1NewCount?.toLocaleString() || 0}건 / 갱신 {completedResult.sheet1UpdatedCount?.toLocaleString() || 0}건 / 총 {completedResult.sheet1OverwrittenCount.toLocaleString()}행)
+                    </span>
                   </div>
                 )}
                 {completedResult.sheet1Error && (
@@ -1281,7 +1306,9 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                 {completedResult.deliveryOverwrittenCount !== undefined && completedResult.deliveryOverwrittenCount > 0 && (
                   <div className="px-3 py-1.5 bg-white text-indigo-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-indigo-200 shadow-2xs">
                     <Truck size={13} className="text-indigo-600 shrink-0" />
-                    <span>[배송데이터] 배송 원본 덮어쓰기 완료 ({completedResult.deliveryOverwrittenCount}행)</span>
+                    <span>
+                      [배송데이터] 스마트 병합 완료 (신규 +{completedResult.deliveryNewCount?.toLocaleString() || 0}건 / 갱신 {completedResult.deliveryUpdatedCount?.toLocaleString() || 0}건 / 총 {completedResult.deliveryOverwrittenCount.toLocaleString()}행)
+                    </span>
                   </div>
                 )}
                 {completedResult.deliveryError && (

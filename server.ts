@@ -3483,7 +3483,120 @@ async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, target
   return safeRows.length;
 }
 
-// 2-1. 계약원장 엑셀을 '시트1' 탭에 단독 즉시 덮어쓰기 API
+// 1-2. 기존 데이터를 100% 보존하며 키(회원번호/계약번호) 기준으로 덮어쓰기(Update) 및 신규 추가(Append)하는 스마트 병합 함수
+async function mergeSheetDataByKeySafe(
+  sheets: any,
+  spreadsheetId: string,
+  targetTitle: string,
+  newRows: any[][],
+  keyCandidates: string[],
+  defaultKeyIdx: number = 1
+): Promise<{ totalCount: number; updatedCount: number; newCount: number; existingCount: number }> {
+  if (!newRows || newRows.length === 0) {
+    return { totalCount: 0, updatedCount: 0, newCount: 0, existingCount: 0 };
+  }
+
+  // 1. 기존 데이터 읽기
+  let existingRows: any[][] = [];
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `'${targetTitle.replace(/'/g, '')}'!A:ZZ`
+    });
+    existingRows = res.data.values || [];
+  } catch (err: any) {
+    console.warn(`[ExcelSync] Could not read existing rows for '${targetTitle}':`, err.message);
+    existingRows = [];
+  }
+
+  // 기존 시트에 데이터가 없거나 1행 이하(헤더만 있음)인 경우 -> 신규 전체 쓰기
+  if (existingRows.length <= 1) {
+    const writtenCount = await overwriteSheetDataSafe(sheets, spreadsheetId, targetTitle, newRows);
+    return {
+      totalCount: writtenCount,
+      updatedCount: 0,
+      newCount: Math.max(0, newRows.length - 1),
+      existingCount: 0
+    };
+  }
+
+  // 2. 키 컬럼 인덱스 탐색
+  const existingHeaders = (existingRows[0] || []).map(h => String(h || '').trim());
+  const newHeaders = (newRows[0] || []).map(h => String(h || '').trim());
+
+  let existingKeyIdx = -1;
+  let newKeyIdx = -1;
+
+  for (const candidate of keyCandidates) {
+    if (existingKeyIdx === -1) {
+      existingKeyIdx = existingHeaders.findIndex(h => h.includes(candidate));
+    }
+    if (newKeyIdx === -1) {
+      newKeyIdx = newHeaders.findIndex(h => h.includes(candidate));
+    }
+  }
+
+  if (existingKeyIdx === -1) existingKeyIdx = defaultKeyIdx;
+  if (newKeyIdx === -1) newKeyIdx = defaultKeyIdx;
+
+  // 3. 기존 행의 키 매핑 (Key -> 기존 행 인덱스)
+  const keyToRowIndex = new Map<string, number>();
+  for (let i = 1; i < existingRows.length; i++) {
+    const k = String(existingRows[i][existingKeyIdx] || '').trim();
+    if (k) {
+      keyToRowIndex.set(k, i);
+    }
+  }
+
+  // 4. 새 행들을 순회하며 동일 키는 덮어쓰고(Update), 없는 키는 신규 추가(Append)
+  const mergedRows: any[][] = existingRows.map(r => [...r]);
+  let updatedCount = 0;
+  let newCount = 0;
+
+  for (let j = 1; j < newRows.length; j++) {
+    const nRow = newRows[j];
+    const k = String(nRow[newKeyIdx] || '').trim();
+    if (!k) continue;
+
+    if (keyToRowIndex.has(k)) {
+      // 기존 건 최신 정보로 덮어쓰기
+      const existingIdx = keyToRowIndex.get(k)!;
+      mergedRows[existingIdx] = [...nRow];
+      updatedCount++;
+    } else {
+      // 신규 건 아래에 추가 (누적)
+      mergedRows.push([...nRow]);
+      keyToRowIndex.set(k, mergedRows.length - 1);
+      newCount++;
+    }
+  }
+
+  // 5. 모든 행의 컬럼 길이를 최대 컬럼 길이에 맞춰 패딩 (잔여 데이터 방지)
+  const maxCols = Math.max(
+    ...mergedRows.map(r => (r ? r.length : 0)),
+    existingHeaders.length,
+    newHeaders.length
+  );
+  const normalizedMergedRows = mergedRows.map(r => {
+    const row = Array.isArray(r) ? [...r] : [];
+    while (row.length < maxCols) row.push('');
+    return row;
+  });
+
+  // 6. 전체 병합 데이터를 안전하게 시트에 쓰기
+  const writtenCount = await overwriteSheetDataSafe(sheets, spreadsheetId, targetTitle, normalizedMergedRows);
+
+  console.log(`[ExcelSync] Successfully merged '${targetTitle}': total ${writtenCount} rows (existing: ${existingRows.length - 1}, updated: ${updatedCount}, new: ${newCount})`);
+
+  return {
+    totalCount: writtenCount,
+    updatedCount,
+    newCount,
+    existingCount: existingRows.length - 1
+  };
+}
+
+// 2-1. 계약원장 엑셀을 '시트1' 탭에 스마트 병합(기존 보존 + 회원번호 기준 덮어쓰기 및 신규 추가) API
 app.post('/api/sheets/excel-sync/overwrite-sheet1', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
@@ -3502,11 +3615,25 @@ app.post('/api/sheets/excel-sync/overwrite-sheet1', async (req, res) => {
 
   try {
     const sheets = google.sheets({ version: 'v4', auth: client });
-    const count = await overwriteSheetDataSafe(sheets, sheetId, '시트1', contractRows);
-    res.json({ success: true, overwrittenCount: count });
+    // 회원번호 기준 스마트 병합 실행
+    const result = await mergeSheetDataByKeySafe(
+      sheets,
+      sheetId,
+      '시트1',
+      contractRows,
+      ['회원번호', '계약번호', '회원코드'],
+      1
+    );
+    res.json({
+      success: true,
+      overwrittenCount: result.totalCount,
+      updatedCount: result.updatedCount,
+      newCount: result.newCount,
+      existingCount: result.existingCount
+    });
   } catch (err: any) {
-    console.error(`[ExcelSync] Single overwrite '시트1' failed:`, err);
-    res.status(500).json({ error: err.message || '시트1 덮어쓰기에 실패했습니다.' });
+    console.error(`[ExcelSync] Single merge '시트1' failed:`, err);
+    res.status(500).json({ error: err.message || '시트1 스마트 병합에 실패했습니다.' });
   }
 });
 
@@ -4103,27 +4230,55 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       }
     }
 
-    // 4-1. '시트1' 시트에 계약원장 엑셀 원본 덮어쓰기
+    // 4-1. '시트1' 시트에 계약원장 엑셀 스마트 병합(기존 보존 + 회원번호 기준 덮어쓰기 & 신규 추가)
     let sheet1OverwrittenCount = 0;
+    let sheet1UpdatedCount = 0;
+    let sheet1NewCount = 0;
+    let sheet1ExistingCount = 0;
     let sheet1Error: string | null = null;
     if (safeContractRows && safeContractRows.length > 0) {
       try {
-        sheet1OverwrittenCount = await overwriteSheetDataSafe(sheets, sheetId, '시트1', safeContractRows);
+        const s1Res = await mergeSheetDataByKeySafe(
+          sheets,
+          sheetId,
+          '시트1',
+          safeContractRows,
+          ['회원번호', '계약번호', '회원코드'],
+          1
+        );
+        sheet1OverwrittenCount = s1Res.totalCount;
+        sheet1UpdatedCount = s1Res.updatedCount;
+        sheet1NewCount = s1Res.newCount;
+        sheet1ExistingCount = s1Res.existingCount;
       } catch (err: any) {
-        sheet1Error = err.message || '시트1 덮어쓰기 실패';
-        console.error(`[ExcelSync] Failed to overwrite '시트1':`, err);
+        sheet1Error = err.message || '시트1 스마트 병합 실패';
+        console.error(`[ExcelSync] Failed to merge '시트1':`, err);
       }
     }
 
-    // 4-2. '배송데이터' 시트에 배송데이터 엑셀 원본 덮어쓰기
+    // 4-2. '배송데이터' 시트에 배송데이터 엑셀 스마트 병합(기존 보존 + 계약번호 기준 덮어쓰기 & 신규 추가)
     let deliveryOverwrittenCount = 0;
+    let deliveryUpdatedCount = 0;
+    let deliveryNewCount = 0;
+    let deliveryExistingCount = 0;
     let deliveryError: string | null = null;
     if (safeDeliveryRows && safeDeliveryRows.length > 0) {
       try {
-        deliveryOverwrittenCount = await overwriteSheetDataSafe(sheets, sheetId, '배송데이터', safeDeliveryRows);
+        const delRes = await mergeSheetDataByKeySafe(
+          sheets,
+          sheetId,
+          '배송데이터',
+          safeDeliveryRows,
+          ['계약번호', '렌탈계약번호', '렌탈번호', '주문번호'],
+          1
+        );
+        deliveryOverwrittenCount = delRes.totalCount;
+        deliveryUpdatedCount = delRes.updatedCount;
+        deliveryNewCount = delRes.newCount;
+        deliveryExistingCount = delRes.existingCount;
       } catch (err: any) {
-        deliveryError = err.message || '배송데이터 덮어쓰기 실패';
-        console.error(`[ExcelSync] Failed to overwrite '배송데이터':`, err);
+        deliveryError = err.message || '배송데이터 스마트 병합 실패';
+        console.error(`[ExcelSync] Failed to merge '배송데이터':`, err);
       }
     }
 
@@ -4164,8 +4319,14 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       preview: false,
       backupTitle: backupSheetName,
       sheet1OverwrittenCount,
+      sheet1UpdatedCount,
+      sheet1NewCount,
+      sheet1ExistingCount,
       sheet1Error,
       deliveryOverwrittenCount,
+      deliveryUpdatedCount,
+      deliveryNewCount,
+      deliveryExistingCount,
       deliveryError,
       filterAndFormatApplied,
       filterAndFormatError,
