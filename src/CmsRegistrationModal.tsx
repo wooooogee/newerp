@@ -15,7 +15,10 @@ import {
   RefreshCw,
   Sparkles,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -283,6 +286,19 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // 정렬 상태: 계약일자 또는 회원번호, 내림차순(desc) 또는 오름차순(asc)
+  const [sortField, setSortField] = useState<'contractDate' | 'memberNo'>('contractDate');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+
+  const handleToggleSort = (field: 'contractDate' | 'memberNo') => {
+    if (sortField === field) {
+      setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortField(field);
+      setSortOrder('desc'); // 새로운 필드 클릭 시 기본 최신순/내림차순
+    }
+  };
+
   // 시트1 데이터 로드 함수
   const fetchSheet1Data = async () => {
     setIsLoading(true);
@@ -525,7 +541,25 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       }
       return true;
     });
-  }, [records, selectedMonth, monthInput, searchQuery]);
+
+    // 🌟 계약일자, 회원번호 내림차순/올림차순 정렬
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'contractDate') {
+        cmp = (a.contractDate || '').localeCompare(b.contractDate || '');
+        if (cmp === 0) {
+          cmp = (a.memberNo || '').localeCompare(b.memberNo || '');
+        }
+      } else {
+        // memberNo 기준
+        cmp = (a.memberNo || '').localeCompare(b.memberNo || '');
+        if (cmp === 0) {
+          cmp = (a.contractDate || '').localeCompare(b.contractDate || '');
+        }
+      }
+      return sortOrder === 'asc' ? cmp : -cmp;
+    });
+  }, [records, selectedMonth, monthInput, searchQuery, sortField, sortOrder]);
 
   // 엑셀 다운로드
   const handleExportExcel = () => {
@@ -713,7 +747,47 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
           </div>
 
           {/* 검색 및 액션 버튼 */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* 🌟 정렬 선택 버튼 (계약일자 / 회원번호, 내림차순 / 올림차순) */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+              <button
+                type="button"
+                onClick={() => handleToggleSort('contractDate')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                  sortField === 'contractDate'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                }`}
+                title="계약일자 기준 정렬 (클릭 시 내림차순/올림차순 토글)"
+              >
+                <span>계약일자</span>
+                {sortField === 'contractDate' ? (
+                  sortOrder === 'desc' ? <ArrowDown size={11} /> : <ArrowUp size={11} />
+                ) : (
+                  <ArrowUpDown size={11} className="opacity-40" />
+                )}
+                <span className="text-[9px] opacity-80">({sortField === 'contractDate' ? (sortOrder === 'desc' ? '내림' : '올림') : '정렬'})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleSort('memberNo')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                  sortField === 'memberNo'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                }`}
+                title="회원번호 기준 정렬 (클릭 시 내림차순/올림차순 토글)"
+              >
+                <span>회원번호</span>
+                {sortField === 'memberNo' ? (
+                  sortOrder === 'desc' ? <ArrowDown size={11} /> : <ArrowUp size={11} />
+                ) : (
+                  <ArrowUpDown size={11} className="opacity-40" />
+                )}
+                <span className="text-[9px] opacity-80">({sortField === 'memberNo' ? (sortOrder === 'desc' ? '내림' : '올림') : '정렬'})</span>
+              </button>
+            </div>
+
             <div className="relative">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -721,7 +795,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="회원명, 회원번호, 계좌 검색..."
-                className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 w-48 sm:w-56"
+                className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 w-44 sm:w-52"
               />
             </div>
             <button
@@ -775,11 +849,43 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                 <thead>
                   <tr className="bg-slate-100/90 text-slate-700 font-bold border-b border-slate-200 select-none">
                     <th className="py-3 px-3.5 text-center w-12">No</th>
-                    <th className="py-3 px-3 w-28">계약일자</th>
+                    <th
+                      onClick={() => handleToggleSort('contractDate')}
+                      className="py-3 px-3 w-28 cursor-pointer hover:bg-slate-200/80 transition-colors select-none group"
+                      title="클릭 시 계약일자 내림차순/올림차순 정렬"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>계약일자</span>
+                        {sortField === 'contractDate' ? (
+                          sortOrder === 'desc' ? (
+                            <ArrowDown size={13} className="text-blue-600 font-bold" />
+                          ) : (
+                            <ArrowUp size={13} className="text-blue-600 font-bold" />
+                          )
+                        ) : (
+                          <ArrowUpDown size={12} className="text-slate-400 group-hover:text-slate-600 transition-colors opacity-60" />
+                        )}
+                      </div>
+                    </th>
                     <th className="py-3 px-3 w-24">회원명</th>
-                    <th className="py-3 px-3 w-32">
-                      <div className="flex items-center gap-1">
-                        <span>회원번호</span>
+                    <th
+                      onClick={() => handleToggleSort('memberNo')}
+                      className="py-3 px-3 w-32 cursor-pointer hover:bg-slate-200/80 transition-colors select-none group"
+                      title="클릭 시 회원번호 내림차순/올림차순 정렬"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span>회원번호</span>
+                          {sortField === 'memberNo' ? (
+                            sortOrder === 'desc' ? (
+                              <ArrowDown size={13} className="text-blue-600 font-bold" />
+                            ) : (
+                              <ArrowUp size={13} className="text-blue-600 font-bold" />
+                            )
+                          ) : (
+                            <ArrowUpDown size={12} className="text-slate-400 group-hover:text-slate-600 transition-colors opacity-60" />
+                          )}
+                        </div>
                         <Copy size={11} className="text-slate-400" />
                       </div>
                     </th>

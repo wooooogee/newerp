@@ -16,7 +16,9 @@ import {
   Clock,
   Sparkles,
   Info,
-  Lock
+  Lock,
+  UserCheck,
+  Package
 } from 'lucide-react';
 
 interface ExcelSyncModalProps {
@@ -78,6 +80,19 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
 
   const contractInputRef = useRef<HTMLInputElement>(null);
   const deliveryInputRef = useRef<HTMLInputElement>(null);
+
+  // 사원리스트 상태 (I열 '재직' 필터링)
+  const [employeeFile, setEmployeeFile] = useState<File | null>(null);
+  const [employeeRows, setEmployeeRows] = useState<any[][] | null>(null);
+  const [employeeFileName, setEmployeeFileName] = useState<string>('');
+  const [employeeActiveCount, setEmployeeActiveCount] = useState<number>(0);
+  const employeeInputRef = useRef<HTMLInputElement>(null);
+
+  // 수기발주 상태
+  const [manualOrderFile, setManualOrderFile] = useState<File | null>(null);
+  const [manualOrderRows, setManualOrderRows] = useState<any[][] | null>(null);
+  const [manualOrderFileName, setManualOrderFileName] = useState<string>('');
+  const manualOrderInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -441,6 +456,152 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     }
   };
 
+  // 사원리스트 파일 선택 핸들러 (I열 '재직' 선별 카운팅)
+  const handleEmployeeFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsLoading(true);
+      setLoadingText(`사원리스트 파일 [${file.name}] 읽는 중...`);
+      const rows = await parseExcelFile(file);
+      if (!rows || rows.length < 2) {
+        throw new Error('유효한 데이터 행이 없는 사원리스트 파일입니다.');
+      }
+
+      // I열(인덱스 8) 또는 헤더에서 '재직' 컬럼 탐색
+      const headers = (rows[0] || []).map((h: any) => String(h || '').trim());
+      let idxStatus = headers.findIndex((h: string) => h.includes('재직') || h.includes('재직구분') || h.includes('상태'));
+      if (idxStatus === -1) idxStatus = 8; // 기본 I열 (0-based 8)
+
+      let activeCount = 0;
+      for (let i = 1; i < rows.length; i++) {
+        const val = String(rows[i][idxStatus] || '').trim();
+        if (val === '재직' || val.includes('재직')) {
+          activeCount++;
+        }
+      }
+
+      setEmployeeFile(file);
+      setEmployeeRows(rows);
+      setEmployeeFileName(file.name);
+      setEmployeeActiveCount(activeCount);
+    } catch (err: any) {
+      console.error(err);
+      alert('사원리스트 파일을 읽는 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsLoading(false);
+      if (employeeInputRef.current) employeeInputRef.current.value = '';
+    }
+  };
+
+  // 사원리스트 즉시 덮어쓰기 실행 (I열 '재직' 사원만 선별 등록)
+  const handleDirectOverwriteEmployees = async () => {
+    if (!employeeRows || employeeRows.length < 2) {
+      alert('사원리스트 엑셀 파일이 준비되지 않았습니다.');
+      return;
+    }
+
+    const confirmMsg = `[안전 확인] 업로드된 전체 사원 ${(employeeRows.length - 1).toLocaleString()}건 중 ` +
+      `I열이 '재직'인 사원 ${employeeActiveCount.toLocaleString()}명만 자동 선별하여 ` +
+      `구글 시트 [사원리스트] 탭에 지금 즉시 등록(덮어쓰기)하시겠습니까?`;
+
+    const isConfirmed = (window as any).customConfirm
+      ? await (window as any).customConfirm(confirmMsg, '사원리스트 즉시 등록')
+      : window.confirm(confirmMsg);
+
+    if (!isConfirmed) return;
+
+    setIsLoading(true);
+    setLoadingText('구글 시트 [사원리스트] 탭에 재직자 명단을 등록하는 중...');
+
+    try {
+      const res = await fetch('/api/sheets/excel-sync/overwrite-employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employeeRows })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || '사원리스트 덮어쓰기 실패');
+      }
+
+      const data = await res.json();
+      alert(`✓ 구글 시트 [사원리스트] 탭에 총 ${data.activeCount.toLocaleString()}명의 재직 사원이 성공적으로 등록되었습니다! (전체 ${data.totalInputCount.toLocaleString()}건 중 재직자 선별 완료)`);
+    } catch (err: any) {
+      console.error('[Direct Overwrite Employees Error]', err);
+      alert('사원리스트 등록 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 수기발주 파일 선택 핸들러
+  const handleManualOrderFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsLoading(true);
+      setLoadingText(`수기발주 파일 [${file.name}] 읽는 중...`);
+      const rows = await parseExcelFile(file);
+      if (!rows || rows.length < 2) {
+        throw new Error('유효한 데이터 행이 없는 수기발주 파일입니다.');
+      }
+
+      setManualOrderFile(file);
+      setManualOrderRows(rows);
+      setManualOrderFileName(file.name);
+    } catch (err: any) {
+      console.error(err);
+      alert('수기발주 파일을 읽는 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsLoading(false);
+      if (manualOrderInputRef.current) manualOrderInputRef.current.value = '';
+    }
+  };
+
+  // 수기발주 즉시 덮어쓰기 실행
+  const handleDirectOverwriteManualOrders = async () => {
+    if (!manualOrderRows || manualOrderRows.length < 2) {
+      alert('수기발주 엑셀 파일이 준비되지 않았습니다.');
+      return;
+    }
+
+    const confirmMsg = `[안전 확인] 구글 시트 [수기발주] 탭에 업로드된 수기발주 ${(manualOrderRows.length - 1).toLocaleString()}건을 지금 즉시 등록(덮어쓰기)하시겠습니까?`;
+
+    const isConfirmed = (window as any).customConfirm
+      ? await (window as any).customConfirm(confirmMsg, '수기발주 즉시 등록')
+      : window.confirm(confirmMsg);
+
+    if (!isConfirmed) return;
+
+    setIsLoading(true);
+    setLoadingText('구글 시트 [수기발주] 탭에 즉시 등록(덮어쓰기)하는 중...');
+
+    try {
+      const res = await fetch('/api/sheets/excel-sync/overwrite-manual-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manualOrderRows })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || '수기발주 덮어쓰기 실패');
+      }
+
+      const data = await res.json();
+      alert(`✓ 구글 시트 [수기발주] 탭에 총 ${(data.overwrittenCount - 1).toLocaleString()}건의 발주 데이터가 성공적으로 등록되었습니다!`);
+    } catch (err: any) {
+      console.error('[Direct Overwrite Manual Orders Error]', err);
+      alert('수기발주 등록 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // 관리대장 시트에 실제 안전 반영
   const handleExecuteSync = async () => {
     if (!contractRows && !deliveryRows) {
@@ -492,6 +653,16 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         stats: data.stats
       });
 
+      // 🌟 [요구사항 3] 동기화 결과 alert 요약 팝업
+      let successDetailMsg = `✓ 관리대장 구글 시트 동기화가 성공적으로 완료되었습니다!\n\n`;
+      if (contractRows) {
+        successDetailMsg += `• 신규 계약: ${data.stats.newContractCount.toLocaleString()}건 추가\n• 기존 계약 갱신: ${data.stats.updatedContractCount.toLocaleString()}건 최신화\n`;
+      }
+      if (deliveryRows) {
+        successDetailMsg += `• 배송완료 전환: ${data.stats.deliveryCompletedCount.toLocaleString()}건 완료\n• 배송예정일 매칭: ${data.stats.deliveryExpectedCount.toLocaleString()}건\n`;
+      }
+      alert(successDetailMsg);
+
       if (data.sheet1Error) {
         alert(`[경고] 관리대장은 동기화되었으나, '시트1' 시트 덮어쓰기 중 오류가 발생했습니다: ${data.sheet1Error}`);
       }
@@ -514,6 +685,13 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     setDeliveryFileTables([]);
     setDeliveryFilesInfo([]);
     setDeliveryRows(null);
+    setEmployeeFile(null);
+    setEmployeeRows(null);
+    setEmployeeFileName('');
+    setEmployeeActiveCount(0);
+    setManualOrderFile(null);
+    setManualOrderRows(null);
+    setManualOrderFileName('');
     setPreviewStats(null);
     setCompletedResult(null);
   };
@@ -801,6 +979,186 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
             </div>
           </div>
 
+          {/* 2-2. 사원리스트 및 수기발주 엑셀 업로드 2단 그리드 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* 2-C. 사원리스트 명단 엑셀 업로드 카드 (I열 '재직' 선별) */}
+            <div className={`p-5 rounded-2xl border-2 transition-all flex flex-col justify-between ${
+              employeeRows ? 'bg-amber-50/40 border-amber-300' : 'bg-slate-50/60 border-dashed border-slate-300 hover:border-amber-400'
+            }`}>
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-2 rounded-xl ${employeeRows ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                      <UserCheck size={18} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <h4 className="text-sm font-black text-slate-800">3. 사원리스트 명단 엑셀</h4>
+                        <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 text-[10px] font-extrabold rounded-md">
+                          I열 재직 선별
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400">[사원리스트] 탭에 I열이 '재직'인 값만 등록</span>
+                    </div>
+                  </div>
+                  {employeeRows && (
+                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[11px] font-black rounded-lg border border-amber-200">
+                      재직 {employeeActiveCount.toLocaleString()}명 / 전체 {(employeeRows.length - 1).toLocaleString()}건
+                    </span>
+                  )}
+                </div>
+
+                {employeeRows ? (
+                  <div className="p-3 bg-white rounded-xl border border-amber-200 text-xs space-y-1 mb-3 shadow-2xs">
+                    <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
+                      <CheckCircle size={14} className="text-amber-500 shrink-0" />
+                      <span className="truncate">{employeeFileName}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 flex items-center justify-between">
+                      <span>전체 행: {employeeRows.length.toLocaleString()}행</span>
+                      <span className="text-amber-600 font-bold">I열 '재직' 사원: {employeeActiveCount.toLocaleString()}명 선별 완료</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                    전산에서 다운로드한 사원명단 엑셀 파일을 업로드하면 <strong>I열이 '재직'인 사원만 자동 선별</strong>하여 [사원리스트] 시트에 안전하게 덮어씁니다.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <input
+                  type="file"
+                  ref={employeeInputRef}
+                  accept=".xlsx, .xls, .csv"
+                  onChange={handleEmployeeFileChange}
+                  className="hidden"
+                />
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => employeeInputRef.current?.click()}
+                      disabled={isLoading}
+                      className="flex-1 py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload size={14} />
+                      {employeeRows ? '파일 다시 선택' : '사원리스트 파일 선택'}
+                    </button>
+                    {employeeRows && (
+                      <button
+                        type="button"
+                        onClick={() => { setEmployeeFile(null); setEmployeeRows(null); setEmployeeFileName(''); setEmployeeActiveCount(0); }}
+                        className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        취소
+                      </button>
+                    )}
+                  </div>
+
+                  {employeeRows && (
+                    <button
+                      type="button"
+                      onClick={handleDirectOverwriteEmployees}
+                      disabled={isLoading}
+                      className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="구글 시트의 '사원리스트' 탭에 재직 사원만 지금 즉시 덮어씁니다"
+                    >
+                      <UserCheck size={14} />
+                      <span>[사원리스트] 탭에 지금 즉시 등록 (재직 {employeeActiveCount}명 덮어쓰기)</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 2-D. 수기발주 엑셀 업로드 카드 */}
+            <div className={`p-5 rounded-2xl border-2 transition-all flex flex-col justify-between ${
+              manualOrderRows ? 'bg-teal-50/40 border-teal-300' : 'bg-slate-50/60 border-dashed border-slate-300 hover:border-teal-400'
+            }`}>
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-2 rounded-xl ${manualOrderRows ? 'bg-teal-500 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                      <Package size={18} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-slate-800">4. 수기발주 엑셀</h4>
+                      <span className="text-[11px] text-slate-400">[수기발주] 탭에 원본 그대로 덮어쓰기</span>
+                    </div>
+                  </div>
+                  {manualOrderRows && (
+                    <span className="px-2 py-0.5 bg-teal-100 text-teal-800 text-[11px] font-black rounded-lg border border-teal-200">
+                      총 {(manualOrderRows.length - 1).toLocaleString()}건 준비됨
+                    </span>
+                  )}
+                </div>
+
+                {manualOrderRows ? (
+                  <div className="p-3 bg-white rounded-xl border border-teal-200 text-xs space-y-1 mb-3 shadow-2xs">
+                    <div className="font-bold text-slate-800 truncate flex items-center gap-1.5">
+                      <CheckCircle size={14} className="text-teal-500 shrink-0" />
+                      <span className="truncate">{manualOrderFileName}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 flex items-center justify-between">
+                      <span>행 수: {manualOrderRows.length.toLocaleString()}행</span>
+                      <span className="text-teal-600 font-bold">수기발주 등록 대기</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                    수기발주 엑셀 파일(.xlsx)을 업로드하면 구글 시트의 [수기발주] 탭에 원본 그대로 안전하게 덮어씁니다.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <input
+                  type="file"
+                  ref={manualOrderInputRef}
+                  accept=".xlsx, .xls, .csv"
+                  onChange={handleManualOrderFileChange}
+                  className="hidden"
+                />
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => manualOrderInputRef.current?.click()}
+                      disabled={isLoading}
+                      className="flex-1 py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload size={14} />
+                      {manualOrderRows ? '파일 다시 선택' : '수기발주 파일 선택'}
+                    </button>
+                    {manualOrderRows && (
+                      <button
+                        type="button"
+                        onClick={() => { setManualOrderFile(null); setManualOrderRows(null); setManualOrderFileName(''); }}
+                        className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        취소
+                      </button>
+                    )}
+                  </div>
+
+                  {manualOrderRows && (
+                    <button
+                      type="button"
+                      onClick={handleDirectOverwriteManualOrders}
+                      disabled={isLoading}
+                      className="w-full py-2 px-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="구글 시트의 '수기발주' 탭에 이 엑셀 원본 데이터를 즉시 덮어씁니다"
+                    >
+                      <Package size={14} />
+                      <span>[수기발주] 탭에 지금 즉시 등록 (덮어쓰기)</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* 3. 옵션 바 */}
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
             <label className="flex items-center gap-2 font-bold text-slate-700 cursor-pointer select-none">
@@ -884,8 +1242,29 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                 관리대장 구글 시트 동기화가 완벽하게 성공했습니다!
               </div>
               <p className="text-xs text-emerald-800 leading-relaxed">
-                총 <strong>{completedResult.stats.finalTotalCount}건</strong>의 데이터가 구글 시트 [관리대장]에 최신화되었으며, ERP 웹사이트 화면 데이터도 자동으로 새로고침되었습니다.
+                총 <strong>{completedResult.stats.finalTotalCount.toLocaleString()}건</strong>의 데이터가 구글 시트 [관리대장]에 최신화되었으며, ERP 웹사이트 화면 데이터도 자동으로 새로고침되었습니다.
               </p>
+
+              {/* 핵심 동기화 결과 통계 카드 (신규계약 건수, 배송완료 전환 건수 등) */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center my-3">
+                <div className="p-3 bg-white rounded-xl border border-emerald-300 shadow-xs">
+                  <span className="text-[11px] font-bold text-emerald-700 uppercase block mb-1">신규 계약 등록</span>
+                  <span className="text-xl font-black text-emerald-600">+{completedResult.stats.newContractCount.toLocaleString()}건</span>
+                </div>
+                <div className="p-3 bg-white rounded-xl border border-blue-300 shadow-xs">
+                  <span className="text-[11px] font-bold text-blue-700 uppercase block mb-1">배송완료 전환</span>
+                  <span className="text-xl font-black text-blue-600">{completedResult.stats.deliveryCompletedCount.toLocaleString()}건</span>
+                </div>
+                <div className="p-3 bg-white rounded-xl border border-purple-300 shadow-xs">
+                  <span className="text-[11px] font-bold text-purple-700 uppercase block mb-1">배송예정일 매칭</span>
+                  <span className="text-xl font-black text-purple-600">{completedResult.stats.deliveryExpectedCount.toLocaleString()}건</span>
+                </div>
+                <div className="p-3 bg-white rounded-xl border border-slate-300 shadow-xs">
+                  <span className="text-[11px] font-bold text-slate-600 uppercase block mb-1">최종 관리대장 총계</span>
+                  <span className="text-xl font-black text-slate-800">{completedResult.stats.finalTotalCount.toLocaleString()}건</span>
+                </div>
+              </div>
+
               <div className="flex flex-wrap gap-2 pt-1">
                 {completedResult.sheet1OverwrittenCount !== undefined && completedResult.sheet1OverwrittenCount > 0 && (
                   <div className="px-3 py-1.5 bg-white text-blue-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-blue-200 shadow-2xs">

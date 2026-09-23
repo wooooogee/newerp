@@ -3510,6 +3510,102 @@ app.post('/api/sheets/excel-sync/overwrite-sheet1', async (req, res) => {
   }
 });
 
+// 2-2. 사원리스트 엑셀을 '사원리스트' 탭에 덮어쓰기 (I열 '재직' 필터링)
+app.post('/api/sheets/excel-sync/overwrite-employees', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { employeeRows } = req.body as { employeeRows?: any[][] };
+  if (!employeeRows || employeeRows.length < 2) {
+    return res.status(400).json({ error: '유효한 사원리스트 데이터가 없습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+  if (!sheetId) return res.status(500).json({ error: 'GOOGLE_SHEET_ID 설정이 없습니다.' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    // I열 (인덱스 8) 또는 헤더에서 '재직' 열 탐색
+    const headers = (employeeRows[0] || []).map(h => String(h || '').trim());
+    let idxStatus = headers.findIndex(h => h.includes('재직') || h.includes('재직구분') || h.includes('상태'));
+    if (idxStatus === -1) idxStatus = 8; // 기본 I열 (0-based index 8)
+
+    const filteredRows: any[][] = [employeeRows[0]];
+    let activeSeq = 1;
+
+    for (let i = 1; i < employeeRows.length; i++) {
+      const row = [...employeeRows[i]];
+      const statusVal = String(row[idxStatus] || '').trim();
+      // I열이 '재직'인 행만 포함
+      if (statusVal === '재직' || statusVal.includes('재직')) {
+        if (row.length > 0) {
+          row[0] = String(activeSeq++);
+        }
+        filteredRows.push(row);
+      }
+    }
+
+    const count = await overwriteSheetDataSafe(sheets, sheetId, '사원리스트', filteredRows);
+
+    // 사원리스트 캐시 무효화
+    sheetDataCache.delete('사원리스트');
+
+    console.log(`[ExcelSync] Successfully overwrote '사원리스트': ${filteredRows.length - 1} active / ${employeeRows.length - 1} total rows.`);
+
+    res.json({
+      success: true,
+      overwrittenCount: count,
+      totalInputCount: employeeRows.length - 1,
+      activeCount: filteredRows.length - 1
+    });
+  } catch (err: any) {
+    console.error(`[ExcelSync] Overwrite '사원리스트' failed:`, err);
+    res.status(500).json({ error: err.message || '사원리스트 덮어쓰기에 실패했습니다.' });
+  }
+});
+
+// 2-3. 수기발주 엑셀을 '수기발주' 탭에 덮어쓰기
+app.post('/api/sheets/excel-sync/overwrite-manual-orders', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { manualOrderRows } = req.body as { manualOrderRows?: any[][] };
+  if (!manualOrderRows || manualOrderRows.length < 2) {
+    return res.status(400).json({ error: '유효한 수기발주 데이터가 없습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+  if (!sheetId) return res.status(500).json({ error: 'GOOGLE_SHEET_ID 설정이 없습니다.' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const count = await overwriteSheetDataSafe(sheets, sheetId, '수기발주', manualOrderRows);
+
+    // 수기발주 캐시 무효화
+    sheetDataCache.delete('수기발주');
+
+    console.log(`[ExcelSync] Successfully overwrote '수기발주': ${count} rows.`);
+
+    res.json({
+      success: true,
+      overwrittenCount: count,
+      totalCount: manualOrderRows.length - 1
+    });
+  } catch (err: any) {
+    console.error(`[ExcelSync] Overwrite '수기발주' failed:`, err);
+    res.status(500).json({ error: err.message || '수기발주 덮어쓰기에 실패했습니다.' });
+  }
+});
+
 // 3. 엑셀 동기화 처리 (미리보기 & 실제 반영) API
 app.post('/api/sheets/excel-sync/process', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);

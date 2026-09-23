@@ -7021,28 +7021,6 @@ const ERP_Dashboard = () => {
             </AnimatePresence>
           </section>
 
-          {/* CMS 등록 (모든 사용자 공통 노출) */}
-          <section className="mt-1">
-            <button
-              type="button"
-              onClick={() => setIsCmsRegistrationModalOpen(true)}
-              className="w-full flex items-center justify-between px-3.5 py-2.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 hover:from-blue-100/90 hover:to-indigo-100/90 border border-blue-200/90 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="p-1 bg-blue-600 text-white rounded-lg group-hover:scale-105 transition-transform shadow-xs">
-                  <CreditCard size={18} />
-                </div>
-                <div className="text-left">
-                  <span className="text-sm font-black text-slate-900 tracking-tight block">CMS 등록</span>
-                </div>
-              </div>
-              <ChevronRight
-                size={18}
-                className="text-blue-500 group-hover:translate-x-0.5 transition-all"
-              />
-            </button>
-          </section>
-
           {isManager && (
             <>
               {/* 발주 관리 */}
