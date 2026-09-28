@@ -400,7 +400,8 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
 
       for (let r = 1; r < rows.length; r++) {
         const val = String(rows[r][effectiveDateIdx] || '').trim();
-        if (val.startsWith('2026') || val.startsWith('26-') || val.startsWith('26/')) {
+        const is26 = val.startsWith('2026') || val.startsWith('26') || val.includes('2026') || val.endsWith('/26') || val.endsWith('-26');
+        if (is26) {
           y2026++;
         } else {
           past++;
@@ -553,12 +554,17 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       const s = String(h || '').replace(/\s+/g, '');
       return s.includes('계약일') || s.includes('가입일');
     });
-    // 관리대장 대상 연도(2026, 2025 등)만 선별 전송
+    // 관리대장 대상 연도(2026, 2025 등) 선별 전송
     const filtered = rows.slice(1).filter((r: any) => {
       const d = idxContractDate !== -1 ? String(r[idxContractDate] || '').trim() : '';
-      return d.startsWith('2026') || d.startsWith('26') || d.startsWith('2025') || d.startsWith('25');
+      return d.startsWith('2026') || d.startsWith('26') || d.includes('2026') || d.endsWith('/26') || d.endsWith('-26') ||
+             d.startsWith('2025') || d.startsWith('25') || d.includes('2025');
     });
-    return [headers, ...filtered];
+    if (filtered.length > 0) {
+      return [headers, ...filtered];
+    }
+    // 2025~2026년이 없는 과거 파일인 경우 최근 3,000건 전송
+    return [headers, ...rows.slice(Math.max(1, rows.length - 3000))];
   };
 
   // 미리보기(Dry-run) 실행
