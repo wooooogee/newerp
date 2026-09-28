@@ -3718,7 +3718,168 @@ app.post('/api/sheets/excel-sync/overwrite-sheet1', async (req, res) => {
   }
 });
 
-// 2-1B. 전체 계약원장 엑셀을 '통합원장' 탭에 스마트 병합(2008년~현재 영구 보관 & 로컬 캐시) API
+// 청크 업로드를 위한 인메모리 세션 저장소
+const unifiedChunkSessions = new Map<string, { rows: any[][]; lastUpdated: number }>();
+
+// 2-1B-1. 대용량 계약원장 청크 분할 업로드 API (Netlify 6MB 제한 및 10초 타임아웃 완벽 극복)
+app.post('/api/sheets/excel-sync/upload-unified-chunk', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const {
+    sessionId = 'default_' + Date.now(),
+    chunkIndex = 0,
+    totalChunks = 1,
+    startRowIndex = 1,
+    chunkRows = [],
+    totalRows = 0,
+    isFirst = false,
+    isLast = false
+  } = req.body as {
+    sessionId?: string;
+    chunkIndex: number;
+    totalChunks: number;
+    startRowIndex: number;
+    chunkRows: any[][];
+    totalRows: number;
+    isFirst: boolean;
+    isLast: boolean;
+  };
+
+  if (!chunkRows || chunkRows.length === 0) {
+    return res.status(400).json({ error: '청크 데이터가 없습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+  if (!sheetId) return res.status(500).json({ error: 'GOOGLE_SHEET_ID 설정이 없습니다.' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    // 1. 첫 번째 청크일 때: 시트 생성 또는 확인, 시트 크기 넉넉히 확장
+    if (isFirst) {
+      const metaResp = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+      const targetSheet = (metaResp.data.sheets || []).find(s => s.properties?.title === '통합원장');
+      const requiredRowCount = Math.max(totalRows + 100, 15000);
+      const requiredColCount = Math.max((chunkRows[0] || []).length + 5, 40);
+
+      if (!targetSheet) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [{
+              addSheet: {
+                properties: {
+                  title: '통합원장',
+                  gridProperties: {
+                    rowCount: requiredRowCount,
+                    columnCount: requiredColCount
+                  }
+                }
+              }
+            }]
+          }
+        });
+        console.log(`[ExcelSyncChunk] Created new sheet '통합원장' with ${requiredRowCount} rows`);
+      } else {
+        const targetSheetId = targetSheet.properties?.sheetId ?? 0;
+        const currentGrid = targetSheet.properties?.gridProperties || {};
+        const currentRowCount = currentGrid.rowCount || 1000;
+        const currentColCount = currentGrid.columnCount || 26;
+
+        if (currentRowCount < requiredRowCount || currentColCount < requiredColCount) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: sheetId,
+            requestBody: {
+              requests: [{
+                updateSheetProperties: {
+                  properties: {
+                    sheetId: targetSheetId,
+                    gridProperties: {
+                      rowCount: Math.max(currentRowCount, requiredRowCount),
+                      columnCount: Math.max(currentColCount, requiredColCount)
+                    }
+                  },
+                  fields: 'gridProperties(rowCount,columnCount)'
+                }
+              }]
+            }
+          });
+          console.log(`[ExcelSyncChunk] Resized sheet '통합원장' to ${Math.max(currentRowCount, requiredRowCount)} rows`);
+        }
+      }
+
+      unifiedChunkSessions.set(sessionId, { rows: [...chunkRows], lastUpdated: Date.now() });
+    } else {
+      const session = unifiedChunkSessions.get(sessionId) || { rows: [], lastUpdated: Date.now() };
+      session.rows.push(...chunkRows);
+      session.lastUpdated = Date.now();
+      unifiedChunkSessions.set(sessionId, session);
+    }
+
+    // 2. 구글 시트에 이번 청크 즉시 쓰기
+    const cleanChunk = chunkRows.map((row, rIdx) => {
+      if (isFirst && rIdx === 0) {
+        return (Array.isArray(row) ? row : []).map(c => (c === undefined || c === null ? '' : String(c)));
+      }
+      return (Array.isArray(row) ? row : []).map((cell) => {
+        if (cell === undefined || cell === null) return '';
+        if (typeof cell === 'object') return JSON.stringify(cell);
+        const str = String(cell).trim();
+        if (/^0\d+$/.test(str)) {
+          return `'${str}`;
+        }
+        return str;
+      });
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `'통합원장'!A${startRowIndex}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: cleanChunk }
+    });
+
+    console.log(`[ExcelSyncChunk] Written chunk ${chunkIndex + 1}/${totalChunks} (${cleanChunk.length} rows to row ${startRowIndex})`);
+
+    // 3. 마지막 청크인 경우: 서버 로컬 캐시 파일 저장
+    if (isLast) {
+      try {
+        const session = unifiedChunkSessions.get(sessionId);
+        const allRows = session?.rows || [];
+        if (allRows.length > 0) {
+          const cacheDir = path.dirname(UNIFIED_LEDGER_PATH);
+          if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+          fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(allRows, null, 2), 'utf-8');
+          console.log(`[ExcelSyncChunk] Saved local cache for unified ledger: ${allRows.length - 1} rows`);
+        }
+      } catch (cacheErr: any) {
+        console.warn(`[ExcelSyncChunk] Cache write warning:`, cacheErr.message);
+      } finally {
+        unifiedChunkSessions.delete(sessionId);
+      }
+
+      sheetDataCache.delete('통합원장');
+    }
+
+    res.json({
+      success: true,
+      chunkIndex,
+      totalChunks,
+      writtenCount: chunkRows.length,
+      isLast
+    });
+  } catch (err: any) {
+    console.error(`[ExcelSyncChunk] Chunk ${chunkIndex} failed:`, err);
+    res.status(500).json({ error: err.message || `청크 ${chunkIndex + 1} 업로드 실패` });
+  }
+});
+
+// 2-1B-2. 전체 계약원장 엑셀을 '통합원장' 탭에 스마트 병합 단독 실행 (소용량용 또는 기존 호환)
 app.post('/api/sheets/excel-sync/overwrite-unified-ledger', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
@@ -3863,12 +4024,52 @@ app.get('/api/sheets/unified-ledger/data', async (req, res) => {
       }
     }
 
+    // 4. 대용량 데이터 시 상조 조회 필수 컬럼만 슬림하게 추출하여 6MB 제한 회피 및 전송 속도 향상
+    let optimizedData: any[][] = [];
+    if (ledgerRows && ledgerRows.length > 0) {
+      const origHeaders = (ledgerRows[0] || []).map((h: any) => String(h || '').trim());
+      const neededKeywords = [
+        '회원번호', '계약번호', '회원코드',
+        '회원명', '성명', '이름',
+        '주민등록번호', '주민번호',
+        '계약일자', '가입일자',
+        '회원상태', '상태',
+        '상품명',
+        '상품총액', '총액',
+        '계약회차',
+        '월불입액', '불입액',
+        '입금차', '납입회차', '입금회차',
+        '입금액', '총입금액', '납입금액',
+        '본부', '지사', '사원', '사원코드',
+        '전화번호', '핸드폰', '휴대전화', '주소', '비고'
+      ];
+      const targetIndices: number[] = [];
+      const newHeaderRow: string[] = [];
+      origHeaders.forEach((h: string, idx: number) => {
+        const cleanH = h.replace(/\s+/g, '').toLowerCase();
+        if (neededKeywords.some(k => cleanH.includes(k.replace(/\s+/g, '').toLowerCase()))) {
+          targetIndices.push(idx);
+          newHeaderRow.push(h);
+        }
+      });
+
+      if (targetIndices.length > 0 && targetIndices.length < origHeaders.length) {
+        optimizedData.push(newHeaderRow);
+        for (let i = 1; i < ledgerRows.length; i++) {
+          const row = ledgerRows[i] || [];
+          optimizedData.push(targetIndices.map(colIdx => row[colIdx] ?? ''));
+        }
+      } else {
+        optimizedData = ledgerRows;
+      }
+    }
+
     res.json({
       success: true,
       source,
-      rowCount: ledgerRows ? ledgerRows.length - 1 : 0,
-      headers: ledgerRows && ledgerRows.length > 0 ? ledgerRows[0] : [],
-      data: ledgerRows || [],
+      rowCount: optimizedData ? optimizedData.length - 1 : 0,
+      headers: optimizedData && optimizedData.length > 0 ? optimizedData[0] : [],
+      data: optimizedData || [],
       productSpecs
     });
   } catch (err: any) {

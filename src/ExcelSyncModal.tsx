@@ -545,6 +545,22 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     setCompletedResult(null);
   };
 
+  // 대용량 계약원장일 때 관리대장 동기화에 필요한 대상만 안전 선별 (Netlify 6MB 제한 회피)
+  const getSafeContractRowsForManagement = (rows: any[][] | null) => {
+    if (!rows || rows.length <= 3000) return rows;
+    const headers = rows[0] || [];
+    const idxContractDate = headers.findIndex((h: any) => {
+      const s = String(h || '').replace(/\s+/g, '');
+      return s.includes('계약일') || s.includes('가입일');
+    });
+    // 관리대장 대상 연도(2026, 2025 등)만 선별 전송
+    const filtered = rows.slice(1).filter((r: any) => {
+      const d = idxContractDate !== -1 ? String(r[idxContractDate] || '').trim() : '';
+      return d.startsWith('2026') || d.startsWith('26') || d.startsWith('2025') || d.startsWith('25');
+    });
+    return [headers, ...filtered];
+  };
+
   // 미리보기(Dry-run) 실행
   const handlePreview = async () => {
     if (!contractRows && !deliveryRows) {
@@ -559,7 +575,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contractRows,
+          contractRows: getSafeContractRowsForManagement(contractRows),
           deliveryRows,
           previewOnly: true,
           operator: currentUser?.username || '관리자'
@@ -634,7 +650,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     }
 
     const totalCount = contractRows.length - 1;
-    const confirmMsg = `[통합원장 영구 보관]\n구글 시트 [통합원장] 탭에 2008년~현재까지의 전체 계약원장 (${totalCount.toLocaleString()}건)을 스마트 병합하시겠습니까?\n\n• 동일 회원번호는 최신 정보로 덮어쓰기(갱신)\n• 신규 회원번호는 추가 등록\n• 서버 고속 캐시도 즉시 갱신되어 상조 조회 페이지에서 바로 검색할 수 있습니다.`;
+    const confirmMsg = `[통합원장 영구 보관]\n구글 시트 [통합원장] 탭에 2008년~현재까지의 전체 계약원장 (${totalCount.toLocaleString()}건)을 안전하게 분할 저장하시겠습니까?\n\n• 대용량 데이터 안정 전송 (1,000건 단위 자동 청크 분할)\n• 구글 시트 [통합원장] 탭에 전체 데이터 보존\n• 서버 초고속 캐시 즉시 갱신되어 상조 조회 페이지에서 바로 검색 가능`;
     
     const isConfirmed = (window as any).customConfirm
       ? await (window as any).customConfirm(confirmMsg, '통합원장 전체 스마트 병합')
@@ -643,26 +659,54 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     if (!isConfirmed) return;
 
     setIsLoading(true);
-    setLoadingText('구글 시트 [통합원장] 탭에 전체 계약원장을 스마트 병합하고 캐시를 생성하는 중...');
+    const CHUNK_SIZE = 1000;
+    const totalDataRows = contractRows.length - 1;
+    const totalChunks = Math.ceil(totalDataRows / CHUNK_SIZE);
+    const sessionId = 'unified_' + Date.now();
 
     try {
-      const res = await fetch('/api/sheets/excel-sync/overwrite-unified-ledger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contractRows })
-      });
+      for (let i = 0; i < totalChunks; i++) {
+        const startDataIdx = 1 + i * CHUNK_SIZE;
+        const endDataIdx = Math.min(1 + (i + 1) * CHUNK_SIZE, contractRows.length);
+        const isFirst = (i === 0);
+        const isLast = (i === totalChunks - 1);
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || '통합원장 병합 실패');
+        // 첫 번째 청크는 헤더(0번 행)를 포함하여 전송
+        const chunkRows = isFirst
+          ? [contractRows[0], ...contractRows.slice(startDataIdx, endDataIdx)]
+          : contractRows.slice(startDataIdx, endDataIdx);
+
+        // 구글 시트에서의 실제 시작 행 번호 (1-indexed)
+        // 0번 청크: 헤더 포함 1번 행부터
+        // 1번 청크: 헤더(1행) + 이전 데이터(1000행) 다음인 1002번 행부터
+        const startRowIndex = isFirst ? 1 : (startDataIdx + 1);
+
+        const pct = Math.round(((i + 1) / totalChunks) * 100);
+        setLoadingText(`구글 시트 [통합원장] 탭에 전체 계약원장을 병합하는 중... (${i + 1} / ${totalChunks} 청크, ${pct}%)`);
+
+        const res = await fetch('/api/sheets/excel-sync/upload-unified-chunk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            chunkIndex: i,
+            totalChunks,
+            startRowIndex,
+            chunkRows,
+            totalRows: contractRows.length,
+            isFirst,
+            isLast
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(`청크 ${i + 1}/${totalChunks} 업로드 실패: ${errData.error || res.statusText || '서버 응답 오류'}`);
+        }
       }
 
-      const data = await res.json();
       alert(`✓ 구글 시트 [통합원장] 탭에 전체 계약원장이 성공적으로 병합되었습니다!\n\n` +
-        `• 기존 유지 데이터: ${(data.existingCount || 0).toLocaleString()}건\n` +
-        `• 최신 정보 덮어쓰기(갱신): ${(data.updatedCount || 0).toLocaleString()}건\n` +
-        `• 신규 계약 추가: ${(data.newCount || 0).toLocaleString()}건\n` +
-        `(최종 총계: ${data.overwrittenCount.toLocaleString()}행)\n\n` +
+        `• 총 저장 건수: ${totalCount.toLocaleString()}건 (${totalChunks}개 청크 분할 완료)\n\n` +
         `⭐ 상조 조회 페이지에서 즉시 2008년~현재 전체 계약 데이터를 검색하실 수 있습니다.`
       );
     } catch (err: any) {
@@ -836,7 +880,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contractRows,
+          contractRows: getSafeContractRowsForManagement(contractRows),
           deliveryRows,
           previewOnly: false,
           autoBackup,
