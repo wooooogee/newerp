@@ -6733,22 +6733,45 @@ const ERP_Dashboard = () => {
   // 0. '의전' 전용 계정인 경우: 모바일 상조 회원 조회 뷰로 즉시 진입
   if (isProtocolOnlyUser) {
     return (
-      <SangjoMobileView
-        currentUser={currentUser}
-        onLogout={async () => {
-          if (await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')) {
-            try {
-              await fetch('/api/auth/logout', { method: 'POST' });
-              sessionStorage.removeItem('erp_logged_in');
-              resetFilters();
-              setData([]);
-              setCurrentUser(null);
-            } catch (err) {
-              console.error('Logout error:', err);
+      <>
+        <SangjoMobileView
+          currentUser={currentUser}
+          onLogout={async () => {
+            const confirmed = (window as any).customConfirm
+              ? await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')
+              : window.confirm('로그아웃 하시겠습니까?');
+            if (confirmed) {
+              try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                sessionStorage.removeItem('erp_logged_in');
+                resetFilters();
+                setData([]);
+                setCurrentUser(null);
+              } catch (err) {
+                console.error('Logout error:', err);
+              }
             }
-          }
-        }}
-      />
+          }}
+        />
+        <AnimatePresence>
+          <CustomDialog
+            isOpen={dialogState.isOpen}
+            type={dialogState.type}
+            title={dialogState.title}
+            message={dialogState.message}
+            defaultValue={dialogState.defaultValue}
+            placeholder={dialogState.placeholder}
+            onConfirm={(val) => {
+              if (dialogState.resolve) dialogState.resolve(val !== undefined ? val : true);
+              setDialogState(prev => ({ ...prev, isOpen: false }));
+            }}
+            onCancel={() => {
+              if (dialogState.resolve) dialogState.resolve(dialogState.type === 'prompt' ? null : false);
+              setDialogState(prev => ({ ...prev, isOpen: false }));
+            }}
+          />
+        </AnimatePresence>
+      </>
     );
   }
 

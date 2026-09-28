@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -17,9 +17,7 @@ import {
   Copy,
   Check,
   Package,
-  Sparkles,
-  Info,
-  Layers
+  Info
 } from 'lucide-react';
 
 interface SangjoInquiryModalProps {
@@ -65,8 +63,6 @@ export const SangjoInquiryModal: React.FC<SangjoInquiryModalProps> = ({ isOpen, 
   const [selectedMember, setSelectedMember] = useState<SangjoMember | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // 상품 상세 팝업 상태
-  const [isProductDetailOpen, setIsProductDetailOpen] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   // 모달 오픈 시 데이터 로드
@@ -171,9 +167,8 @@ export const SangjoInquiryModal: React.FC<SangjoInquiryModalProps> = ({ isOpen, 
       const employeeCode = String(row[idxEmpCode !== -1 ? idxEmpCode : 39] || '').trim();
       const phone = String(row[idxPhone !== -1 ? idxPhone : 27] || '').trim();
 
-      // sangjo.netlify.app 의 특별 혜택 대상 판정 (하이브리드, 헬스케어 등)
-      const hasSpecialDiscount = productName.includes('하이브리드') || productName.includes('698') || productName.includes('헬스케어');
-      const discountedBalance = hasSpecialDiscount ? Math.max(0, balance - 500000) : balance;
+      const hasSpecialDiscount = false;
+      const discountedBalance = balance;
 
       list.push({
         rawRow: row,
@@ -260,28 +255,7 @@ export const SangjoInquiryModal: React.FC<SangjoInquiryModalProps> = ({ isOpen, 
     setTimeout(() => setCopiedText(null), 2000);
   };
 
-  // 매칭되는 상품 상세 스펙 시트 찾기
-  const matchingProductSpec = useMemo(() => {
-    if (!selectedMember || !selectedMember.productName) return null;
-    const cleanProd = selectedMember.productName.replace(/\s+/g, '').toLowerCase();
 
-    for (const [title, rows] of Object.entries(productSpecs)) {
-      const cleanTitle = title.replace(/\s+/g, '').toLowerCase();
-      if (cleanProd.includes(cleanTitle) || cleanTitle.includes(cleanProd)) {
-        return { title, rows };
-      }
-    }
-
-    // 부분 매칭 시도
-    for (const [title, rows] of Object.entries(productSpecs)) {
-      const numMatch = cleanProd.match(/\d{3}/);
-      if (numMatch && title.includes(numMatch[0])) {
-        return { title, rows };
-      }
-    }
-
-    return null;
-  }, [selectedMember, productSpecs]);
 
   if (!isOpen) return null;
 
@@ -585,35 +559,12 @@ export const SangjoInquiryModal: React.FC<SangjoInquiryModalProps> = ({ isOpen, 
                     </div>
 
                     <div className="space-y-3.5">
-                      {/* 상품명 & 특별 혜택 뱃지 */}
+                      {/* 상품명 */}
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-lg font-black px-3.5 py-1.5 rounded-xl text-white shadow-sm bg-gradient-to-r ${getProductBadgeGradient(selectedMember.productName)}`}>
                           {selectedMember.productName || '미지정 상품'}
                         </span>
-                        {selectedMember.hasSpecialDiscount && (
-                          <span className="px-2.5 py-1 bg-amber-100 text-amber-800 text-[10px] font-black rounded-lg border border-amber-300 flex items-center gap-1 animate-pulse">
-                            <Sparkles size={11} />
-                            특별 혜택 대상
-                          </span>
-                        )}
                       </div>
-
-                      {/* 50만원 추가할인 안내 박스 */}
-                      {selectedMember.hasSpecialDiscount && (
-                        <div className="p-3 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-                            <Sparkles size={15} />
-                          </div>
-                          <div>
-                            <p className="text-xs font-black text-amber-900">
-                              장례 진행 시 500,000원 추가 할인 혜택
-                            </p>
-                            <p className="text-[11px] text-amber-700">
-                              의전 행사 진행 시 미납 잔액에서 50만원 지원금이 선반영됩니다.
-                            </p>
-                          </div>
-                        </div>
-                      )}
 
                       {/* 상품 설명 */}
                       {selectedMember.productDescription && (
@@ -621,18 +572,6 @@ export const SangjoInquiryModal: React.FC<SangjoInquiryModalProps> = ({ isOpen, 
                           {selectedMember.productDescription}
                         </div>
                       )}
-
-                      {/* 상품 상세 약관 전체보기 버튼 */}
-                      <div className="pt-1">
-                        <button
-                          onClick={() => setIsProductDetailOpen(true)}
-                          className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-                        >
-                          <Layers size={14} className="text-blue-400" />
-                          <span>가입 상품 상세 약관/보장내역 전체보기</span>
-                          <ChevronRight size={14} className="text-slate-400" />
-                        </button>
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -702,16 +641,11 @@ export const SangjoInquiryModal: React.FC<SangjoInquiryModalProps> = ({ isOpen, 
                     <div className="pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-end justify-between gap-4 relative z-10">
                       <div>
                         <span className="text-xs font-black text-slate-400 uppercase tracking-wider block mb-1">
-                          {selectedMember.hasSpecialDiscount ? '실제 미납 잔액 (장례 50만원 지원 반영)' : '미납 잔액'}
+                          미납 잔액
                         </span>
                         <div className="text-4xl font-black text-white tracking-tight">
-                          {(selectedMember.hasSpecialDiscount ? selectedMember.discountedBalance : selectedMember.balance).toLocaleString()}원
+                          {selectedMember.balance.toLocaleString()}원
                         </div>
-                        {selectedMember.hasSpecialDiscount && (
-                          <p className="text-[11px] font-bold text-amber-400 mt-1">
-                            * 장례 진행 지원금 500,000원 선반영됨 (정상 잔액: {selectedMember.balance.toLocaleString()}원)
-                          </p>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -762,114 +696,6 @@ export const SangjoInquiryModal: React.FC<SangjoInquiryModalProps> = ({ isOpen, 
           )}
 
         </div>
-
-        {/* 5. 상품 상세 약관/보장 내역 팝업 모달 */}
-        <AnimatePresence>
-          {isProductDetailOpen && selectedMember && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-60 flex items-center justify-center p-4 sm:p-8 bg-slate-950/80 backdrop-blur-md"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0, y: 15 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.95, opacity: 0, y: 15 }}
-                className="relative w-full max-w-5xl max-h-[88vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
-              >
-                {/* 팝업 상단 헤더 */}
-                <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-xl text-white bg-gradient-to-r ${getProductBadgeGradient(selectedMember.productName)}`}>
-                      <Layers size={20} />
-                    </div>
-                    <div>
-                      <h4 className="text-lg font-black text-slate-900">
-                        {selectedMember.productName} 상세 약관 및 보장 내역
-                      </h4>
-                      <p className="text-xs text-slate-500">
-                        {matchingProductSpec ? `[${matchingProductSpec.title}] 시트 데이터 연동` : '상품 상세 시트 정보'}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setIsProductDetailOpen(false)}
-                    className="p-2 bg-white hover:bg-slate-200 rounded-xl transition-colors text-slate-600 cursor-pointer"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
-
-                {/* 팝업 테이블 컨텐츠 */}
-                <div className="flex-1 overflow-auto p-6">
-                  {matchingProductSpec && matchingProductSpec.rows.length > 0 ? (
-                    <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <tbody>
-                          {matchingProductSpec.rows.map((row, rIdx) => {
-                            if (!row || row.length === 0) return null;
-                            const isHeader = rIdx === 0 || (row[0] && String(row[0]).includes('구분'));
-                            return (
-                              <tr
-                                key={rIdx}
-                                className={`border-b border-slate-200/80 transition-colors ${
-                                  isHeader
-                                    ? 'bg-slate-100 font-black text-slate-800'
-                                    : rIdx % 2 === 0
-                                    ? 'bg-white hover:bg-blue-50/40'
-                                    : 'bg-slate-50/60 hover:bg-blue-50/40'
-                                }`}
-                              >
-                                {row.map((cell: any, cIdx: number) => (
-                                  <td
-                                    key={cIdx}
-                                    className={`py-3 px-4 leading-relaxed ${
-                                      cIdx === 0 ? 'font-black text-slate-800 whitespace-nowrap' : 'text-slate-600'
-                                    }`}
-                                  >
-                                    {String(cell || '').split('\n').map((line, lIdx) => (
-                                      <React.Fragment key={lIdx}>
-                                        {line}
-                                        {lIdx < String(cell || '').split('\n').length - 1 && <br />}
-                                      </React.Fragment>
-                                    ))}
-                                  </td>
-                                ))}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-center py-16 space-y-3">
-                      <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto text-slate-400">
-                        <Info size={28} />
-                      </div>
-                      <p className="text-sm font-bold text-slate-600">
-                        해당 상품에 대한 별도 약관 테이블 데이터가 등록되지 않았습니다.
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        상품명: {selectedMember.productName}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* 팝업 하단 닫기 */}
-                <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
-                  <button
-                    onClick={() => setIsProductDetailOpen(false)}
-                    className="px-6 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black transition-colors cursor-pointer"
-                  >
-                    확인 및 닫기
-                  </button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
       </div>
     </div>

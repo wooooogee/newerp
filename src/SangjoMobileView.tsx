@@ -1,12 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Search,
   User,
   Phone,
   Calendar,
-  Layers,
-  Sparkles,
   CreditCard,
   Building2,
   ChevronRight,
@@ -42,8 +40,6 @@ export const SangjoMobileView: React.FC<SangjoMobileViewProps> = ({ currentUser,
   const [selectedMember, setSelectedMember] = useState<SangjoMember | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // 상품 상세 팝업 상태
-  const [isProductDetailOpen, setIsProductDetailOpen] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -140,8 +136,8 @@ export const SangjoMobileView: React.FC<SangjoMobileViewProps> = ({ currentUser,
       const employeeCode = String(row[idxEmpCode !== -1 ? idxEmpCode : 39] || '').trim();
       const phone = String(row[idxPhone !== -1 ? idxPhone : 27] || '').trim();
 
-      const hasSpecialDiscount = productName.includes('하이브리드') || productName.includes('698') || productName.includes('헬스케어');
-      const discountedBalance = hasSpecialDiscount ? Math.max(0, balance - 500000) : balance;
+      const hasSpecialDiscount = false;
+      const discountedBalance = balance;
 
       list.push({
         rawRow: row,
@@ -225,27 +221,7 @@ export const SangjoMobileView: React.FC<SangjoMobileViewProps> = ({ currentUser,
     setTimeout(() => setCopiedText(null), 2000);
   };
 
-  // 상품 상세 스펙 시트
-  const matchingProductSpec = useMemo(() => {
-    if (!selectedMember || !selectedMember.productName) return null;
-    const cleanProd = selectedMember.productName.replace(/\s+/g, '').toLowerCase();
 
-    for (const [title, rows] of Object.entries(productSpecs)) {
-      const cleanTitle = title.replace(/\s+/g, '').toLowerCase();
-      if (cleanProd.includes(cleanTitle) || cleanTitle.includes(cleanProd)) {
-        return { title, rows };
-      }
-    }
-
-    for (const [title, rows] of Object.entries(productSpecs)) {
-      const numMatch = cleanProd.match(/\d{3}/);
-      if (numMatch && title.includes(numMatch[0])) {
-        return { title, rows };
-      }
-    }
-
-    return null;
-  }, [selectedMember, productSpecs]);
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col font-sans pb-16">
@@ -566,16 +542,11 @@ export const SangjoMobileView: React.FC<SangjoMobileViewProps> = ({ currentUser,
               {/* 미납 잔액 강조 박스 */}
               <div className="pt-4 border-t border-slate-800">
                 <span className="text-[11px] font-black text-slate-400 uppercase block mb-1">
-                  {selectedMember.hasSpecialDiscount ? '실제 미납 잔액 (장례 50만원 지원 반영)' : '미납 잔액'}
+                  미납 잔액
                 </span>
                 <div className="text-3xl font-black text-white tracking-tight">
-                  {(selectedMember.hasSpecialDiscount ? selectedMember.discountedBalance : selectedMember.balance).toLocaleString()}원
+                  {selectedMember.balance.toLocaleString()}원
                 </div>
-                {selectedMember.hasSpecialDiscount && (
-                  <p className="text-[10px] font-bold text-amber-400 mt-1">
-                    * 장례 의전 지원금 500,000원 선반영됨 (정상 잔액: {selectedMember.balance.toLocaleString()}원)
-                  </p>
-                )}
               </div>
             </div>
 
@@ -592,36 +563,13 @@ export const SangjoMobileView: React.FC<SangjoMobileViewProps> = ({ currentUser,
                 <span className={`text-base font-black px-3 py-1 rounded-xl text-white shadow-xs bg-gradient-to-r ${getProductBadgeGradient(selectedMember.productName)}`}>
                   {selectedMember.productName || '미지정 상품'}
                 </span>
-                {selectedMember.hasSpecialDiscount && (
-                  <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-black rounded-lg border border-amber-300 flex items-center gap-1">
-                    <Sparkles size={10} />
-                    특별 혜택 대상
-                  </span>
-                )}
               </div>
-
-              {selectedMember.hasSpecialDiscount && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-0.5">
-                  <p className="font-black text-amber-900">장례 진행 시 500,000원 추가 할인 혜택</p>
-                  <p className="text-[11px] text-amber-700">행사 진행 시 잔액에서 50만원이 지원 처리됩니다.</p>
-                </div>
-              )}
 
               {selectedMember.productDescription && (
                 <p className="text-xs text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200">
                   {selectedMember.productDescription}
                 </p>
               )}
-
-              {/* 약관 표 전체보기 버튼 */}
-              <button
-                onClick={() => setIsProductDetailOpen(true)}
-                className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center justify-center gap-2 active:scale-98"
-              >
-                <Layers size={14} className="text-blue-400" />
-                <span>상품 상세 약관 및 보장내역 전체보기</span>
-                <ChevronRight size={14} className="text-slate-400" />
-              </button>
             </div>
 
             {/* 4-4. 영업 관리 정보 */}
@@ -653,90 +601,6 @@ export const SangjoMobileView: React.FC<SangjoMobileViewProps> = ({ currentUser,
         )}
 
       </main>
-
-      {/* 5. 상품 상세 약관 모바일 팝업 */}
-      <AnimatePresence>
-        {isProductDetailOpen && selectedMember && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm">
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="w-full max-w-lg bg-white rounded-t-3xl sm:rounded-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200"
-            >
-              <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-black text-slate-900">
-                    {selectedMember.productName} 상세 약관
-                  </h4>
-                  <p className="text-[10px] text-slate-400">
-                    {matchingProductSpec ? `[${matchingProductSpec.title}] 시트 데이터` : '상품 스펙 정보'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setIsProductDetailOpen(false)}
-                  className="p-1.5 bg-white hover:bg-slate-200 rounded-lg text-slate-600"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-auto p-4">
-                {matchingProductSpec && matchingProductSpec.rows.length > 0 ? (
-                  <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
-                    <table className="w-full text-left border-collapse">
-                      <tbody>
-                        {matchingProductSpec.rows.map((row, rIdx) => {
-                          if (!row || row.length === 0) return null;
-                          const isHeader = rIdx === 0 || (row[0] && String(row[0]).includes('구분'));
-                          return (
-                            <tr
-                              key={rIdx}
-                              className={`border-b border-slate-200 ${
-                                isHeader ? 'bg-slate-100 font-black text-slate-900' : rIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'
-                              }`}
-                            >
-                              {row.map((cell: any, cIdx: number) => (
-                                <td
-                                  key={cIdx}
-                                  className={`p-2.5 leading-relaxed ${
-                                    cIdx === 0 ? 'font-black text-slate-800 whitespace-nowrap' : 'text-slate-600'
-                                  }`}
-                                >
-                                  {String(cell || '').split('\n').map((line, lIdx) => (
-                                    <React.Fragment key={lIdx}>
-                                      {line}
-                                      {lIdx < String(cell || '').split('\n').length - 1 && <br />}
-                                    </React.Fragment>
-                                  ))}
-                                </td>
-                              ))}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="text-center py-10 text-slate-400 text-xs">
-                    별도 상세 약관 정보가 등록되지 않았습니다.
-                  </div>
-                )}
-              </div>
-
-              <div className="p-3 bg-slate-50 border-t border-slate-200">
-                <button
-                  onClick={() => setIsProductDetailOpen(false)}
-                  className="w-full py-2.5 bg-slate-900 text-white rounded-xl text-xs font-black"
-                >
-                  닫기
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
     </div>
   );
