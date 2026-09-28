@@ -3167,10 +3167,11 @@ async function applyManagementSheetFormatAndFilter(
     });
   }
 
-  // 3-9. 상태별 배경색 지정 (연속 행 구간 묶기 최적화)
-  const cancelRows: number[] = [];      // '해약' 행
-  const abortRows: number[] = [];       // '취소' 행
-  const waitingDelivRows: number[] = []; // '배송대기' 행
+  // 3-9. 상태별 및 헬스케어등록 배경색 지정 (연속 행 구간 묶기 최적화)
+  const cancelRows: number[] = [];            // '해약' 행
+  const abortRows: number[] = [];             // '취소' 행
+  const waitingDelivRows: number[] = [];       // '배송대기' 행
+  const healthcareRegisteredRows: number[] = []; // '헬스케어등록' 완료 행 (S열: 18)
 
   for (let r = 1; r < fullValuesToWrite.length; r++) {
     const row = fullValuesToWrite[r];
@@ -3185,6 +3186,34 @@ async function applyManagementSheetFormatAndFilter(
     if (delivVal === '배송대기') {
       waitingDelivRows.push(r);
     }
+
+    // ⭐ [요청사항] 헬스케어등록(S열, 18)에 등록일자나 값이 있는 건 노란색 음영 대상
+    const hcRegVal = String(row[18] || '').trim();
+    if (hcRegVal && hcRegVal !== '-' && hcRegVal !== 'undefined' && hcRegVal !== 'null' && hcRegVal !== '') {
+      healthcareRegisteredRows.push(r);
+    }
+  }
+
+  // ⭐ 헬스케어등록: P~S열(15~19: 헬스케어대상자/생년월일/휴대폰/헬스케어등록) 부드러운 노랑색 배경 (#FFF2CC)
+  const hcRanges = groupContinuousIndices(healthcareRegisteredRows);
+  for (const [st, ed] of hcRanges) {
+    batchRequests.push({
+      repeatCell: {
+        range: {
+          sheetId: mgmtSheetId,
+          startRowIndex: st,
+          endRowIndex: ed,
+          startColumnIndex: 15,
+          endColumnIndex: Math.min(19, totalCols)
+        },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 1.0, green: 0.9490196, blue: 0.8 } // #FFF2CC 부드러운 노란색
+          }
+        },
+        fields: 'userEnteredFormat.backgroundColor'
+      }
+    });
   }
 
   // 해약: 전체 행 연분홍 배경 (#F4CCCC)
@@ -4832,16 +4861,15 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       }
     }
 
-    // 4-1. '통합원장' 시트에 전체 계약원장(2008년~현재) 스마트 병합 & 로컬 캐시 영구 보존
+    // 4-1. '통합원장' 시트에 전체 계약원장 스마트 병합 (10초 타임아웃 방지를 위해 소용량일 때만 동기 실행, 대용량은 전용 분할 업로드 사용)
     let unifiedOverwrittenCount = 0;
     let unifiedUpdatedCount = 0;
     let unifiedNewCount = 0;
     let unifiedExistingCount = 0;
     let unifiedError: string | null = null;
 
-    if (safeContractRows && safeContractRows.length > 0) {
+    if (safeContractRows && safeContractRows.length > 0 && safeContractRows.length <= 1500) {
       try {
-        // '통합원장' 탭 존재 확인 및 없으면 생성
         const metaResp = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
         const hasUnifiedSheet = (metaResp.data.sheets || []).some(s => s.properties?.title === '통합원장');
         if (!hasUnifiedSheet) {
@@ -4851,7 +4879,6 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
               requests: [{ addSheet: { properties: { title: '통합원장' } } }]
             }
           });
-          console.log(`[ExcelSync] Created new sheet '통합원장' during process`);
         }
 
         const uRes = await mergeSheetDataByKeySafe(
@@ -4866,28 +4893,18 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
         unifiedUpdatedCount = uRes.updatedCount;
         unifiedNewCount = uRes.newCount;
         unifiedExistingCount = uRes.existingCount;
-
-        // 서버 로컬 캐시 파일에도 동시 저장 (상조 초고속 조회용)
-        try {
-          const cacheDir = path.dirname(UNIFIED_LEDGER_PATH);
-          if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-          fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(safeContractRows, null, 2), 'utf-8');
-        } catch (cErr: any) {
-          console.warn(`[ExcelSync] Local cache write warning:`, cErr.message);
-        }
       } catch (err: any) {
         unifiedError = err.message || '통합원장 스마트 병합 실패';
-        console.error(`[ExcelSync] Failed to merge '통합원장':`, err);
       }
     }
 
-    // 4-1B. '시트1' 시트에도 호환성을 위해 계약원장 스마트 병합
+    // 4-1B. '시트1' 시트 스마트 병합 (타임아웃 방지를 위해 소용량일 때만 동기 실행)
     let sheet1OverwrittenCount = 0;
     let sheet1UpdatedCount = 0;
     let sheet1NewCount = 0;
     let sheet1ExistingCount = 0;
     let sheet1Error: string | null = null;
-    if (safeContractRows && safeContractRows.length > 0) {
+    if (safeContractRows && safeContractRows.length > 0 && safeContractRows.length <= 1500) {
       try {
         const s1Res = await mergeSheetDataByKeySafe(
           sheets,
@@ -4903,7 +4920,6 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
         sheet1ExistingCount = s1Res.existingCount;
       } catch (err: any) {
         sheet1Error = err.message || '시트1 스마트 병합 실패';
-        console.error(`[ExcelSync] Failed to merge '시트1':`, err);
       }
     }
 

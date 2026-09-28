@@ -589,8 +589,17 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       });
 
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || '미리보기 분석 실패');
+        const text = await res.text();
+        let errMsg = '미리보기 분석 실패';
+        try {
+          const errData = JSON.parse(text);
+          errMsg = errData.error || errData.message || errMsg;
+        } catch {
+          if (res.status === 413) errMsg = '엑셀 파일 용량이 너무 커서 서버 전송 한도를 초과했습니다.';
+          else if (res.status === 504) errMsg = '서버 처리 시간이 초과되었습니다 (타임아웃). 잠시 후 다시 시도해 주세요.';
+          else errMsg = `서버 응답 오류 (HTTP ${res.status})`;
+        }
+        throw new Error(errMsg);
       }
 
       const data = await res.json();
@@ -895,8 +904,17 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       });
 
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || '동기화 반영 실패');
+        const text = await res.text();
+        let errMsg = '동기화 반영 실패';
+        try {
+          const errData = JSON.parse(text);
+          errMsg = errData.error || errData.message || errMsg;
+        } catch {
+          if (res.status === 413) errMsg = '엑셀 파일 용량이 너무 커서 서버 전송 한도를 초과했습니다.';
+          else if (res.status === 504) errMsg = '서버 처리 시간이 초과되었습니다 (타임아웃). 잠시 후 다시 시도해 주세요.';
+          else errMsg = `서버 응답 오류 (HTTP ${res.status})`;
+        }
+        throw new Error(errMsg);
       }
 
       const data = await res.json();
