@@ -29,6 +29,8 @@ import { MonthlySettlementModal } from './MonthlySettlementModal';
 import { TargetItemsSelectorModal } from './TargetItemsSelectorModal';
 import { ExcelSyncModal } from './ExcelSyncModal';
 import { CmsRegistrationModal } from './CmsRegistrationModal';
+import { SangjoInquiryModal } from './SangjoInquiryModal';
+import { SangjoMobileView } from './SangjoMobileView';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -513,6 +515,27 @@ const ERP_Dashboard = () => {
     return [(currentUser.orgName || '').replace(/[\s()지사지점]/g, '')];
   }, [currentUser]);
 
+  // '의전' 권한 판별: 계정관리에서 구분(role)이나 소속(orgName)에 '의전'이 포함된 사용자 또는 관리자
+  const isProtocolStaff = React.useMemo(() => {
+    if (!currentUser) return false;
+    if (isSuperAdmin || isManager) return true; // 관리자는 열람 가능
+    const checkProtocol = (r?: string, o?: string) =>
+      (r && (r === '의전' || r.includes('의전'))) || (o && o.includes('의전'));
+    if (checkProtocol(currentUser.role, currentUser.orgName)) return true;
+    if (currentUser.orgs && currentUser.orgs.some(item => checkProtocol(item.role, item.orgName))) return true;
+    return false;
+  }, [currentUser, isSuperAdmin, isManager]);
+
+  // 관리자가 아닌 '의전' 전용 계정인지 판별 (모바일 전용 상조 조회 뷰 직행 대상)
+  const isProtocolOnlyUser = React.useMemo(() => {
+    if (!currentUser) return false;
+    if (isSuperAdmin || isManager) return false;
+    const checkProtocol = (r?: string, o?: string) =>
+      (r && (r === '의전' || r.includes('의전'))) || (o && o.includes('의전'));
+    return checkProtocol(currentUser.role, currentUser.orgName) ||
+      (currentUser.orgs && currentUser.orgs.some(item => checkProtocol(item.role, item.orgName)));
+  }, [currentUser, isSuperAdmin, isManager]);
+
   // 모바일 전용 뷰 분기 판별
   const isMobileView = React.useMemo(() => {
     if (!currentUser) return false;
@@ -600,6 +623,7 @@ const ERP_Dashboard = () => {
   const [isMonthlySettlementModalOpen, setIsMonthlySettlementModalOpen] = useState(false);
   const [isExcelSyncModalOpen, setIsExcelSyncModalOpen] = useState(false);
   const [isCmsRegistrationModalOpen, setIsCmsRegistrationModalOpen] = useState(false);
+  const [isSangjoInquiryModalOpen, setIsSangjoInquiryModalOpen] = useState(false);
   const [topSearchQuery, setTopSearchQuery] = useState('');
 
   // searchTerm이 변경될 때 상단 검색어 동기화
@@ -6706,6 +6730,28 @@ const ERP_Dashboard = () => {
     );
   }
 
+  // 0. '의전' 전용 계정인 경우: 모바일 상조 회원 조회 뷰로 즉시 진입
+  if (isProtocolOnlyUser) {
+    return (
+      <SangjoMobileView
+        currentUser={currentUser}
+        onLogout={async () => {
+          if (await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')) {
+            try {
+              await fetch('/api/auth/logout', { method: 'POST' });
+              sessionStorage.removeItem('erp_logged_in');
+              resetFilters();
+              setData([]);
+              setCurrentUser(null);
+            } catch (err) {
+              console.error('Logout error:', err);
+            }
+          }
+        }}
+      />
+    );
+  }
+
   if (isMobileView) {
     return (
       <>
@@ -7436,6 +7482,16 @@ const ERP_Dashboard = () => {
                           <FolderTree size={13} />
                           <span className="hidden sm:inline">조직도</span>
                         </button>
+                        {isProtocolStaff && (
+                          <button
+                            onClick={() => setIsSangjoInquiryModalOpen(true)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
+                            title="2008년~현재 전체 계약원장 기반 상조 불입현황 및 가입상품 상세 조회 (sangjo.netlify.app 통합)"
+                          >
+                            <CreditCard size={13} />
+                            <span className="hidden sm:inline">상조 회원 조회</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => setIsExcelSyncModalOpen(true)}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
@@ -12825,6 +12881,12 @@ const ERP_Dashboard = () => {
                 await loadData();
               }}
               currentUser={currentUser}
+            />
+          )}
+          {isSangjoInquiryModalOpen && (
+            <SangjoInquiryModal
+              isOpen={isSangjoInquiryModalOpen}
+              onClose={() => setIsSangjoInquiryModalOpen(false)}
             />
           )}
         </AnimatePresence>

@@ -32,6 +32,7 @@ interface SyncStats {
   totalExistingCount: number;
   newContractCount: number;
   updatedContractCount: number;
+  skippedPastContractCount?: number;
   preservedManualStatusCount: number;
   deliveryCompletedCount: number;
   deliveryExpectedCount: number;
@@ -51,6 +52,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [contractRows, setContractRows] = useState<any[][] | null>(null);
   const [contractFileName, setContractFileName] = useState<string>('');
+  const [contractYearStats, setContractYearStats] = useState<{ total: number; y2026: number; past: number } | null>(null);
 
   interface DeliveryFileInfo {
     name: string;
@@ -69,6 +71,11 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   const [previewStats, setPreviewStats] = useState<SyncStats | null>(null);
   const [completedResult, setCompletedResult] = useState<{
     backupTitle?: string;
+    unifiedOverwrittenCount?: number;
+    unifiedUpdatedCount?: number;
+    unifiedNewCount?: number;
+    unifiedExistingCount?: number;
+    unifiedError?: string | null;
     sheet1OverwrittenCount?: number;
     sheet1UpdatedCount?: number;
     sheet1NewCount?: number;
@@ -383,9 +390,27 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         alert('엑셀에 데이터가 없거나 올바른 형식이 아닙니다.');
         return;
       }
+
+      // 2026년 계약 vs 2026년 이전 과거 계약 건수 자동 분석
+      let y2026 = 0;
+      let past = 0;
+      const headers = (rows[0] || []).map(h => String(h || '').trim());
+      const cDateIdx = headers.findIndex(h => h.includes('계약일자') || h.includes('가입일자'));
+      const effectiveDateIdx = cDateIdx !== -1 ? cDateIdx : 2;
+
+      for (let r = 1; r < rows.length; r++) {
+        const val = String(rows[r][effectiveDateIdx] || '').trim();
+        if (val.startsWith('2026') || val.startsWith('26-') || val.startsWith('26/')) {
+          y2026++;
+        } else {
+          past++;
+        }
+      }
+
       setContractFile(file);
       setContractFileName(file.name);
       setContractRows(rows);
+      setContractYearStats({ total: rows.length - 1, y2026, past });
       setPreviewStats(null);
       setCompletedResult(null);
     } catch (err: any) {
@@ -596,6 +621,53 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     } catch (err: any) {
       console.error('[Direct Overwrite Sheet1 Error]', err);
       alert('시트1 등록 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 전체 계약원장 엑셀을 구글 시트 [통합원장] 탭에 스마트 병합(2008년~현재 영구보관 & 고속 캐시 생성) 단독 실행
+  const handleDirectOverwriteUnifiedLedger = async () => {
+    if (!contractRows || contractRows.length < 2) {
+      alert('계약원장 엑셀 파일이 준비되지 않았습니다.');
+      return;
+    }
+
+    const totalCount = contractRows.length - 1;
+    const confirmMsg = `[통합원장 영구 보관]\n구글 시트 [통합원장] 탭에 2008년~현재까지의 전체 계약원장 (${totalCount.toLocaleString()}건)을 스마트 병합하시겠습니까?\n\n• 동일 회원번호는 최신 정보로 덮어쓰기(갱신)\n• 신규 회원번호는 추가 등록\n• 서버 고속 캐시도 즉시 갱신되어 상조 조회 페이지에서 바로 검색할 수 있습니다.`;
+    
+    const isConfirmed = (window as any).customConfirm
+      ? await (window as any).customConfirm(confirmMsg, '통합원장 전체 스마트 병합')
+      : window.confirm(confirmMsg);
+
+    if (!isConfirmed) return;
+
+    setIsLoading(true);
+    setLoadingText('구글 시트 [통합원장] 탭에 전체 계약원장을 스마트 병합하고 캐시를 생성하는 중...');
+
+    try {
+      const res = await fetch('/api/sheets/excel-sync/overwrite-unified-ledger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contractRows })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || '통합원장 병합 실패');
+      }
+
+      const data = await res.json();
+      alert(`✓ 구글 시트 [통합원장] 탭에 전체 계약원장이 성공적으로 병합되었습니다!\n\n` +
+        `• 기존 유지 데이터: ${(data.existingCount || 0).toLocaleString()}건\n` +
+        `• 최신 정보 덮어쓰기(갱신): ${(data.updatedCount || 0).toLocaleString()}건\n` +
+        `• 신규 계약 추가: ${(data.newCount || 0).toLocaleString()}건\n` +
+        `(최종 총계: ${data.overwrittenCount.toLocaleString()}행)\n\n` +
+        `⭐ 상조 조회 페이지에서 즉시 2008년~현재 전체 계약 데이터를 검색하실 수 있습니다.`
+      );
+    } catch (err: any) {
+      console.error('[Direct Overwrite Unified Ledger Error]', err);
+      alert('통합원장 등록 중 오류가 발생했습니다: ' + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -903,13 +975,29 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                 </div>
 
                 {contractRows && (
-                  <div className="p-2.5 bg-white rounded-xl border border-emerald-200 text-xs mb-2.5 shadow-2xs flex items-center justify-between">
-                    <span className="font-bold text-slate-800 truncate mr-2" title={contractFileName}>
-                      📄 {contractFileName}
-                    </span>
-                    <span className="text-emerald-700 font-bold text-[11px] shrink-0">
-                      {(contractRows.length - 1).toLocaleString()}건 준비됨
-                    </span>
+                  <div className="space-y-1.5 mb-2.5">
+                    <div className="p-2.5 bg-white rounded-xl border border-emerald-200 text-xs shadow-2xs flex items-center justify-between">
+                      <span className="font-bold text-slate-800 truncate mr-2" title={contractFileName}>
+                        📄 {contractFileName}
+                      </span>
+                      <span className="text-emerald-700 font-bold text-[11px] shrink-0">
+                        {(contractRows.length - 1).toLocaleString()}건 준비됨
+                      </span>
+                    </div>
+
+                    {/* 연도별 선별 분석 배지 */}
+                    {contractYearStats && (
+                      <div className="p-2 bg-emerald-100/60 rounded-xl border border-emerald-200 text-[11px] grid grid-cols-2 gap-1.5">
+                        <div className="bg-white/80 p-1.5 rounded-lg text-center">
+                          <span className="text-slate-500 block text-[10px]">2026년 계약 (관리대장 대상)</span>
+                          <strong className="text-emerald-700 font-black">{contractYearStats.y2026.toLocaleString()}건</strong>
+                        </div>
+                        <div className="bg-white/80 p-1.5 rounded-lg text-center">
+                          <span className="text-slate-500 block text-[10px]">과거 계약 (통합원장 보관)</span>
+                          <strong className="text-indigo-600 font-black">{contractYearStats.past.toLocaleString()}건</strong>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -935,7 +1023,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                   {contractRows && (
                     <button
                       type="button"
-                      onClick={() => { setContractFile(null); setContractRows(null); setContractFileName(''); setPreviewStats(null); }}
+                      onClick={() => { setContractFile(null); setContractRows(null); setContractFileName(''); setContractYearStats(null); setPreviewStats(null); }}
                       className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                     >
                       취소
@@ -944,15 +1032,27 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                 </div>
 
                 {contractRows && (
-                  <button
-                    type="button"
-                    onClick={handleDirectOverwriteSheet1}
-                    disabled={isLoading}
-                    className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  >
-                    <Database size={13} />
-                    <span>[시트1] 탭에 즉시 스마트 병합 등록</span>
-                  </button>
+                  <div className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={handleDirectOverwriteUnifiedLedger}
+                      disabled={isLoading}
+                      className="w-full py-2 px-3 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-700 hover:to-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="2008년~현재 전체 계약원장을 구글 시트 [통합원장] 탭에 보관하고 고속 캐시를 즉시 갱신합니다"
+                    >
+                      <Database size={13} />
+                      <span>[통합원장] 탭에 전체 스마트 병합 (영구보관 & 캐시)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDirectOverwriteSheet1}
+                      disabled={isLoading}
+                      className="w-full py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                      title="기존 [시트1] 탭에 병합"
+                    >
+                      <span>기존 [시트1] 탭에도 병합 등록</span>
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -1264,7 +1364,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
                 <div className="p-3 bg-white/80 rounded-xl border border-slate-200 flex items-center justify-between">
                   <span className="text-slate-600">🛡️ 보존된 수기 계약상태 (해약/취소):</span>
                   <span className="font-black text-rose-600">{previewStats.preservedManualStatusCount}건 안전 보존</span>
@@ -1272,6 +1372,10 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                 <div className="p-3 bg-white/80 rounded-xl border border-slate-200 flex items-center justify-between">
                   <span className="text-slate-600">🔒 보존된 수기 선지급일자:</span>
                   <span className="font-black text-amber-600">{previewStats.preservedManualFeeDateCount}건 안전 보존</span>
+                </div>
+                <div className="p-3 bg-white/80 rounded-xl border border-indigo-200 flex items-center justify-between">
+                  <span className="text-indigo-700">📦 과거 계약 격리(통합원장 보관):</span>
+                  <span className="font-black text-indigo-700">{(previewStats.skippedPastContractCount || 0).toLocaleString()}건</span>
                 </div>
               </div>
             </motion.div>
@@ -1289,13 +1393,13 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                 관리대장 구글 시트 동기화가 완벽하게 성공했습니다!
               </div>
               <p className="text-xs text-emerald-800 leading-relaxed">
-                총 <strong>{completedResult.stats.finalTotalCount.toLocaleString()}건</strong>의 데이터가 구글 시트 [관리대장]에 최신화되었으며, ERP 웹사이트 화면 데이터도 자동으로 새로고침되었습니다.
+                총 <strong>{completedResult.stats.finalTotalCount.toLocaleString()}건</strong>의 데이터가 구글 시트 [관리대장]에 최신화(2026년 신규 +{completedResult.stats.newContractCount.toLocaleString()}건 등록, 기존 {completedResult.stats.updatedContractCount.toLocaleString()}건 납입회차 갱신, 과거 {(completedResult.stats.skippedPastContractCount || 0).toLocaleString()}건 통합원장 격리)되었으며, ERP 웹사이트 화면 데이터도 자동으로 새로고침되었습니다.
               </p>
 
               {/* 핵심 동기화 결과 통계 카드 (신규계약 건수, 배송완료 전환 건수 등) */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center my-3">
                 <div className="p-3 bg-white rounded-xl border border-emerald-300 shadow-xs">
-                  <span className="text-[11px] font-bold text-emerald-700 uppercase block mb-1">신규 계약 등록</span>
+                  <span className="text-[11px] font-bold text-emerald-700 uppercase block mb-1">2026년 신규 계약</span>
                   <span className="text-xl font-black text-emerald-600">+{completedResult.stats.newContractCount.toLocaleString()}건</span>
                 </div>
                 <div className="p-3 bg-white rounded-xl border border-blue-300 shadow-xs">
@@ -1313,6 +1417,14 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
               </div>
 
               <div className="flex flex-wrap gap-2 pt-1">
+                {completedResult.unifiedOverwrittenCount !== undefined && completedResult.unifiedOverwrittenCount > 0 && (
+                  <div className="px-3 py-1.5 bg-gradient-to-r from-indigo-50 to-emerald-50 text-indigo-900 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-indigo-200 shadow-2xs">
+                    <Database size={13} className="text-indigo-600 shrink-0" />
+                    <span>
+                      [통합원장] 전체 계약원장 보관 & 캐시 생성 완료 (신규 +{completedResult.unifiedNewCount?.toLocaleString() || 0}건 / 갱신 {completedResult.unifiedUpdatedCount?.toLocaleString() || 0}건 / 총 {completedResult.unifiedOverwrittenCount.toLocaleString()}행)
+                    </span>
+                  </div>
+                )}
                 {completedResult.sheet1OverwrittenCount !== undefined && completedResult.sheet1OverwrittenCount > 0 && (
                   <div className="px-3 py-1.5 bg-white text-blue-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-blue-200 shadow-2xs">
                     <Database size={13} className="text-blue-600 shrink-0" />

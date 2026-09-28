@@ -11,6 +11,10 @@ const isServerless = !!process.env.NETLIFY || !!process.env.AWS_LAMBDA_FUNCTION_
 const TOKEN_PATH = isServerless 
   ? path.join('/tmp', '.google_tokens.json') 
   : path.join(process.cwd(), '.google_tokens.json');
+const UNIFIED_LEDGER_PATH = isServerless
+  ? path.join('/tmp', 'unified_ledger.json')
+  : path.join(process.cwd(), 'data', 'unified_ledger.json');
+const PRODUCT_SPECS_PATH = path.join(process.cwd(), 'data', 'product_specs.json');
 
 dotenv.config();
 
@@ -3714,6 +3718,218 @@ app.post('/api/sheets/excel-sync/overwrite-sheet1', async (req, res) => {
   }
 });
 
+// 2-1B. 전체 계약원장 엑셀을 '통합원장' 탭에 스마트 병합(2008년~현재 영구 보관 & 로컬 캐시) API
+app.post('/api/sheets/excel-sync/overwrite-unified-ledger', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { contractRows } = req.body as { contractRows?: any[][] };
+  if (!contractRows || contractRows.length < 2) {
+    return res.status(400).json({ error: '유효한 계약원장 데이터가 없습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+  if (!sheetId) return res.status(500).json({ error: 'GOOGLE_SHEET_ID 설정이 없습니다.' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    // 통합원장 탭 존재 여부 확인 및 없으면 생성
+    const metaResp = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const hasUnifiedSheet = (metaResp.data.sheets || []).some(s => s.properties?.title === '통합원장');
+    if (!hasUnifiedSheet) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '통합원장' } } }]
+        }
+      });
+      console.log(`[ExcelSync] Created new sheet '통합원장'`);
+    }
+
+    // 회원번호 기준 스마트 병합 실행
+    const result = await mergeSheetDataByKeySafe(
+      sheets,
+      sheetId,
+      '통합원장',
+      contractRows,
+      ['회원번호', '계약번호', '회원코드'],
+      1
+    );
+
+    // 서버 로컬 캐시 파일에도 동시 영구 저장 (초고속 조회를 위함)
+    try {
+      const cacheDir = path.dirname(UNIFIED_LEDGER_PATH);
+      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+      fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(contractRows, null, 2), 'utf-8');
+      console.log(`[ExcelSync] Successfully saved unified ledger cache: ${contractRows.length - 1} rows`);
+    } catch (cErr: any) {
+      console.warn(`[ExcelSync] Failed to write local cache:`, cErr.message);
+    }
+
+    res.json({
+      success: true,
+      overwrittenCount: result.totalCount,
+      updatedCount: result.updatedCount,
+      newCount: result.newCount,
+      existingCount: result.existingCount
+    });
+  } catch (err: any) {
+    console.error(`[ExcelSync] Smart merge '통합원장' failed:`, err);
+    res.status(500).json({ error: err.message || '통합원장 스마트 병합에 실패했습니다.' });
+  }
+});
+
+// 2-1C. 상조 조회 시스템용 전체 원장 데이터 & 상품 약관 데이터 조회 API
+app.get('/api/sheets/unified-ledger/data', async (req, res) => {
+  try {
+    let ledgerRows: any[][] | null = null;
+    let source = 'cache';
+
+    // 1. 로컬 캐시 우선 확인
+    if (fs.existsSync(UNIFIED_LEDGER_PATH)) {
+      try {
+        const raw = fs.readFileSync(UNIFIED_LEDGER_PATH, 'utf-8');
+        ledgerRows = JSON.parse(raw);
+      } catch (err: any) {
+        console.warn(`[UnifiedLedger] Cache read error:`, err.message);
+      }
+    }
+
+    // 2. 캐시가 없으면 구글 시트에서 읽기 시도
+    if (!ledgerRows || ledgerRows.length < 2) {
+      const client = await getAuthenticatedClient(req, res);
+      if (client) {
+        let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+        if (sheetId && sheetId.includes('spreadsheets/d/')) {
+          const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+          if (match) sheetId = match[1];
+        }
+
+        if (sheetId) {
+          const sheets = google.sheets({ version: 'v4', auth: client });
+          // 통합원장 탭 우선 시도, 없으면 시트1에서 읽기
+          try {
+            const gRes = await sheets.spreadsheets.values.get({
+              spreadsheetId: sheetId,
+              range: `'통합원장'!A:ZZ`
+            });
+            if (gRes.data.values && gRes.data.values.length > 1) {
+              ledgerRows = gRes.data.values;
+              source = 'google_sheet_통합원장';
+            }
+          } catch {
+            // 통합원장이 없으면 시트1 시도
+            try {
+              const s1Res = await sheets.spreadsheets.values.get({
+                spreadsheetId: sheetId,
+                range: `'시트1'!A:ZZ`
+              });
+              if (s1Res.data.values && s1Res.data.values.length > 1) {
+                ledgerRows = s1Res.data.values;
+                source = 'google_sheet_시트1';
+              }
+            } catch (s1Err: any) {
+              console.warn(`[UnifiedLedger] Sheet1 read error:`, s1Err.message);
+            }
+          }
+
+          // 구글 시트에서 읽었으면 캐시에 저장
+          if (ledgerRows && ledgerRows.length > 1) {
+            try {
+              const cacheDir = path.dirname(UNIFIED_LEDGER_PATH);
+              if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+              fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(ledgerRows, null, 2), 'utf-8');
+            } catch (wErr: any) {
+              console.warn(`[UnifiedLedger] Cache save error:`, wErr.message);
+            }
+          }
+        }
+      }
+    }
+
+    // 3. 상품별 상세 약관 데이터 읽기
+    let productSpecs: Record<string, any[][]> = {};
+    if (fs.existsSync(PRODUCT_SPECS_PATH)) {
+      try {
+        const rawSpecs = fs.readFileSync(PRODUCT_SPECS_PATH, 'utf-8');
+        productSpecs = JSON.parse(rawSpecs);
+      } catch (specErr: any) {
+        console.warn(`[UnifiedLedger] Product specs read error:`, specErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      source,
+      rowCount: ledgerRows ? ledgerRows.length - 1 : 0,
+      headers: ledgerRows && ledgerRows.length > 0 ? ledgerRows[0] : [],
+      data: ledgerRows || [],
+      productSpecs
+    });
+  } catch (err: any) {
+    console.error(`[UnifiedLedger] Failed to fetch data:`, err);
+    res.status(500).json({ error: err.message || '상조 원장 데이터 조회 실패' });
+  }
+});
+
+// 2-1D. 구글 시트 [통합원장] 탭으로부터 서버 캐시 강제 새로고침 API
+app.post('/api/sheets/unified-ledger/sync-from-sheet', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+  if (!sheetId) return res.status(500).json({ error: 'GOOGLE_SHEET_ID 설정이 없습니다.' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    let rows: any[][] = [];
+    let tabName = '통합원장';
+
+    try {
+      const gRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: `'통합원장'!A:ZZ`
+      });
+      rows = gRes.data.values || [];
+    } catch {
+      // 폴백으로 시트1
+      const s1Res = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: `'시트1'!A:ZZ`
+      });
+      rows = s1Res.data.values || [];
+      tabName = '시트1';
+    }
+
+    if (rows.length < 2) {
+      return res.status(404).json({ error: `구글 시트 [${tabName}] 탭에 유효한 데이터가 없습니다.` });
+    }
+
+    const cacheDir = path.dirname(UNIFIED_LEDGER_PATH);
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(rows, null, 2), 'utf-8');
+
+    res.json({
+      success: true,
+      tabName,
+      rowCount: rows.length - 1,
+      message: `구글 시트 [${tabName}]에서 ${rows.length - 1}건을 성공적으로 동기화했습니다.`
+    });
+  } catch (err: any) {
+    console.error(`[UnifiedLedger] Force sync failed:`, err);
+    res.status(500).json({ error: err.message || '통합원장 동기화에 실패했습니다.' });
+  }
+});
+
 // 2-2. 사원리스트 엑셀을 '사원리스트' 탭에 스마트 병합(기존 보존 + 사원코드 기준 덮어쓰기 및 신규 추가) API
 app.post('/api/sheets/excel-sync/overwrite-employees', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
@@ -3975,6 +4191,7 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     const totalExistingCount = tData.length;
     let newContractCount = 0;
     let updatedContractCount = 0;
+    let skippedPastContractCount = 0;
     let preservedManualStatusCount = 0;
     let deliveryCompletedCount = 0;
     let deliveryExpectedCount = 0;
@@ -4150,7 +4367,18 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
           tData[tIdx] = tRow;
           updatedContractCount++;
         } else {
-          // 신규 가입자 추가
+          // [2026년 관리대장 선별 추가] 관리대장 신규 추가는 2026년 계약건만 등록!
+          // 2026년 이전 과거 계약건(2008~2025)은 관리대장에 신규 추가하지 않고 격리(통합원장으로 관리)
+          const rawContractDate = String(row[idxContractDate] || '').trim();
+          const fDate = formatDateToYMD(rawContractDate) || '';
+          const is2026Contract = fDate.startsWith('2026') || fDate.startsWith('26-') || rawContractDate.startsWith('2026') || rawContractDate.startsWith('26');
+
+          if (!is2026Contract) {
+            skippedPastContractCount++;
+            continue;
+          }
+
+          // 신규 가입자 추가 (2026년 계약)
           const nr = new Array(29).fill("");
           nr[0] = formatDateToYMD(row[idxContractDate]);
           nr[1] = row[idxStatus] !== undefined ? String(row[idxStatus]).trim() : "";
@@ -4371,6 +4599,7 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       totalExistingCount,
       newContractCount,
       updatedContractCount,
+      skippedPastContractCount,
       preservedManualStatusCount,
       deliveryCompletedCount,
       deliveryExpectedCount,
@@ -4402,7 +4631,56 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       }
     }
 
-    // 4-1. '시트1' 시트에 계약원장 엑셀 스마트 병합(기존 보존 + 회원번호 기준 덮어쓰기 & 신규 추가)
+    // 4-1. '통합원장' 시트에 전체 계약원장(2008년~현재) 스마트 병합 & 로컬 캐시 영구 보존
+    let unifiedOverwrittenCount = 0;
+    let unifiedUpdatedCount = 0;
+    let unifiedNewCount = 0;
+    let unifiedExistingCount = 0;
+    let unifiedError: string | null = null;
+
+    if (safeContractRows && safeContractRows.length > 0) {
+      try {
+        // '통합원장' 탭 존재 확인 및 없으면 생성
+        const metaResp = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+        const hasUnifiedSheet = (metaResp.data.sheets || []).some(s => s.properties?.title === '통합원장');
+        if (!hasUnifiedSheet) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: sheetId,
+            requestBody: {
+              requests: [{ addSheet: { properties: { title: '통합원장' } } }]
+            }
+          });
+          console.log(`[ExcelSync] Created new sheet '통합원장' during process`);
+        }
+
+        const uRes = await mergeSheetDataByKeySafe(
+          sheets,
+          sheetId,
+          '통합원장',
+          safeContractRows,
+          ['회원번호', '계약번호', '회원코드'],
+          1
+        );
+        unifiedOverwrittenCount = uRes.totalCount;
+        unifiedUpdatedCount = uRes.updatedCount;
+        unifiedNewCount = uRes.newCount;
+        unifiedExistingCount = uRes.existingCount;
+
+        // 서버 로컬 캐시 파일에도 동시 저장 (상조 초고속 조회용)
+        try {
+          const cacheDir = path.dirname(UNIFIED_LEDGER_PATH);
+          if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+          fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(safeContractRows, null, 2), 'utf-8');
+        } catch (cErr: any) {
+          console.warn(`[ExcelSync] Local cache write warning:`, cErr.message);
+        }
+      } catch (err: any) {
+        unifiedError = err.message || '통합원장 스마트 병합 실패';
+        console.error(`[ExcelSync] Failed to merge '통합원장':`, err);
+      }
+    }
+
+    // 4-1B. '시트1' 시트에도 호환성을 위해 계약원장 스마트 병합
     let sheet1OverwrittenCount = 0;
     let sheet1UpdatedCount = 0;
     let sheet1NewCount = 0;
@@ -4503,6 +4781,11 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       success: true,
       preview: false,
       backupTitle: backupSheetName,
+      unifiedOverwrittenCount,
+      unifiedUpdatedCount,
+      unifiedNewCount,
+      unifiedExistingCount,
+      unifiedError,
       sheet1OverwrittenCount,
       sheet1UpdatedCount,
       sheet1NewCount,

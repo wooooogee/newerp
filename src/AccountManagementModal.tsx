@@ -45,6 +45,7 @@ const PRESET_ROLES = [
   { value: '본부', label: '본부 (본부장/관리자)', desc: '소속 본부 및 산하 지사 데이터 관리' },
   { value: '지사', label: '지사 (지사장/지사관리)', desc: '소속 지사 데이터 관리' },
   { value: '영업사원', label: '영업사원 (개인 실적)', desc: '개인 실적 조회' },
+  { value: '의전', label: '의전 (상조/의전 모바일 전용)', desc: '상조 회원 조회 및 의전 모바일 뷰 전용 계정' },
   { value: '본부모바일', label: '본부모바일 (모바일 전용)', desc: '모바일 본부 뷰' },
   { value: '지사모바일', label: '지사모바일 (모바일 전용)', desc: '모바일 지사 뷰' },
 ];
@@ -1026,6 +1027,9 @@ export function AccountManagementModal({
                     } else if (role === '관리자' || role === '총무') {
                       setNewOrgType('custom');
                       setCustomOrgInput('본사/전체');
+                    } else if (role === '의전') {
+                      setNewOrgType('custom');
+                      setCustomOrgInput('의전팀');
                     } else {
                       setNewOrgType('custom');
                     }
