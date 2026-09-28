@@ -6894,6 +6894,20 @@ const ERP_Dashboard = () => {
             </motion.button>
           )}
 
+          {isProtocolStaff && (
+            <motion.button
+              onClick={() => setIsSangjoInquiryModalOpen(true)}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              title="2008년~현재 전체 계약원장 기반 상조 불입현황 및 가입상품 상세 조회"
+              className="flex items-center gap-1.5 sm:gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-bold text-xs sm:text-sm transition-all shadow-lg shadow-purple-500/20 cursor-pointer"
+            >
+              <CreditCard size={16} />
+              <span className="hidden sm:inline">상조 회원 조회</span>
+              <span className="sm:hidden">상조조회</span>
+            </motion.button>
+          )}
+
           <a
             href="https://totalsign.netlify.app/admin/dashboard"
             target="_blank"
@@ -7482,16 +7496,6 @@ const ERP_Dashboard = () => {
                           <FolderTree size={13} />
                           <span className="hidden sm:inline">조직도</span>
                         </button>
-                        {isProtocolStaff && (
-                          <button
-                            onClick={() => setIsSangjoInquiryModalOpen(true)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
-                            title="2008년~현재 전체 계약원장 기반 상조 불입현황 및 가입상품 상세 조회 (sangjo.netlify.app 통합)"
-                          >
-                            <CreditCard size={13} />
-                            <span className="hidden sm:inline">상조 회원 조회</span>
-                          </button>
-                        )}
                         <button
                           onClick={() => setIsExcelSyncModalOpen(true)}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-black shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
