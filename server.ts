@@ -4999,6 +4999,13 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       }
     });
 
+    // 시트1 병합 결과 변수 초기화 (백그라운드 비동기 처리 대응)
+    let sheet1OverwrittenCount = 0;
+    let sheet1UpdatedCount = 0;
+    let sheet1NewCount = 0;
+    let sheet1ExistingCount = 0;
+    let sheet1Error: string | null = null;
+
     res.json({
       success: true,
       preview: false,
