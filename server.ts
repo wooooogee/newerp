@@ -2804,13 +2804,38 @@ function formatPhoneSync(p: any): string {
 
 function formatDateToYMD(d: any): string {
   if (!d) return "";
+  const s = String(d).trim();
+  if (!s || s === '-' || s === '- -') return "";
+
+  // 1. 2009-MM-26 또는 2009/M/26 (구글 시트 로캘 오변환: 원래 2026-09-MM)
+  const m2009 = s.match(/^2009[-/](\d{1,2})[-/]26$/);
+  if (m2009) {
+    const day = String(m2009[1]).padStart(2, '0');
+    return `2026-09-${day}`;
+  }
+
+  // 2. M/D/26 또는 MM/DD/26 (미국식 M/D/YY 포맷)
+  const mUS = s.match(/^(\d{1,2})\/(\d{1,2})\/26$/);
+  if (mUS) {
+    const month = String(mUS[1]).padStart(2, '0');
+    const day = String(mUS[2]).padStart(2, '0');
+    return `2026-${month}-${day}`;
+  }
+
+  // 3. YYYY/M/D 또는 YYYY.M.D 또는 YYYY-M-D
+  const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (mNorm) {
+    return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
+  }
+
+  // 4. YY-MM-DD (26-09-XX)
+  const mYY = s.match(/^26[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (mYY) {
+    return `2026-${String(mYY[1]).padStart(2, '0')}-${String(mYY[2]).padStart(2, '0')}`;
+  }
+
   const dt = (d instanceof Date) ? d : new Date(d);
   if (isNaN(dt.getTime())) {
-    const s = String(d).trim();
-    if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(s)) {
-      const parts = s.split(/[-/.]/);
-      return `${parts[0]}-${String(parts[1]).padStart(2, '0')}-${String(parts[2]).padStart(2, '0')}`;
-    }
     return s;
   }
   const y = dt.getFullYear();
@@ -3633,6 +3658,16 @@ async function mergeSheetDataByKeySafe(
   const nBankNameIdx = newHeaders.findIndex(h => h.replace(/\s+/g, '').includes('은행명'));
   const nAccountNoIdx = newHeaders.findIndex(h => h.replace(/\s+/g, '').includes('계좌번호'));
 
+  // [중요] 날짜 컬럼 인덱스 탐색 (계약일자, 회원등록일, 해약등록일, 최초납입일, 최종납입일, 상태변경일 등)
+  const dateColIndices: number[] = [];
+  const dateKeywords = ['계약일자', '가입일자', '회원등록일', '해약등록일', '최초납입일', '최종납입일', '상태변경일'];
+  for (let c = 0; c < newHeaders.length; c++) {
+    const h = newHeaders[c].replace(/\s+/g, '');
+    if (dateKeywords.some(kw => h.includes(kw))) {
+      dateColIndices.push(c);
+    }
+  }
+
   const mergedRows: any[][] = existingRows.map(r => [...r]);
   let updatedCount = 0;
   let newCount = 0;
@@ -3643,6 +3678,13 @@ async function mergeSheetDataByKeySafe(
     if (!k) continue;
 
     const nRow = [...rawNRow];
+
+    // 날짜 컬럼 YYYY-MM-DD 표준화 (구글 시트 2009년 로캘 오변환 및 M/D/YY 포맷 방어)
+    for (const dCol of dateColIndices) {
+      if (nRow[dCol] !== undefined && nRow[dCol] !== null && String(nRow[dCol]).trim() !== '') {
+        nRow[dCol] = formatDateToYMD(nRow[dCol]);
+      }
+    }
 
     // 은행코드 1~2자리 3자리 패딩
     if (nBankCodeIdx !== -1 && nRow[nBankCodeIdx] !== undefined) {

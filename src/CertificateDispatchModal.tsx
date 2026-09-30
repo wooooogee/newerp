@@ -12,6 +12,42 @@ interface CertificateDispatchModalProps {
   data: any[]; // ERPDataItem[]
 }
 
+// 다양한 형태의 계약일자(US 형식 M/D/YY, 구글시트 로캘 오변환 2009-M-26 등)를 YYYY-MM-DD로 복원 및 정규화
+export function normalizeContractDate(val: any): string {
+  if (!val) return '';
+  const s = String(val).trim();
+  if (!s || s === '-' || s === '- -') return '';
+
+  // 1. 2009-MM-26 또는 2009/M/26 (구글 시트 로캘 오변환: 원래 2026-09-MM)
+  const m2009 = s.match(/^2009[-/](\d{1,2})[-/]26$/);
+  if (m2009) {
+    const day = String(m2009[1]).padStart(2, '0');
+    return `2026-09-${day}`;
+  }
+
+  // 2. M/D/26 또는 MM/DD/26 (미국식 M/D/YY 포맷)
+  const mUS = s.match(/^(\d{1,2})\/(\d{1,2})\/26$/);
+  if (mUS) {
+    const month = String(mUS[1]).padStart(2, '0');
+    const day = String(mUS[2]).padStart(2, '0');
+    return `2026-${month}-${day}`;
+  }
+
+  // 3. YYYY/M/D 또는 YYYY.M.D 또는 YYYY-M-D
+  const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (mNorm) {
+    return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
+  }
+
+  // 4. YY-MM-DD (26-09-XX)
+  const mYY = s.match(/^26[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (mYY) {
+    return `2026-${String(mYY[1]).padStart(2, '0')}-${String(mYY[2]).padStart(2, '0')}`;
+  }
+
+  return s;
+}
+
 export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> = ({ isOpen, onClose, data }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
@@ -34,7 +70,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         try {
           const timestamp = Date.now();
           const [sheet1Res, empRes, payRes, historyRes] = await Promise.all([
-            fetch(`/api/sheets/sheetData?sheetName=시트1&t=${timestamp}`),
+            fetch(`/api/sheets/sheetData?sheetName=시트1&fresh=true&t=${timestamp}`),
             fetch(`/api/sheets/sheetData?sheetName=사원리스트&t=${timestamp}`),
             fetch(`/api/sheets/sheetData?sheetName=월불입금&t=${timestamp}`),
             fetch(`/api/sheets/sheetData?sheetName=증서발송리스트&t=${timestamp}`)
@@ -45,11 +81,11 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             const rows = sheet1Data.slice(1);
             setSheet1List(rows); // Skip header
             
-            // 관리대장 데이터(data)를 회원번호 기준으로 가입상태 맵 생성 (대소문자 무시)
-            const maintenanceStatusMap = new Map<string, string>();
+            // 관리대장 데이터(data)를 회원번호 기준으로 가입상태 및 계약일자 맵 생성 (대소문자 무시)
+            const maintenanceMap = new Map<string, any>();
             data.forEach(item => {
               if (item.memNo) {
-                maintenanceStatusMap.set(String(item.memNo).trim().toUpperCase(), String(item.status || '').trim());
+                maintenanceMap.set(String(item.memNo).trim().toUpperCase(), item);
               }
             });
 
@@ -57,11 +93,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             const months = new Set<string>();
             rows.forEach((raw: any) => {
               const memNo = String(raw[1] || '').trim().toUpperCase();
-              // 관리대장 시트에 없는 경우 가입상태를 빈값으로 취급하여 제외
-              const status = maintenanceStatusMap.get(memNo) || '';
+              const mItem = maintenanceMap.get(memNo);
+              const status = String(mItem?.status || '').trim();
 
               if (status === '가입') {
-                const cDate = String(raw[2] || '');
+                const rawCDate = mItem?.contractDate || raw[2] || '';
+                const cDate = normalizeContractDate(rawCDate);
                 if (cDate) {
                   const m = cDate.match(/^(\d{4})[-./]?(\d{2})/);
                   if (m) months.add(`${m[1]}-${m[2]}`);
@@ -140,11 +177,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         const hq = String(raw[38] || '');         // AM(38): 본부명
         const empCode = String(raw[39] || maintenanceItem?.empCode || '').trim();
         const empName = String(raw[10] || maintenanceItem?.empName || '').trim(); // K(10): 사원명
-        const contractDate = String(raw[2] || ''); // C(2): 계약일자
-        const memName = String(raw[5] || '');     // F(5): 회원명
-        const resNo = String(raw[7] || '');       // H(7): 주민등록번호
-        const prodName = String(raw[11] || '');   // L(11): 상품명
-        const firstPayDate = String(raw[20] || '');// U(20): 최초납입일
+        const rawCDate = String(maintenanceItem?.contractDate || raw[2] || '').trim();
+        const contractDate = normalizeContractDate(rawCDate); // C(2): 계약일자
+        const memName = String(raw[5] || maintenanceItem?.memName || '').trim();     // F(5): 회원명
+        const resNo = String(raw[7] || maintenanceItem?.resNo || '').trim();       // H(7): 주민등록번호
+        const prodName = String(raw[11] || maintenanceItem?.prodName || '').trim();   // L(11): 상품명
+        const rawFirstPay = String(raw[20] || maintenanceItem?.payDate || '').trim();
+        const firstPayDate = normalizeContractDate(rawFirstPay); // U(20): 최초납입일
         let zipCode = String(raw[44] || '');      // AS(44): 우편번호
         const address = String(raw[45] || '');    // AT(45): 주소
         const workAddress = String(raw[47] || '');// AV(47): 직장주소
