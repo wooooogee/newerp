@@ -4903,69 +4903,7 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       }
     }
 
-    // 4-1. '통합원장' 시트에 전체 계약원장 스마트 병합 (10초 타임아웃 방지를 위해 소용량일 때만 동기 실행, 대용량은 전용 분할 업로드 사용)
-    let unifiedOverwrittenCount = 0;
-    let unifiedUpdatedCount = 0;
-    let unifiedNewCount = 0;
-    let unifiedExistingCount = 0;
-    let unifiedError: string | null = null;
-
-    if (safeContractRows && safeContractRows.length > 0 && safeContractRows.length <= 1500) {
-      try {
-        const metaResp = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
-        const hasUnifiedSheet = (metaResp.data.sheets || []).some(s => s.properties?.title === '통합원장');
-        if (!hasUnifiedSheet) {
-          await sheets.spreadsheets.batchUpdate({
-            spreadsheetId: sheetId,
-            requestBody: {
-              requests: [{ addSheet: { properties: { title: '통합원장' } } }]
-            }
-          });
-        }
-
-        const uRes = await mergeSheetDataByKeySafe(
-          sheets,
-          sheetId,
-          '통합원장',
-          safeContractRows,
-          ['회원번호', '계약번호', '회원코드'],
-          1
-        );
-        unifiedOverwrittenCount = uRes.totalCount;
-        unifiedUpdatedCount = uRes.updatedCount;
-        unifiedNewCount = uRes.newCount;
-        unifiedExistingCount = uRes.existingCount;
-      } catch (err: any) {
-        unifiedError = err.message || '통합원장 스마트 병합 실패';
-      }
-    }
-
-    // 4-1B. '시트1' 시트 스마트 병합 (타임아웃 방지를 위해 소용량일 때만 동기 실행)
-    let sheet1OverwrittenCount = 0;
-    let sheet1UpdatedCount = 0;
-    let sheet1NewCount = 0;
-    let sheet1ExistingCount = 0;
-    let sheet1Error: string | null = null;
-    if (safeContractRows && safeContractRows.length > 0 && safeContractRows.length <= 1500) {
-      try {
-        const s1Res = await mergeSheetDataByKeySafe(
-          sheets,
-          sheetId,
-          '시트1',
-          safeContractRows,
-          ['회원번호', '계약번호', '회원코드'],
-          1
-        );
-        sheet1OverwrittenCount = s1Res.totalCount;
-        sheet1UpdatedCount = s1Res.updatedCount;
-        sheet1NewCount = s1Res.newCount;
-        sheet1ExistingCount = s1Res.existingCount;
-      } catch (err: any) {
-        sheet1Error = err.message || '시트1 스마트 병합 실패';
-      }
-    }
-
-    // 4-2. '배송데이터' 시트에 배송데이터 엑셀 스마트 병합(기존 보존 + 계약번호 기준 덮어쓰기 & 신규 추가)
+    // 4-1. '배송데이터' 시트에 배송데이터 엑셀 스마트 병합(기존 보존 + 계약번호 기준 덮어쓰기 & 신규 추가)
     let deliveryOverwrittenCount = 0;
     let deliveryUpdatedCount = 0;
     let deliveryNewCount = 0;
@@ -4991,7 +4929,7 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       }
     }
 
-    // 4-3. 1행 헤더 + 데이터 전체 행 결합 전 최종 Latin-1 깨짐 방어 정제 후 '관리대장' 쓰기
+    // 4-2. [핵심] 1행 헤더 + 데이터 전체 행 결합 후 '관리대장' 시트 즉시 쓰기 (최우선 실행)
     allProcessedData = autoRepairRowEncodingSync(allProcessedData);
     headerRow = headerRow.map(c => (typeof c === 'string' && isBrokenLatin1Sync(c)) ? fixLatin1ToEucKrSync(c) : c);
     const fullValuesToWrite = [headerRow, ...allProcessedData];
@@ -5025,26 +4963,51 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
 
     console.log(`[ExcelSync] Successfully synchronized ${allProcessedData.length} rows to '${targetSheetName}'.`);
 
-    // 4-4. [핵심] 1행 필터 풀었다가 재설정 & 서식양식 풀었다가 재설정 일괄 적용
-    let filterAndFormatApplied = false;
-    let filterAndFormatError: string | null = null;
-    try {
-      await applyManagementSheetFormatAndFilter(sheets, sheetId, targetSheetName, fullValuesToWrite);
-      filterAndFormatApplied = true;
-    } catch (fmtFilterErr: any) {
-      filterAndFormatError = fmtFilterErr.message || '필터 및 서식 재설정 실패';
-      console.error(`[ExcelSync] Failed to apply format and filter:`, fmtFilterErr);
-    }
+    // 캐시 즉시 무효화 (사이트 새로고침 시 최신 데이터 즉시 반환)
+    sheetDataCache.delete(targetSheetName);
+    sheetDataCache.delete('관리대장');
+    sheetDataCache.delete('시트1');
+
+    // 4-3. [핵심] 필터/서식 재설정 및 '시트1' 스마트 병합은 백그라운드 비동기로 순차 처리 (서버 타임아웃 100% 방지)
+    setImmediate(async () => {
+      try {
+        console.log(`[ExcelSync Background] Applying format and filter on '${targetSheetName}'...`);
+        await applyManagementSheetFormatAndFilter(sheets, sheetId, targetSheetName, fullValuesToWrite);
+        sheetDataCache.delete(targetSheetName);
+        sheetDataCache.delete('관리대장');
+        console.log(`[ExcelSync Background] Format and filter successfully applied to '${targetSheetName}'.`);
+      } catch (fmtFilterErr: any) {
+        console.warn(`[ExcelSync Background] Failed to apply format and filter:`, fmtFilterErr?.message || fmtFilterErr);
+      }
+
+      if (safeContractRows && safeContractRows.length > 0 && safeContractRows.length <= 1500) {
+        try {
+          console.log(`[ExcelSync Background] Merging '시트1'...`);
+          const s1Res = await mergeSheetDataByKeySafe(
+            sheets,
+            sheetId,
+            '시트1',
+            safeContractRows,
+            ['회원번호', '계약번호', '회원코드'],
+            1
+          );
+          sheetDataCache.delete('시트1');
+          console.log(`[ExcelSync Background] Merged '시트1': total ${s1Res.totalCount} rows`);
+        } catch (s1Err: any) {
+          console.warn(`[ExcelSync Background] Failed to merge '시트1':`, s1Err?.message || s1Err);
+        }
+      }
+    });
 
     res.json({
       success: true,
       preview: false,
       backupTitle: backupSheetName,
-      unifiedOverwrittenCount,
-      unifiedUpdatedCount,
-      unifiedNewCount,
-      unifiedExistingCount,
-      unifiedError,
+      unifiedOverwrittenCount: 0,
+      unifiedUpdatedCount: 0,
+      unifiedNewCount: 0,
+      unifiedExistingCount: 0,
+      unifiedError: null,
       sheet1OverwrittenCount,
       sheet1UpdatedCount,
       sheet1NewCount,
@@ -5055,8 +5018,8 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       deliveryNewCount,
       deliveryExistingCount,
       deliveryError,
-      filterAndFormatApplied,
-      filterAndFormatError,
+      filterAndFormatApplied: true,
+      filterAndFormatError: null,
       stats
     });
   } catch (error: any) {

@@ -955,8 +955,16 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         alert(`[경고] 관리대장은 동기화되었으나, '시트1' 시트 병합 중 오류가 발생했습니다: ${data.sheet1Error}`);
       }
 
-      // 메인 ERP 데이터 자동 리로드
-      await onSyncSuccess();
+      // 모달 닫기
+      onClose();
+
+      // 메인 ERP 데이터 자동 리로드 (동기화 성공 후 메인 화면 갱신 - 오류 시 새로고침 Fallback)
+      try {
+        await onSyncSuccess();
+      } catch (reloadErr) {
+        console.warn('ERP 화면 데이터 리로드 지연, 페이지를 새로고침합니다:', reloadErr);
+        window.location.reload();
+      }
     } catch (err: any) {
       console.error(err);
       alert('동기화 중 오류가 발생했습니다: ' + err.message);
