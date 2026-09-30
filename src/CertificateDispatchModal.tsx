@@ -54,7 +54,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [sheet1List, setSheet1List] = useState<any[]>([]);
   const [empList, setEmpList] = useState<any[]>([]);
   const [paymentList, setPaymentList] = useState<any[]>([]);
-  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [selectedYear, setSelectedYear] = useState<string>('all');
+  const [selectedMonthOnly, setSelectedMonthOnly] = useState<string>('all');
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [isConsolidated, setIsConsolidated] = useState<boolean>(true);
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
@@ -89,8 +90,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
               }
             });
 
-            // 최근월 찾아서 기본 선택
-            const months = new Set<string>();
+            // 최근 연월 찾아서 기본 선택
+            const yearMonths = new Set<string>();
             rows.forEach((raw: any) => {
               const memNo = String(raw[1] || '').trim().toUpperCase();
               const mItem = maintenanceMap.get(memNo);
@@ -101,13 +102,15 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                 const cDate = normalizeContractDate(rawCDate);
                 if (cDate) {
                   const m = cDate.match(/^(\d{4})[-./]?(\d{2})/);
-                  if (m) months.add(`${m[1]}-${m[2]}`);
+                  if (m) yearMonths.add(`${m[1]}-${m[2]}`);
                 }
               }
             });
-            const sortedMonths = Array.from(months).sort().reverse();
-            if (sortedMonths.length > 0) {
-              setSelectedMonth(sortedMonths[0]);
+            const sortedYM = Array.from(yearMonths).sort().reverse();
+            if (sortedYM.length > 0) {
+              const [y, m] = sortedYM[0].split('-');
+              setSelectedYear(y);
+              setSelectedMonthOnly(m);
             }
           }
           if (empRes.ok) {
@@ -286,17 +289,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     }));
   }, [sheet1List, empList, paymentList, data, isConsolidated]);
 
-  // 계약일자 월 목록 추출 (YYYY-MM)
-  const availableMonths = useMemo(() => {
-    const months = new Set<string>();
+  // 계약일자 연도 목록 추출 (YYYY)
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
     consolidatedData.forEach(item => {
       const cDate = item.extracted.contractDate;
       if (cDate) {
-        const m = cDate.match(/^(\d{4})[-./]?(\d{2})/);
-        if (m) months.add(`${m[1]}-${m[2]}`);
+        const m = cDate.match(/^(\d{4})/);
+        if (m) years.add(m[1]);
       }
     });
-    return Array.from(months).sort().reverse();
+    return Array.from(years).sort().reverse();
   }, [consolidatedData]);
 
   // 가입상품 목록 추출
@@ -314,13 +317,19 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const processedData = useMemo(() => {
     let result = consolidatedData;
 
-    // 1. 계약월 필터
-    if (selectedMonth !== 'all') {
+    // 1. 계약년월 필터 (연도와 월 개별 또는 조합 필터링)
+    if (selectedYear !== 'all' || selectedMonthOnly !== 'all') {
       result = result.filter(item => {
         const cDate = item.extracted.contractDate;
         if (!cDate) return false;
         const m = cDate.match(/^(\d{4})[-./]?(\d{2})/);
-        return m ? `${m[1]}-${m[2]}` === selectedMonth : false;
+        if (!m) return false;
+        const itemYear = m[1];
+        const itemMonth = m[2];
+
+        if (selectedYear !== 'all' && itemYear !== selectedYear) return false;
+        if (selectedMonthOnly !== 'all' && itemMonth !== selectedMonthOnly) return false;
+        return true;
       });
     }
 
@@ -411,14 +420,14 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       };
       return getScore(b) - getScore(a);
     });
-  }, [consolidatedData, selectedMonth, selectedProducts, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter, searchTerm, dispatchedHistoryNos]);
+  }, [consolidatedData, selectedYear, selectedMonthOnly, selectedProducts, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter, searchTerm, dispatchedHistoryNos]);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   // 필터나 검색어가 바뀔 때 선택 초기화
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [searchTerm, selectedMonth, selectedProducts, isConsolidated, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter]);
+  }, [searchTerm, selectedYear, selectedMonthOnly, selectedProducts, isConsolidated, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter]);
 
   const handleToggleSelect = (id: number) => {
     setSelectedIds(prev => {
@@ -969,17 +978,34 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       displayClassName="flex items-center justify-between w-full"
                     />
                   </div>
-                  <div className="sm:w-48">
-                    <select
-                      value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                    >
-                      <option value="all">전체 월</option>
-                      {availableMonths.map(m => (
-                        <option key={m} value={m}>{m.replace('-', '년 ')}월</option>
-                      ))}
-                    </select>
+                  {/* 계약 연도/월 2단 분리 선택 드롭다운 */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="w-28 sm:w-32">
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(e.target.value)}
+                        className="w-full px-2.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+                        title="계약 연도 선택"
+                      >
+                        <option value="all">전체 연도</option>
+                        {availableYears.map(y => (
+                          <option key={y} value={y}>{y}년</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="w-24 sm:w-28">
+                      <select
+                        value={selectedMonthOnly}
+                        onChange={(e) => setSelectedMonthOnly(e.target.value)}
+                        className="w-full px-2.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+                        title="계약 월 선택"
+                      >
+                        <option value="all">전체 월</option>
+                        {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => (
+                          <option key={m} value={m}>{parseInt(m)}월</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 px-3">
                     <input
