@@ -211,6 +211,13 @@ const normalizeAccountNumber = (rawAcc: any, bankCode: string, bankName?: string
     }
   }
 
+  // 10자리 순수 숫자인 경우 대구은행(031) 등 11자리 계좌 앞자리 0 누락 자동 복원 (예: 4413057278 -> 04413057278)
+  if (/^[0-9]{10}$/.test(str)) {
+    if (bankCode === '031' || bankCode === '31' || bankName?.includes('대구')) {
+      return '0' + str;
+    }
+  }
+
   return str;
 };
 

@@ -4980,7 +4980,7 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
         console.warn(`[ExcelSync Background] Failed to apply format and filter:`, fmtFilterErr?.message || fmtFilterErr);
       }
 
-      if (safeContractRows && safeContractRows.length > 0 && safeContractRows.length <= 1500) {
+      if (safeContractRows && safeContractRows.length > 0 && safeContractRows.length <= 10000) {
         try {
           console.log(`[ExcelSync Background] Merging '시트1'...`);
           const s1Res = await mergeSheetDataByKeySafe(
