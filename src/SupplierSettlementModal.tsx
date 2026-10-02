@@ -225,24 +225,36 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
       // 공급사에 매칭된 제품만 정산 대상에 포함
       if (matchedSupplier && matchedProductSetting) {
-        // 본부별 차등 공급수수료 계산
-        let finalCommission = matchedProductSetting.supplyCommission || 0;
+        // 공급수수료: 내가 선택/지정한 본부에만 주는 구조 (선택하지 않은 본부는 0원 미지급)
+        let finalCommission = 0;
         let isHqDiff = false;
         let appliedHq = '';
 
         if (matchedProductSetting.hqCommissions && matchedProductSetting.hqCommissions.length > 0) {
           const itemHqName = (item.hq || '').trim().toLowerCase();
-          if (itemHqName) {
-            const hqMatch = matchedProductSetting.hqCommissions.find(hc => {
-              const ruleHq = (hc.hqName || '').trim().toLowerCase();
-              return ruleHq && (itemHqName.includes(ruleHq) || ruleHq.includes(itemHqName));
-            });
-            if (hqMatch) {
-              finalCommission = hqMatch.commission;
-              isHqDiff = true;
-              appliedHq = hqMatch.hqName;
-            }
+          
+          // 1) 특정 본부 지정 매칭
+          const specificHqMatch = matchedProductSetting.hqCommissions.find(hc => {
+            const ruleHq = (hc.hqName || '').trim().toLowerCase();
+            return ruleHq && ruleHq !== '전체본부' && ruleHq !== '전체' && 
+                   (itemHqName.includes(ruleHq) || ruleHq.includes(itemHqName));
+          });
+
+          // 2) 전체본부 공통 지정 매칭
+          const allHqMatch = matchedProductSetting.hqCommissions.find(hc => 
+            hc.hqName === '전체본부' || hc.hqName === '전체'
+          );
+
+          if (specificHqMatch) {
+            finalCommission = specificHqMatch.commission;
+            isHqDiff = true;
+            appliedHq = specificHqMatch.hqName;
+          } else if (allHqMatch) {
+            finalCommission = allHqMatch.commission;
+            isHqDiff = false;
+            appliedHq = '전체본부';
           }
+          // 지정되지 않은 본부는 finalCommission = 0 (미지급)
         }
 
         const qty = 1; // 렌탈계약번호 1건 = 상품개수 1개
@@ -349,6 +361,9 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     const summaryMap = new Map<string, CommissionSummary>();
 
     settlementItems.forEach((item) => {
+      // 지정 본부 외 수수료 미지급 건(0원)은 수수료 집계에서 제외
+      if (item.totalCommission <= 0) return;
+
       const recipientName = item.commissionRecipient || item.matchedSupplierName;
       const key = `${item.matchedSupplierId}_${recipientName}`;
 
@@ -400,6 +415,9 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       const matchSupplier = selectedSupplierId === 'ALL' || item.matchedSupplierId === selectedSupplierId;
       if (!matchSupplier) return false;
 
+      // 수수료 탭에서는 수수료 지급 대상(0원 초과) 건만 표시
+      if (mainTab === 'COMMISSION' && item.totalCommission <= 0) return false;
+
       if (!searchTerm) return true;
       const term = searchTerm.toLowerCase();
       return (
@@ -412,7 +430,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         item.commissionRecipient.toLowerCase().includes(term)
       );
     });
-  }, [settlementItems, selectedSupplierId, searchTerm]);
+  }, [settlementItems, selectedSupplierId, searchTerm, mainTab]);
 
   // ==========================================
   // [엑셀 다운로드 1] 물품 대금 전용 정산서
@@ -565,10 +583,11 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
     XLSX.utils.book_append_sheet(wb, wsSummary, '공급수수료총괄표');
 
-    // 2. 건별 공급 수수료 상세 명세 시트
-    const itemsToExport = targetSupplierId && targetSupplierId !== 'ALL'
-      ? settlementItems.filter(i => i.matchedSupplierId === targetSupplierId)
-      : settlementItems;
+    // 2. 건별 공급 수수료 상세 명세 시트 (수수료 지급 대상 건만)
+    const itemsToExport = settlementItems.filter(i => {
+      const matchSupp = !targetSupplierId || targetSupplierId === 'ALL' || i.matchedSupplierId === targetSupplierId;
+      return matchSupp && i.totalCommission > 0;
+    });
 
     const detailRows = [
       [`공급 수수료(특수수당) 상세 명세서 (${selectedMonth})`],

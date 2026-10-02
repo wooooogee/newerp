@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw, ArrowUpDown, Building, Calculator } from 'lucide-react';
+import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ShieldCheck, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw, ArrowUpDown, Building, Calculator } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ManualOrderReconModal } from './ManualOrderReconModal';
 import { SupplierItem, loadSuppliersFromStorage } from './SupplierManagementModal';
@@ -87,6 +87,59 @@ const COURIER_OPTIONS = [
 ];
 
 const LOCAL_STORAGE_KEY = 'erp_manual_order_target_products_v1';
+const SHEET_ORDER_ROWS_CACHE_KEY = 'erp_manual_order_sheet_rows_cache_v2';
+
+export const parseSheetRowsToMap = (rows: any[][]) => {
+  const map = new Map<string, { rowIdx: number; requestDate: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; raw: any[] }>();
+  if (!Array.isArray(rows) || rows.length < 2) return map;
+
+  const headerRow = (rows[0] || []).map((h: any) => String(h || '').trim());
+  const findCol = (keywords: string[], defaultIdx: number) => {
+    const found = headerRow.findIndex((h: string) => keywords.some((kw) => h === kw || h.includes(kw)));
+    return found !== -1 ? found : defaultIdx;
+  };
+
+  const contractNoCol = findCol(['계약번호', '렌탈계약번호', '회원번호'], 1);
+  const reqDateCol = findCol(['요청일', '요청일자', '발주일자'], 14);
+  const delDateCol = findCol(['배송일', '배송일자', '설치일'], 20);
+  const courierCol = findCol(['택배사', '배송업체'], 21);
+  const trackingCol = findCol(['송장번호', '운송장번호'], 22);
+  const addressCol = findCol(['주소', '배송지'], 11);
+  const zipCodeCol = findCol(['우편번호'], 10);
+
+  rows.slice(1).forEach((row, idx) => {
+    const rowIdx = idx + 2;
+    const rawContractNo = String(row[contractNoCol] || row[1] || '').trim();
+    if (!rawContractNo) return;
+
+    const reqDate = String(row[reqDateCol] !== undefined ? row[reqDateCol] : (row[14] || '')).trim();
+    const address = String(row[addressCol] !== undefined ? row[addressCol] : (row[11] || '')).trim();
+    const zipCode = String(row[zipCodeCol] !== undefined ? row[zipCodeCol] : (row[10] || '')).trim();
+    const delDate = String(row[delDateCol] !== undefined ? row[delDateCol] : (row[20] || '')).trim();
+    const courier = String(row[courierCol] !== undefined ? row[courierCol] : (row[21] || '')).trim();
+    const tracking = String(row[trackingCol] !== undefined ? row[trackingCol] : (row[22] || '')).trim();
+
+    const matchObj = {
+      rowIdx,
+      requestDate: reqDate,
+      address,
+      zipCode,
+      deliveryDate: delDate,
+      courier,
+      trackingNo: tracking,
+      raw: row,
+    };
+
+    const keyRaw = rawContractNo;
+    const keyUpper = rawContractNo.toUpperCase();
+    const keyDigits = rawContractNo.replace(/[^0-9]/g, '');
+
+    map.set(keyRaw, matchObj);
+    if (keyUpper !== keyRaw) map.set(keyUpper, matchObj);
+    if (keyDigits && keyDigits !== keyRaw) map.set(keyDigits, matchObj);
+  });
+  return map;
+};
 
 // 날짜 문자열(YYYY-MM-DD, YYYY.MM.DD 등)에서 YYYY-MM 추출 헬퍼
 export const parseYearMonth = (dateStr?: string | null): string | null => {
@@ -200,8 +253,16 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   });
 
   const [newProductInput, setNewProductInput] = useState('');
-  const [showProductConfig, setShowProductConfig] = useState(false);
-  const [sheetOrderRows, setSheetOrderRows] = useState<any[]>([]);
+  const [sheetOrderRows, setSheetOrderRows] = useState<any[]>(() => {
+    try {
+      const cached = sessionStorage.getItem(SHEET_ORDER_ROWS_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
 
   const [savedOrderStore, setSavedOrderStore] = useState<Record<string, { orderDate?: string; deliveryDate?: string; courier?: string; trackingNo?: string; deliveryState?: DeliveryState }>>(() => {
     try {
@@ -219,11 +280,14 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
   const [stateFilter, setStateFilter] = useState<'all' | DeliveryState>('all');
+  const [joinStatusFilter, setJoinStatusFilter] = useState<'all' | 'active' | 'cancelled'>('all');
   const [contractMonthFilter, setContractMonthFilter] = useState<string>('all');
   const [deliveryMonthFilter, setDeliveryMonthFilter] = useState<string>('all');
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(100);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -317,68 +381,40 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     setTargetProducts((prev) => prev.filter((p) => p !== prodToRemove));
   };
 
-  const [sheetOrderMap, setSheetOrderMap] = useState<Map<string, { rowIdx: number; requestDate: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; raw: any[] }>>(new Map());
+  const [sheetOrderMap, setSheetOrderMap] = useState<Map<string, { rowIdx: number; requestDate: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; raw: any[] }>>(() => {
+    try {
+      const cached = sessionStorage.getItem(SHEET_ORDER_ROWS_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parseSheetRowsToMap(parsed);
+        }
+      }
+    } catch (e) {}
+    return new Map();
+  });
 
   const fetchOrderSheetData = useCallback(async () => {
-    setLoading(true);
+    // 캐시가 이미 존재하면 로딩 스피너를 띄우지 않고 0ms 즉시 표시
+    let hasExisting = false;
+    try {
+      const cached = sessionStorage.getItem(SHEET_ORDER_ROWS_CACHE_KEY);
+      if (cached && JSON.parse(cached)?.length > 0) hasExisting = true;
+    } catch (e) {}
+
+    if (!hasExisting) setLoading(true);
     try {
       const timestamp = Date.now();
       const res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('수기발주')}&t=${timestamp}`);
       if (!res.ok) throw new Error('수기발주 시트 로드 실패');
       const rows: any[][] = await res.json();
-      setSheetOrderRows(Array.isArray(rows) ? rows : []);
-
-      const map = new Map<string, { rowIdx: number; requestDate: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; raw: any[] }>();
-
       if (Array.isArray(rows) && rows.length >= 2) {
-        const headerRow = (rows[0] || []).map((h: any) => String(h || '').trim());
-        const findCol = (keywords: string[], defaultIdx: number) => {
-          const found = headerRow.findIndex((h: string) => keywords.some((kw) => h === kw || h.includes(kw)));
-          return found !== -1 ? found : defaultIdx;
-        };
-
-        const contractNoCol = findCol(['계약번호', '렌탈계약번호', '회원번호'], 1); // 기본 B열 (index 1)
-        const reqDateCol = findCol(['요청일', '요청일자', '발주일자'], 14); // 기본 O열 (index 14)
-        const delDateCol = findCol(['배송일', '배송일자', '설치일'], 20); // 기본 U열 (index 20)
-        const courierCol = findCol(['택배사', '배송업체'], 21); // 기본 V열 (index 21)
-        const trackingCol = findCol(['송장번호', '운송장번호'], 22); // 기본 W열 (index 22)
-        const addressCol = findCol(['주소', '배송지'], 11); // 기본 L열 (index 11)
-        const zipCodeCol = findCol(['우편번호'], 10); // 기본 K열 (index 10)
-
-        rows.slice(1).forEach((row, idx) => {
-          const rowIdx = idx + 2;
-          // B열 (index 1) 또는 헤더 매칭 계약번호
-          const rawContractNo = String(row[contractNoCol] || row[1] || '').trim();
-          if (!rawContractNo) return;
-
-          const reqDate = String(row[reqDateCol] !== undefined ? row[reqDateCol] : (row[14] || '')).trim();
-          const address = String(row[addressCol] !== undefined ? row[addressCol] : (row[11] || '')).trim();
-          const zipCode = String(row[zipCodeCol] !== undefined ? row[zipCodeCol] : (row[10] || '')).trim();
-          const delDate = String(row[delDateCol] !== undefined ? row[delDateCol] : (row[20] || '')).trim();
-          const courier = String(row[courierCol] !== undefined ? row[courierCol] : (row[21] || '')).trim();
-          const tracking = String(row[trackingCol] !== undefined ? row[trackingCol] : (row[22] || '')).trim();
-
-          const matchObj = {
-            rowIdx,
-            requestDate: reqDate,
-            address,
-            zipCode,
-            deliveryDate: delDate,
-            courier,
-            trackingNo: tracking,
-            raw: row,
-          };
-
-          const keyRaw = rawContractNo;
-          const keyUpper = rawContractNo.toUpperCase();
-          const keyDigits = rawContractNo.replace(/[^0-9]/g, '');
-
-          map.set(keyRaw, matchObj);
-          if (keyUpper !== keyRaw) map.set(keyUpper, matchObj);
-          if (keyDigits && keyDigits !== keyRaw) map.set(keyDigits, matchObj);
-        });
+        setSheetOrderRows(rows);
+        setSheetOrderMap(parseSheetRowsToMap(rows));
+        try {
+          sessionStorage.setItem(SHEET_ORDER_ROWS_CACHE_KEY, JSON.stringify(rows));
+        } catch (e) {}
       }
-      setSheetOrderMap(map);
 
       // 클라우드 저장소(구글 시트 '수기발주및기타설정' 시트)에서 최신 수기발주 상태 불러와 다른 PC/IP 동기화
       try {
@@ -705,9 +741,17 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         if (suppName !== supplierFilter) return false;
       }
 
+      // 가입상태 필터
+      if (joinStatusFilter !== 'all') {
+        const itemStatus = String(order.status || '').trim();
+        const isCancelled = itemStatus.includes('취소') || itemStatus.includes('해지') || itemStatus.includes('철회') || itemStatus === '해약';
+        if (joinStatusFilter === 'active' && isCancelled) return false;
+        if (joinStatusFilter === 'cancelled' && !isCancelled) return false;
+      }
+
       return true;
     });
-  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, selectedProducts, supplierFilter, editedValues, getMatchedSupplierName]);
+  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, selectedProducts, supplierFilter, joinStatusFilter, editedValues, getMatchedSupplierName]);
 
   // 요청일자 필터까지 적용된 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
   const ordersFilteredByReqDate = useMemo(() => {
@@ -781,6 +825,28 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       return sortDirection === 'asc' ? compareRes : -compareRes;
     });
   }, [ordersFilteredByMonthsAndProd, editedValues, requestDateFilter, stateFilter, searchTerm, sortField, sortDirection]);
+
+  // 공급사별 주문 건수 카운트
+  const supplierCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    extractedOrders.forEach((o) => {
+      const sName = getMatchedSupplierName(o.rentalProdRaw || o.rentalProdClean);
+      counts[sName] = (counts[sName] || 0) + 1;
+    });
+    return counts;
+  }, [extractedOrders, getMatchedSupplierName]);
+
+  // 페이지네이션 처리 (대용량 렌더링 최적화)
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
+  const paginatedOrders = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredOrders.slice(start, start + pageSize);
+  }, [filteredOrders, currentPage, pageSize]);
+
+  // 필터 변경 시 첫 페이지로 리셋
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, supplierFilter, joinStatusFilter, stateFilter, requestDateFilter, contractMonthFilter, deliveryMonthFilter, selectedProducts]);
 
   // 체크박스 핸들러
   const handleToggleSelect = (key: string) => {
@@ -1272,6 +1338,55 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             )}
           </AnimatePresence>
 
+          {/* Row 0: 공급사별 전용 탭 바 (원클릭 모아보기) */}
+          <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 mr-1 shrink-0">
+              <Building size={14} className="text-indigo-600" />
+              <span>공급사별:</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSupplierFilter('all')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                supplierFilter === 'all'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              전체 ({extractedOrders.length})
+            </button>
+            {suppliers.map((s) => {
+              const count = supplierCounts[s.name] || 0;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setSupplierFilter(s.name)}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                    supplierFilter === s.name
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {s.name} ({count})
+                </button>
+              );
+            })}
+            {supplierCounts['-'] > 0 && (
+              <button
+                type="button"
+                onClick={() => setSupplierFilter('-')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                  supplierFilter === '-'
+                    ? 'bg-slate-700 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-100'
+                }`}
+              >
+                미지정 ({supplierCounts['-'] || 0})
+              </button>
+            )}
+          </div>
+
           {/* Filter Bar (Row 1: 필터 영역) */}
           <div className="p-3.5 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2.5">
@@ -1351,6 +1466,25 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </select>
               </div>
 
+              {/* 가입상태 필터 드롭다운 */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
+                  <ShieldCheck size={13} className={joinStatusFilter !== 'all' ? 'text-emerald-600' : 'text-slate-400'} />
+                  <span>가입상태</span>
+                </div>
+                <select
+                  value={joinStatusFilter}
+                  onChange={(e) => setJoinStatusFilter(e.target.value as any)}
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
+                    joinStatusFilter !== 'all' ? 'text-emerald-600 font-bold' : 'text-slate-700'
+                  }`}
+                >
+                  <option value="all">전체 가입상태</option>
+                  <option value="active">정상 가입만</option>
+                  <option value="cancelled">취소/해약/철회</option>
+                </select>
+              </div>
+
               {/* 공급사 필터 드롭다운 */}
               <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
                 <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
@@ -1370,6 +1504,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       {s.name}
                     </option>
                   ))}
+                  {supplierCounts['-'] > 0 && (
+                    <option value="-">미지정</option>
+                  )}
                 </select>
               </div>
 
@@ -1438,7 +1575,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </div>
 
               {/* 필터 및 정렬 조건 초기화 버튼 */}
-              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || selectedProducts.size > 0 || requestDateFilter !== 'all' || sortField !== null) && (
+              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || selectedProducts.size > 0 || requestDateFilter !== 'all' || supplierFilter !== 'all' || joinStatusFilter !== 'all' || sortField !== null) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1446,11 +1583,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     setDeliveryMonthFilter('all');
                     setSelectedProducts(new Set());
                     setRequestDateFilter('all');
+                    setSupplierFilter('all');
+                    setJoinStatusFilter('all');
                     setSortField(null);
                     setSortDirection('desc');
                   }}
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs"
-                  title="월별, 상품, 요청일 필터 및 정렬 초기화"
+                  title="월별, 상품, 요청일, 공급사, 가입상태 필터 및 정렬 초기화"
                 >
                   <RotateCcw size={12} />
                   <span>초기화</span>
@@ -1780,7 +1919,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {filteredOrders.map((order, idx) => {
+                    {paginatedOrders.map((order, idx) => {
                       const isSelected = selectedKeys.has(order.uniqueKey);
                       const isRowEdited = !!editedValues[order.contractNo] || !!editedStates[order.contractNo];
                       const ordDate = getFieldValue(order, 'orderDate');
@@ -1824,7 +1963,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
                           {/* No */}
                           <td className="py-2.5 px-3 text-center text-slate-400 border-r border-slate-200 font-mono text-[11px]">
-                            {idx + 1}
+                            {(currentPage - 1) * pageSize + idx + 1}
                           </td>
 
                           {/* 계약일자 */}
@@ -2039,11 +2178,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           </div>
 
           {/* Footer Bar */}
-          <div className="px-6 py-3 border-t border-slate-200 bg-white flex items-center justify-between text-xs text-slate-600">
-            <div className="flex items-center gap-4">
+          <div className="px-6 py-3 border-t border-slate-200 bg-white flex flex-wrap items-center justify-between gap-4 text-xs text-slate-600">
+            <div className="flex flex-wrap items-center gap-4">
               <span>
-                체크 선택: <strong className="text-blue-700 font-mono font-bold">{selectedKeys.size}</strong> / {filteredOrders.length}건
+                선택: <strong className="text-blue-700 font-mono font-bold">{selectedKeys.size}</strong> / 전체 {filteredOrders.length}건
               </span>
+              <span className="text-slate-300">|</span>
               <span>
                 발주대기: <strong className="text-amber-600 font-mono font-bold">{extractedOrders.filter((o) => o.deliveryState === '발주대기').length}</strong>건
               </span>
@@ -2061,11 +2201,56 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </span>
             </div>
 
-            {isChanged && (
-              <span className="text-blue-600 font-bold animate-pulse">
-                * 수정된 정보/배송상태가 있습니다. 오른쪽 상단 [저장하기] 버튼을 누르세요.
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {isChanged && (
+                <span className="text-blue-600 font-bold animate-pulse mr-2">
+                  * 수정된 정보/상태가 있습니다. 상단 [저장하기]를 누르세요.
+                </span>
+              )}
+
+              {/* 페이지 크기 선택 */}
+              <div className="flex items-center gap-1 text-slate-500">
+                <span>표시:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold cursor-pointer text-slate-700 focus:outline-hidden"
+                >
+                  <option value={50}>50건씩</option>
+                  <option value={100}>100건씩</option>
+                  <option value={200}>200건씩</option>
+                  <option value={500}>500건씩</option>
+                </select>
+              </div>
+
+              {/* 이전 / 다음 페이지 네비게이션 */}
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="p-1 rounded-lg text-slate-600 hover:bg-white hover:text-blue-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-600 cursor-pointer transition-all"
+                  title="이전 페이지"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="px-2 text-xs font-mono font-bold text-slate-700">
+                  <span className="text-blue-600">{currentPage}</span> / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="p-1 rounded-lg text-slate-600 hover:bg-white hover:text-blue-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-600 cursor-pointer transition-all"
+                  title="다음 페이지"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
           </div>
         </motion.div>
 

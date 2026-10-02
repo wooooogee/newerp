@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   X, Building, Plus, Trash2, Edit3, Save, Check, RefreshCw, 
   Package, CreditCard, DollarSign, Search, Phone, User, Calendar, 
   FileText, CheckCircle2, ChevronRight, Cloud, DownloadCloud, UploadCloud, 
-  AlertCircle, Layers, Tag, HelpCircle
+  AlertCircle, Layers, Tag, HelpCircle, ChevronDown, CheckSquare, Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export interface HqCommissionSetting {
   id: string;
-  hqName: string;       // 본부명 (예: 맥스, 무한, 스타, 에이스 등)
-  commission: number;   // 해당 본부에 적용할 차등 수수료 (VAT 포함)
+  hqName: string;       // 본부명 (예: 맥스, 무한, 스타, 에이스 등 또는 '전체본부')
+  commission: number;   // 해당 본부에 적용할 수수료 (VAT 포함)
   memo?: string;
 }
 
@@ -19,8 +19,8 @@ export interface SupplierProductSetting {
   productKeyword: string; // 매칭 키워드 (렌탈상품명 등에 포함된 단어)
   productName: string;    // 공식 표시 제품명
   supplyPrice: number;    // 공급 단가 (VAT 포함)
-  supplyCommission: number; // 기본 공급 수수료 단가 (VAT 포함, 특수수당 성격)
-  hqCommissions?: HqCommissionSetting[]; // 본부별 차등 수수료 설정
+  supplyCommission: number; // 보조 기본 수수료 (전체본부 설정 시 호환)
+  hqCommissions?: HqCommissionSetting[]; // 지급 대상 본부 및 수수료 설정 (선택한 곳만 지급)
   commissionRecipient?: string; // 수수료 수령 대상 (공급사 직접 또는 지정인/법인)
   recipientBank?: string;
   recipientAccount?: string;
@@ -46,10 +46,10 @@ export interface SupplierItem {
   products: SupplierProductSetting[]; // 취급 제품 및 단가/수수료 설정
 }
 
-// 로컬 스토리지 키 (샘플 제거 및 클린 상태 보장을 위해 v3 사용)
+// 로컬 스토리지 키
 export const SUPPLIER_STORAGE_KEY = 'erp_suppliers_master_v3';
 
-// 초기값은 비워둠 (사용자가 직접 등록하거나 구글 시트에서 동기화)
+// 초기값
 export const INITIAL_SUPPLIERS: SupplierItem[] = [];
 
 // 로컬 스토리지에서 공급사 로드
@@ -81,12 +81,16 @@ interface SupplierManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuppliersUpdated?: (suppliers: SupplierItem[]) => void;
+  availableProducts?: string[];
+  availableHqs?: string[];
 }
 
 export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = ({
   isOpen,
   onClose,
-  onSuppliersUpdated
+  onSuppliersUpdated,
+  availableProducts = [],
+  availableHqs = []
 }) => {
   const [suppliers, setSuppliers] = useState<SupplierItem[]>(() => loadSuppliersFromStorage());
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
@@ -127,7 +131,13 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     memo: ''
   });
 
-  // 본부별 차등 수수료 입력 임시 필드
+  // 제품 선택 드롭다운 상태
+  const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [isDirectInputMode, setIsDirectInputMode] = useState(false);
+  const productPickerRef = useRef<HTMLDivElement>(null);
+
+  // 본부별 수수료 추가 임시 필드
   const [tempHqName, setTempHqName] = useState('');
   const [tempHqCommission, setTempHqCommission] = useState<number | ''>('');
 
@@ -144,6 +154,17 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
       }
     }
   }, [isOpen]);
+
+  // 제품 드롭다운 바깥 클릭 닫기
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (productPickerRef.current && !productPickerRef.current.contains(e.target as Node)) {
+        setIsProductPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // 구글 시트에서 공급사 DB 불러오기
   const handleLoadFromGoogleSheet = async () => {
@@ -221,7 +242,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     setIsEditingSupplier(false);
   };
 
-  // 공급사 저장 (신규 또는 수정)
+  // 공급사 저장
   const handleSaveSupplier = () => {
     if (!supplierForm.name?.trim()) {
       alert('공급사명을 입력해주세요.');
@@ -283,10 +304,21 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     }
   };
 
-  // 본부별 차등 수수료 추가 핸들러
+  // 제품 선택 핸들러 (드롭다운에서 정확한 제품명 클릭 시)
+  const handleSelectProductFromList = (prodName: string) => {
+    setProductForm({
+      ...productForm,
+      productKeyword: prodName,
+      productName: prodName
+    });
+    setIsProductPickerOpen(false);
+    setProductSearchTerm('');
+  };
+
+  // 본부별 수수료 추가 (선택한 본부에만 수수료 지정)
   const handleAddHqCommission = () => {
     if (!tempHqName.trim()) {
-      alert('본부명을 입력해주세요. (예: 맥스, 무한, 스타, 에이스)');
+      alert('지급 대상 본부명을 선택하거나 입력해주세요.');
       return;
     }
     const commVal = Number(tempHqCommission);
@@ -296,9 +328,8 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     }
 
     const currentList = productForm.hqCommissions || [];
-    // 이미 존재하는 본부명인지 확인
     if (currentList.some(h => h.hqName.trim().toLowerCase() === tempHqName.trim().toLowerCase())) {
-      alert('이미 설정된 본부입니다. 기존 항목을 삭제 후 다시 추가해주세요.');
+      alert('이미 등록된 본부입니다. 기존 항목을 삭제 후 다시 추가해주세요.');
       return;
     }
 
@@ -316,7 +347,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     setTempHqCommission('');
   };
 
-  // 본부별 차등 수수료 삭제 핸들러
+  // 본부별 수수료 삭제
   const handleRemoveHqCommission = (id: string) => {
     const filtered = (productForm.hqCommissions || []).filter(h => h.id !== id);
     setProductForm({
@@ -327,20 +358,25 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
 
   // 제품 저장
   const handleSaveProduct = () => {
-    if (!productForm.productKeyword?.trim()) {
-      alert('매칭 키워드(렌탈상품명에 포함될 키워드)를 입력해주세요.');
+    const prodKeyword = (productForm.productKeyword || productForm.productName || '').trim();
+    if (!prodKeyword) {
+      alert('정확한 제품명을 선택하거나 매칭 키워드를 입력해주세요.');
       return;
     }
     if (!activeSupplier) return;
+
+    // 만약 '전체본부' 항목이 있으면 supplyCommission에도 동기화
+    const allHqRule = (productForm.hqCommissions || []).find(h => h.hqName === '전체본부' || h.hqName === '전체');
+    const defaultComm = allHqRule ? allHqRule.commission : 0;
 
     const newProd: SupplierProductSetting = {
       id: editingProductIdx !== null && activeSupplier.products[editingProductIdx] 
         ? activeSupplier.products[editingProductIdx].id 
         : `prod-${Date.now()}`,
-      productKeyword: productForm.productKeyword.trim(),
-      productName: productForm.productName?.trim() || productForm.productKeyword.trim(),
+      productKeyword: prodKeyword,
+      productName: productForm.productName?.trim() || prodKeyword,
       supplyPrice: Number(productForm.supplyPrice) || 0,
-      supplyCommission: Number(productForm.supplyCommission) || 0,
+      supplyCommission: defaultComm,
       hqCommissions: productForm.hqCommissions || [],
       commissionRecipient: productForm.commissionRecipient || activeSupplier.name,
       recipientBank: productForm.recipientBank || activeSupplier.bankName,
@@ -397,6 +433,13 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
       (s.products && s.products.some(p => p.productName.toLowerCase().includes(term) || p.productKeyword.toLowerCase().includes(term)));
   });
 
+  // 검색 필터링된 제품 선택 옵션 목록
+  const filteredProductOptions = useMemo(() => {
+    if (!productSearchTerm.trim()) return availableProducts;
+    const term = productSearchTerm.trim().toLowerCase();
+    return availableProducts.filter(p => p.toLowerCase().includes(term));
+  }, [availableProducts, productSearchTerm]);
+
   if (!isOpen) return null;
 
   return (
@@ -426,7 +469,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5 whitespace-nowrap">
-                발주 공급사 정보와 제품별 공급단가(VAT포함), 본부별 차등 특수수당(공급 수수료)을 원스톱으로 관리합니다.
+                정확한 제품명을 선택하여 공급가를 지정하고, 특수수당 형태의 공급 수수료는 지정한 본부에만 맞춤 지급합니다.
               </p>
             </div>
           </div>
@@ -772,10 +815,10 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                     <div>
                       <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
                         <Package className="text-indigo-600" size={16} />
-                        취급 제품 및 공급단가 / 특수수당(공급 수수료) 설정
+                        취급 제품 및 공급단가 / 특수수당(선택 본부 수수료) 설정
                       </h4>
                       <p className="text-[11px] text-slate-500 mt-0.5 whitespace-nowrap">
-                        * 렌탈상품명에 매칭 키워드가 포함되면 자동 매핑되며, 본부별 차등 수수료가 있을 경우 본부에 맞게 우선 적용됩니다. (금액: VAT 포함)
+                        * 정확한 제품명을 선택하여 공급가를 지정하고, 특수수당(공급 수수료)은 지정한 본부에만 지급됩니다. (금액: VAT 포함)
                       </p>
                     </div>
                     <button
@@ -795,6 +838,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                         setEditingProductIdx(null);
                         setTempHqName('');
                         setTempHqCommission('');
+                        setIsDirectInputMode(false);
                         setIsProductModalOpen(true);
                       }}
                       className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1 cursor-pointer whitespace-nowrap"
@@ -809,11 +853,10 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold whitespace-nowrap">
-                          <th className="p-3">매칭 키워드</th>
-                          <th className="p-3">공식 제품명</th>
+                          <th className="p-3">매칭 제품명 (키워드)</th>
+                          <th className="p-3">공식 표시 제품명</th>
                           <th className="p-3 text-right">공급 단가 (VAT포함)</th>
-                          <th className="p-3 text-right">기본 공급 수수료</th>
-                          <th className="p-3">본부별 차등 수수료 (특수수당)</th>
+                          <th className="p-3">수수료 지급 대상 본부 및 수수료</th>
                           <th className="p-3">수수료 수령처/계좌</th>
                           <th className="p-3 text-center w-24">관리</th>
                         </tr>
@@ -821,26 +864,23 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                       <tbody className="divide-y divide-slate-100">
                         {(!activeSupplier.products || activeSupplier.products.length === 0) ? (
                           <tr>
-                            <td colSpan={7} className="py-10 text-center text-slate-400 whitespace-nowrap">
-                              등록된 취급 제품이 없습니다. 우측 상단 [+ 제품 추가] 버튼을 눌러 등록하세요.
+                            <td colSpan={6} className="py-10 text-center text-slate-400 whitespace-nowrap">
+                              등록된 취급 제품이 없습니다. 우측 상단 [+ 제품 추가] 버튼을 눌러 정확한 제품명을 선택하여 등록하세요.
                             </td>
                           </tr>
                         ) : (
                           activeSupplier.products.map((p, idx) => (
                             <tr key={p.id || idx} className="hover:bg-slate-50/80 transition-colors whitespace-nowrap">
                               <td className="p-3 font-mono font-bold text-indigo-700">
-                                <span className="bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
+                                <span className="bg-indigo-50 px-2.5 py-1 rounded-md border border-indigo-100 text-xs">
                                   {p.productKeyword}
                                 </span>
                               </td>
                               <td className="p-3 font-bold text-slate-800">
                                 {p.productName}
                               </td>
-                              <td className="p-3 text-right font-mono font-bold text-slate-900">
+                              <td className="p-3 text-right font-mono font-bold text-slate-900 text-sm">
                                 {(p.supplyPrice || 0).toLocaleString()}원
-                              </td>
-                              <td className="p-3 text-right font-mono font-bold text-purple-700">
-                                {(p.supplyCommission || 0).toLocaleString()}원
                               </td>
                               <td className="p-3">
                                 {p.hqCommissions && p.hqCommissions.length > 0 ? (
@@ -848,7 +888,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                                     {p.hqCommissions.map((hq) => (
                                       <span
                                         key={hq.id}
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 text-[11px] font-semibold"
+                                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 text-[11px] font-semibold"
                                       >
                                         <Tag size={10} className="text-purple-500" />
                                         <span>{hq.hqName}:</span>
@@ -857,7 +897,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                                     ))}
                                   </div>
                                 ) : (
-                                  <span className="text-slate-400 text-[11px]">전 본부 기본 수수료 적용</span>
+                                  <span className="text-slate-400 text-[11px]">수수료 미지급 (대상 본부 없음)</span>
                                 )}
                               </td>
                               <td className="p-3 text-slate-600 text-[11px]">
@@ -879,6 +919,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                                       setEditingProductIdx(idx);
                                       setTempHqName('');
                                       setTempHqCommission('');
+                                      setIsDirectInputMode(false);
                                       setIsProductModalOpen(true);
                                     }}
                                     className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-100 cursor-pointer"
@@ -907,7 +948,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
           </div>
         </div>
 
-        {/* 제품 추가/수정 서브 모달 (와이드 레이아웃 & 본부별 차등 수수료 설정 탑재) */}
+        {/* 제품 추가/수정 모달: 정확한 제품명 선택기 + 내가 선택한 곳만 주는 수수료 구조 */}
         <AnimatePresence>
           {isProductModalOpen && (
             <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/50 backdrop-blur-2xs">
@@ -915,12 +956,12 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                 initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.96 }}
-                className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto"
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto custom-scrollbar"
               >
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100 whitespace-nowrap">
                   <h4 className="text-base font-black text-slate-900 flex items-center gap-2">
                     <Package className="text-indigo-600" size={18} />
-                    {editingProductIdx !== null ? '취급 제품 및 단가/수수료 수정' : '신규 취급 제품 등록'}
+                    {editingProductIdx !== null ? '취급 제품 및 공급가/수수료 수정' : '신규 취급 제품 등록'}
                   </h4>
                   <button
                     onClick={() => setIsProductModalOpen(false)}
@@ -931,150 +972,221 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                 </div>
 
                 <div className="space-y-4 text-xs">
-                  <div>
-                    <label className="font-bold text-slate-700 mb-1 block">
-                      매칭 키워드 * (발주 데이터 렌탈상품명과 매칭할 단어)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="예: 뉴스카이타워, 쿠쿠, G210NW, 가스트로플러스"
-                      value={productForm.productKeyword || ''}
-                      onChange={(e) => setProductForm({ ...productForm, productKeyword: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-none"
-                    />
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      * 렌탈상품명에 이 단어가 포함되면 해당 공급사로 자동 분류되어 정산됩니다.
-                    </p>
+                  {/* [1] 정확한 제품명 선택 영역 */}
+                  <div className="space-y-1.5" ref={productPickerRef}>
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold text-slate-800 flex items-center gap-1.5">
+                        <Sparkles size={14} className="text-indigo-600" />
+                        <span>정확한 제품명 선택 *</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setIsDirectInputMode(!isDirectInputMode)}
+                        className="text-[11px] text-indigo-600 hover:underline font-bold cursor-pointer"
+                      >
+                        {isDirectInputMode ? '목록에서 제품 선택하기' : '직접 텍스트로 입력하기'}
+                      </button>
+                    </div>
+
+                    {!isDirectInputMode ? (
+                      /* 실제 데이터 기반 제품명 선택 콤보박스 */
+                      <div className="relative">
+                        <div
+                          onClick={() => setIsProductPickerOpen(!isProductPickerOpen)}
+                          className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 hover:border-indigo-400 rounded-xl cursor-pointer flex items-center justify-between transition-all"
+                        >
+                          <span className={productForm.productKeyword ? "font-bold text-slate-900" : "text-slate-400"}>
+                            {productForm.productKeyword || "등록할 제품명을 선택하세요..."}
+                          </span>
+                          <ChevronDown size={15} className="text-slate-400" />
+                        </div>
+
+                        {/* 드롭다운 검색 팝업 */}
+                        {isProductPickerOpen && (
+                          <div className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 p-2.5 space-y-2 max-h-72 flex flex-col animate-fadeIn">
+                            <div className="relative shrink-0">
+                              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <input
+                                type="text"
+                                placeholder="제품명 검색..."
+                                value={productSearchTerm}
+                                onChange={(e) => setProductSearchTerm(e.target.value)}
+                                autoFocus
+                                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                              />
+                            </div>
+
+                            <div className="overflow-y-auto flex-1 space-y-1 custom-scrollbar">
+                              {filteredProductOptions.length === 0 ? (
+                                <div className="p-4 text-center text-xs text-slate-400">
+                                  검색된 제품이 없습니다.
+                                </div>
+                              ) : (
+                                filteredProductOptions.map((prodName) => {
+                                  const isSelected = productForm.productKeyword === prodName;
+                                  return (
+                                    <div
+                                      key={prodName}
+                                      onClick={() => handleSelectProductFromList(prodName)}
+                                      className={`px-3 py-2 rounded-lg cursor-pointer flex items-center justify-between text-xs transition-colors ${
+                                        isSelected 
+                                          ? 'bg-indigo-50 text-indigo-700 font-bold' 
+                                          : 'hover:bg-slate-50 text-slate-800'
+                                      }`}
+                                    >
+                                      <span className="truncate">{prodName}</span>
+                                      {isSelected && <Check size={14} className="text-indigo-600 shrink-0" />}
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          * 발주 계약 데이터의 제품 목록에서 정확한 제품명을 선택하면 오타 없이 자동으로 매핑됩니다.
+                        </p>
+                      </div>
+                    ) : (
+                      /* 직접 텍스트 입력 모드 */
+                      <div>
+                        <input
+                          type="text"
+                          placeholder="매칭 키워드 또는 제품명 직접 입력..."
+                          value={productForm.productKeyword || ''}
+                          onChange={(e) => setProductForm({ ...productForm, productKeyword: e.target.value, productName: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-none"
+                        />
+                      </div>
+                    )}
                   </div>
 
+                  {/* 공식 제품명 (표시용) */}
                   <div>
                     <label className="font-bold text-slate-700 mb-1 block">공식 제품명 (표시용)</label>
                     <input
                       type="text"
-                      placeholder="예: 뉴스카이타워G9 3in1 프리미엄"
+                      placeholder="화면에 표시될 공식 제품명"
                       value={productForm.productName || ''}
                       onChange={(e) => setProductForm({ ...productForm, productName: e.target.value })}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-none"
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="font-bold text-slate-700 mb-1 block">
-                        공급 단가 (원가, VAT포함) *
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          placeholder="0"
-                          value={productForm.supplyPrice || ''}
-                          onChange={(e) => setProductForm({ ...productForm, supplyPrice: Number(e.target.value) })}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold font-mono focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-none text-right pr-8"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">원</span>
-                      </div>
+                  {/* 공급 단가 (원가) 입력 */}
+                  <div>
+                    <label className="font-bold text-slate-800 mb-1 block text-sm">
+                      공급 단가 (원가, VAT포함) *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={productForm.supplyPrice || ''}
+                        onChange={(e) => setProductForm({ ...productForm, supplyPrice: Number(e.target.value) })}
+                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-black font-mono text-base text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-200 outline-none text-right pr-9"
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-sm">원</span>
                     </div>
-
-                    <div>
-                      <label className="font-bold text-purple-700 mb-1 block">
-                        기본 공급 수수료 (특수수당, VAT포함) *
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          placeholder="0"
-                          value={productForm.supplyCommission || ''}
-                          onChange={(e) => setProductForm({ ...productForm, supplyCommission: Number(e.target.value) })}
-                          className="w-full px-3 py-2 bg-purple-50/50 border border-purple-200 rounded-xl font-bold font-mono text-purple-700 focus:bg-white focus:ring-2 focus:ring-purple-200 outline-none text-right pr-8"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-purple-500 font-bold">원</span>
-                      </div>
-                      <p className="text-[10px] text-slate-400 mt-1">
-                        * 본부별 차등 수수료가 지정되지 않은 본부에 공통 적용되는 기본 수수료입니다.
-                      </p>
-                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      * 이 제품 1개당 공급사에 물품 대금으로 정산 지급할 부가세(VAT) 포함 단가입니다.
+                    </p>
                   </div>
 
-                  {/* 본부별 차등 공급 수수료 (특수수당) 설정 섹션 */}
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                  {/* [2] 공급 수수료(특수수당): 내가 선택한 곳만 주는 구조 */}
+                  <div className="p-4 bg-purple-50/60 rounded-xl border border-purple-200 space-y-3">
                     <div className="flex items-center justify-between">
-                      <label className="font-bold text-slate-800 flex items-center gap-1.5">
-                        <Tag size={13} className="text-purple-600" />
-                        <span>본부별 차등 공급 수수료 (특수수당) 설정</span>
+                      <label className="font-bold text-purple-900 flex items-center gap-1.5 text-xs">
+                        <Tag size={14} className="text-purple-600" />
+                        <span>공급 수수료 (특수수당) - 지급 대상 본부 설정</span>
                       </label>
-                      <span className="text-[11px] text-slate-500">
-                        * 특정 본부에만 다른 수수료가 적용될 경우 등록
+                      <span className="text-[11px] text-purple-700 font-medium">
+                        * 선택/등록한 본부에만 수수료 지급 (미지정 본부는 0원)
                       </span>
                     </div>
 
-                    {/* 신규 차등 입력 바 */}
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      특수수당의 공급수수료처럼 <strong>내가 선택한 본부에만</strong> 수수료가 지급됩니다.
+                      수수료를 지급할 본부와 금액을 추가하세요.
+                    </p>
+
+                    {/* 본부 선택 및 수수료 금액 추가 바 */}
                     <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="본부명 (예: 맥스, 무한)"
+                      <select
                         value={tempHqName}
                         onChange={(e) => setTempHqName(e.target.value)}
-                        className="w-40 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium focus:ring-1 focus:ring-purple-500 outline-none"
-                      />
+                        className="w-44 px-3 py-2 bg-white border border-purple-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-purple-300 outline-none cursor-pointer"
+                      >
+                        <option value="">본부 선택...</option>
+                        <option value="전체본부">★ 전체본부 (공통지급)</option>
+                        {availableHqs.map((hq) => (
+                          <option key={hq} value={hq}>
+                            {hq}본부
+                          </option>
+                        ))}
+                      </select>
+
                       <div className="relative flex-1">
                         <input
                           type="number"
-                          placeholder="해당 본부 수수료 (VAT포함)"
+                          placeholder="수수료 금액 (VAT포함)"
                           value={tempHqCommission}
                           onChange={(e) => setTempHqCommission(e.target.value === '' ? '' : Number(e.target.value))}
-                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono font-bold text-purple-700 focus:ring-1 focus:ring-purple-500 outline-none text-right pr-7"
+                          className="w-full px-3 py-2 bg-white border border-purple-300 rounded-xl text-xs font-mono font-black text-purple-800 focus:ring-2 focus:ring-purple-300 outline-none text-right pr-8"
                         />
-                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">원</span>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-purple-500 font-bold text-xs">원</span>
                       </div>
+
                       <button
                         type="button"
                         onClick={handleAddHqCommission}
-                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold shrink-0 cursor-pointer flex items-center gap-1 whitespace-nowrap"
+                        className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shrink-0 cursor-pointer flex items-center gap-1 shadow-xs whitespace-nowrap"
                       >
-                        <Plus size={13} />
-                        <span>차등 추가</span>
+                        <Plus size={14} />
+                        <span>본부 추가</span>
                       </button>
                     </div>
 
-                    {/* 등록된 차등 수수료 리스트 */}
+                    {/* 등록된 수수료 지급 대상 본부 리스트 */}
                     {productForm.hqCommissions && productForm.hqCommissions.length > 0 ? (
                       <div className="space-y-1.5 pt-1">
                         {productForm.hqCommissions.map((hq) => (
                           <div
                             key={hq.id}
-                            className="flex items-center justify-between px-3 py-1.5 bg-white rounded-lg border border-purple-200 text-xs"
+                            className="flex items-center justify-between px-3.5 py-2 bg-white rounded-xl border border-purple-200 text-xs shadow-2xs"
                           >
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-800">{hq.hqName}본부</span>
-                              <span className="text-purple-600 font-mono font-bold">
+                            <div className="flex items-center gap-2.5">
+                              <span className="w-2 h-2 rounded-full bg-purple-600" />
+                              <span className="font-bold text-slate-900 text-xs">{hq.hqName}</span>
+                              <span className="text-purple-700 font-mono font-black text-sm">
                                 {hq.commission.toLocaleString()}원
                               </span>
-                              <span className="text-[10px] text-slate-400">
-                                (기본 대비 {(hq.commission - (productForm.supplyCommission || 0)) >= 0 ? '+' : ''}
-                                {(hq.commission - (productForm.supplyCommission || 0)).toLocaleString()}원)
+                              <span className="text-[10px] text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded font-medium">
+                                수수료 지급 대상
                               </span>
                             </div>
                             <button
                               type="button"
                               onClick={() => handleRemoveHqCommission(hq.id)}
-                              className="text-slate-400 hover:text-rose-600 p-1 rounded cursor-pointer"
+                              className="text-slate-400 hover:text-rose-600 p-1 rounded cursor-pointer transition-colors"
                               title="삭제"
                             >
-                              <X size={13} />
+                              <X size={14} />
                             </button>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div className="text-[11px] text-slate-400 text-center py-1">
-                        설정된 본부별 차등 수수료가 없습니다. (모든 본부에 기본 수수료 적용)
+                      <div className="text-[11px] text-purple-700 bg-purple-100/40 p-2.5 rounded-lg text-center font-medium">
+                        현재 등록된 지급 대상 본부가 없습니다. (이 제품은 수수료가 발생하지 않습니다)
                       </div>
                     )}
                   </div>
 
+                  {/* 수수료 수령자 / 계좌정보 */}
                   <div className="pt-2 border-t border-slate-100">
                     <label className="font-bold text-slate-700 mb-1 block">
-                      수수료 수령자 / 계좌정보 (미입력 시 공급사 기본계좌로 지급)
+                      수수료 수령처 / 계좌정보 (선택사항, 미입력 시 공급사 기본계좌로 지급)
                     </label>
                     <div className="grid grid-cols-3 gap-2">
                       <input
@@ -1105,13 +1217,13 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                 <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 whitespace-nowrap">
                   <button
                     onClick={() => setIsProductModalOpen(false)}
-                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
                   >
                     취소
                   </button>
                   <button
                     onClick={handleSaveProduct}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
                   >
                     <Check size={14} />
                     <span>확인 및 저장</span>

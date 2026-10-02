@@ -6643,6 +6643,21 @@ const ERP_Dashboard = () => {
     return ['전체', ...filteredProds];
   }, [data]);
 
+  const availableRentalProducts = React.useMemo(() => {
+    const set = new Set<string>();
+    data.forEach(item => {
+      const rProd = String(item.rentalProd || '').trim();
+      if (rProd && rProd !== '-' && rProd.length > 1) {
+        set.add(rProd);
+      }
+      const pName = String(item.prodName || '').trim();
+      if (pName && pName !== '-' && pName.length > 1) {
+        set.add(pName);
+      }
+    });
+    return Array.from(set).sort();
+  }, [data]);
+
   const uniqueHqs = React.useMemo(() => {
     const rawHqs = Array.from(new Set(data.map(item => item.hq).filter(Boolean)));
     if (isHQStaff && userHqNames.length > 0) {
@@ -12811,6 +12826,8 @@ const ERP_Dashboard = () => {
           <SupplierManagementModal
             isOpen={isSupplierManagementModalOpen}
             onClose={() => setIsSupplierManagementModalOpen(false)}
+            availableProducts={availableRentalProducts}
+            availableHqs={uniqueHqs.filter(h => h !== '전체')}
           />
           <ManualOrderManagementModal
             isOpen={isManualOrderModalOpen}
