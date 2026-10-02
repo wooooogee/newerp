@@ -137,9 +137,62 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
   const [isDirectInputMode, setIsDirectInputMode] = useState(false);
   const productPickerRef = useRef<HTMLDivElement>(null);
 
-  // 본부별 수수료 추가 임시 필드
-  const [tempHqName, setTempHqName] = useState('');
+  // 본부별 수수료 다중 선택 필드
+  const [selectedHqsForCommission, setSelectedHqsForCommission] = useState<string[]>([]);
   const [tempHqCommission, setTempHqCommission] = useState<number | ''>('');
+  const [customHqInput, setCustomHqInput] = useState('');
+  const [customHqList, setCustomHqList] = useState<string[]>([]);
+
+  // 선택 가능한 모든 본부 후보 (availableHqs + 커스텀 추가 + 기존 등록)
+  const allHqCandidates = useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+
+    // 1) availableHqs
+    availableHqs.forEach(h => {
+      const trimmed = h.trim();
+      if (trimmed && trimmed !== '전체' && trimmed !== '전체본부' && !seen.has(trimmed)) {
+        seen.add(trimmed);
+        list.push(trimmed);
+      }
+    });
+
+    // 2) customHqList
+    customHqList.forEach(h => {
+      const trimmed = h.trim();
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed);
+        list.push(trimmed);
+      }
+    });
+
+    // 3) productForm.hqCommissions 에 이미 존재하는 본부
+    (productForm.hqCommissions || []).forEach(h => {
+      const trimmed = (h.hqName || '').trim();
+      if (trimmed && trimmed !== '전체' && trimmed !== '전체본부' && !seen.has(trimmed)) {
+        seen.add(trimmed);
+        list.push(trimmed);
+      }
+    });
+
+    return list;
+  }, [availableHqs, customHqList, productForm.hqCommissions]);
+
+  // 등록된 본부 수수료를 금액별로 그룹화 (A,B,C는 5000원, E,F,G는 10000원 등 한눈에 확인)
+  const groupedHqCommissions = useMemo(() => {
+    const map = new Map<number, HqCommissionSetting[]>();
+
+    (productForm.hqCommissions || []).forEach(item => {
+      const comm = item.commission || 0;
+      const arr = map.get(comm) || [];
+      arr.push(item);
+      map.set(comm, arr);
+    });
+
+    return Array.from(map.entries())
+      .sort(([a], [b]) => b - a)
+      .map(([commission, items]) => ({ commission, items }));
+  }, [productForm.hqCommissions]);
 
   useEffect(() => {
     if (isOpen) {
@@ -315,41 +368,86 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     setProductSearchTerm('');
   };
 
-  // 본부별 수수료 추가 (선택한 본부에만 수수료 지정)
-  const handleAddHqCommission = () => {
-    if (!tempHqName.trim()) {
-      alert('지급 대상 본부명을 선택하거나 입력해주세요.');
+  // 본부 선택 토글
+  const handleToggleHqSelection = (hq: string) => {
+    setSelectedHqsForCommission(prev => {
+      if (prev.includes(hq)) {
+        return prev.filter(h => h !== hq);
+      } else {
+        return [...prev, hq];
+      }
+    });
+  };
+
+  // 모든 후보 본부 전체 선택
+  const handleSelectAllHqs = () => {
+    setSelectedHqsForCommission([...allHqCandidates]);
+  };
+
+  // 본부 선택 전체 해제
+  const handleDeselectAllHqs = () => {
+    setSelectedHqsForCommission([]);
+  };
+
+  // 목록에 없는 본부 직접 입력 추가
+  const handleAddCustomHq = () => {
+    const trimmed = customHqInput.trim();
+    if (!trimmed) return;
+    if (!customHqList.includes(trimmed)) {
+      setCustomHqList(prev => [...prev, trimmed]);
+    }
+    if (!selectedHqsForCommission.includes(trimmed)) {
+      setSelectedHqsForCommission(prev => [...prev, trimmed]);
+    }
+    setCustomHqInput('');
+  };
+
+  // 선택한 여러 본부에 수수료 금액 일괄 적용/추가
+  const handleApplyMultiHqCommission = () => {
+    if (selectedHqsForCommission.length === 0) {
+      alert('수수료를 적용할 지급 대상 본부를 1개 이상 선택해주세요.');
       return;
     }
     const commVal = Number(tempHqCommission);
-    if (isNaN(commVal) || commVal < 0) {
+    if (tempHqCommission === '' || isNaN(commVal) || commVal < 0) {
       alert('올바른 수수료 금액(원, VAT포함)을 입력해주세요.');
       return;
     }
 
     const currentList = productForm.hqCommissions || [];
-    if (currentList.some(h => h.hqName.trim().toLowerCase() === tempHqName.trim().toLowerCase())) {
-      alert('이미 등록된 본부입니다. 기존 항목을 삭제 후 다시 추가해주세요.');
-      return;
-    }
+    const selectedNormalized = new Set(selectedHqsForCommission.map(h => h.trim().toLowerCase()));
 
-    const newHqItem: HqCommissionSetting = {
-      id: `hq-${Date.now()}`,
-      hqName: tempHqName.trim(),
+    // 선택되지 않은 기존 항목 유지
+    const remaining = currentList.filter(h => !selectedNormalized.has(h.hqName.trim().toLowerCase()));
+
+    // 선택된 본부들에 대해 새로 생성/업데이트
+    const updatedNewItems: HqCommissionSetting[] = selectedHqsForCommission.map((hq, idx) => ({
+      id: `hq-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`,
+      hqName: hq.trim(),
       commission: commVal
-    };
+    }));
 
     setProductForm({
       ...productForm,
-      hqCommissions: [...currentList, newHqItem]
+      hqCommissions: [...remaining, ...updatedNewItems]
     });
-    setTempHqName('');
+
+    setSelectedHqsForCommission([]);
     setTempHqCommission('');
   };
 
-  // 본부별 수수료 삭제
+  // 특정 본부 단일 삭제
   const handleRemoveHqCommission = (id: string) => {
     const filtered = (productForm.hqCommissions || []).filter(h => h.id !== id);
+    setProductForm({
+      ...productForm,
+      hqCommissions: filtered
+    });
+  };
+
+  // 특정 금액 그룹 전체 삭제
+  const handleRemoveHqGroup = (commission: number) => {
+    const filtered = (productForm.hqCommissions || []).filter(h => h.commission !== commission);
     setProductForm({
       ...productForm,
       hqCommissions: filtered
@@ -836,8 +934,9 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                           memo: ''
                         });
                         setEditingProductIdx(null);
-                        setTempHqName('');
+                        setSelectedHqsForCommission([]);
                         setTempHqCommission('');
+                        setCustomHqInput('');
                         setIsDirectInputMode(false);
                         setIsProductModalOpen(true);
                       }}
@@ -884,17 +983,31 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                               </td>
                               <td className="p-3">
                                 {p.hqCommissions && p.hqCommissions.length > 0 ? (
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    {p.hqCommissions.map((hq) => (
-                                      <span
-                                        key={hq.id}
-                                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 text-[11px] font-semibold"
-                                      >
-                                        <Tag size={10} className="text-purple-500" />
-                                        <span>{hq.hqName}:</span>
-                                        <strong className="font-mono">{hq.commission.toLocaleString()}원</strong>
-                                      </span>
-                                    ))}
+                                  <div className="flex flex-col gap-1">
+                                    {(() => {
+                                      const groupMap = new Map<number, string[]>();
+                                      p.hqCommissions.forEach(h => {
+                                        const arr = groupMap.get(h.commission) || [];
+                                        arr.push(h.hqName);
+                                        groupMap.set(h.commission, arr);
+                                      });
+                                      return Array.from(groupMap.entries())
+                                        .sort(([a], [b]) => b - a)
+                                        .map(([comm, hqs]) => (
+                                          <div
+                                            key={comm}
+                                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-50 text-purple-800 border border-purple-200 text-[11px] font-medium w-fit"
+                                          >
+                                            <Tag size={10} className="text-purple-500 shrink-0" />
+                                            <span className="font-bold text-slate-800 max-w-[220px] truncate" title={hqs.join(', ')}>
+                                              {hqs.length > 3 ? `${hqs.slice(0, 3).join(', ')} 외 ${hqs.length - 3}곳` : hqs.join(', ')}:
+                                            </span>
+                                            <span className="font-mono font-black text-purple-700 shrink-0">
+                                              {comm.toLocaleString()}원
+                                            </span>
+                                          </div>
+                                        ));
+                                    })()}
                                   </div>
                                 ) : (
                                   <span className="text-slate-400 text-[11px]">수수료 미지급 (대상 본부 없음)</span>
@@ -917,8 +1030,9 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                                         hqCommissions: p.hqCommissions || [] 
                                       });
                                       setEditingProductIdx(idx);
-                                      setTempHqName('');
+                                      setSelectedHqsForCommission([]);
                                       setTempHqCommission('');
+                                      setCustomHqInput('');
                                       setIsDirectInputMode(false);
                                       setIsProductModalOpen(true);
                                     }}
@@ -1093,8 +1207,8 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                     </p>
                   </div>
 
-                  {/* [2] 공급 수수료(특수수당): 내가 선택한 곳만 주는 구조 */}
-                  <div className="p-4 bg-purple-50/60 rounded-xl border border-purple-200 space-y-3">
+                  {/* [2] 공급 수수료(특수수당): 내가 선택한 곳만 주는 구조 (다중 선택 및 금액별 설정) */}
+                  <div className="p-4 bg-purple-50/60 rounded-xl border border-purple-200 space-y-3.5">
                     <div className="flex items-center justify-between">
                       <label className="font-bold text-purple-900 flex items-center gap-1.5 text-xs">
                         <Tag size={14} className="text-purple-600" />
@@ -1106,73 +1220,184 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                     </div>
 
                     <p className="text-[11px] text-slate-600 leading-relaxed">
-                      특수수당의 공급수수료처럼 <strong>내가 선택한 본부에만</strong> 수수료가 지급됩니다.
-                      수수료를 지급할 본부와 금액을 추가하세요.
+                      원하는 본부들을 <strong>복수 선택(여러 개 클릭)</strong>한 후 수수료 금액을 입력하면 한 번에 적용됩니다.<br />
+                      (예: A, B, C 본부는 5,000원 적용 후, E, F 본부는 10,000원 추가 적용 가능)
                     </p>
 
-                    {/* 본부 선택 및 수수료 금액 추가 바 */}
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={tempHqName}
-                        onChange={(e) => setTempHqName(e.target.value)}
-                        className="w-44 px-3 py-2 bg-white border border-purple-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-purple-300 outline-none cursor-pointer"
-                      >
-                        <option value="">본부 선택...</option>
-                        <option value="전체본부">★ 전체본부 (공통지급)</option>
-                        {availableHqs.map((hq) => (
-                          <option key={hq} value={hq}>
-                            {hq}본부
-                          </option>
-                        ))}
-                      </select>
+                    {/* 본부 다중 선택 영역 */}
+                    <div className="p-3 bg-white rounded-xl border border-purple-200 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <span>지급 대상 본부 선택</span>
+                          <span className="text-[11px] font-mono text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                            {selectedHqsForCommission.length}개 선택됨
+                          </span>
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={handleSelectAllHqs}
+                            className="px-2 py-0.5 text-[11px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-md transition-colors cursor-pointer"
+                          >
+                            전체 선택
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDeselectAllHqs}
+                            className="px-2 py-0.5 text-[11px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
+                          >
+                            선택 해제
+                          </button>
+                        </div>
+                      </div>
 
+                      {/* 본부 칩 목록 (클릭하여 토글) */}
+                      <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto custom-scrollbar p-1">
+                        {/* 전체본부 공통 칩 */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleHqSelection('전체본부')}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
+                            selectedHqsForCommission.includes('전체본부')
+                              ? 'bg-purple-600 text-white shadow-xs'
+                              : 'bg-purple-50 text-purple-800 border border-purple-200 hover:bg-purple-100'
+                          }`}
+                        >
+                          <Check size={12} className={selectedHqsForCommission.includes('전체본부') ? 'opacity-100' : 'opacity-0'} />
+                          <span>★ 전체본부 (공통지급)</span>
+                        </button>
+
+                        {/* 개별 본부 칩들 */}
+                        {allHqCandidates.map((hq) => {
+                          const isSelected = selectedHqsForCommission.includes(hq);
+                          const existingRule = (productForm.hqCommissions || []).find(h => h.hqName === hq);
+
+                          return (
+                            <button
+                              key={hq}
+                              type="button"
+                              onClick={() => handleToggleHqSelection(hq)}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
+                                isSelected
+                                  ? 'bg-purple-600 text-white font-bold shadow-xs'
+                                  : existingRule
+                                  ? 'bg-purple-50/50 text-slate-800 border border-purple-200 hover:border-purple-300 font-semibold'
+                                  : 'bg-white text-slate-700 border border-slate-200 hover:border-purple-300 hover:bg-purple-50 font-medium'
+                              }`}
+                            >
+                              <Check size={12} className={isSelected ? 'opacity-100' : 'opacity-0'} />
+                              <span>{hq}</span>
+                              {existingRule && (
+                                <span className={`text-[10px] ml-0.5 font-mono ${isSelected ? 'text-purple-200' : 'text-purple-600'}`}>
+                                  ({existingRule.commission.toLocaleString()}원)
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* 목록에 없는 본부 직접 입력창 */}
+                      <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100">
+                        <input
+                          type="text"
+                          placeholder="목록에 없는 본부명 직접 입력 (예: 비전, 포커스)..."
+                          value={customHqInput}
+                          onChange={(e) => setCustomHqInput(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddCustomHq())}
+                          className="flex-1 px-2.5 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-purple-400 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCustomHq}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0"
+                        >
+                          + 본부 추가
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 수수료 금액 입력 및 일괄 적용 바 */}
+                    <div className="flex items-center gap-2 bg-purple-100/60 p-2.5 rounded-xl border border-purple-200">
                       <div className="relative flex-1">
                         <input
                           type="number"
-                          placeholder="수수료 금액 (VAT포함)"
+                          placeholder="수수료 금액 입력 (VAT포함)"
                           value={tempHqCommission}
                           onChange={(e) => setTempHqCommission(e.target.value === '' ? '' : Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-white border border-purple-300 rounded-xl text-xs font-mono font-black text-purple-800 focus:ring-2 focus:ring-purple-300 outline-none text-right pr-8"
+                          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleApplyMultiHqCommission())}
+                          className="w-full px-3 py-2 bg-white border border-purple-300 rounded-xl text-xs font-mono font-black text-purple-900 focus:ring-2 focus:ring-purple-400 outline-none text-right pr-8"
                         />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-purple-500 font-bold text-xs">원</span>
                       </div>
 
                       <button
                         type="button"
-                        onClick={handleAddHqCommission}
-                        className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shrink-0 cursor-pointer flex items-center gap-1 shadow-xs whitespace-nowrap"
+                        onClick={handleApplyMultiHqCommission}
+                        disabled={selectedHqsForCommission.length === 0}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold shrink-0 cursor-pointer flex items-center gap-1.5 shadow-xs whitespace-nowrap transition-all ${
+                          selectedHqsForCommission.length > 0
+                            ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                        }`}
                       >
                         <Plus size={14} />
-                        <span>본부 추가</span>
+                        <span>선택한 {selectedHqsForCommission.length}개 본부에 적용</span>
                       </button>
                     </div>
 
-                    {/* 등록된 수수료 지급 대상 본부 리스트 */}
-                    {productForm.hqCommissions && productForm.hqCommissions.length > 0 ? (
-                      <div className="space-y-1.5 pt-1">
-                        {productForm.hqCommissions.map((hq) => (
+                    {/* 등록된 수수료 지급 대상 본부 리스트 (금액별 그룹화 표시) */}
+                    {groupedHqCommissions.length > 0 ? (
+                      <div className="space-y-2 pt-1">
+                        <div className="text-[11px] font-bold text-slate-600 flex items-center justify-between">
+                          <span>등록된 지급 대상 본부 및 수수료 현황:</span>
+                          <span className="text-purple-600 font-mono">총 {productForm.hqCommissions?.length || 0}개 본부 설정됨</span>
+                        </div>
+
+                        {groupedHqCommissions.map(({ commission, items }) => (
                           <div
-                            key={hq.id}
-                            className="flex items-center justify-between px-3.5 py-2 bg-white rounded-xl border border-purple-200 text-xs shadow-2xs"
+                            key={commission}
+                            className="bg-white rounded-xl border border-purple-200 p-2.5 shadow-2xs space-y-1.5"
                           >
-                            <div className="flex items-center gap-2.5">
-                              <span className="w-2 h-2 rounded-full bg-purple-600" />
-                              <span className="font-bold text-slate-900 text-xs">{hq.hqName}</span>
-                              <span className="text-purple-700 font-mono font-black text-sm">
-                                {hq.commission.toLocaleString()}원
-                              </span>
-                              <span className="text-[10px] text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded font-medium">
-                                수수료 지급 대상
-                              </span>
+                            <div className="flex items-center justify-between pb-1.5 border-b border-purple-100">
+                              <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-purple-600" />
+                                <span className="text-purple-700 font-mono font-black text-sm">
+                                  {commission.toLocaleString()}원
+                                </span>
+                                <span className="text-[11px] text-slate-500 font-medium">
+                                  (VAT포함 · {items.length}개 본부 적용)
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveHqGroup(commission)}
+                                className="text-[11px] text-rose-500 hover:text-rose-700 font-medium hover:underline cursor-pointer"
+                                title="이 금액의 모든 본부 설정 삭제"
+                              >
+                                그룹 전체 삭제
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveHqCommission(hq.id)}
-                              className="text-slate-400 hover:text-rose-600 p-1 rounded cursor-pointer transition-colors"
-                              title="삭제"
-                            >
-                              <X size={14} />
-                            </button>
+
+                            {/* 소속 본부 칩들 (개별 삭제 가능) */}
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
+                              {items.map((hq) => (
+                                <span
+                                  key={hq.id}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-50 text-purple-900 border border-purple-200 text-xs font-semibold"
+                                >
+                                  <span>{hq.hqName}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveHqCommission(hq.id)}
+                                    className="text-purple-400 hover:text-rose-600 rounded-full p-0.5 cursor-pointer transition-colors"
+                                    title={`${hq.hqName} 본부 수수료 제외`}
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         ))}
                       </div>
