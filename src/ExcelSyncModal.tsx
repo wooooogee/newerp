@@ -878,7 +878,8 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
 
     const confirmMsg = `[안전 확인] 관리대장 시트에 전산 엑셀 데이터를 동기화하시겠습니까?\n\n` +
       `• 자동 백업 생성: ${autoBackup ? '예 (권장)' : '아니오'}\n` +
-      `• 기존 수기 계약상태(해약/취소) 및 선지급일자: 100% 안전 보존\n\n` +
+      `• 기존 수기 계약상태(해약/취소) 및 수수료지급일자: 100% 안전 보존 (공란일 때만 자동 계산)\n` +
+      `• 관리대장 1행 필터 및 상태/배송 서식일괄재적용 자동 반영\n\n` +
       `확인을 누르시면 즉시 구글 시트에 안전하게 반영됩니다.`;
 
     const isConfirmed = (window as any).customConfirm
@@ -949,6 +950,10 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
           successDetailMsg += `• [배송데이터] 스마트 병합 (신규 +${data.deliveryNewCount || 0}건, 갱신 ${data.deliveryUpdatedCount || 0}건)\n`;
         }
       }
+      if (data.stats.preservedManualFeeDateCount !== undefined) {
+        successDetailMsg += `• 수수료지급일자: 기존 입력값 ${data.stats.preservedManualFeeDateCount.toLocaleString()}건 보존, 공란 자동계산 ${data.stats.feeDateCalculatedCount.toLocaleString()}건\n`;
+      }
+      successDetailMsg += `• 서식양식: 1행 필터 재설정 및 상태/배송 서식일괄재적용 완료\n`;
       alert(successDetailMsg);
 
       if (data.sheet1Error) {

@@ -3201,14 +3201,14 @@ async function applyManagementSheetFormatAndFilter(
   for (let r = 1; r < fullValuesToWrite.length; r++) {
     const row = fullValuesToWrite[r];
     const statusVal = String(row[1] || '').trim();
-    if (statusVal === '해약') {
+    if (statusVal === '해약' || statusVal.includes('해약')) {
       cancelRows.push(r);
-    } else if (statusVal === '취소') {
+    } else if (statusVal === '취소' || statusVal.includes('취소')) {
       abortRows.push(r);
     }
 
     const delivVal = String(row[11] || '').trim();
-    if (delivVal === '배송대기') {
+    if (delivVal === '배송대기' || delivVal.includes('배송대기')) {
       waitingDelivRows.push(r);
     }
 
@@ -4833,32 +4833,27 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
         }
 
         // O열 수수료지급일자 정산 자동 계산
+        // ⭐ [핵심 요구사항] 기존에 이미 입력/변경해놓은 수수료지급일자는 절대 덮어쓰지 않고 100% 보존!
+        // 오직 공란(빈 값)일 때만 자동 계산된 수수료지급일자를 부여합니다.
+        const currentPayDate = String(row[14] || '').trim();
         const delDate = row[13];
         const delStatus = String(row[11] || '').trim();
 
-        if (!delDate || delStatus !== "배송완료") {
-          if (!row[14] || row[14] === "") row[14] = "";
+        if (currentPayDate !== '' && currentPayDate !== '-' && currentPayDate !== 'undefined') {
+          // 이미 값이 존재하는 경우: 사용자가 변경/지정한 값이므로 절대 덮어쓰지 않고 100% 안전 보존
+          preservedManualFeeDateCount++;
         } else {
-          const expectedFeeDate = calculateExpectedFeeDateSync(delDate, prod, rId, hq);
-          if (expectedFeeDate) {
-            if (!row[14] || row[14] === "") {
+          // 공란인 경우에만: 배송완료 및 배송일자가 존재할 때 자동 수수료지급일자 계산 적용
+          if (delDate && delStatus === "배송완료") {
+            const expectedFeeDate = calculateExpectedFeeDateSync(delDate, prod, rId, hq);
+            if (expectedFeeDate) {
               row[14] = expectedFeeDate;
               feeDateCalculatedCount++;
             } else {
-              // 이미 등록된 경우: 수기 지정일자(선지급 등) 보호
-              if (isManualFeePayDateSync(row)) {
-                preservedManualFeeDateCount++;
-              } else {
-                // 구 공식 계산 건이면 신 공식으로 업데이트
-                const legacyExpected = calculateExpectedFeeDateSync(delDate, prod, rId, hq, true);
-                if (isSameDateSync(row[14], legacyExpected)) {
-                  row[14] = expectedFeeDate;
-                  feeDateCalculatedCount++;
-                } else {
-                  preservedManualFeeDateCount++;
-                }
-              }
+              row[14] = "";
             }
+          } else {
+            row[14] = "";
           }
         }
 
@@ -4968,19 +4963,27 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     sheetDataCache.delete('관리대장');
     sheetDataCache.delete('시트1');
 
-    // 4-3. [핵심] 필터/서식 재설정 및 '시트1' 스마트 병합은 백그라운드 비동기로 순차 처리 (서버 타임아웃 100% 방지)
-    setImmediate(async () => {
-      try {
-        console.log(`[ExcelSync Background] Applying format and filter on '${targetSheetName}'...`);
-        await applyManagementSheetFormatAndFilter(sheets, sheetId, targetSheetName, fullValuesToWrite);
-        sheetDataCache.delete(targetSheetName);
-        sheetDataCache.delete('관리대장');
-        console.log(`[ExcelSync Background] Format and filter successfully applied to '${targetSheetName}'.`);
-      } catch (fmtFilterErr: any) {
-        console.warn(`[ExcelSync Background] Failed to apply format and filter:`, fmtFilterErr?.message || fmtFilterErr);
-      }
+    // 4-3. [핵심 요구사항] 1행 필터 재설정 및 서식양식('서식일괄재적용') 일괄 풀기·재적용을 즉시 동기(await)로 실행하여 100% 보장!
+    let filterAndFormatApplied = false;
+    let filterAndFormatError: string | null = null;
+    try {
+      console.log(`[ExcelSync] Applying format and filter ('서식일괄재적용') on '${targetSheetName}'...`);
+      await applyManagementSheetFormatAndFilter(sheets, sheetId, targetSheetName, fullValuesToWrite);
+      filterAndFormatApplied = true;
+      console.log(`[ExcelSync] Format and filter successfully applied to '${targetSheetName}'.`);
+    } catch (fmtFilterErr: any) {
+      filterAndFormatError = fmtFilterErr?.message || '필터 및 서식 재적용 실패';
+      console.warn(`[ExcelSync] Failed to apply format and filter:`, filterAndFormatError);
+    }
 
-      if (safeContractRows && safeContractRows.length > 0 && safeContractRows.length <= 10000) {
+    // 캐시 즉시 무효화 (사이트 새로고침 시 최신 데이터 즉시 반환)
+    sheetDataCache.delete(targetSheetName);
+    sheetDataCache.delete('관리대장');
+    sheetDataCache.delete('시트1');
+
+    // '시트1' 스마트 병합만 백그라운드 비동기로 순차 처리
+    if (safeContractRows && safeContractRows.length > 0 && safeContractRows.length <= 10000) {
+      setImmediate(async () => {
         try {
           console.log(`[ExcelSync Background] Merging '시트1'...`);
           const s1Res = await mergeSheetDataByKeySafe(
@@ -4996,8 +4999,8 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
         } catch (s1Err: any) {
           console.warn(`[ExcelSync Background] Failed to merge '시트1':`, s1Err?.message || s1Err);
         }
-      }
-    });
+      });
+    }
 
     // 시트1 병합 결과 변수 초기화 (백그라운드 비동기 처리 대응)
     let sheet1OverwrittenCount = 0;
@@ -5025,8 +5028,8 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       deliveryNewCount,
       deliveryExistingCount,
       deliveryError,
-      filterAndFormatApplied: true,
-      filterAndFormatError: null,
+      filterAndFormatApplied,
+      filterAndFormatError,
       stats
     });
   } catch (error: any) {
