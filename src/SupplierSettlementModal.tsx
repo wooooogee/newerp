@@ -354,6 +354,12 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     return { productCount, totalSupplyAmount };
   }, [supplyPriceSummaries]);
 
+  // 선택된 특정 공급사 요약 정보 (공급사 선택 필터 연동)
+  const selectedSupplierSummary = useMemo(() => {
+    if (selectedSupplierId === 'ALL') return null;
+    return supplyPriceSummaries.find(s => s.supplierId === selectedSupplierId) || null;
+  }, [selectedSupplierId, supplyPriceSummaries]);
+
   // ==========================================
   // [2] 공급 수수료(특수수당) 집계 (공급사/수령처별)
   // ==========================================
@@ -827,41 +833,70 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         {mainTab === 'SUPPLY_PRICE' ? (
           /* [물품 대금 전용 KPI 카드] */
           <div className="px-6 py-3 bg-blue-50/50 border-b border-blue-100 grid grid-cols-3 gap-4 shrink-0 whitespace-nowrap">
+            {/* 카드 1: 상품개수 */}
             <div className="bg-white p-3.5 rounded-xl border border-blue-100 shadow-2xs flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold text-slate-500 uppercase">정산 대상 총 상품개수</p>
+                <p className="text-[11px] font-bold text-slate-500 uppercase">
+                  {selectedSupplierSummary ? `${selectedSupplierSummary.supplierName} 상품개수` : '정산 대상 총 상품개수'}
+                </p>
                 <h3 className="text-xl font-black text-slate-900 mt-0.5 font-mono">
-                  {supplyPriceTotalStats.productCount.toLocaleString()} <span className="text-xs font-bold text-slate-500">개</span>
+                  {(selectedSupplierSummary ? selectedSupplierSummary.productCount : supplyPriceTotalStats.productCount).toLocaleString()} <span className="text-xs font-bold text-slate-500">개</span>
                 </h3>
+                {selectedSupplierSummary && (
+                  <p className="text-[10px] text-slate-400 mt-0.5 font-medium">전체 {supplyPriceTotalStats.productCount.toLocaleString()}개 중</p>
+                )}
               </div>
               <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
                 <Package size={18} />
               </div>
             </div>
 
+            {/* 카드 2: 총 공급 물품대금 합계 (전체) */}
             <div className="bg-white p-3.5 rounded-xl border border-blue-100 shadow-2xs flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold text-blue-700 uppercase">총 공급 물품대금 합계 (VAT포함)</p>
+                <p className="text-[11px] font-bold text-blue-700 uppercase">총 공급 물품대금 합계 (전체)</p>
                 <h3 className="text-xl font-black text-blue-700 mt-0.5 font-mono">
                   {supplyPriceTotalStats.totalSupplyAmount.toLocaleString()} <span className="text-xs font-bold text-blue-500">원</span>
                 </h3>
+                <p className="text-[10px] text-blue-400 mt-0.5 font-medium">전체 공급사 총 합계 (VAT포함)</p>
               </div>
               <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
                 <DollarSign size={18} />
               </div>
             </div>
 
-            <div className="bg-linear-to-br from-blue-900 to-indigo-950 text-white p-3.5 rounded-xl shadow-2xs flex items-center justify-between">
+            {/* 카드 3: 공급사 선택 시 해당 공급사별 물품대금 합계 */}
+            <div className={`p-3.5 rounded-xl shadow-2xs flex items-center justify-between transition-all ${
+              selectedSupplierSummary
+                ? 'bg-linear-to-br from-blue-900 via-indigo-900 to-slate-900 text-white'
+                : 'bg-white border border-blue-100 text-slate-700'
+            }`}>
               <div>
-                <p className="text-[11px] font-bold text-blue-200 uppercase">평균 공급 단가 (상품당)</p>
-                <h3 className="text-xl font-black text-amber-300 mt-0.5 font-mono">
-                  {supplyPriceTotalStats.productCount > 0 
-                    ? Math.round(supplyPriceTotalStats.totalSupplyAmount / supplyPriceTotalStats.productCount).toLocaleString() 
-                    : 0} <span className="text-xs font-bold text-blue-200">원</span>
-                </h3>
+                <p className={`text-[11px] font-bold uppercase ${selectedSupplierSummary ? 'text-blue-200' : 'text-slate-500'}`}>
+                  {selectedSupplierSummary ? `[${selectedSupplierSummary.supplierName}] 물품대금 합계` : '해당 공급사별 물품대금 합계'}
+                </p>
+                {selectedSupplierSummary ? (
+                  <>
+                    <h3 className="text-xl font-black text-amber-300 mt-0.5 font-mono">
+                      {selectedSupplierSummary.totalSupplyAmount.toLocaleString()} <span className="text-xs font-bold text-blue-200">원</span>
+                    </h3>
+                    <p className="text-[10px] text-blue-300 mt-0.5 font-medium">
+                      해당 공급사 물품대금 (VAT포함)
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="text-sm font-bold text-slate-400 mt-1">
+                      공급사를 선택하세요
+                    </h3>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      상단 공급사 필터 선택 시 해당 대금 표시
+                    </p>
+                  </>
+                )}
               </div>
-              <div className="p-2 bg-white/10 text-amber-300 rounded-lg">
-                <Receipt size={18} />
+              <div className={`p-2 rounded-lg ${selectedSupplierSummary ? 'bg-white/10 text-amber-300' : 'bg-slate-100 text-slate-400'}`}>
+                <Building size={18} />
               </div>
             </div>
           </div>

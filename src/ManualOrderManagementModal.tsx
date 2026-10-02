@@ -227,8 +227,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       setRequestDateFilter('all');
       setContractMonthFilter('all');
       setDeliveryMonthFilter('all');
-      setSelectedProducts(new Set());
-      setIsProductDropdownOpen(false);
       setSearchTerm('');
       setCurrentPage(1);
       setSelectedKeys(new Set());
@@ -294,8 +292,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [requestDateFilter, setRequestDateFilter] = useState<'all' | 'has_value' | 'no_value'>('all');
-  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
-  const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
   const [stateFilter, setStateFilter] = useState<'all' | DeliveryState>('all');
   const [joinStatusFilter, setJoinStatusFilter] = useState<'all' | 'active' | 'cancelled'>('active');
   const [contractMonthFilter, setContractMonthFilter] = useState<string>('all');
@@ -599,13 +595,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     return list;
   }, [data, targetProducts, sheetOrderMap, savedOrderStore, sheetOrderRows]);
 
-  // 렌탈상품 목록 옵션
-  const availableProductOptions = useMemo(() => {
-    const prods = new Set<string>();
-    extractedOrders.forEach((o) => prods.add(o.rentalProdClean));
-    return Array.from(prods).sort();
-  }, [extractedOrders]);
-
   const handleStateChange = (contractNo: string, nextState: DeliveryState) => {
     const today = new Date().toISOString().slice(0, 10);
     setEditedStates((prev) => ({ ...prev, [contractNo]: nextState }));
@@ -747,11 +736,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         }
       }
 
-      // 렌탈상품 다중 선택 필터
-      if (selectedProducts.size > 0 && !selectedProducts.has(order.rentalProdClean)) {
-        return false;
-      }
-
       // 공급사 필터
       if (supplierFilter !== 'all') {
         const suppName = getMatchedSupplierName(order.rentalProdRaw || order.rentalProdClean);
@@ -768,7 +752,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
       return true;
     });
-  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, selectedProducts, supplierFilter, joinStatusFilter, editedValues, getMatchedSupplierName]);
+  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, supplierFilter, joinStatusFilter, editedValues, getMatchedSupplierName]);
 
   // 요청일자 필터까지 적용된 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
   const ordersFilteredByReqDate = useMemo(() => {
@@ -863,7 +847,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   // 필터 변경 시 첫 페이지로 리셋
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, supplierFilter, joinStatusFilter, stateFilter, requestDateFilter, contractMonthFilter, deliveryMonthFilter, selectedProducts]);
+  }, [searchTerm, supplierFilter, joinStatusFilter, stateFilter, requestDateFilter, contractMonthFilter, deliveryMonthFilter]);
 
   // 체크박스 핸들러
   const handleToggleSelect = (key: string) => {
@@ -1503,91 +1487,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </div>
 
               {/* 렌탈상품 다중 선택 드롭다운 */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsProductDropdownOpen(!isProductDropdownOpen)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                    selectedProducts.size > 0
-                      ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-2xs font-bold'
-                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <Package size={14} className={selectedProducts.size > 0 ? 'text-blue-600' : 'text-slate-500'} />
-                  {selectedProducts.size === 0
-                    ? '전체 렌탈상품'
-                    : selectedProducts.size === 1
-                    ? Array.from(selectedProducts)[0]
-                    : `렌탈상품 ${selectedProducts.size}개 선택됨`}
-                  <ChevronDown size={14} className="text-slate-400" />
-                </button>
-
-                {isProductDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-30 p-2.5 text-xs">
-                    <div className="flex items-center justify-between px-1 py-1 border-b border-slate-100 mb-1.5">
-                      <span className="font-bold text-slate-800">렌탈상품 선택 (중복가능)</span>
-                      {selectedProducts.size > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedProducts(new Set())}
-                          className="text-[11px] text-blue-600 hover:underline font-semibold cursor-pointer"
-                        >
-                          선택 해제
-                        </button>
-                      )}
-                    </div>
-                    <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar">
-                      {availableProductOptions.map((p) => {
-                        const isChecked = selectedProducts.has(p);
-                        return (
-                          <label
-                            key={p}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded-lg cursor-pointer text-slate-800 transition-colors"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => {
-                                setSelectedProducts((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(p)) next.delete(p);
-                                  else next.add(p);
-                                  return next;
-                                });
-                              }}
-                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <span className="truncate font-medium">{p}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* 필터 및 정렬 조건 초기화 버튼 */}
-              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || selectedProducts.size > 0 || requestDateFilter !== 'all' || supplierFilter !== 'all' || joinStatusFilter !== 'active' || sortField !== null) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setContractMonthFilter('all');
-                    setDeliveryMonthFilter('all');
-                    setSelectedProducts(new Set());
-                    setRequestDateFilter('all');
-                    setSupplierFilter('all');
-                    setJoinStatusFilter('active');
-                    setSortField(null);
-                    setSortDirection('desc');
-                  }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs"
-                  title="월별, 상품, 요청일, 공급사, 가입상태 필터 및 정렬 초기화"
-                >
-                  <RotateCcw size={12} />
-                  <span>초기화</span>
-                </button>
-              )}
-
               {/* 배송상태 탭 필터 */}
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold whitespace-nowrap">
                 <button
@@ -1645,10 +1544,31 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   발주취소 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '발주취소').length})
                 </button>
               </div>
+
+              {/* 필터 및 정렬 조건 초기화 버튼 */}
+              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || requestDateFilter !== 'all' || supplierFilter !== 'all' || joinStatusFilter !== 'active' || sortField !== null) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContractMonthFilter('all');
+                    setDeliveryMonthFilter('all');
+                    setRequestDateFilter('all');
+                    setSupplierFilter('all');
+                    setJoinStatusFilter('active');
+                    setSortField(null);
+                    setSortDirection('desc');
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs"
+                  title="월별, 요청일, 공급사, 가입상태 필터 및 정렬 초기화"
+                >
+                  <RotateCcw size={12} />
+                  <span>초기화</span>
+                </button>
+              )}
             </div>
 
-            {/* 검색어 (제일 우측 공란에 위치) */}
-            <div className="relative min-w-[240px] max-w-sm flex-1 sm:flex-initial">
+            {/* 검색어 (제일 우측 끝에 배치) */}
+            <div className="relative min-w-[240px] max-w-sm sm:w-72 ml-auto">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
@@ -1663,10 +1583,16 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           {/* Action Bar (Row 2: 일괄 작업 및 액션 버튼) */}
           <div className="px-4 py-2 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              {/* 선택항목 배송상태 일괄 변경 */}
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs">
+              <span className="text-xs font-medium text-slate-500">
+                선택 항목: <strong className="text-blue-600 font-bold">{selectedKeys.size}</strong>건
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* 선택항목 배송상태 일괄 변경 (발주하기 바로 좌측) */}
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
                 <span className="text-xs font-bold text-slate-700 whitespace-nowrap">
-                  선택항목({selectedKeys.size}건) 상태 일괄변경:
+                  선택항목 상태 일괄변경:
                 </span>
                 <select
                   defaultValue=""
@@ -1703,9 +1629,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   </option>
                 </select>
               </div>
-            </div>
 
-            <div className="flex items-center gap-2">
               {/* 발주하기 버튼 (기존 4개 필드 발주서 모달) */}
               <button
                 type="button"
