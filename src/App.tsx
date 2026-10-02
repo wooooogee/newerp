@@ -11990,7 +11990,7 @@ const ERP_Dashboard = () => {
               ruleIndex={targetItemsModalRuleIdx}
               ruleName={globalIncentiveRules[targetItemsModalRuleIdx].incentiveName}
               initialSelected={globalIncentiveRules[targetItemsModalRuleIdx].targetItems || ['ALL']}
-              availableProducts={Array.from(new Set(data.map(d => d.rentalProd).filter(Boolean))).sort()}
+              availableProducts={Array.from(new Set(data.map(d => d.rentalProd).filter(Boolean))).sort() as string[]}
               onSave={(newSelected) => {
                 const n = [...globalIncentiveRules];
                 n[targetItemsModalRuleIdx].targetItems = newSelected;

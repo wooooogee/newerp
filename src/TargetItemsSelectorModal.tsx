@@ -136,7 +136,7 @@ export function TargetItemsSelectorModal({
 
   if (!isOpen) return null;
 
-  const selectedList = Array.from(selectedSet);
+  const selectedList: string[] = Array.from(selectedSet);
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">

@@ -415,6 +415,7 @@ export function SystemCodeRegistrationModal({
     // 전화번호 정규화 및 재대사
     const norm = normalizePhone(edited.phone);
     const matchedEmps = norm ? (empPhoneMap.get(norm) || []) : [];
+    const isDup = matchedEmps.length > 0;
     // 본부/지사 사원리스트 C열/D열 재대사
     const isHqMissing = !checkIsValidHq(edited.hq);
     const isBranchMissing = !checkIsValidBranch(edited.branch);

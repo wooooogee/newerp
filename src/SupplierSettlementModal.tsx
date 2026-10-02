@@ -444,7 +444,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     const wb = XLSX.utils.book_new();
 
     // 1. 공급사별 물품대금 총괄 요약 시트
-    const summaryRows = [
+    const summaryRows: any[][] = [
       [`리치웰페어 - 공급 물품대금 정산 총괄표 (${selectedMonth} 기준)`],
       [`정산 기준: 배송완료 및 ${selectedMonth} 말일까지 설치확인된 건 (금액: VAT 부가세 포함, 상품개수 기준)`],
       [`출력일시: ${new Date().toLocaleString()}`],
@@ -537,7 +537,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     const wb = XLSX.utils.book_new();
 
     // 1. 공급 수수료 총괄 요약 시트
-    const summaryRows = [
+    const summaryRows: any[][] = [
       [`리치웰페어 - 공급 수수료(특수수당) 정산 총괄표 (${selectedMonth} 기준)`],
       [`정산 기준: 배송완료 및 ${selectedMonth} 말일까지 설치확인된 건 (금액: VAT 부가세 포함, 본부별 차등 반영)`],
       [`출력일시: ${new Date().toLocaleString()}`],

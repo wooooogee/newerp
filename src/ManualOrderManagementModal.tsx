@@ -252,6 +252,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     return DEFAULT_TARGET_PRODUCTS;
   });
 
+  const [showProductConfig, setShowProductConfig] = useState(false);
   const [newProductInput, setNewProductInput] = useState('');
   const [sheetOrderRows, setSheetOrderRows] = useState<any[]>(() => {
     try {
