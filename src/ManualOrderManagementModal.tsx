@@ -220,6 +220,22 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   useEffect(() => {
     if (isOpen) {
       setSuppliers(loadSuppliersFromStorage());
+      // 모달 열릴 때 항상 기본 화면으로 초기화 (가입상태: 정상 가입만 기본값)
+      setSupplierFilter('all');
+      setJoinStatusFilter('active');
+      setStateFilter('all');
+      setRequestDateFilter('all');
+      setContractMonthFilter('all');
+      setDeliveryMonthFilter('all');
+      setSelectedProducts(new Set());
+      setIsProductDropdownOpen(false);
+      setSearchTerm('');
+      setCurrentPage(1);
+      setSelectedKeys(new Set());
+      setSortField(null);
+      setSortDirection('desc');
+      setEditedValues({});
+      setEditedStates({});
     }
   }, [isOpen]);
 
@@ -281,7 +297,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
   const [stateFilter, setStateFilter] = useState<'all' | DeliveryState>('all');
-  const [joinStatusFilter, setJoinStatusFilter] = useState<'all' | 'active' | 'cancelled'>('all');
+  const [joinStatusFilter, setJoinStatusFilter] = useState<'all' | 'active' | 'cancelled'>('active');
   const [contractMonthFilter, setContractMonthFilter] = useState<string>('all');
   const [deliveryMonthFilter, setDeliveryMonthFilter] = useState<string>('all');
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -1486,31 +1502,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </select>
               </div>
 
-              {/* 공급사 필터 드롭다운 */}
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
-                <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
-                  <Building size={13} className={supplierFilter !== 'all' ? 'text-indigo-600' : 'text-slate-400'} />
-                  <span>공급사</span>
-                </div>
-                <select
-                  value={supplierFilter}
-                  onChange={(e) => setSupplierFilter(e.target.value)}
-                  className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
-                    supplierFilter !== 'all' ? 'text-indigo-600 font-bold' : 'text-slate-700'
-                  }`}
-                >
-                  <option value="all">전체 공급사</option>
-                  {suppliers.map((s) => (
-                    <option key={s.id} value={s.name}>
-                      {s.name}
-                    </option>
-                  ))}
-                  {supplierCounts['-'] > 0 && (
-                    <option value="-">미지정</option>
-                  )}
-                </select>
-              </div>
-
               {/* 렌탈상품 다중 선택 드롭다운 */}
               <div className="relative">
                 <button
@@ -1576,7 +1567,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </div>
 
               {/* 필터 및 정렬 조건 초기화 버튼 */}
-              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || selectedProducts.size > 0 || requestDateFilter !== 'all' || supplierFilter !== 'all' || joinStatusFilter !== 'all' || sortField !== null) && (
+              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || selectedProducts.size > 0 || requestDateFilter !== 'all' || supplierFilter !== 'all' || joinStatusFilter !== 'active' || sortField !== null) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1585,7 +1576,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     setSelectedProducts(new Set());
                     setRequestDateFilter('all');
                     setSupplierFilter('all');
-                    setJoinStatusFilter('all');
+                    setJoinStatusFilter('active');
                     setSortField(null);
                     setSortDirection('desc');
                   }}
@@ -1880,9 +1871,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-3 w-28 text-center border-r border-slate-200 text-indigo-900 bg-indigo-50/70 font-bold">
-                        공급사
-                      </th>
                       <th className="py-3 px-3 w-28 text-center border-r border-slate-200">
                         가입상태
                       </th>
@@ -2003,20 +1991,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           {/* 렌탈상품명 */}
                           <td className="py-2.5 px-3 border-r border-slate-200 font-semibold text-slate-800">
                             {order.rentalProdClean}
-                          </td>
-
-                          {/* 공급사 매칭 */}
-                          <td className="py-2.5 px-3 border-r border-slate-200 text-center">
-                            {(() => {
-                              const sName = getMatchedSupplierName(order.rentalProdRaw || order.rentalProdClean);
-                              return sName !== '-' ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                  {sName}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 text-xs">-</span>
-                              );
-                            })()}
                           </td>
 
                           {/* 가입상태 */}
