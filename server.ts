@@ -5879,6 +5879,194 @@ app.post('/api/sheets/voc/save', async (req, res) => {
   }
 });
 
+// ==========================================
+// 공급사 관리 구글 시트 연동 API
+// ==========================================
+app.get('/api/sheets/suppliers/load', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const targetSheetTitle = '공급사관리';
+    
+    // 시트 존재 여부 확인
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetExists = (meta.data.sheets || []).some(
+      s => s.properties?.title === targetSheetTitle
+    );
+
+    if (!sheetExists) {
+      console.log(`[Supplier CloudSync] Sheet '${targetSheetTitle}' does not exist yet.`);
+      return res.json({ suppliers: [] });
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `${targetSheetTitle}!A:Z`,
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length < 2) {
+      return res.json({ suppliers: [] });
+    }
+
+    const header = (rows[0] || []).map((h: any) => String(h || '').trim());
+    const col = (name: string) => header.indexOf(name);
+
+    const idCol = col('공급사ID') !== -1 ? col('공급사ID') : 0;
+    const nameCol = col('공급사명') !== -1 ? col('공급사명') : 1;
+    const bNoCol = col('사업자번호') !== -1 ? col('사업자번호') : 2;
+    const ceoCol = col('대표자명') !== -1 ? col('대표자명') : 3;
+    const mgrCol = col('담당자명') !== -1 ? col('담당자명') : 4;
+    const phoneCol = col('담당자연락처') !== -1 ? col('담당자연락처') : 5;
+    const emailCol = col('담당자이메일') !== -1 ? col('담당자이메일') : 6;
+    const bankCol = col('은행') !== -1 ? col('은행') : 7;
+    const accCol = col('계좌번호') !== -1 ? col('계좌번호') : 8;
+    const holderCol = col('예금주') !== -1 ? col('예금주') : 9;
+    const dayCol = col('정산일') !== -1 ? col('정산일') : 10;
+    const activeCol = col('운영여부') !== -1 ? col('운영여부') : 11;
+    const memoCol = col('메모') !== -1 ? col('메모') : 12;
+    const prodsCol = col('취급제품설정JSON') !== -1 ? col('취급제품설정JSON') : 13;
+
+    const suppliers = rows.slice(1).map((r: any[]) => {
+      let products: any[] = [];
+      if (prodsCol >= 0 && r[prodsCol]) {
+        try {
+          products = JSON.parse(r[prodsCol]);
+        } catch (e) {
+          console.warn('Failed to parse supplier products JSON', e);
+        }
+      }
+
+      return {
+        id: String(r[idCol] || `supp-${Date.now()}`),
+        name: String(r[nameCol] || ''),
+        businessNo: String(r[bNoCol] || ''),
+        ceoName: String(r[ceoCol] || ''),
+        managerName: String(r[mgrCol] || ''),
+        managerPhone: String(r[phoneCol] || ''),
+        managerEmail: String(r[emailCol] || ''),
+        bankName: String(r[bankCol] || ''),
+        accountNumber: String(r[accCol] || ''),
+        accountHolder: String(r[holderCol] || ''),
+        settlementDay: parseInt(String(r[dayCol])) || 31,
+        isActive: r[activeCol] === undefined || r[activeCol] === '' || r[activeCol] === 'Y' || r[activeCol] === true,
+        memo: String(r[memoCol] || ''),
+        createdAt: new Date().toISOString().slice(0, 10),
+        products: Array.isArray(products) ? products : []
+      };
+    }).filter((s: any) => s.name && s.name.trim());
+
+    return res.json({ suppliers });
+  } catch (error: any) {
+    console.error("[Supplier Load Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
+app.post('/api/sheets/suppliers/save', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  const { suppliers } = req.body;
+  if (!Array.isArray(suppliers)) {
+    return res.status(400).json({ error: 'suppliers array is required' });
+  }
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const targetSheetTitle = '공급사관리';
+
+    // 1. 시트 존재 확인 및 생성
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetExists = (meta.data.sheets || []).some(
+      s => s.properties?.title === targetSheetTitle
+    );
+
+    if (!sheetExists) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: targetSheetTitle } } }]
+        }
+      });
+      console.log(`[Supplier CloudSync] Created new sheet: ${targetSheetTitle}`);
+    }
+
+    // 2. 행 데이터 조립
+    const headerRow = [
+      '공급사ID', '공급사명', '사업자번호', '대표자명', '담당자명', 
+      '담당자연락처', '담당자이메일', '은행', '계좌번호', '예금주', 
+      '정산일', '운영여부', '메모', '취급제품설정JSON'
+    ];
+
+    const rows: any[][] = [headerRow];
+
+    suppliers.forEach((s: any) => {
+      rows.push([
+        s.id || '',
+        s.name || '',
+        s.businessNo || '',
+        s.ceoName || '',
+        s.managerName || '',
+        s.managerPhone || '',
+        s.managerEmail || '',
+        s.bankName || '',
+        s.accountNumber || '',
+        s.accountHolder || '',
+        s.settlementDay || 31,
+        s.isActive !== false ? 'Y' : 'N',
+        s.memo || '',
+        JSON.stringify(s.products || [])
+      ]);
+    });
+
+    // 3. 기존 시트 클리어 후 업데이트
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: sheetId,
+      range: `${targetSheetTitle}!A:Z`,
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `${targetSheetTitle}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rows }
+    });
+
+    // 4. 로컬 백업 파일 저장
+    try {
+      const backupDir = path.join(process.cwd(), 'data', 'backup');
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(backupDir, 'suppliers_cloud_backup.json'), 
+        JSON.stringify(suppliers, null, 2), 
+        'utf-8'
+      );
+    } catch (e) {
+      console.warn('Local supplier backup write failed:', e);
+    }
+
+    res.json({ success: true, count: suppliers.length });
+  } catch (error: any) {
+    console.error("[Supplier Save Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
 // Vite Middleware
 async function start() {
   try {

@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw, ArrowUpDown } from 'lucide-react';
+import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw, ArrowUpDown, Building, Calculator } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ManualOrderReconModal } from './ManualOrderReconModal';
+import { SupplierItem, loadSuppliersFromStorage } from './SupplierManagementModal';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -33,6 +34,8 @@ interface ManualOrderManagementModalProps {
   onClose: () => void;
   data: ERPDataItem[];
   onOpenReconModal?: () => void;
+  onOpenSupplierModal?: () => void;
+  onOpenSettlementModal?: () => void;
 }
 
 export type DeliveryState = '발주대기' | '발주완료' | '배송중' | '배송완료' | '발주취소';
@@ -149,11 +152,39 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   isOpen,
   onClose,
   data,
-  onOpenReconModal
+  onOpenReconModal,
+  onOpenSupplierModal,
+  onOpenSettlementModal
 }) => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isReconModalOpen, setIsReconModalOpen] = useState(false);
+
+  // 등록된 공급사 목록 로드 및 공급사 필터
+  const [suppliers, setSuppliers] = useState<SupplierItem[]>(() => loadSuppliersFromStorage());
+  const [supplierFilter, setSupplierFilter] = useState<string>('all');
+
+  useEffect(() => {
+    if (isOpen) {
+      setSuppliers(loadSuppliersFromStorage());
+    }
+  }, [isOpen]);
+
+  // 주문 상품의 공급사 매칭 헬퍼
+  const getMatchedSupplierName = useCallback((rentalProd: string): string => {
+    if (!rentalProd || suppliers.length === 0) return '-';
+    const target = rentalProd.toLowerCase();
+    for (const supp of suppliers) {
+      if (!supp.isActive) continue;
+      for (const prod of (supp.products || [])) {
+        const kw = (prod.productKeyword || '').trim().toLowerCase();
+        if (kw && target.includes(kw)) {
+          return supp.name;
+        }
+      }
+    }
+    return '-';
+  }, [suppliers]);
 
   const [targetProducts, setTargetProducts] = useState<string[]>(() => {
     try {
@@ -668,9 +699,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         return false;
       }
 
+      // 공급사 필터
+      if (supplierFilter !== 'all') {
+        const suppName = getMatchedSupplierName(order.rentalProdRaw || order.rentalProdClean);
+        if (suppName !== supplierFilter) return false;
+      }
+
       return true;
     });
-  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, selectedProducts, editedValues]);
+  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, selectedProducts, supplierFilter, editedValues, getMatchedSupplierName]);
 
   // 요청일자 필터까지 적용된 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
   const ordersFilteredByReqDate = useMemo(() => {
@@ -1118,6 +1155,26 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             </div>
 
             <div className="flex items-center gap-2">
+              {onOpenSupplierModal && (
+                <button
+                  onClick={onOpenSupplierModal}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-500/20"
+                  title="공급사 및 취급제품/단가/수수료 설정"
+                >
+                  <Building size={14} />
+                  공급사 관리
+                </button>
+              )}
+              {onOpenSettlementModal && (
+                <button
+                  onClick={onOpenSettlementModal}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-purple-500/20"
+                  title="공급사 및 리치웰페어 제품 정산"
+                >
+                  <Calculator size={14} />
+                  공급사 정산
+                </button>
+              )}
               <button
                 onClick={() => setIsReconModalOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-emerald-500/20"
@@ -1291,6 +1348,28 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     </option>
                   ))}
                   <option value="none">배송일 없음</option>
+                </select>
+              </div>
+
+              {/* 공급사 필터 드롭다운 */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
+                  <Building size={13} className={supplierFilter !== 'all' ? 'text-indigo-600' : 'text-slate-400'} />
+                  <span>공급사</span>
+                </div>
+                <select
+                  value={supplierFilter}
+                  onChange={(e) => setSupplierFilter(e.target.value)}
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
+                    supplierFilter !== 'all' ? 'text-indigo-600 font-bold' : 'text-slate-700'
+                  }`}
+                >
+                  <option value="all">전체 공급사</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1661,6 +1740,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           )}
                         </div>
                       </th>
+                      <th className="py-3 px-3 w-28 text-center border-r border-slate-200 text-indigo-900 bg-indigo-50/70 font-bold">
+                        공급사
+                      </th>
                       <th className="py-3 px-3 w-28 text-center border-r border-slate-200">
                         가입상태
                       </th>
@@ -1781,6 +1863,20 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           {/* 렌탈상품명 */}
                           <td className="py-2.5 px-3 border-r border-slate-200 font-semibold text-slate-800">
                             {order.rentalProdClean}
+                          </td>
+
+                          {/* 공급사 매칭 */}
+                          <td className="py-2.5 px-3 border-r border-slate-200 text-center">
+                            {(() => {
+                              const sName = getMatchedSupplierName(order.rentalProdRaw || order.rentalProdClean);
+                              return sName !== '-' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  {sName}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-xs">-</span>
+                              );
+                            })()}
                           </td>
 
                           {/* 가입상태 */}

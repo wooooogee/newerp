@@ -1108,7 +1108,7 @@
             "salesperson": 315000,
             "teamLeader": 105000,
             "branchManager": 175000,
-            "hqManager": 0
+            "hqManager": 70000
           },
           "applyMaintenance": false,
           "maintenanceRules": []
@@ -2802,9 +2802,146 @@
           "maintenanceRules": []
         }
       ]
+    },
+    {
+      "id": "hq-1789371184047-0",
+      "hqName": "LS지사",
+      "settlementType": "사업자",
+      "isActive": true,
+      "bankName": "국민은행",
+      "accountNumber": "164501-04-161888",
+      "accountHolder": "김애숙(에스제이컨설팅)",
+      "paymentMethod": "계좌이체",
+      "enableOverriding": false,
+      "overriding": {
+        "salesperson": 0,
+        "teamLeader": 0,
+        "branchManager": 0,
+        "hqManager": 0
+      },
+      "productRules": [
+        {
+          "productName": "굿라이프헬스케어실버",
+          "totalAmount": 710000,
+          "salesAmount": 300000,
+          "applyOverriding": false,
+          "tier1Count": 0,
+          "tier1Price": 0,
+          "tier2Count": 0,
+          "tier2Price": 0,
+          "tier3Count": 0,
+          "tier3Price": 0,
+          "overriding": {
+            "salesperson": 0,
+            "teamLeader": 0,
+            "branchManager": 0,
+            "hqManager": 0
+          },
+          "applyMaintenance": false,
+          "maintenanceRules": []
+        },
+        {
+          "productName": "굿라이프헬스케어골드",
+          "totalAmount": 750000,
+          "salesAmount": 300000,
+          "applyOverriding": false,
+          "tier1Count": 0,
+          "tier1Price": 0,
+          "tier2Count": 0,
+          "tier2Price": 0,
+          "tier3Count": 0,
+          "tier3Price": 0,
+          "overriding": {
+            "salesperson": 0,
+            "teamLeader": 0,
+            "branchManager": 0,
+            "hqManager": 0
+          },
+          "applyMaintenance": false,
+          "maintenanceRules": []
+        },
+        {
+          "productName": "굿라이프헬스케어올인원",
+          "totalAmount": 750000,
+          "salesAmount": 300000,
+          "applyOverriding": false,
+          "tier1Count": 0,
+          "tier1Price": 0,
+          "tier2Count": 0,
+          "tier2Price": 0,
+          "tier3Count": 0,
+          "tier3Price": 0,
+          "overriding": {
+            "salesperson": 0,
+            "teamLeader": 0,
+            "branchManager": 0,
+            "hqManager": 0
+          },
+          "applyMaintenance": false,
+          "maintenanceRules": []
+        }
+      ]
     }
   ],
   "globalIncentives": [
+    {
+      "id": "1790042146867",
+      "incentiveName": "공급 수수료",
+      "targetName": "해당본부",
+      "payDay": 25,
+      "targetHq": "",
+      "targetHqs": [],
+      "targetDivisions": [
+        "div-goodlife"
+      ],
+      "targetProducts": [
+        "ALL"
+      ],
+      "targetItems": [
+        "2구좌_[테라웨이브]테라웨이브G+코스메틱 3종(A)"
+      ],
+      "baseDateType": "DELIVERY",
+      "commissionPerUnit": 500000,
+      "minimumGuarantee": 0,
+      "useInstallments": false,
+      "installments": [],
+      "taxType": "CORPORATE",
+      "taxBusinessName": "리치웰페어",
+      "taxBusinessNo": "546-86-01339"
+    },
+    {
+      "id": "1790034757135",
+      "incentiveName": "공급 수수료",
+      "targetName": "해당본부",
+      "payDay": 0,
+      "targetHq": "",
+      "targetHqs": [],
+      "targetDivisions": [
+        "div-goodlife"
+      ],
+      "targetProducts": [
+        "ALL"
+      ],
+      "targetItems": [
+        "2구좌_[바디프랜드]안마의자(파밀레c_머스타드(A))",
+        "2구좌_[바디프랜드]안마의자(파밀레c_머스타드(540+))",
+        "2구좌_[바디프랜드]안마의자(파밀레c_베이지(A))",
+        "2구좌_[바디프랜드]안마의자(파밀레c_인디고(540+))",
+        "2구좌_[바디프랜드]안마의자(파밀레c_인디고(A))",
+        "2구좌_[바디프랜드]안마의자(파밀레m(A))",
+        "3구좌_[바디프랜드]안마의자(전신헬스케어로봇(A))",
+        "2구좌_[바디프랜드]안마의자(파밀레S(A))",
+        "3구좌_[바디프랜드]안마의자(카릭스로봇(A))"
+      ],
+      "baseDateType": "DELIVERY",
+      "commissionPerUnit": 50000,
+      "minimumGuarantee": 0,
+      "useInstallments": false,
+      "installments": [],
+      "taxType": "CORPORATE",
+      "taxBusinessName": "리치웰페어",
+      "taxBusinessNo": "546-86-01339"
+    },
     {
       "id": "1786589544669",
       "incentiveName": "공급 수수료",
@@ -3287,10 +3424,10 @@
     },
     "12331580": {
       "orderDate": "2026-09-14",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-20",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료"
     },
     "12332288": {
       "orderDate": "2026-09-03",
@@ -3311,7 +3448,7 @@
       "deliveryDate": "2026-09-04",
       "courier": "",
       "trackingNo": "9월3일",
-      "deliveryState": "배송중"
+      "deliveryState": "배송완료"
     },
     "12334800": {
       "orderDate": "2026-09-03",
@@ -3350,10 +3487,10 @@
     },
     "12340685": {
       "orderDate": "2026-09-09",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-14",
       "courier": "경동택배",
       "trackingNo": "8026090596668",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료"
     },
     "12340738": {
       "orderDate": "2026-09-09",
@@ -3364,111 +3501,349 @@
     },
     "12342023": {
       "orderDate": "2026-09-10",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-15",
+      "courier": "경동택배",
+      "trackingNo": "8026090888971",
+      "deliveryState": "배송완료"
     },
     "12342026": {
       "orderDate": "2026-09-10",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-14",
+      "courier": "CJ대한통운",
+      "trackingNo": "600347677945",
+      "deliveryState": "배송완료"
     },
     "12342076": {
       "orderDate": "2026-09-11",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-19",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료"
     },
     "12343277": {
       "orderDate": "2026-09-09",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-23",
       "courier": "",
-      "trackingNo": "9월10~11일 예정",
-      "deliveryState": "발주완료"
+      "trackingNo": "",
+      "deliveryState": "배송완료"
     },
     "12343279": {
       "orderDate": "2026-09-14",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-18",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료"
     },
     "12343341": {
       "orderDate": "2026-09-10",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-19",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료"
     },
     "12343597": {
       "orderDate": "2026-09-10",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-15",
+      "courier": "CJ대한통운",
+      "trackingNo": "600347677956",
+      "deliveryState": "배송완료"
     },
     "12344814": {
       "orderDate": "2026-09-11",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-16",
+      "courier": "CJ대한통운",
+      "trackingNo": "600378940074",
+      "deliveryState": "배송완료"
     },
     "12344818": {
       "orderDate": "2026-09-11",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-16",
+      "courier": "CJ대한통운",
+      "trackingNo": "600378940085",
+      "deliveryState": "배송완료"
     },
     "12344946": {
       "orderDate": "2026-09-11",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-16",
+      "courier": "CJ대한통운",
+      "trackingNo": "600378940052",
+      "deliveryState": "배송완료"
     },
     "12344995": {
       "orderDate": "2026-09-11",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-19",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료"
     },
     "12345624": {
       "orderDate": "2026-09-11",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-16",
+      "courier": "CJ대한통운",
+      "trackingNo": "600378940063",
+      "deliveryState": "배송완료"
     },
     "12345717": {
       "orderDate": "2026-09-14",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-19",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료"
     },
     "12345804": {
       "orderDate": "2026-09-14",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-09-15",
+      "courier": "경동택배",
+      "trackingNo": "8026090888970",
+      "deliveryState": "배송완료"
     },
     "12345838": {
       "orderDate": "2026-09-14",
+      "deliveryDate": "2026-09-15",
+      "courier": "CJ대한통운",
+      "trackingNo": "600347677960",
+      "deliveryState": "배송완료"
+    },
+    "12346412": {
+      "orderDate": "2026-09-14",
+      "deliveryDate": "2026-09-15",
+      "courier": "CJ대한통운",
+      "trackingNo": "600347677934",
+      "deliveryState": "배송완료"
+    },
+    "12346650": {
+      "orderDate": "2026-09-16",
+      "deliveryDate": "2026-09-17",
+      "courier": "롯데택배",
+      "trackingNo": "263982685116",
+      "deliveryState": "배송완료"
+    },
+    "12346669": {
+      "orderDate": "2026-09-16",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
       "deliveryState": "발주완료"
     },
-    "12346412": {
-      "orderDate": "2026-09-14",
+    "12346949": {
+      "orderDate": "2026-09-16",
+      "deliveryDate": "2026-09-18",
+      "courier": "경동택배",
+      "trackingNo": "8026091099299",
+      "deliveryState": "발주취소"
+    },
+    "12347163": {
+      "orderDate": "2026-09-16",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12347222": {
+      "orderDate": "2026-09-18",
+      "deliveryDate": "2026-09-28",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료"
+    },
+    "12347239": {
+      "orderDate": "2026-09-21",
+      "deliveryDate": "2026-09-23",
+      "courier": "CJ대한통운",
+      "trackingNo": "600540389172",
+      "deliveryState": "배송완료"
+    },
+    "12348394": {
+      "orderDate": "2026-09-17",
+      "deliveryDate": "2026-09-19",
+      "courier": "CJ대한통운",
+      "trackingNo": "600438526712",
+      "deliveryState": "배송완료"
+    },
+    "12348447": {
+      "orderDate": "2026-09-16",
+      "deliveryDate": "2026-09-23",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료"
+    },
+    "12348539": {
+      "orderDate": "2026-09-17",
+      "deliveryDate": "2026-09-19",
+      "courier": "CJ대한통운",
+      "trackingNo": "600438526723",
+      "deliveryState": "배송완료"
+    },
+    "12348702": {
+      "orderDate": "2026-09-16",
+      "deliveryDate": "2026-09-22",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료"
+    },
+    "12349343": {
+      "orderDate": "2026-09-16",
+      "deliveryDate": "2026-09-17",
+      "courier": "경동택배",
+      "trackingNo": "8026091099300",
+      "deliveryState": "배송완료"
+    },
+    "12350795": {
+      "orderDate": "2026-09-17",
+      "deliveryDate": "2026-09-18",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료"
+    },
+    "12351254": {
+      "orderDate": "2026-09-17",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12351403": {
+      "orderDate": "2026-09-17",
+      "deliveryDate": "2026-09-28",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료"
+    },
+    "12352256": {
+      "orderDate": "2026-09-21",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12352347": {
+      "orderDate": "2026-09-21",
+      "deliveryDate": "2026-09-22",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료"
+    },
+    "12352367": {
+      "orderDate": "2026-09-21",
+      "deliveryDate": "2026-09-23",
+      "courier": "CJ대한통운",
+      "trackingNo": "600540389150",
+      "deliveryState": "배송완료"
+    },
+    "12352501": {
+      "orderDate": "2026-09-21",
+      "deliveryDate": "2026-09-28",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료"
+    },
+    "12353114": {
+      "orderDate": "2026-09-21",
+      "deliveryDate": "2026-09-23",
+      "courier": "CJ대한통운",
+      "trackingNo": "600540389161",
+      "deliveryState": "배송완료"
+    },
+    "12353286": {
+      "orderDate": "2026-09-21",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12353307": {
+      "orderDate": "2026-09-21",
+      "deliveryDate": "2026-09-23",
+      "courier": "CJ대한통운",
+      "trackingNo": "600540389183",
+      "deliveryState": "배송완료"
+    },
+    "12353562": {
+      "orderDate": "2026-09-28",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12353592": {
+      "orderDate": "2026-10-01",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12353619": {
+      "orderDate": "",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주취소"
+    },
+    "12354370": {
+      "orderDate": "2026-09-28",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12355777": {
+      "orderDate": "2026-09-28",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12356343": {
+      "orderDate": "2026-09-28",
+      "deliveryDate": "2026-09-29",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료"
+    },
+    "12356726": {
+      "orderDate": "2026-10-01",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12356850": {
+      "orderDate": "2026-09-30",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12357507": {
+      "orderDate": "2026-09-30",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12359995": {
+      "orderDate": "2026-10-01",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12360126": {
+      "orderDate": "2026-09-30",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12360945": {
+      "orderDate": "2026-09-30",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료"
+    },
+    "12361202": {
+      "orderDate": "2026-10-01",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
@@ -3522,7 +3897,8 @@
         "챔피언본부",
         "아우라본부",
         "두드림본부",
-        "조이본부"
+        "조이본부",
+        "LS지사"
       ],
       "isActive": true
     }

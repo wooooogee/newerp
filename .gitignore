@@ -7,3 +7,4 @@ coverage/
 .env*
 !.env.example
 .google_tokens.json
+data/backup/

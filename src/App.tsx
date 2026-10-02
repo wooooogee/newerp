@@ -13,6 +13,8 @@ import { DashboardDetailModal } from './DashboardDetailModal';
 import { CertificateDispatchModal } from './CertificateDispatchModal';
 import { ManualOrderManagementModal } from './ManualOrderManagementModal';
 import { ManualOrderReconModal } from './ManualOrderReconModal';
+import { SupplierManagementModal } from './SupplierManagementModal';
+import { SupplierSettlementModal } from './SupplierSettlementModal';
 import { CertificateDispatchHistoryModal } from './CertificateDispatchHistoryModal';
 import { MembershipApplicationModal } from './MembershipApplicationModal';
 import { CustomDialog } from './CustomDialog';
@@ -472,6 +474,127 @@ export const getDisplayPayDate = (item: any) => {
   }
   return displayPayDate;
 };
+
+// 상단 헤더 검색 바 (타이핑 시 부모 App 리렌더링 방지, 350ms 디바운스 + 검색 버튼 및 Enter 즉시 실행 지원)
+const TopSearchBar: React.FC<{
+  searchTerm: string;
+  onSearch: (val: string) => void;
+}> = React.memo(({ searchTerm, onSearch }) => {
+  const [query, setQuery] = useState(searchTerm);
+
+  useEffect(() => {
+    setQuery(searchTerm);
+  }, [searchTerm]);
+
+  // 디바운스 자동 검색 (350ms)
+  useEffect(() => {
+    if (query === searchTerm) return;
+    const timer = setTimeout(() => {
+      onSearch(query);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [query, searchTerm, onSearch]);
+
+  const handleExplicitSearch = (val: string = query) => {
+    onSearch(val);
+    setTimeout(() => {
+      document.getElementById('data-filter-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <div className="relative min-w-[200px] w-56 sm:w-64 shrink-0">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
+        <input
+          type="text"
+          placeholder="회원명, 회원번호, 렌탈번호, 영업사원명 검색..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              handleExplicitSearch(query);
+            }
+          }}
+          className="w-full pl-9 pr-7 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery('');
+              onSearch('');
+            }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 cursor-pointer"
+            title="검색어 지우기"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => handleExplicitSearch(query)}
+        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all shrink-0 flex items-center gap-1 cursor-pointer"
+      >
+        <Search size={13} />
+        <span>검색</span>
+      </button>
+    </div>
+  );
+});
+
+// 하단 데이터 테이블 필터 검색창 (디바운스 250ms, 한글 입력 렉 방지 및 X 지우기 버튼)
+const TableSearchInput: React.FC<{
+  searchTerm: string;
+  onSearch: (val: string) => void;
+}> = React.memo(({ searchTerm, onSearch }) => {
+  const [query, setQuery] = useState(searchTerm);
+
+  useEffect(() => {
+    setQuery(searchTerm);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    if (query === searchTerm) return;
+    const timer = setTimeout(() => {
+      onSearch(query);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [query, searchTerm, onSearch]);
+
+  return (
+    <div className="relative min-w-[220px] sm:min-w-[260px] flex-1 max-w-sm">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
+      <input
+        type="text"
+        placeholder="회원명, 회원번호, 렌탈번호, 영업사원명 검색..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            onSearch(query);
+          }
+        }}
+        className="w-full pl-10 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
+      />
+      {query && (
+        <button
+          type="button"
+          onClick={() => {
+            setQuery('');
+            onSearch('');
+          }}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 cursor-pointer"
+          title="검색어 지우기"
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+});
+
 const ERP_Dashboard = () => {
   const [currentUser, setCurrentUser] = useState<{ username: string; role: string; orgName: string; orgs?: { role: string; orgName: string; }[] } | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -616,7 +739,9 @@ const ERP_Dashboard = () => {
   const [dashboardDetailType, setDashboardDetailType] = useState<'delivery' | 'cancel' | null>(null);
   const [isDeliveryDashboardOpen, setIsDeliveryDashboardOpen] = useState(false);
   const [isCertificateDispatchModalOpen, setIsCertificateDispatchModalOpen] = useState(false);
+  const [isSupplierManagementModalOpen, setIsSupplierManagementModalOpen] = useState(false);
   const [isManualOrderModalOpen, setIsManualOrderModalOpen] = useState(false);
+  const [isSupplierSettlementModalOpen, setIsSupplierSettlementModalOpen] = useState(false);
   const [isCertificateDispatchHistoryModalOpen, setIsCertificateDispatchHistoryModalOpen] = useState(false);
   const [isMembershipApplicationModalOpen, setIsMembershipApplicationModalOpen] = useState(false);
   const [isManualSettlementModalOpen, setIsManualSettlementModalOpen] = useState(false);
@@ -624,12 +749,7 @@ const ERP_Dashboard = () => {
   const [isExcelSyncModalOpen, setIsExcelSyncModalOpen] = useState(false);
   const [isCmsRegistrationModalOpen, setIsCmsRegistrationModalOpen] = useState(false);
   const [isSangjoInquiryModalOpen, setIsSangjoInquiryModalOpen] = useState(false);
-  const [topSearchQuery, setTopSearchQuery] = useState('');
 
-  // searchTerm이 변경될 때 상단 검색어 동기화
-  useEffect(() => {
-    setTopSearchQuery(searchTerm);
-  }, [searchTerm]);
 
   const [showScrollTop, setShowScrollTop] = useState(false);
 
@@ -3012,24 +3132,126 @@ const ERP_Dashboard = () => {
     }
   };
 
+  // 구좌 현황 대시보드 통계 계산 메모이제이션 (검색어 입력 등으로 인한 불필요한 반복문 재실행 방지)
+  const topDashboardStats = React.useMemo(() => {
+    const prodCounts = new Map<string, number>();
+    const hqCounts = new Map<string, number>();
+    const branchCounts = new Map<string, number>();
+    let totalContracts = 0;
+    let cancelCount = 0;
+    let deliveryCompleteCount = 0;
+    const seenRentalNos = new Set<string>();
+    const cancelSeenRentalNos = new Set<string>();
+    const deliveryCompleteSeenRentalNos = new Set<string>();
+
+    const targetMonth = topDashboardMonth;
+
+    data.forEach(d => {
+      const contractDateStr = d.contractDate ? d.contractDate.replace(/\./g, '-').substring(0, 7) : '';
+      const deliveryDateStr = d.deliveryDate ? d.deliveryDate.replace(/\./g, '-').substring(0, 7) : '';
+
+      const isDeliveryComplete = d.deliveryStatus === '배송완료';
+      const isJoined = d.status === '가입';
+
+      const matchesDeliveryMonth = !targetMonth || deliveryDateStr === targetMonth;
+      const matchesMonth = !targetMonth || contractDateStr === targetMonth;
+
+      if (isDeliveryComplete && matchesDeliveryMonth && isJoined) {
+        if (topDashboardMode === '상품개수' && d.rentalNo) {
+          if (!deliveryCompleteSeenRentalNos.has(d.rentalNo)) {
+            deliveryCompleteSeenRentalNos.add(d.rentalNo);
+            deliveryCompleteCount++;
+          }
+        } else {
+          deliveryCompleteCount++;
+        }
+      }
+
+      if (matchesMonth) {
+        const isCancelled = d.status.includes('취소') || d.status.includes('해약') || d.deliveryStatus.includes('취소') || d.deliveryStatus.includes('반품');
+
+        if (topDashboardMode === '상품개수' && d.rentalNo) {
+          if (isCancelled) {
+            if (cancelSeenRentalNos.has(d.rentalNo)) return;
+            cancelSeenRentalNos.add(d.rentalNo);
+          } else {
+            if (seenRentalNos.has(d.rentalNo)) return;
+            seenRentalNos.add(d.rentalNo);
+          }
+        }
+
+        if (isCancelled) {
+          cancelCount++;
+        } else {
+          totalContracts++;
+          const prod = d.prodName || '미지정';
+          prodCounts.set(prod, (prodCounts.get(prod) || 0) + 1);
+          const hq = d.hq || '미지정';
+          hqCounts.set(hq, (hqCounts.get(hq) || 0) + 1);
+          const branch = d.branch || '미지정';
+          branchCounts.set(branch, (branchCounts.get(branch) || 0) + 1);
+        }
+      }
+    });
+
+    const sortedProds = Array.from(prodCounts.entries()).sort((a, b) => b[1] - a[1]);
+    const sortedHqs = Array.from(hqCounts.entries()).sort((a, b) => b[1] - a[1]);
+    const sortedBranches = Array.from(branchCounts.entries()).sort((a, b) => b[1] - a[1]);
+    const countUnit = topDashboardMode === '구좌수' ? '구좌' : '개';
+
+    return {
+      totalContracts,
+      cancelCount,
+      deliveryCompleteCount,
+      sortedProds,
+      sortedHqs,
+      sortedBranches,
+      countUnit
+    };
+  }, [data, topDashboardMonth, topDashboardMode]);
+
   const filteredData = React.useMemo(() => {
     const cleanSearchTerm = searchTerm.trim().toLowerCase();
     const hasSearch = cleanSearchTerm.length > 0;
 
     const result = data
       .filter(item => {
-        const matchesSearch = !hasSearch ||
-          (item.memName || '').toLowerCase().includes(cleanSearchTerm) ||
-          (item.memNo || '').toLowerCase().includes(cleanSearchTerm) ||
-          (item.rentalNo || '').toLowerCase().includes(cleanSearchTerm) ||
-          (item.empName || '').toLowerCase().includes(cleanSearchTerm) ||
-          (item.salesperson || '').toLowerCase().includes(cleanSearchTerm);
+        // 1. 빠른 탈락 조건 (가벼운 조건 먼저 판별)
+        const matchesStatus =
+          statusFilter === '전체' ||
+          (statusFilter === '가입' && item.status === '가입') ||
+          (statusFilter === '대기' && item.status === '대기') ||
+          (statusFilter === '취소 및 해약' &&
+            (item.status?.includes('취소') ||
+              item.status?.includes('해약') ||
+              item.status?.includes('반품') ||
+              item.status?.includes('철회')));
+        if (!matchesStatus) return false;
 
         const matchesProduct = productFilter.length === 0 || productFilter.includes(item.prodName);
+        if (!matchesProduct) return false;
+
         const matchesHq = hqFilter.length === 0 || hqFilter.includes(item.hq);
+        if (!matchesHq) return false;
+
         const matchesBranch = branchFilter.length === 0 || branchFilter.includes(item.branch);
+        if (!matchesBranch) return false;
+
         const matchesEmpName = empNameFilter.length === 0 || empNameFilter.includes(item.empName || item.salesperson || '');
+        if (!matchesEmpName) return false;
+
         const matchesDelivery = deliveryFilter === '전체' || item.deliveryStatus === deliveryFilter;
+        if (!matchesDelivery) return false;
+
+        // 2. 검색어 매칭 (회원명 우선 단축 평가)
+        const matchesSearch = !hasSearch || (
+          (item.memName && item.memName.toLowerCase().includes(cleanSearchTerm)) ||
+          (item.memNo && item.memNo.toLowerCase().includes(cleanSearchTerm)) ||
+          (item.rentalNo && item.rentalNo.toLowerCase().includes(cleanSearchTerm)) ||
+          (item.empName && item.empName.toLowerCase().includes(cleanSearchTerm)) ||
+          (item.salesperson && item.salesperson.toLowerCase().includes(cleanSearchTerm))
+        );
+        if (!matchesSearch) return false;
 
         const effectivePaymentStatusFilter = pcViewMode === 'settlement' ? paymentStatusFilter : '전체';
         const isPaid = item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료'));
@@ -3037,6 +3259,7 @@ const ERP_Dashboard = () => {
           effectivePaymentStatusFilter === '전체' ||
           (effectivePaymentStatusFilter === '지급완료' && isPaid) ||
           (effectivePaymentStatusFilter === '지급예정' && !isPaid);
+        if (!matchesPaymentStatus) return false;
 
         // 지급일자 필터 (정산 뷰에서만 적용, 검색어가 입력된 경우 지급일 정산 필터와 상관없이 전체에서 검색)
         const effectivePayFilter = pcViewMode === 'settlement' ? payDateFilter : '';
@@ -3088,16 +3311,7 @@ const ERP_Dashboard = () => {
              }
           }
         }
-
-        const matchesStatus =
-          statusFilter === '전체' ||
-          (statusFilter === '가입' && item.status === '가입') ||
-          (statusFilter === '대기' && item.status === '대기') ||
-          (statusFilter === '취소 및 해약' &&
-            (item.status?.includes('취소') ||
-              item.status?.includes('해약') ||
-              item.status?.includes('반품') ||
-              item.status?.includes('철회')));
+        if (!matchesPayDate) return false;
 
         // 계약월 필터 (계약관리 화면에서 특정 월 선택 시 해당 계약월 데이터만 필터링, 검색어가 입력된 경우 전체에서 검색)
         let matchesContractMonth = true;
@@ -3105,6 +3319,7 @@ const ERP_Dashboard = () => {
           const itemContractDate = item.contractDate ? item.contractDate.replace(/\./g, '-').substring(0, 7) : '';
           matchesContractMonth = itemContractDate === contractMonthFilter;
         }
+        if (!matchesContractMonth) return false;
 
         // 본부총무 계정인 경우 25일 지급 내역 필터링
         if (isHQStaff) {
@@ -3113,22 +3328,31 @@ const ERP_Dashboard = () => {
           if (is25thPay) return false;
         }
 
-        return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesEmpName && matchesDelivery && matchesPayDate && matchesPaymentStatus && matchesStatus && matchesContractMonth;
-      })
-      .sort((a, b) => {
-        const parseDate = (d: string) => {
-          const normalized = d.replace(/[./]/g, '-');
-          const ts = new Date(normalized).getTime();
-          return isNaN(ts) ? 0 : ts;
-        };
-        const dateA = parseDate(a.contractDate);
-        const dateB = parseDate(b.contractDate);
-        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+        return true;
       });
+
+    // 정렬 성능 최적화: 날짜 타임스탬프 캐싱으로 정규식/Date 파싱 비용 99% 제거
+    const dateCache = new Map<string, number>();
+    const getFastTimestamp = (d: string | undefined): number => {
+      if (!d) return 0;
+      let ts = dateCache.get(d);
+      if (ts !== undefined) return ts;
+      const normalized = d.replace(/[./]/g, '-');
+      const parsed = new Date(normalized).getTime();
+      ts = isNaN(parsed) ? 0 : parsed;
+      dateCache.set(d, ts);
+      return ts;
+    };
+
+    const sortedResult = result.sort((a, b) => {
+      const dateA = getFastTimestamp(a.contractDate);
+      const dateB = getFastTimestamp(b.contractDate);
+      return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+    });
 
     if (tableDisplayMode === '상품개수') {
       const seen = new Set<string>();
-      return result.filter(item => {
+      return sortedResult.filter(item => {
         if (!item.rentalNo) return true;
         if (seen.has(item.rentalNo)) return false;
         seen.add(item.rentalNo);
@@ -3136,7 +3360,7 @@ const ERP_Dashboard = () => {
       });
     }
 
-    return result;
+    return sortedResult;
   }, [data, searchTerm, productFilter, hqFilter, branchFilter, empNameFilter, deliveryFilter, statusFilter, payDateFilter, paymentStatusFilter, sortOrder, tableDisplayMode, isHQStaff, pcViewMode, contractMonthFilter]);
 
   // 필터 변경 시 페이지 리셋
@@ -3372,18 +3596,25 @@ const ERP_Dashboard = () => {
   }, [maintenanceRules, hqSettings, maintenanceHistory, payDateFilter]);
 
   const maintenanceFilteredData = React.useMemo(() => {
+    const cleanSearch = searchTerm.trim().toLowerCase();
+    const hasSearch = cleanSearch.length > 0;
+
     return data.filter(item => {
-      const matchesSearch =
-        item.memName.includes(searchTerm) ||
-        item.contractDate.includes(searchTerm) ||
-        item.prodName.includes(searchTerm);
-
       const matchesProduct = productFilter.length === 0 || productFilter.includes(item.prodName);
+      if (!matchesProduct) return false;
       const matchesHq = hqFilter.length === 0 || hqFilter.includes(item.hq);
+      if (!matchesHq) return false;
       const matchesBranch = branchFilter.length === 0 || branchFilter.includes(item.branch);
+      if (!matchesBranch) return false;
       const matchesDelivery = deliveryFilter === '전체' || item.deliveryStatus === deliveryFilter;
+      if (!matchesDelivery) return false;
 
-      return matchesSearch && matchesProduct && matchesHq && matchesBranch && matchesDelivery;
+      const matchesSearch = !hasSearch ||
+        (item.memName && item.memName.toLowerCase().includes(cleanSearch)) ||
+        (item.contractDate && item.contractDate.toLowerCase().includes(cleanSearch)) ||
+        (item.prodName && item.prodName.toLowerCase().includes(cleanSearch));
+
+      return matchesSearch;
     });
   }, [data, searchTerm, productFilter, hqFilter, branchFilter, deliveryFilter]);
 
@@ -7135,7 +7366,9 @@ const ERP_Dashboard = () => {
                     >
                       <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
                         {[
+                          { dot: 'bg-indigo-500', label: '공급사 관리', action: () => setIsSupplierManagementModalOpen(true) },
                           { dot: 'bg-cyan-500', label: '수기발주 관리', action: () => setIsManualOrderModalOpen(true) },
+                          { dot: 'bg-emerald-500', label: '공급사 정산 관리', action: () => setIsSupplierSettlementModalOpen(true) },
                         ].map((item, idx) => (
                           <motion.button
                             key={idx}
@@ -7436,36 +7669,7 @@ const ERP_Dashboard = () => {
               </div>
               
               <div className="flex-1 max-w-4xl md:ml-auto flex items-center justify-end gap-1.5 w-full pr-2">
-                <div className="relative min-w-[200px] w-56 sm:w-64 shrink-0">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                  <input
-                    type="text" 
-                    placeholder="회원명, 회원번호, 렌탈번호, 영업사원명 검색..." 
-                    value={topSearchQuery}
-                    onChange={(e) => setTopSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        setSearchTerm(topSearchQuery);
-                        setTimeout(() => {
-                          document.getElementById('data-filter-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }, 100);
-                      }
-                    }}
-                    className="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
-                  />
-                </div>
-                <button
-                  onClick={() => {
-                    setSearchTerm(topSearchQuery);
-                    setTimeout(() => {
-                      document.getElementById('data-filter-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }, 100);
-                  }}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all shrink-0 flex items-center gap-1 cursor-pointer"
-                >
-                  <Search size={13} />
-                  <span>검색</span>
-                </button>
+                <TopSearchBar searchTerm={searchTerm} onSearch={setSearchTerm} />
                 <button
                   onClick={() => setIsAdvancedSearchModalOpen(true)}
                   className="flex items-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
@@ -7599,70 +7803,15 @@ const ERP_Dashboard = () => {
               </div>
 
               {(() => {
-                const prodCounts = new Map<string, number>();
-                const hqCounts = new Map<string, number>();
-                const branchCounts = new Map<string, number>();
-                let totalContracts = 0;
-                let cancelCount = 0;
-                let deliveryCompleteCount = 0;
-                const seenRentalNos = new Set<string>();
-                const cancelSeenRentalNos = new Set<string>();
-                const deliveryCompleteSeenRentalNos = new Set<string>();
-
-                const targetMonth = topDashboardMonth;
-
-                data.forEach(d => {
-                  const contractDateStr = d.contractDate ? d.contractDate.replace(/\./g, '-').substring(0, 7) : '';
-                  const deliveryDateStr = d.deliveryDate ? d.deliveryDate.replace(/\./g, '-').substring(0, 7) : '';
-
-                  const isDeliveryComplete = d.deliveryStatus === '배송완료';
-                  const isJoined = d.status === '가입';
-
-                  const matchesDeliveryMonth = !targetMonth || deliveryDateStr === targetMonth;
-                  const matchesMonth = !targetMonth || contractDateStr === targetMonth;
-
-                  if (isDeliveryComplete && matchesDeliveryMonth && isJoined) {
-                    if (topDashboardMode === '상품개수' && d.rentalNo) {
-                      if (!deliveryCompleteSeenRentalNos.has(d.rentalNo)) {
-                        deliveryCompleteSeenRentalNos.add(d.rentalNo);
-                        deliveryCompleteCount++;
-                      }
-                    } else {
-                      deliveryCompleteCount++;
-                    }
-                  }
-
-                  if (matchesMonth) {
-                    const isCancelled = d.status.includes('취소') || d.status.includes('해약') || d.deliveryStatus.includes('취소') || d.deliveryStatus.includes('반품');
-
-                    if (topDashboardMode === '상품개수' && d.rentalNo) {
-                      if (isCancelled) {
-                        if (cancelSeenRentalNos.has(d.rentalNo)) return;
-                        cancelSeenRentalNos.add(d.rentalNo);
-                      } else {
-                        if (seenRentalNos.has(d.rentalNo)) return;
-                        seenRentalNos.add(d.rentalNo);
-                      }
-                    }
-
-                    if (isCancelled) {
-                      cancelCount++;
-                    } else {
-                      totalContracts++;
-                      const prod = d.prodName || '미지정';
-                      prodCounts.set(prod, (prodCounts.get(prod) || 0) + 1);
-                      const hq = d.hq || '미지정';
-                      hqCounts.set(hq, (hqCounts.get(hq) || 0) + 1);
-                      const branch = d.branch || '미지정';
-                      branchCounts.set(branch, (branchCounts.get(branch) || 0) + 1);
-                    }
-                  }
-                });
-
-                const sortedProds = Array.from(prodCounts.entries()).sort((a, b) => b[1] - a[1]);
-                const sortedHqs = Array.from(hqCounts.entries()).sort((a, b) => b[1] - a[1]);
-                const sortedBranches = Array.from(branchCounts.entries()).sort((a, b) => b[1] - a[1]);
-                const countUnit = topDashboardMode === '구좌수' ? '구좌' : '개';
+                const {
+                  totalContracts,
+                  cancelCount,
+                  deliveryCompleteCount,
+                  sortedProds,
+                  sortedHqs,
+                  sortedBranches,
+                  countUnit
+                } = topDashboardStats;
 
                 return (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -8377,14 +8526,7 @@ const ERP_Dashboard = () => {
                     onChange={setEmpNameFilter} 
                   />
 
-                  <div className="relative min-w-[220px] sm:min-w-[260px] flex-1 max-w-sm">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                    <input
-                      type="text" placeholder="회원명, 회원번호, 렌탈번호, 영업사원명 검색..." value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
-                    />
-                  </div>
+                  <TableSearchInput searchTerm={searchTerm} onSearch={setSearchTerm} />
                   {pcViewMode === 'settlement' && showCommissionInfo && selectedTableKeys.size > 0 && (
                     <button
                       onClick={() => {
@@ -12666,11 +12808,26 @@ const ERP_Dashboard = () => {
             onClose={() => setIsCertificateDispatchModalOpen(false)}
             data={data}
           />
+          <SupplierManagementModal
+            isOpen={isSupplierManagementModalOpen}
+            onClose={() => setIsSupplierManagementModalOpen(false)}
+          />
           <ManualOrderManagementModal
             isOpen={isManualOrderModalOpen}
             onClose={() => setIsManualOrderModalOpen(false)}
             data={data}
             onOpenReconModal={() => setIsManualOrderReconModalOpen(true)}
+            onOpenSupplierModal={() => setIsSupplierManagementModalOpen(true)}
+            onOpenSettlementModal={() => setIsSupplierSettlementModalOpen(true)}
+          />
+          <SupplierSettlementModal
+            isOpen={isSupplierSettlementModalOpen}
+            onClose={() => setIsSupplierSettlementModalOpen(false)}
+            data={data}
+            onOpenSupplierManagementModal={() => {
+              setIsSupplierSettlementModalOpen(false);
+              setIsSupplierManagementModalOpen(true);
+            }}
           />
           <ManualOrderReconModal
             isOpen={isManualOrderReconModalOpen}
