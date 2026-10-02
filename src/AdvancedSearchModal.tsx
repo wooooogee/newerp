@@ -250,13 +250,23 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
       return;
     }
 
-    const rows = filteredResults.map((item, idx) => ({
+    // 지사별로 정렬 (1순위: 지사 가나다순, 2순위: 계약일자 내림차순)
+    const exportList = [...filteredResults].sort((a, b) => {
+      const branchA = (a.branch || '').trim();
+      const branchB = (b.branch || '').trim();
+      const comp = branchA.localeCompare(branchB, 'ko-KR');
+      if (comp !== 0) return comp;
+      return (b.contractDate || '').localeCompare(a.contractDate || '');
+    });
+
+    const rows = exportList.map((item, idx) => ({
       '순번': idx + 1,
       '계약일자': item.contractDate || '',
       '회원번호': item.memNo || '',
       '회원명': item.memName || '',
       '전화번호': item.phone || (item.raw && item.raw[5]) || '',
       '본부': item.hq || '',
+      '지사': item.branch || '',
       '사원명': item.salesperson || item.empName || '',
       '상품명': item.prodName || '',
       '렌탈계약번호': item.rentalNo || (item.raw && item.raw[10]) || '',
@@ -593,6 +603,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                       <th className="p-3 whitespace-nowrap">회원명</th>
                       <th className="p-3 whitespace-nowrap">전화번호</th>
                       <th className="p-3 whitespace-nowrap">본부</th>
+                      <th className="p-3 whitespace-nowrap">지사</th>
                       <th className="p-3 whitespace-nowrap">사원명</th>
                       <th className="p-3 whitespace-nowrap">상품명</th>
                       <th className="p-3 whitespace-nowrap">렌탈계약번호</th>
@@ -609,7 +620,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {filteredResults.length === 0 ? (
                       <tr>
-                        <td colSpan={17} className="p-16 text-center text-slate-400 font-bold">
+                        <td colSpan={18} className="p-16 text-center text-slate-400 font-bold">
                           선택하신 조건에 부합하는 상세 데이터가 없습니다.
                         </td>
                       </tr>
@@ -632,6 +643,7 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
                             <td className="p-3 font-bold text-slate-900 whitespace-nowrap">{item.memName || '-'}</td>
                             <td className="p-3 font-mono text-slate-700 whitespace-nowrap">{phoneNum}</td>
                             <td className="p-3 font-semibold whitespace-nowrap">{item.hq || '-'}</td>
+                            <td className="p-3 text-slate-700 whitespace-nowrap">{item.branch || '-'}</td>
                             <td className="p-3 text-slate-600 whitespace-nowrap">{item.salesperson || item.empName || '-'}</td>
                             <td className="p-3 font-medium truncate max-w-[160px]" title={item.prodName}>{item.prodName || '-'}</td>
                             <td className="p-3 font-mono font-medium whitespace-nowrap text-slate-800">{rentalNoVal}</td>

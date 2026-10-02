@@ -1583,6 +1583,9 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               <div className="truncate text-slate-600">
                                 영업자: <strong className="text-slate-900 font-semibold">{item.empName || '-'}</strong>
                               </div>
+                              <div className="truncate text-[10.5px] text-slate-600">
+                                <span className="text-slate-400">소속:</span> <strong className="text-slate-800 font-semibold">{item.hq || '-'}</strong>{item.branch ? ` / ${item.branch}` : ''}
+                              </div>
                               <div className="truncate text-slate-600 flex items-center gap-1">
                                 <Phone size={10} className="text-slate-400 shrink-0" />
                                 {empPhoneVal && empPhoneVal !== '-' ? (
@@ -2203,9 +2206,16 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                 <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">담당 영업자 및 조직</span>
                   <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
+                    <div className="space-y-1">
                       <p className="text-xs font-bold text-slate-900">{selectedDetailItem.empName || '-'} 사원</p>
-                      <p className="text-[11px] text-slate-500">{selectedDetailItem.hqName || ''} {selectedDetailItem.branchName || ''}</p>
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md font-semibold">
+                          본부: {selectedDetailItem.hq || selectedDetailItem.hqName || '-'}
+                        </span>
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-semibold">
+                          지사: {selectedDetailItem.branch || selectedDetailItem.branchName || '-'}
+                        </span>
+                      </div>
                     </div>
                     {getEmpPhone(selectedDetailItem) && getEmpPhone(selectedDetailItem) !== '-' && (
                       <a
