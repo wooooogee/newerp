@@ -250,13 +250,13 @@ export const AdvancedSearchModal: React.FC<AdvancedSearchModalProps> = ({
       return;
     }
 
-    // 지사별로 정렬 (1순위: 지사 가나다순, 2순위: 계약일자 내림차순)
+    // 계약일자별로 정렬 (최신 계약일자 내림차순, 계약일자가 같으면 회원명 가나다순)
     const exportList = [...filteredResults].sort((a, b) => {
-      const branchA = (a.branch || '').trim();
-      const branchB = (b.branch || '').trim();
-      const comp = branchA.localeCompare(branchB, 'ko-KR');
+      const dateA = String(a.contractDate || '').replace(/\./g, '-').trim();
+      const dateB = String(b.contractDate || '').replace(/\./g, '-').trim();
+      const comp = dateB.localeCompare(dateA);
       if (comp !== 0) return comp;
-      return (b.contractDate || '').localeCompare(a.contractDate || '');
+      return String(a.memName || '').localeCompare(String(b.memName || ''), 'ko-KR');
     });
 
     const rows = exportList.map((item, idx) => ({
