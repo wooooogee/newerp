@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Component, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Component, ReactNode } from 'react';
 import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, Minus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare, Copy, Check, UserCheck, Sparkles, FolderTree, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
@@ -906,8 +906,50 @@ const ERP_Dashboard = () => {
   const [reconTab, setReconTab] = useState<'NEW' | 'HISTORY'>('NEW');
   const [reconMode, setReconMode] = useState<'PAY_DATE' | 'DELIVERY_DATE'>('PAY_DATE');
   const [reconDate, setReconDate] = useState('');
+  const [reconDeliveryYearMonth, setReconDeliveryYearMonth] = useState(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  });
   const [reconDeliveryStartDate, setReconDeliveryStartDate] = useState('');
   const [reconDeliveryEndDate, setReconDeliveryEndDate] = useState('');
+
+  // 유통사 대사 월 선택 옵션 목록 (최근 24개월)
+  const reconMonthOptions = useMemo(() => {
+    const list: { value: string; label: string }[] = [];
+    const now = new Date();
+    const currentY = now.getFullYear();
+    for (let y = currentY + 1; y >= currentY - 2; y--) {
+      for (let m = 12; m >= 1; m--) {
+        const mStr = String(m).padStart(2, '0');
+        list.push({ value: `${y}-${mStr}`, label: `${y}년 ${mStr}월` });
+      }
+    }
+    return list;
+  }, []);
+
+  // 유통사 대사 배송일자 기준 기간 세팅 헬퍼 (1~15일, 16~말일, 해당월 전체)
+  const setReconPeriodByMonth = (ym: string, periodType: 'FIRST' | 'SECOND' | 'ALL') => {
+    const targetYm = ym || reconDeliveryYearMonth || (() => {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    })();
+    const [yStr, mStr] = targetYm.split('-');
+    const y = parseInt(yStr, 10);
+    const m = parseInt(mStr, 10);
+    const lastDay = new Date(y, m, 0).getDate();
+    if (periodType === 'FIRST') {
+      setReconDeliveryStartDate(`${yStr}-${mStr}-01`);
+      setReconDeliveryEndDate(`${yStr}-${mStr}-15`);
+    } else if (periodType === 'SECOND') {
+      setReconDeliveryStartDate(`${yStr}-${mStr}-16`);
+      setReconDeliveryEndDate(`${yStr}-${mStr}-${String(lastDay).padStart(2, '0')}`);
+    } else {
+      setReconDeliveryStartDate(`${yStr}-${mStr}-01`);
+      setReconDeliveryEndDate(`${yStr}-${mStr}-${String(lastDay).padStart(2, '0')}`);
+    }
+  };
   const [reconData, setReconData] = useState<any[]>([]);
   const [reconHistoryDates, setReconHistoryDates] = useState<string[]>([]);
   const [selectedHistoryDate, setSelectedHistoryDate] = useState<string>('');
@@ -14882,14 +14924,13 @@ const ERP_Dashboard = () => {
                         const normalNet = normalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
 
                         const normalSubtotalRow = {
-                          '정산기준일': '',
+                          '계약일자': '',
+                          '배송일자': '',
                           '수수료지급일자': '',
                           '계약ID': '[정상 건 소계]',
                           '고객명': `${normalCount}건`,
                           '본부명': '',
                           '상품명': '',
-                          '계약일자': '',
-                          '배송일자': '',
                           '구좌수': normalGuzwa,
                           '거래처입금액': normalExt,
                           '내부지급액합계': normalInt,
@@ -14904,14 +14945,13 @@ const ERP_Dashboard = () => {
                         const abnormalNet = abnormalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
 
                         const abnormalSubtotalRow = {
-                          '정산기준일': '',
+                          '계약일자': '',
+                          '배송일자': '',
                           '수수료지급일자': '',
                           '계약ID': '[이상/선지급 건 소계]',
                           '고객명': `${abnormalCount}건`,
                           '본부명': '',
                           '상품명': '',
-                          '계약일자': '',
-                          '배송일자': '',
                           '구좌수': abnormalGuzwa,
                           '거래처입금액': abnormalExt,
                           '내부지급액합계': abnormalInt,
@@ -14925,14 +14965,13 @@ const ERP_Dashboard = () => {
                         const totalNet = mappedData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
 
                         const grandTotalRow = {
-                          '정산기준일': '',
+                          '계약일자': '',
+                          '배송일자': '',
                           '수수료지급일자': '',
                           '계약ID': '[전체 총계]',
                           '고객명': `${mappedData.length}건`,
                           '본부명': '',
                           '상품명': '',
-                          '계약일자': '',
-                          '배송일자': '',
                           '구좌수': totalGuzwa,
                           '거래처입금액': totalExt,
                           '내부지급액합계': totalInt,
@@ -14944,30 +14983,52 @@ const ERP_Dashboard = () => {
                           ? [...normalRows, normalSubtotalRow, ...abnormalRows, abnormalSubtotalRow, grandTotalRow]
                           : [...normalRows, normalSubtotalRow, grandTotalRow];
                         
-                        const headers = ['정산기준일', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
+                        // 1행 컬럼 순서: 이미지 양식과 100% 동일
+                        const headers = ['계약일자', '배송일자', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
                         const aoaData = [headers];
+                        const parseReconNum = (v: any): number => {
+                          if (v === null || v === undefined || v === '') return 0;
+                          if (typeof v === 'number') return isNaN(v) ? 0 : v;
+                          const n = Number(String(v).replace(/,/g, '').trim());
+                          return isNaN(n) ? 0 : n;
+                        };
+
                         exportData.forEach(row => {
                            aoaData.push([
-                             row['정산기준일'],
-                             row['수수료지급일자'],
-                             row['계약ID'],
-                             row['고객명'],
-                             row['본부명'],
-                             row['상품명'],
-                             row['계약일자'],
-                             row['배송일자'],
-                             row['구좌수'],
-                             { v: row['거래처입금액'] || 0, t: 'n' },
-                             { v: row['내부지급액합계'] || 0, t: 'n' },
-                             { v: row['최종순수익'] || 0, t: 'n' },
-                             row['비고']
+                             row['계약일자'] || '',
+                             row['배송일자'] || '',
+                             row['수수료지급일자'] || '',
+                             row['계약ID'] || '',
+                             row['고객명'] || '',
+                             row['본부명'] || '',
+                             row['상품명'] || '',
+                             { v: parseReconNum(row['구좌수']), t: 'n', z: '#,##0' },
+                             { v: parseReconNum(row['거래처입금액']), t: 'n', z: '#,##0' },
+                             { v: parseReconNum(row['내부지급액합계']), t: 'n', z: '#,##0' },
+                             { v: parseReconNum(row['최종순수익']), t: 'n', z: '#,##0' },
+                             row['비고'] || ''
                            ]);
                         });
 
                         const targetDate = reconTab === 'NEW' ? reconDate : selectedHistoryDate;
                         const ws = XLSX.utils.aoa_to_sheet(aoaData);
+                        // 열 너비 설정
+                        ws['!cols'] = [
+                          { wch: 12 }, // 계약일자
+                          { wch: 12 }, // 배송일자
+                          { wch: 14 }, // 수수료지급일자
+                          { wch: 12 }, // 계약ID
+                          { wch: 10 }, // 고객명
+                          { wch: 16 }, // 본부명
+                          { wch: 26 }, // 상품명
+                          { wch: 8 },  // 구좌수
+                          { wch: 16 }, // 거래처입금액
+                          { wch: 16 }, // 내부지급액합계
+                          { wch: 16 }, // 최종순수익
+                          { wch: 12 }  // 비고
+                        ];
                         const wb = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(wb, ws, '유통사대사_내역');
+                        XLSX.utils.book_append_sheet(wb, ws, '대사보고');
                         const fileName = `유통사_대사내역_${targetDate || new Date().toISOString().slice(0, 10)}.xlsx`;
                         XLSX.writeFile(wb, fileName);
                       }}
@@ -15063,14 +15124,13 @@ const ERP_Dashboard = () => {
                         const normalNet = normalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
 
                         const normalSubtotalRow = {
-                          '정산기준일': '',
+                          '계약일자': '',
+                          '배송일자': '',
                           '수수료지급일자': '',
                           '계약ID': '[정상 건 소계]',
                           '고객명': `${normalCount}건`,
                           '본부명': '',
                           '상품명': '',
-                          '계약일자': '',
-                          '배송일자': '',
                           '구좌수': normalGuzwa,
                           '거래처입금액': normalExt,
                           '내부지급액합계': normalInt,
@@ -15085,14 +15145,13 @@ const ERP_Dashboard = () => {
                         const abnormalNet = abnormalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
 
                         const abnormalSubtotalRow = {
-                          '정산기준일': '',
+                          '계약일자': '',
+                          '배송일자': '',
                           '수수료지급일자': '',
                           '계약ID': '[이상/선지급 건 소계]',
                           '고객명': `${abnormalCount}건`,
                           '본부명': '',
                           '상품명': '',
-                          '계약일자': '',
-                          '배송일자': '',
                           '구좌수': abnormalGuzwa,
                           '거래처입금액': abnormalExt,
                           '내부지급액합계': abnormalInt,
@@ -15106,14 +15165,13 @@ const ERP_Dashboard = () => {
                         const totalNet = mappedData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
 
                         const grandTotalRow = {
-                          '정산기준일': '',
+                          '계약일자': '',
+                          '배송일자': '',
                           '수수료지급일자': '',
                           '계약ID': '[전체 총계]',
                           '고객명': `${mappedData.length}건`,
                           '본부명': '',
                           '상품명': '',
-                          '계약일자': '',
-                          '배송일자': '',
                           '구좌수': totalGuzwa,
                           '거래처입금액': totalExt,
                           '내부지급액합계': totalInt,
@@ -15125,23 +15183,30 @@ const ERP_Dashboard = () => {
                           ? [...normalRows, normalSubtotalRow, ...abnormalRows, abnormalSubtotalRow, grandTotalRow]
                           : [...normalRows, normalSubtotalRow, grandTotalRow];
                         
-                        const headers = ['정산기준일', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
+                        // 1행 컬럼 순서: 이미지 양식과 100% 동일
+                        const headers = ['계약일자', '배송일자', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
                         const aoaData = [headers];
+                        const parseReconNum = (v: any): number => {
+                          if (v === null || v === undefined || v === '') return 0;
+                          if (typeof v === 'number') return isNaN(v) ? 0 : v;
+                          const n = Number(String(v).replace(/,/g, '').trim());
+                          return isNaN(n) ? 0 : n;
+                        };
+
                         exportData.forEach(row => {
                            aoaData.push([
-                             row['정산기준일'],
-                             row['수수료지급일자'],
-                             row['계약ID'],
-                             row['고객명'],
-                             row['본부명'],
-                             row['상품명'],
-                             row['계약일자'],
-                             row['배송일자'],
-                             row['구좌수'],
-                             { v: row['거래처입금액'] || 0, t: 'n' },
-                             { v: row['내부지급액합계'] || 0, t: 'n' },
-                             { v: row['최종순수익'] || 0, t: 'n' },
-                             row['비고']
+                             row['계약일자'] || '',
+                             row['배송일자'] || '',
+                             row['수수료지급일자'] || '',
+                             row['계약ID'] || '',
+                             row['고객명'] || '',
+                             row['본부명'] || '',
+                             row['상품명'] || '',
+                             { v: parseReconNum(row['구좌수']), t: 'n', z: '#,##0' },
+                             { v: parseReconNum(row['거래처입금액']), t: 'n', z: '#,##0' },
+                             { v: parseReconNum(row['내부지급액합계']), t: 'n', z: '#,##0' },
+                             { v: parseReconNum(row['최종순수익']), t: 'n', z: '#,##0' },
+                             row['비고'] || ''
                            ]);
                         });
 
@@ -15193,13 +15258,11 @@ const ERP_Dashboard = () => {
                                 type="button"
                                 onClick={() => {
                                   setReconMode('DELIVERY_DATE');
-                                  if (!reconDeliveryStartDate || !reconDeliveryEndDate) {
+                                  const targetYm = reconDeliveryYearMonth || (() => {
                                     const now = new Date();
-                                    const y = now.getFullYear();
-                                    const m = String(now.getMonth() + 1).padStart(2, '0');
-                                    setReconDeliveryStartDate(`${y}-${m}-01`);
-                                    setReconDeliveryEndDate(`${y}-${m}-15`);
-                                  }
+                                    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                                  })();
+                                  setReconPeriodByMonth(targetYm, 'FIRST');
                                 }}
                                 className={`px-3 py-1 rounded-md text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
                                   reconMode === 'DELIVERY_DATE'
@@ -15242,81 +15305,96 @@ const ERP_Dashboard = () => {
                               </button>
                             </div>
                           ) : (
-                            <div className="flex flex-col gap-1.5 flex-1 min-w-[320px]">
+                            <div className="flex flex-col gap-2 flex-1 min-w-[340px]">
                               <div className="flex flex-wrap items-center justify-between gap-1">
-                                <label className="block text-xs font-bold text-slate-600">배송일자 기간 설정</label>
-                                <div className="flex items-center gap-1">
+                                <label className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                  <Calendar size={13} className="text-blue-600" />
+                                  <span>배송일자 월 & 기간 선택</span>
+                                </label>
+                                <span className="text-[11px] text-slate-400">
+                                  월 선택 후 1~15일 또는 16~말일을 클릭하세요
+                                </span>
+                              </div>
+
+                              {/* 1단계: 월 선택 드롭다운 + 2단계: 1~15일 / 16~말일 / 해당월 전체 버튼 */}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-bold text-slate-500 shrink-0">대상 월:</span>
+                                  <select
+                                    value={reconDeliveryYearMonth}
+                                    onChange={e => {
+                                      const ym = e.target.value;
+                                      setReconDeliveryYearMonth(ym);
+                                      setReconPeriodByMonth(ym, 'FIRST');
+                                    }}
+                                    className="border border-blue-300 bg-blue-50/60 hover:bg-white text-blue-900 font-black rounded-lg px-2.5 py-1.5 text-xs focus:border-blue-600 focus:outline-none cursor-pointer shadow-2xs"
+                                  >
+                                    {reconMonthOptions.map(opt => (
+                                      <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 gap-1">
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      const now = new Date();
-                                      const y = now.getFullYear();
-                                      const m = String(now.getMonth() + 1).padStart(2, '0');
-                                      setReconDeliveryStartDate(`${y}-${m}-01`);
-                                      setReconDeliveryEndDate(`${y}-${m}-15`);
-                                    }}
-                                    className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer"
+                                    onClick={() => setReconPeriodByMonth(reconDeliveryYearMonth, 'FIRST')}
+                                    className={`px-2.5 py-1 text-xs font-black rounded-md transition-all cursor-pointer ${
+                                      reconDeliveryStartDate.endsWith('-01') && reconDeliveryEndDate.endsWith('-15')
+                                        ? 'bg-blue-600 text-white shadow-2xs'
+                                        : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                                    }`}
                                   >
-                                    1일~15일
+                                    1일 ~ 15일
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      const now = new Date();
-                                      const y = now.getFullYear();
-                                      const m = String(now.getMonth() + 1).padStart(2, '0');
-                                      const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
-                                      setReconDeliveryStartDate(`${y}-${m}-16`);
-                                      setReconDeliveryEndDate(`${y}-${m}-${lastDay}`);
-                                    }}
-                                    className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer"
+                                    onClick={() => setReconPeriodByMonth(reconDeliveryYearMonth, 'SECOND')}
+                                    className={`px-2.5 py-1 text-xs font-black rounded-md transition-all cursor-pointer ${
+                                      reconDeliveryStartDate.endsWith('-16')
+                                        ? 'bg-blue-600 text-white shadow-2xs'
+                                        : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                                    }`}
                                   >
-                                    16일~말일
+                                    16일 ~ 말일
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      const now = new Date();
-                                      const y = now.getFullYear();
-                                      const m = String(now.getMonth() + 1).padStart(2, '0');
-                                      const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
-                                      setReconDeliveryStartDate(`${y}-${m}-01`);
-                                      setReconDeliveryEndDate(`${y}-${m}-${lastDay}`);
-                                    }}
-                                    className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer"
+                                    onClick={() => setReconPeriodByMonth(reconDeliveryYearMonth, 'ALL')}
+                                    className={`px-2.5 py-1 text-xs font-black rounded-md transition-all cursor-pointer ${
+                                      reconDeliveryStartDate.endsWith('-01') && !reconDeliveryEndDate.endsWith('-15')
+                                        ? 'bg-blue-600 text-white shadow-2xs'
+                                        : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                                    }`}
                                   >
-                                    이번달 전체
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const now = new Date();
-                                      const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                                      const y = prevMonth.getFullYear();
-                                      const m = String(prevMonth.getMonth() + 1).padStart(2, '0');
-                                      const lastDay = new Date(y, prevMonth.getMonth() + 1, 0).getDate();
-                                      setReconDeliveryStartDate(`${y}-${m}-01`);
-                                      setReconDeliveryEndDate(`${y}-${m}-${lastDay}`);
-                                    }}
-                                    className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer"
-                                  >
-                                    지난달 전체
+                                    해당월 전체
                                   </button>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2">
+
+                              {/* 날짜 직접 확인 및 미세 조정 */}
+                              <div className="flex items-center gap-2 pt-0.5">
+                                <span className="text-[11px] font-bold text-slate-400">선택 기간:</span>
                                 <input
                                   type="date"
                                   value={reconDeliveryStartDate}
-                                  onChange={e => setReconDeliveryStartDate(e.target.value)}
-                                  className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:border-blue-500 focus:outline-none bg-white"
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setReconDeliveryStartDate(val);
+                                    if (val && val.length >= 7) {
+                                      setReconDeliveryYearMonth(val.slice(0, 7));
+                                    }
+                                  }}
+                                  className="border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-700 focus:border-blue-500 focus:outline-none bg-white"
                                 />
                                 <span className="text-xs text-slate-400 font-bold">~</span>
                                 <input
                                   type="date"
                                   value={reconDeliveryEndDate}
                                   onChange={e => setReconDeliveryEndDate(e.target.value)}
-                                  className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:border-blue-500 focus:outline-none bg-white"
+                                  className="border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-700 focus:border-blue-500 focus:outline-none bg-white"
                                 />
                               </div>
                             </div>
