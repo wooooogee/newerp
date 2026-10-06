@@ -4465,6 +4465,7 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     let updatedContractCount = 0;
     let skippedPastContractCount = 0;
     let preservedManualStatusCount = 0;
+    let preservedManualDeliveryDateCount = 0;
     let deliveryCompletedCount = 0;
     let deliveryExpectedCount = 0;
     let feeDateCalculatedCount = 0;
@@ -4815,11 +4816,27 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
           // AA열: 출금일자
           row[26] = matchedData.withdrawDate || "";
 
+          // ⭐ [핵심 요구사항] 관리대장 시트 N열(배송일자)을 수동으로 입력/수정해 놓은 경우는 절대 덮어쓰기 금지!
+          // 기존 관리대장에 이미 유효한 배송일자가 존재하는 경우 100% 안전 보존합니다.
+          const currentDelivDate = String(row[13] || '').trim();
+          const hasManualDeliveryDate = currentDelivDate !== '' && currentDelivDate !== '-' && currentDelivDate !== 'undefined' && currentDelivDate !== 'null' && currentDelivDate !== 'NaN';
+
           const targetDate = matchedData.deliveryDate || matchedData.activationDate;
           if (targetDate) {
             if (row[11] !== "배송완료") deliveryCompletedCount++;
-            if (row[13] !== targetDate) row[13] = targetDate;
             row[11] = "배송완료";
+
+            if (hasManualDeliveryDate) {
+              // 이미 수동 수정/입력된 배송일자가 존재하므로 절대 덮어쓰지 않고 기존 값 100% 안전 보존
+              preservedManualDeliveryDateCount++;
+            } else {
+              // 공란(빈 값)일 때만 배송데이터 엑셀의 배송일자 반영
+              row[13] = targetDate;
+            }
+          } else if (hasManualDeliveryDate) {
+            // 배송데이터 파일에 배송일자가 없더라도 관리대장에 기존 수동 배송일자가 존재하면 배송완료 유지
+            if (row[11] !== "배송완료") row[11] = "배송완료";
+            preservedManualDeliveryDateCount++;
           }
 
           // Y열: 처리중업무 매핑
@@ -4833,13 +4850,14 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
         }
 
         // O열 수수료지급일자 정산 자동 계산
-        // ⭐ [핵심 요구사항] 기존에 이미 입력/변경해놓은 수수료지급일자는 절대 덮어쓰지 않고 100% 보존!
+        // ⭐ [핵심 요구사항] 기존 관리대장에 이미 입력/수정해놓은 O열 수수료지급일자는 절대 덮어쓰지 않고 100% 보존!
         // 오직 공란(빈 값)일 때만 자동 계산된 수수료지급일자를 부여합니다.
         const currentPayDate = String(row[14] || '').trim();
+        const hasManualPayDate = currentPayDate !== '' && currentPayDate !== '-' && currentPayDate !== 'undefined' && currentPayDate !== 'null' && currentPayDate !== 'NaN';
         const delDate = row[13];
         const delStatus = String(row[11] || '').trim();
 
-        if (currentPayDate !== '' && currentPayDate !== '-' && currentPayDate !== 'undefined') {
+        if (hasManualPayDate) {
           // 이미 값이 존재하는 경우: 사용자가 변경/지정한 값이므로 절대 덮어쓰지 않고 100% 안전 보존
           preservedManualFeeDateCount++;
         } else {
@@ -4868,13 +4886,14 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       updatedContractCount,
       skippedPastContractCount,
       preservedManualStatusCount,
+      preservedManualDeliveryDateCount,
       deliveryCompletedCount,
       deliveryExpectedCount,
       feeDateCalculatedCount,
       preservedManualFeeDateCount,
       finalTotalCount: allProcessedData.length,
       sampleNewRows: newDataToAppend.slice(0, 5).map(r => ({ memNo: r[2], memName: r[3], prodName: r[6], status: r[1] })),
-      sampleUpdatedRows: tData.slice(0, 5).map(r => ({ memNo: r[2], memName: r[3], status: r[1], delivStatus: r[11], payDate: r[14] }))
+      sampleUpdatedRows: tData.slice(0, 5).map(r => ({ memNo: r[2], memName: r[3], status: r[1], delivStatus: r[11], delivDate: r[13], payDate: r[14] }))
     };
 
     // 미리보기(Dry-run) 모드인 경우 시트에 쓰지 않고 통계만 반환
