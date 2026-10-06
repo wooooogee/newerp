@@ -1980,27 +1980,41 @@ const ERP_Dashboard = () => {
             const normPayDate = (payDate || '').replace(/\./g, '-').trim();
 
             if (!normPayDate) {
-              remark = '지급일자 미지정';
+              remark = '이상 (지급일자 미지정)';
             } else if (normPayDate < normReconDate) {
               remark = `선지급 (${payDate})`;
             } else if (normPayDate > normReconDate) {
-              remark = `지급일자 상이 (${payDate})`;
+              remark = `이상 (지급일자 상이: ${payDate})`;
+            } else {
+              remark = '정상';
             }
           } else {
             // 배송일자 기간 기준 비교
-            const normDeliv = normalizeDateStr(intDeliveryDate || extDeliveryDate);
-            const isCompleted = firstMatch.deliveryStatus?.includes('완료') || (Boolean(intDeliveryDate) && intDeliveryDate !== '-');
+            // 관리대장 시트 N열 배송일자 값 유무 확인
+            const hasIntDelivery = Boolean(intDeliveryDate && String(intDeliveryDate).trim() !== '' && String(intDeliveryDate).trim() !== '-' && String(intDeliveryDate).trim() !== '미배송');
+            // 에넥스수수료 시트 O열 배송일 값 유무 확인
+            const hasExtDelivery = Boolean(extDeliveryDate && String(extDeliveryDate).trim() !== '' && String(extDeliveryDate).trim() !== '-' && String(extDeliveryDate).trim() !== '미배송');
 
-            if (!normDeliv) {
-              remark = '배송일자 미지정';
-            } else if (normDeliv < normStart) {
-              remark = `이전 배송 (${intDeliveryDate || extDeliveryDate})`;
-            } else if (normDeliv > normEnd) {
-              remark = `이후 배송 (${intDeliveryDate || extDeliveryDate})`;
-            } else if (!isCompleted) {
-              remark = `미배송 (${firstMatch.deliveryStatus || '진행중'})`;
+            if (!hasIntDelivery && !hasExtDelivery) {
+              remark = '이상 (관리대장·에넥스 배송일자 누락)';
+            } else if (!hasIntDelivery) {
+              remark = '이상 (관리대장 배송일자 누락)';
+            } else if (!hasExtDelivery) {
+              remark = '이상 (에넥스 배송일자 누락)';
             } else {
-              remark = '정상';
+              // 둘 다 배송일자 값이 있는 경우 선택 기간 내 포함 여부 확인
+              const intInRange = isDateInRange(intDeliveryDate, normStart, normEnd);
+              const extInRange = isDateInRange(extDeliveryDate, normStart, normEnd);
+
+              if (!intInRange && !extInRange) {
+                remark = '이상 (배송일자 기간외)';
+              } else if (!intInRange) {
+                remark = `이상 (관리대장 배송일자 기간외: ${intDeliveryDate})`;
+              } else if (!extInRange) {
+                remark = `이상 (에넥스 배송일 기간외: ${extDeliveryDate})`;
+              } else {
+                remark = '정상';
+              }
             }
           }
 
@@ -2039,7 +2053,7 @@ const ERP_Dashboard = () => {
             '거래처입금액': extDeposit,
             '내부지급액합계': 0,
             '최종순수익': extDeposit,
-            '비고': '내부 데이터 누락'
+            '비고': '이상 (관리대장 누락)'
           };
         }
       }).filter(Boolean);
@@ -2093,7 +2107,7 @@ const ERP_Dashboard = () => {
             '거래처입금액': 0,
             '내부지급액합계': internalPayable,
             '최종순수익': -internalPayable,
-            '비고': '에넥스 데이터 누락'
+            '비고': '이상 (에넥스수수료 누락)'
           };
       });
       
@@ -2113,7 +2127,7 @@ const ERP_Dashboard = () => {
       setReconLoading(true);
       const rows = reconData.map(d => [
         d['정산기준일'], d['수수료지급일자'] || '', d['계약ID(렌탈번호)'], d['고객명'], d['본부명'],
-        d['상품명'], d['계약일자'], d['내부 배송일자'],
+        d['상품명'], d['계약일자'], d['내부 배송일자'] || d['배송일자'] || d['거래처 배송일'] || '',
         d['구좌수'], d['거래처입금액'], d['내부지급액합계'], d['최종순수익'], d['비고']
       ]);
       const res = await fetch('/api/sheets/reconciliation/save', {
@@ -15427,10 +15441,10 @@ const ERP_Dashboard = () => {
                       {reconData.length > 0 && (
                         <div className="flex flex-wrap justify-between items-center bg-blue-50/50 p-3 rounded-lg border border-blue-100 text-sm gap-2">
                           <div className="flex flex-wrap gap-4 font-bold text-slate-700">
-                            <span>대사 기준: <span className="text-indigo-600">{reconData[0]?.['정산기준일'] || reconDate}</span></span>
+                            <span>대사 기준: <span className="text-indigo-600">{reconData[0]?.['정산기준일'] || (reconMode === 'DELIVERY_DATE' ? `${reconDeliveryStartDate} ~ ${reconDeliveryEndDate}` : reconDate)}</span></span>
                             <span>총 대상 건수: <span className="text-blue-600">{reconData.length}</span>건</span>
                             <span>정상: <span className="text-emerald-600">{reconData.filter(d => d['비고'] === '정상').length}</span>건</span>
-                            <span className={reconData.some(d => d['비고'] !== '정상' && d['비고']) ? 'text-rose-600' : 'text-slate-500'}>이상(누락/기간외 등): {reconData.filter(d => d['비고'] !== '정상' && d['비고']).length}건</span>
+                            <span className={reconData.some(d => d['비고'] !== '정상' && d['비고']) ? 'text-rose-600' : 'text-slate-500'}>이상: {reconData.filter(d => d['비고'] !== '정상' && d['비고']).length}건</span>
                           </div>
                         </div>
                       )}
@@ -15441,14 +15455,13 @@ const ERP_Dashboard = () => {
                             <table className="w-full text-left border-collapse min-w-max">
                               <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm text-[11px] text-slate-500 uppercase tracking-wider">
                                 <tr>
-                                  <th className="py-3 px-4 font-bold border-b border-slate-200">{reconMode === 'DELIVERY_DATE' ? '대사기준(배송기간)' : '정산기준일'}</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">계약일자</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">배송일자</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">수수료지급일자</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">계약ID</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">고객명</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">본부명</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">상품명</th>
-                                  <th className="py-3 px-4 font-bold border-b border-slate-200">계약일자</th>
-                                  <th className="py-3 px-4 font-bold border-b border-slate-200">배송일자</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-center">구좌수</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">거래처입금액</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">내부지급액합계</th>
@@ -15458,28 +15471,27 @@ const ERP_Dashboard = () => {
                               </thead>
                               <tbody className="divide-y divide-slate-100">
                                 {reconData.slice().sort((a, b) => (a['본부명'] || '').localeCompare(b['본부명'] || '', 'ko')).map((row, idx) => {
-                                  const isError = row['비고'] !== '정상' && row['비고'] !== '';
+                                  const isNormal = row['비고'] === '정상';
                                   return (
-                                  <tr key={idx} className={`transition-colors text-xs ${isError ? 'bg-red-50/70 hover:bg-red-100/70' : 'hover:bg-slate-50'}`}>
-                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['정산기준일']}</td>
+                                  <tr key={idx} className={`transition-colors text-xs ${!isNormal ? 'bg-rose-50/60 hover:bg-rose-100/60' : 'hover:bg-slate-50'}`}>
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['계약일자'] || '-'}</td>
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['내부 배송일자'] || row['배송일자'] || row['거래처 배송일'] || '-'}</td>
                                     <td className="py-2 px-4 text-slate-600 font-mono">{row['수수료지급일자'] || '-'}</td>
-                                    <td className="py-2 px-4 text-slate-700 font-bold font-mono">{row['계약ID(렌탈번호)']}</td>
-                                    <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명']}</td>
-                                    <td className="py-2 px-4 text-slate-600">{row['본부명']}</td>
-                                    <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['상품명']}>{row['상품명']}</td>
-                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['계약일자']}</td>
-                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['내부 배송일자']}</td>
+                                    <td className="py-2 px-4 text-slate-700 font-bold font-mono">{row['계약ID(렌탈번호)'] || row['계약ID'] || '-'}</td>
+                                    <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명'] || '-'}</td>
+                                    <td className="py-2 px-4 text-slate-600">{row['본부명'] || '-'}</td>
+                                    <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['상품명']}>{row['상품명'] || '-'}</td>
                                     <td className="py-2 px-4 text-center font-bold text-blue-600">{row['구좌수']}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(row['거래처입금액']).toLocaleString()}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(row['내부지급액합계']).toLocaleString()}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{Number(row['최종순수익']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(String(row['거래처입금액'] || 0).replace(/,/g, '')).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(String(row['내부지급액합계'] || 0).replace(/,/g, '')).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{Number(String(row['최종순수익'] || 0).replace(/,/g, '')).toLocaleString()}</td>
                                     <td className="py-2 px-4 text-center">
-                                      {row['비고'] === '정상' ? (
-                                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">{row['비고']}</span>
+                                      {isNormal ? (
+                                        <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">정상</span>
                                       ) : String(row['비고'] || '').startsWith('선지급') ? (
-                                        <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">{row['비고']}</span>
+                                        <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">{row['비고']}</span>
                                       ) : (
-                                        <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">{row['비고']}</span>
+                                        <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">{row['비고']}</span>
                                       )}
                                     </td>
                                   </tr>
@@ -15488,11 +15500,11 @@ const ERP_Dashboard = () => {
                               </tbody>
                               <tfoot className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200">
                                 <tr>
-                                  <td colSpan={8} className="py-3 px-4 text-center">총계</td>
+                                  <td colSpan={7} className="py-3 px-4 text-center">총계</td>
                                   <td className="py-3 px-4 text-center text-blue-600">{reconData.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-slate-800">{reconData.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-indigo-600">{reconData.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-emerald-600">{reconData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-slate-800">{reconData.reduce((acc, row) => acc + Number(String(row['거래처입금액'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-indigo-600">{reconData.reduce((acc, row) => acc + Number(String(row['내부지급액합계'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-emerald-600">{reconData.reduce((acc, row) => acc + Number(String(row['최종순수익'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
                                   <td></td>
                                 </tr>
                               </tfoot>
@@ -15542,14 +15554,13 @@ const ERP_Dashboard = () => {
                             <table className="w-full text-left border-collapse min-w-max">
                               <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm text-[11px] text-slate-500 uppercase tracking-wider">
                                 <tr>
-                                  <th className="py-3 px-4 font-bold border-b border-slate-200">정산기준일</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">계약일자</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">배송일자</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">수수료지급일자</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">계약ID</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">고객명</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">본부명</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">상품명</th>
-                                  <th className="py-3 px-4 font-bold border-b border-slate-200">계약일자</th>
-                                  <th className="py-3 px-4 font-bold border-b border-slate-200">배송일자</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-center">구좌수</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">거래처입금액</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">내부지급액합계</th>
@@ -15559,28 +15570,27 @@ const ERP_Dashboard = () => {
                               </thead>
                               <tbody className="divide-y divide-slate-100">
                                 {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).slice().sort((a, b) => (a['본부명'] || '').localeCompare(b['본부명'] || '', 'ko')).map((row, idx) => {
-                                  const isError = row['비고'] !== '정상' && row['비고'] !== '';
+                                  const isNormal = row['비고'] === '정상';
                                   return (
-                                  <tr key={idx} className={`transition-colors text-xs ${isError ? 'bg-red-50/70 hover:bg-red-100/70' : 'hover:bg-slate-50'}`}>
-                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['정산기준일']}</td>
+                                  <tr key={idx} className={`transition-colors text-xs ${!isNormal ? 'bg-rose-50/60 hover:bg-rose-100/60' : 'hover:bg-slate-50'}`}>
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['계약일자'] || '-'}</td>
+                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['내부 배송일자'] || row['배송일자'] || row['거래처 배송일'] || '-'}</td>
                                     <td className="py-2 px-4 text-slate-600 font-mono">{row['수수료지급일자'] || row['지급일자'] || '-'}</td>
-                                    <td className="py-2 px-4 text-slate-700 font-bold font-mono">{row['계약ID'] || row['계약ID(렌탈번호)']}</td>
-                                    <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명']}</td>
-                                    <td className="py-2 px-4 text-slate-600">{row['본부명']}</td>
-                                    <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['상품명']}>{row['상품명']}</td>
-                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['계약일자']}</td>
-                                    <td className="py-2 px-4 text-slate-600 font-mono">{row['배송일자'] || row['내부 배송일자']}</td>
+                                    <td className="py-2 px-4 text-slate-700 font-bold font-mono">{row['계약ID(렌탈번호)'] || row['계약ID'] || '-'}</td>
+                                    <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명'] || '-'}</td>
+                                    <td className="py-2 px-4 text-slate-600">{row['본부명'] || '-'}</td>
+                                    <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['상품명']}>{row['상품명'] || '-'}</td>
                                     <td className="py-2 px-4 text-center font-bold text-blue-600">{row['구좌수']}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(row['거래처입금액']).toLocaleString()}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(row['내부지급액합계']).toLocaleString()}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{Number(row['최종순수익']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(String(row['거래처입금액'] || 0).replace(/,/g, '')).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(String(row['내부지급액합계'] || 0).replace(/,/g, '')).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{Number(String(row['최종순수익'] || 0).replace(/,/g, '')).toLocaleString()}</td>
                                     <td className="py-2 px-4 text-center">
-                                      {row['비고'] === '정상' ? (
-                                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">{row['비고']}</span>
+                                      {isNormal ? (
+                                        <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">정상</span>
                                       ) : String(row['비고'] || '').startsWith('선지급') ? (
-                                        <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">{row['비고']}</span>
+                                        <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">{row['비고']}</span>
                                       ) : (
-                                        <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">{row['비고']}</span>
+                                        <span className="text-[11px] font-bold text-rose-600 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">{row['비고']}</span>
                                       )}
                                     </td>
                                   </tr>
@@ -15589,11 +15599,11 @@ const ERP_Dashboard = () => {
                               </tbody>
                               <tfoot className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200">
                                 <tr>
-                                  <td colSpan={8} className="py-3 px-4 text-center">총계</td>
+                                  <td colSpan={7} className="py-3 px-4 text-center">총계</td>
                                   <td className="py-3 px-4 text-center text-blue-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-slate-800">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-indigo-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-emerald-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-slate-800">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(String(row['거래처입금액'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-indigo-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(String(row['내부지급액합계'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-emerald-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(String(row['최종순수익'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
                                   <td></td>
                                 </tr>
                               </tfoot>
