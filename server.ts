@@ -5130,6 +5130,8 @@ app.post('/api/sheets/saveCertificateDispatch', async (req, res) => {
       requestBody: { values: rows }
     });
 
+    sheetDataCache.delete('증서발송리스트');
+
     res.json({ success: true });
   } catch (error: any) {
     console.error("[Certificate Dispatch Save Error]", error);

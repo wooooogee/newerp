@@ -63,6 +63,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'sent' | 'all'>('notSent');
   const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
 
+  // 인라인 수정 상태 관리: { [itemId: number]: { [fieldName: string]: any } }
+  const [editedItems, setEditedItems] = useState<Record<number, Record<string, any>>>({});
+  // 현재 편집 중인 셀
+  const [editingCell, setEditingCell] = useState<{ id: number; field: string } | null>(null);
+  const [editValue, setEditValue] = useState<string>('');
+
   // Fetch '사원리스트', '월불입금', '증서발송리스트' data when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -74,7 +80,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             fetch(`/api/sheets/sheetData?sheetName=시트1&fresh=true&t=${timestamp}`),
             fetch(`/api/sheets/sheetData?sheetName=사원리스트&t=${timestamp}`),
             fetch(`/api/sheets/sheetData?sheetName=월불입금&t=${timestamp}`),
-            fetch(`/api/sheets/sheetData?sheetName=증서발송리스트&t=${timestamp}`)
+            fetch(`/api/sheets/sheetData?sheetName=증서발송리스트&fresh=true&t=${timestamp}`)
           ]);
           
           if (sheet1Res.ok) {
@@ -313,6 +319,82 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     return Array.from(products).sort();
   }, [consolidatedData]);
 
+  // 아이템의 실제 표시/출력용 데이터 추출 (인라인 수정값 우선 반영)
+  const getItemExtracted = (item: any) => {
+    const ext = item.extracted;
+    const edited = editedItems[item.id] || {};
+    let workAddress = ext.workAddress;
+    if (edited.isPost !== undefined) {
+      workAddress = edited.isPost ? '우편' : '모바일';
+    }
+
+    return {
+      ...ext,
+      memName: edited.memName !== undefined ? edited.memName : ext.memName,
+      phone: edited.phone !== undefined ? edited.phone : ext.phone,
+      memNo: edited.memNo !== undefined ? edited.memNo : ext.memNo,
+      birthDate: edited.birthDate !== undefined ? edited.birthDate : ext.birthDate,
+      contractDate: edited.contractDate !== undefined ? edited.contractDate : ext.contractDate,
+      prodName: edited.prodName !== undefined ? edited.prodName : ext.prodName,
+      monthlyPay1: edited.monthlyPay1 !== undefined ? edited.monthlyPay1 : ext.monthlyPay1,
+      monthlyPay2: edited.monthlyPay2 !== undefined ? edited.monthlyPay2 : ext.monthlyPay2,
+      zipCode: edited.zipCode !== undefined ? edited.zipCode : ext.zipCode,
+      address: edited.address !== undefined ? edited.address : ext.address,
+      empName: edited.empName !== undefined ? edited.empName : ext.empName,
+      empPhone: edited.empPhone !== undefined ? edited.empPhone : ext.empPhone,
+      rentalNo2: edited.rentalNo2 !== undefined ? edited.rentalNo2 : ext.rentalNo2,
+      rentalNo3: edited.rentalNo3 !== undefined ? edited.rentalNo3 : ext.rentalNo3,
+      rentalNo4: edited.rentalNo4 !== undefined ? edited.rentalNo4 : ext.rentalNo4,
+      workAddress
+    };
+  };
+
+  // 발송완료 여부 판정 (인라인 수정값 우선 반영)
+  const getItemIsDispatched = (item: any): boolean => {
+    const edited = editedItems[item.id];
+    if (edited && edited.isDispatched !== undefined) {
+      return Boolean(edited.isDispatched);
+    }
+    const ext = item.extracted;
+    const isSavedInHistory = ext.allMemNos?.some((no: string) => {
+      const cleanNo = String(no || '').trim().toUpperCase();
+      return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
+    });
+    const certVal = String(ext.cert || '').trim();
+    return Boolean(isSavedInHistory || (certVal !== '미발송' && certVal !== ''));
+  };
+
+  // 수령구분 우편 여부 판정 (인라인 수정값 우선 반영)
+  const getItemIsPost = (item: any): boolean => {
+    const edited = editedItems[item.id];
+    if (edited && edited.isPost !== undefined) {
+      return Boolean(edited.isPost);
+    }
+    return String(item.extracted.workAddress || '').trim() === '우편';
+  };
+
+  const handleUpdateField = (id: number, field: string, val: any) => {
+    setEditedItems(prev => ({
+      ...prev,
+      [id]: {
+        ...(prev[id] || {}),
+        [field]: val
+      }
+    }));
+  };
+
+  const handleToggleDispatch = (item: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const current = getItemIsDispatched(item);
+    handleUpdateField(item.id, 'isDispatched', !current);
+  };
+
+  const handleTogglePost = (item: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const current = getItemIsPost(item);
+    handleUpdateField(item.id, 'isPost', !current);
+  };
+
   // 필터링 및 정렬된 최종 데이터
   const processedData = useMemo(() => {
     let result = consolidatedData;
@@ -320,7 +402,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     // 1. 계약년월 필터 (연도와 월 개별 또는 조합 필터링)
     if (selectedYear !== 'all' || selectedMonthOnly !== 'all') {
       result = result.filter(item => {
-        const cDate = item.extracted.contractDate;
+        const ext = getItemExtracted(item);
+        const cDate = ext.contractDate;
         if (!cDate) return false;
         const m = cDate.match(/^(\d{4})[-./]?(\d{2})/);
         if (!m) return false;
@@ -335,19 +418,24 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
     // 2. 가입상품 필터
     if (selectedProducts.length > 0) {
-      result = result.filter(item => selectedProducts.includes(item.extracted.prodName));
+      result = result.filter(item => {
+        const ext = getItemExtracted(item);
+        return selectedProducts.includes(ext.prodName);
+      });
     }
 
     // 3. 초회납 미납 필터
     if (filterFirstPayNotDate) {
       result = result.filter(item => {
-        const val = String(item.extracted.firstPayDate || '').trim();
+        const ext = getItemExtracted(item);
+        const val = String(ext.firstPayDate || '').trim();
         const isDate = /^\d{4}[-./]?\d{2}[-./]?\d{2}/.test(val);
         return !isDate;
       });
     } else {
       result = result.filter(item => {
-        const val = String(item.extracted.firstPayDate || '').trim();
+        const ext = getItemExtracted(item);
+        const val = String(ext.firstPayDate || '').trim();
         const isDate = /^\d{4}[-./]?\d{2}[-./]?\d{2}/.test(val);
         return isDate;
       });
@@ -355,72 +443,44 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
     // 4. 수령방식 필터 (전체 / 우편)
     if (receiveTypeFilter === 'post') {
-      result = result.filter(item => String(item.extracted.workAddress || '').trim() === '우편');
+      result = result.filter(item => getItemIsPost(item));
     }
 
     // 5. 발송구분 필터 (전체 / 미발송 / 발송완료)
     if (dispatchStatusFilter === 'notSent') {
-      result = result.filter(item => {
-        const isPost = String(item.extracted.workAddress || '').trim() === '우편';
-        const isSavedInHistory = item.extracted.allMemNos.some((no: string) => {
-          const cleanNo = String(no || '').trim().toUpperCase();
-          return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
-        });
-        const certVal = String(item.extracted.cert || '').trim();
-        const isCertDispatched = certVal !== '미발송' && certVal !== '';
-
-        // 수령구분이 우편이거나 해당 회원이 우편 대상인 경우:
-        // 모바일 발송 여부와 무관하게 구글 시트 우편발송저장이 되어 있지 않으면 미발송!
-        if (receiveTypeFilter === 'post' || isPost) {
-          return !isSavedInHistory;
-        }
-
-        // 모바일 회원인 경우: 모바일 발송도 안 되었고 우편발송저장도 안 된 건
-        return !isCertDispatched && !isSavedInHistory;
-      });
+      result = result.filter(item => !getItemIsDispatched(item));
     } else if (dispatchStatusFilter === 'sent') {
-      result = result.filter(item => {
-        const isPost = String(item.extracted.workAddress || '').trim() === '우편';
-        const isSavedInHistory = item.extracted.allMemNos.some((no: string) => {
-          const cleanNo = String(no || '').trim().toUpperCase();
-          return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
-        });
-        const certVal = String(item.extracted.cert || '').trim();
-        const isCertDispatched = certVal !== '미발송' && certVal !== '';
-
-        if (receiveTypeFilter === 'post' || isPost) {
-          return isSavedInHistory;
-        }
-        return isCertDispatched || isSavedInHistory;
-      });
+      result = result.filter(item => getItemIsDispatched(item));
     }
 
     // 6. 검색어 필터
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(item => {
-        const ext = item.extracted;
-        const searchString = `${ext.memName} ${ext.memNo} ${ext.rentalNo2} ${ext.rentalNo3} ${ext.rentalNo4} ${ext.empName} ${ext.rentalNo}`.toLowerCase();
+        const ext = getItemExtracted(item);
+        const searchString = `${ext.memName} ${ext.memNo} ${ext.rentalNo2} ${ext.rentalNo3} ${ext.rentalNo4} ${ext.empName} ${ext.rentalNo} ${ext.phone} ${ext.address}`.toLowerCase();
         return searchString.includes(term);
       });
     }
 
     // 7. 정렬 (상품명 가나다순 -> 구좌 수 많은 순)
     return [...result].sort((a, b) => {
-      const prodA = a.extracted.prodName || '';
-      const prodB = b.extracted.prodName || '';
+      const extA = getItemExtracted(a);
+      const extB = getItemExtracted(b);
+      const prodA = extA.prodName || '';
+      const prodB = extB.prodName || '';
       if (prodA !== prodB) {
         return prodA.localeCompare(prodB);
       }
-      const getScore = (item: any) => {
-        if (item.extracted.rentalNo4) return 4;
-        if (item.extracted.rentalNo3) return 3;
-        if (item.extracted.rentalNo2) return 2;
+      const getScore = (ext: any) => {
+        if (ext.rentalNo4) return 4;
+        if (ext.rentalNo3) return 3;
+        if (ext.rentalNo2) return 2;
         return 1;
       };
-      return getScore(b) - getScore(a);
+      return getScore(extB) - getScore(extA);
     });
-  }, [consolidatedData, selectedYear, selectedMonthOnly, selectedProducts, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter, searchTerm, dispatchedHistoryNos]);
+  }, [consolidatedData, selectedYear, selectedMonthOnly, selectedProducts, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter, searchTerm, dispatchedHistoryNos, editedItems]);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
@@ -461,15 +521,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
   // 우편 미발송 건수 계산 (현재 목록 기준)
   const pendingPostItems = useMemo(() => {
-    return processedData.filter(item => {
-      const isPost = String(item.extracted.workAddress || '').trim() === '우편';
-      const isSavedInHistory = item.extracted.allMemNos?.some((no: string) => {
-        const cleanNo = String(no || '').trim().toUpperCase();
-        return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
-      });
-      return isPost && !isSavedInHistory;
-    });
-  }, [processedData, dispatchedHistoryNos]);
+    return processedData.filter(item => getItemIsPost(item) && !getItemIsDispatched(item));
+  }, [processedData, dispatchedHistoryNos, editedItems]);
 
   // 우편 미발송 대상만 원클릭 선택 토글
   const handleSelectPendingPost = () => {
@@ -498,7 +551,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       return;
     }
     const certItems: CertPrintItem[] = selectedItems.map(item => {
-      const ext = item.extracted;
+      const ext = getItemExtracted(item);
       return {
         id: item.id,
         memName: ext.memName,
@@ -551,7 +604,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       for (let j = 0; j < 16; j++) {
         const item = pageItems[j];
         if (item) {
-          const ext = item.extracted;
+          const ext = getItemExtracted(item);
           cellsHtml += `
             <div class="label-cell">
               <div class="label-row-top">
@@ -757,7 +810,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     try {
       const todayStr = new Date().toISOString().slice(0, 10);
       const rows = targetData.map(item => {
-        const ext = item.extracted;
+        const ext = getItemExtracted(item);
         const type = '우편'; // 항상 우편 발송 건만 필터링하여 저장하므로 고정
 
         return [
@@ -795,7 +848,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         setDispatchedHistoryNos(prev => {
           const next = new Set(prev);
           targetData.forEach(item => {
-            const ext = item.extracted;
+            const ext = getItemExtracted(item);
             [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].forEach(no => {
               const cleanNo = String(no || '').trim().toUpperCase();
               if (cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL') {
@@ -820,7 +873,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
   const handleExportExcel = () => {
     const excelData = processedData.map(item => {
-      const ext = item.extracted;
+      const ext = getItemExtracted(item);
       return {
         '회원명': ext.memName,
         '공란': '',
@@ -846,6 +899,69 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "증서발송대장");
     XLSX.writeFile(workbook, `증서발송대장_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const startEditing = (id: number, field: string, currentValue: string) => {
+    setEditingCell({ id, field });
+    setEditValue(currentValue || '');
+  };
+
+  const saveEditing = () => {
+    if (editingCell) {
+      handleUpdateField(editingCell.id, editingCell.field, editValue);
+      setEditingCell(null);
+    }
+  };
+
+  const cancelEditing = () => {
+    setEditingCell(null);
+  };
+
+  const renderEditableCell = (
+    item: any,
+    field: string,
+    value: string,
+    className?: string,
+    title?: string
+  ) => {
+    const isEditing = editingCell?.id === item.id && editingCell?.field === field;
+    const isFieldEdited = editedItems[item.id]?.[field] !== undefined;
+
+    if (isEditing) {
+      return (
+        <td className={`p-1.5 whitespace-nowrap ${className || ''}`} onClick={e => e.stopPropagation()}>
+          <input
+            type="text"
+            value={editValue}
+            onChange={e => setEditValue(e.target.value)}
+            onBlur={saveEditing}
+            onKeyDown={e => {
+              if (e.key === 'Enter') saveEditing();
+              if (e.key === 'Escape') cancelEditing();
+            }}
+            autoFocus
+            className="w-full px-2 py-1 bg-white border-2 border-blue-500 rounded text-[12px] font-bold text-blue-900 shadow-sm focus:outline-none"
+          />
+        </td>
+      );
+    }
+
+    return (
+      <td
+        className={`p-3 whitespace-nowrap cursor-pointer transition-colors group relative ${
+          isFieldEdited ? 'bg-blue-50/70 text-blue-900 font-bold' : ''
+        } ${className || ''}`}
+        title={title || `${value || '-'} (클릭하여 수정)`}
+        onClick={() => startEditing(item.id, field, value)}
+      >
+        <span className="group-hover:underline underline-offset-2 decoration-blue-400 decoration-dashed">
+          {value || '-'}
+        </span>
+        {isFieldEdited && (
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 ml-1 align-top" title="수정됨" />
+        )}
+      </td>
+    );
   };
 
   return (
@@ -957,34 +1073,38 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             <div className="flex-1 overflow-hidden flex flex-col bg-slate-50/50">
               {/* Filters */}
               <div className="p-4 sm:p-5 border-b border-slate-100 bg-white shrink-0">
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="relative flex-1">
-                    <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* 검색창 */}
+                  <div className="relative w-56 sm:w-64 min-w-[200px]">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
                       placeholder="회원명, 회원번호, 사원명 검색..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full min-w-[240px] pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-2xs"
                     />
                   </div>
-                  <div className="sm:w-56 flex items-center">
+
+                  {/* 가입상품 드롭다운 */}
+                  <div className="w-48 sm:w-52 shrink-0">
                     <MultiSelectDropdown
                       label="가입상품"
                       options={uniqueProducts}
                       selectedOptions={selectedProducts}
                       onChange={setSelectedProducts}
-                      className="w-full relative flex items-center justify-between gap-1.5 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors"
-                      displayClassName="flex items-center justify-between w-full"
+                      className="w-full relative flex items-center justify-between gap-1.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors shadow-2xs"
+                      displayClassName="flex items-center justify-between flex-1 min-w-0"
                     />
                   </div>
+
                   {/* 계약 연도/월 2단 분리 선택 드롭다운 */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="w-28 sm:w-32">
+                    <div className="w-28">
                       <select
                         value={selectedYear}
                         onChange={(e) => setSelectedYear(e.target.value)}
-                        className="w-full px-2.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+                        className="w-full px-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-2xs"
                         title="계약 연도 선택"
                       >
                         <option value="all">전체 연도</option>
@@ -993,11 +1113,11 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                         ))}
                       </select>
                     </div>
-                    <div className="w-24 sm:w-28">
+                    <div className="w-24">
                       <select
                         value={selectedMonthOnly}
                         onChange={(e) => setSelectedMonthOnly(e.target.value)}
-                        className="w-full px-2.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+                        className="w-full px-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-2xs"
                         title="계약 월 선택"
                       >
                         <option value="all">전체 월</option>
@@ -1007,7 +1127,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       </select>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 px-3">
+
+                  {/* 체크박스: 동일 회원 통합 */}
+                  <div className="flex items-center gap-1.5 px-2">
                     <input
                       type="checkbox"
                       id="consolidate-check"
@@ -1015,11 +1137,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       onChange={(e) => setIsConsolidated(e.target.checked)}
                       className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
                     />
-                    <label htmlFor="consolidate-check" className="text-[13px] font-medium text-slate-700 cursor-pointer select-none whitespace-nowrap">
+                    <label htmlFor="consolidate-check" className="text-[12px] font-bold text-slate-700 cursor-pointer select-none whitespace-nowrap">
                       동일 회원 통합
                     </label>
                   </div>
-                  <div className="flex items-center gap-2 px-3">
+
+                  {/* 체크박스: 초회납 미납 */}
+                  <div className="flex items-center gap-1.5 px-2">
                     <input
                       type="checkbox"
                       id="firstpay-notdate-check"
@@ -1027,33 +1151,53 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       onChange={(e) => setFilterFirstPayNotDate(e.target.checked)}
                       className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
                     />
-                    <label htmlFor="firstpay-notdate-check" className="text-[13px] font-medium text-slate-700 cursor-pointer select-none whitespace-nowrap">
+                    <label htmlFor="firstpay-notdate-check" className="text-[12px] font-bold text-slate-700 cursor-pointer select-none whitespace-nowrap">
                       초회납 미납
                     </label>
                   </div>
-                  <div className="flex items-center gap-1.5 px-3 border-l border-slate-200 pl-4">
-                    <span className="text-[13px] font-bold text-slate-700 select-none whitespace-nowrap">수령구분:</span>
+
+                  {/* 수령구분 */}
+                  <div className="flex items-center gap-1.5 px-2 sm:border-l sm:border-slate-200 sm:pl-3">
+                    <span className="text-[12px] font-bold text-slate-500 select-none whitespace-nowrap">수령구분:</span>
                     <select
                       value={receiveTypeFilter}
                       onChange={(e) => setReceiveTypeFilter(e.target.value as any)}
-                      className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[13px] font-bold text-blue-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-sm"
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[12px] font-bold text-blue-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-2xs"
                     >
                       <option value="all">전체</option>
                       <option value="post">우편</option>
                     </select>
                   </div>
-                  <div className="flex items-center gap-1.5 px-3 border-l border-slate-200 pl-4">
-                    <span className="text-[13px] font-bold text-slate-700 select-none whitespace-nowrap">발송구분:</span>
+
+                  {/* 발송구분 */}
+                  <div className="flex items-center gap-1.5 px-2 sm:border-l sm:border-slate-200 sm:pl-3">
+                    <span className="text-[12px] font-bold text-slate-500 select-none whitespace-nowrap">발송구분:</span>
                     <select
                       value={dispatchStatusFilter}
                       onChange={(e) => setDispatchStatusFilter(e.target.value as any)}
-                      className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[13px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-sm"
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-2xs"
                     >
                       <option value="notSent">미발송</option>
                       <option value="sent">발송완료</option>
                       <option value="all">전체</option>
                     </select>
                   </div>
+
+                  {/* 수정 초기화 버튼 */}
+                  {Object.keys(editedItems).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`수정한 ${Object.keys(editedItems).length}건의 데이터를 모두 원본으로 되돌리시겠습니까?`)) {
+                          setEditedItems({});
+                        }
+                      }}
+                      className="ml-auto px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 whitespace-nowrap"
+                      title="클릭하여 수정한 모든 값 초기화"
+                    >
+                      수정값 초기화 ({Object.keys(editedItems).length}건)
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1108,22 +1252,14 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                         </thead>
                         <tbody>
                           {processedData.slice(0, 100).map((item, idx) => {
-                            const ext = item.extracted;
-                            const isPost = String(ext.workAddress || '').trim() === '우편';
-                            const isSavedInHistory = ext.allMemNos?.some((no: string) => {
-                              const cleanNo = String(no || '').trim().toUpperCase();
-                              return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
-                            });
-                            const certVal = String(ext.cert || '').trim();
+                            const ext = getItemExtracted(item);
+                            const isPost = getItemIsPost(item);
+                            const isDispatched = getItemIsDispatched(item);
 
-                            // 우편인 건은 구글시트 발송이력에 있는 경우, 일반 건은 AX열(cert)에 발송처리가 기록되었거나 발송이력에 있는 경우 완료로 판단
-                            const isDispatched = isSavedInHistory || (certVal !== '미발송' && certVal !== '');
                             return (
                               <tr key={idx} className={`border-b border-slate-100 transition-colors ${
-                                isSavedInHistory 
-                                  ? 'bg-amber-50/70 hover:bg-amber-100/70' 
-                                  : isDispatched
-                                  ? 'bg-emerald-50/40 hover:bg-emerald-100/40'
+                                isDispatched 
+                                  ? 'bg-emerald-50/30 hover:bg-emerald-100/40' 
                                   : 'hover:bg-slate-50/50'
                               }`}>
                                 <td className="p-3 text-center whitespace-nowrap w-[40px]">
@@ -1136,45 +1272,52 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                 </td>
                                 <td className="p-3 text-center whitespace-nowrap">
                                   <div className="flex items-center justify-center gap-1">
-                                    {isPost ? (
-                                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-700 border border-blue-200">우편</span>
-                                    ) : (
-                                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">모바일</span>
-                                    )}
-                                    {isPost ? (
-                                      isSavedInHistory ? (
-                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap">우편발송완료</span>
-                                      ) : (
-                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-50 text-rose-600 border border-rose-200 whitespace-nowrap">우편 미발송</span>
-                                      )
-                                    ) : (
-                                      isSavedInHistory ? (
-                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 whitespace-nowrap">우편발송완료</span>
-                                      ) : isDispatched ? (
-                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-300 whitespace-nowrap">모바일완료</span>
-                                      ) : (
-                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200 whitespace-nowrap">미발송</span>
-                                      )
-                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleTogglePost(item, e)}
+                                      className={`px-2 py-0.5 rounded text-[11px] font-bold transition-transform active:scale-95 cursor-pointer shadow-2xs ${
+                                        isPost 
+                                          ? 'bg-blue-100 text-blue-700 border border-blue-300 hover:bg-blue-200' 
+                                          : 'bg-slate-100 text-slate-600 border border-slate-300 hover:bg-slate-200'
+                                      }`}
+                                      title="클릭하여 수령구분 전환 (우편 ↔ 모바일)"
+                                    >
+                                      {isPost ? '우편' : '모바일'}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleToggleDispatch(item, e)}
+                                      className={`px-2 py-0.5 rounded text-[10px] font-bold transition-transform active:scale-95 cursor-pointer shadow-2xs whitespace-nowrap ${
+                                        isDispatched
+                                          ? isPost
+                                            ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200'
+                                            : 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                                          : 'bg-rose-50 text-rose-600 border border-rose-300 hover:bg-rose-100'
+                                      }`}
+                                      title="클릭하여 발송상태 전환 (미발송 ↔ 발송완료)"
+                                    >
+                                      {isDispatched ? (isPost ? '우편발송완료' : '모바일완료') : '미발송'}
+                                    </button>
                                   </div>
                                 </td>
-                                <td className="p-3 text-[12px] font-bold text-slate-800 whitespace-nowrap">{ext.memName}</td>
+                                {renderEditableCell(item, 'memName', ext.memName, 'font-bold text-slate-800')}
                                 <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap"></td>
-                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.phone}</td>
-                                <td className="p-3 text-[12px] font-bold text-slate-800 whitespace-nowrap">{ext.memName}</td>
-                                <td className="p-3 text-[12px] font-mono text-slate-600 whitespace-nowrap">{ext.memNo}</td>
-                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.birthDate}</td>
-                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.contractDate}</td>
-                                <td className="p-3 text-[12px] font-bold text-slate-700 whitespace-nowrap min-w-[180px]" title={ext.prodName}>{ext.prodName}</td>
-                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.monthlyPay1}</td>
-                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.monthlyPay2}</td>
-                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.zipCode}</td>
-                                <td className="p-3 text-[12px] text-slate-600 truncate max-w-[300px] whitespace-nowrap" title={ext.address}>{ext.address}</td>
-                                <td className="p-3 text-[12px] text-slate-800 font-medium whitespace-nowrap">{ext.empName}</td>
-                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.empPhone}</td>
-                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.rentalNo2 || ''}</td>
-                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.rentalNo3 || ''}</td>
-                                <td className="p-3 text-[12px] text-slate-600 whitespace-nowrap">{ext.rentalNo4 || ''}</td>
+                                {renderEditableCell(item, 'phone', ext.phone, 'text-slate-600')}
+                                {renderEditableCell(item, 'memName', ext.memName, 'font-bold text-slate-800')}
+                                {renderEditableCell(item, 'memNo', ext.memNo, 'font-mono text-slate-600')}
+                                {renderEditableCell(item, 'birthDate', ext.birthDate, 'text-slate-600')}
+                                {renderEditableCell(item, 'contractDate', ext.contractDate, 'text-slate-600')}
+                                {renderEditableCell(item, 'prodName', ext.prodName, 'font-bold text-slate-700 min-w-[180px]')}
+                                {renderEditableCell(item, 'monthlyPay1', ext.monthlyPay1, 'text-slate-600')}
+                                {renderEditableCell(item, 'monthlyPay2', ext.monthlyPay2, 'text-slate-600')}
+                                {renderEditableCell(item, 'zipCode', ext.zipCode, 'text-slate-600')}
+                                {renderEditableCell(item, 'address', ext.address, 'text-slate-600 truncate max-w-[300px]')}
+                                {renderEditableCell(item, 'empName', ext.empName, 'text-slate-800 font-medium')}
+                                {renderEditableCell(item, 'empPhone', ext.empPhone, 'text-slate-600')}
+                                {renderEditableCell(item, 'rentalNo2', ext.rentalNo2 || '', 'text-slate-600')}
+                                {renderEditableCell(item, 'rentalNo3', ext.rentalNo3 || '', 'text-slate-600')}
+                                {renderEditableCell(item, 'rentalNo4', ext.rentalNo4 || '', 'text-slate-600')}
                                 <td className="p-3 text-center whitespace-nowrap">
                                   <button
                                     onClick={() => printCertificatesPdf([{

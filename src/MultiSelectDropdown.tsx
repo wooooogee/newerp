@@ -53,9 +53,9 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
       onClick={() => setIsOpen(!isOpen)}
     >
       <span className="text-[11px] font-bold text-slate-400 shrink-0">{label}</span>
-      <div className={displayClassName || "flex items-center justify-between min-w-[60px] max-w-[120px]"}>
+      <div className={displayClassName || "flex items-center justify-between flex-1 min-w-0"}>
         <span className="text-[12px] font-bold text-slate-700 truncate">{displayValue}</span>
-        <ChevronDown size={14} className={`text-slate-400 ml-1 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={14} className={`text-slate-400 ml-1 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </div>
 
       {isOpen && (
