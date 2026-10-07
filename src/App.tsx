@@ -3377,8 +3377,8 @@ const ERP_Dashboard = () => {
         }
         if (!matchesContractMonth) return false;
 
-        // 본부총무 계정인 경우 25일 지급 내역 필터링
-        if (isHQStaff) {
+        // 본부총무 계정인 경우 25일 지급 내역 필터링 (정산 모드에서만 적용하여 계약관리 모드에서 정상 계약 누락 방지)
+        if (pcViewMode === 'settlement' && isHQStaff) {
           const displayPayDate = getDisplayPayDate(item);
           const is25thPay = displayPayDate?.endsWith('.25') || displayPayDate?.endsWith('-25') || (item.payDate && (item.payDate.endsWith('.25') || item.payDate.endsWith('-25')));
           if (is25thPay) return false;
