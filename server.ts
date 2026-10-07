@@ -4816,27 +4816,19 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
           // AA열: 출금일자
           row[26] = matchedData.withdrawDate || "";
 
-          // ⭐ [핵심 요구사항] 관리대장 시트 N열(배송일자)을 수동으로 입력/수정해 놓은 경우는 절대 덮어쓰기 금지!
-          // 기존 관리대장에 이미 유효한 배송일자가 존재하는 경우 100% 안전 보존합니다.
-          const currentDelivDate = String(row[13] || '').trim();
-          const hasManualDeliveryDate = currentDelivDate !== '' && currentDelivDate !== '-' && currentDelivDate !== 'undefined' && currentDelivDate !== 'null' && currentDelivDate !== 'NaN';
+          // ⭐ [핵심 요구사항] 배송데이터 업데이트 시 관리대장 N열(배송일자, row[13])과 O열(수수료지급일자, row[14])은 절대 변경/덮어쓰기/자동계산 금지!
+          // 기존 관리대장에 입력/수정되어 있는 N열(배송일자)과 O열(수수료지급일자) 값을 100% 안전 보존합니다.
+          if (row[13] && String(row[13]).trim() !== '' && String(row[13]).trim() !== '-') {
+            preservedManualDeliveryDateCount++;
+          }
+          if (row[14] && String(row[14]).trim() !== '' && String(row[14]).trim() !== '-') {
+            preservedManualFeeDateCount++;
+          }
 
           const targetDate = matchedData.deliveryDate || matchedData.activationDate;
-          if (targetDate) {
+          if (targetDate || (row[13] && String(row[13]).trim() !== '')) {
             if (row[11] !== "배송완료") deliveryCompletedCount++;
             row[11] = "배송완료";
-
-            if (hasManualDeliveryDate) {
-              // 이미 수동 수정/입력된 배송일자가 존재하므로 절대 덮어쓰지 않고 기존 값 100% 안전 보존
-              preservedManualDeliveryDateCount++;
-            } else {
-              // 공란(빈 값)일 때만 배송데이터 엑셀의 배송일자 반영
-              row[13] = targetDate;
-            }
-          } else if (hasManualDeliveryDate) {
-            // 배송데이터 파일에 배송일자가 없더라도 관리대장에 기존 수동 배송일자가 존재하면 배송완료 유지
-            if (row[11] !== "배송완료") row[11] = "배송완료";
-            preservedManualDeliveryDateCount++;
           }
 
           // Y열: 처리중업무 매핑
@@ -4846,32 +4838,6 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
           if (matchedData.expectedDate) {
             if (row[28] !== matchedData.expectedDate) deliveryExpectedCount++;
             row[28] = matchedData.expectedDate;
-          }
-        }
-
-        // O열 수수료지급일자 정산 자동 계산
-        // ⭐ [핵심 요구사항] 기존 관리대장에 이미 입력/수정해놓은 O열 수수료지급일자는 절대 덮어쓰지 않고 100% 보존!
-        // 오직 공란(빈 값)일 때만 자동 계산된 수수료지급일자를 부여합니다.
-        const currentPayDate = String(row[14] || '').trim();
-        const hasManualPayDate = currentPayDate !== '' && currentPayDate !== '-' && currentPayDate !== 'undefined' && currentPayDate !== 'null' && currentPayDate !== 'NaN';
-        const delDate = row[13];
-        const delStatus = String(row[11] || '').trim();
-
-        if (hasManualPayDate) {
-          // 이미 값이 존재하는 경우: 사용자가 변경/지정한 값이므로 절대 덮어쓰지 않고 100% 안전 보존
-          preservedManualFeeDateCount++;
-        } else {
-          // 공란인 경우에만: 배송완료 및 배송일자가 존재할 때 자동 수수료지급일자 계산 적용
-          if (delDate && delStatus === "배송완료") {
-            const expectedFeeDate = calculateExpectedFeeDateSync(delDate, prod, rId, hq);
-            if (expectedFeeDate) {
-              row[14] = expectedFeeDate;
-              feeDateCalculatedCount++;
-            } else {
-              row[14] = "";
-            }
-          } else {
-            row[14] = "";
           }
         }
 
