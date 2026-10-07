@@ -60,8 +60,8 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // 전체 기간 보기 토글 상태
-  const [viewAllMonths, setViewAllMonths] = useState(false);
+  // 전체 기간 보기 토글 상태 (기본값: 전체 기간 보기 활성화)
+  const [viewAllMonths, setViewAllMonths] = useState(true);
 
   // 수기발주 필터링 상태 (all: 전체, manual: 수기발주, normal: 일반)
   const [manualOrderFilter, setManualOrderFilter] = useState<'all' | 'manual' | 'normal'>('all');
@@ -100,13 +100,13 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     setCurrentPage(1);
   }, [searchTerm, mode]);
 
-  // 타입/달 변경 및 모달 개폐 시 상태 리셋
+  // 타입/달 변경 및 모달 개폐 시 상태 리셋 (전체 기간 보기는 기본값 true 유지)
   React.useEffect(() => {
     setCurrentPage(1);
     setIsRegisterMode(false);
     setSelectedContracts([]);
     setSearchQuery('');
-    setViewAllMonths(false);
+    setViewAllMonths(true);
     setManualOrderFilter('all');
   }, [type, month, isOpen]);
 
