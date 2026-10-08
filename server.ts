@@ -4466,6 +4466,7 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     let skippedPastContractCount = 0;
     let preservedManualStatusCount = 0;
     let preservedManualDeliveryDateCount = 0;
+    let deliveryDateUpdatedCount = 0;
     let deliveryCompletedCount = 0;
     let deliveryExpectedCount = 0;
     let feeDateCalculatedCount = 0;
@@ -4816,16 +4817,21 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
           // AA열: 출금일자
           row[26] = matchedData.withdrawDate || "";
 
-          // ⭐ [핵심 요구사항] 배송데이터 업데이트 시 관리대장 N열(배송일자, row[13])과 O열(수수료지급일자, row[14])은 절대 변경/덮어쓰기/자동계산 금지!
-          // 기존 관리대장에 입력/수정되어 있는 N열(배송일자)과 O열(수수료지급일자) 값을 100% 안전 보존합니다.
-          if (row[13] && String(row[13]).trim() !== '' && String(row[13]).trim() !== '-') {
+          // ⭐ [사용자 요청 정정] 배송데이터 업데이트 시:
+          // 공란이면 업데이트 해주고 값이 입력되어있으면 그냥 패스 (입력된 값이 날짜던 - 이표시던)
+          const currentDelivDate = String(row[13] || '').trim();
+          const targetDate = matchedData.deliveryDate || matchedData.activationDate || "";
+
+          if (currentDelivDate !== '') {
+            // 값이 이미 입력되어 있으면 (날짜이든 '-' 표시이든 기타 어떤 값이든 빈 칸이 아니면):
+            // 덮어쓰지 않고 패스 (기존 값 안전 보존)
             preservedManualDeliveryDateCount++;
-          }
-          if (row[14] && String(row[14]).trim() !== '' && String(row[14]).trim() !== '-') {
-            preservedManualFeeDateCount++;
+          } else if (targetDate) {
+            // 공란인 경우: 배송데이터 엑셀의 배송일자로 업데이트!
+            row[13] = targetDate;
+            deliveryDateUpdatedCount++;
           }
 
-          const targetDate = matchedData.deliveryDate || matchedData.activationDate;
           if (targetDate || (row[13] && String(row[13]).trim() !== '')) {
             if (row[11] !== "배송완료") deliveryCompletedCount++;
             row[11] = "배송완료";
@@ -4841,6 +4847,27 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
           }
         }
 
+        // ⭐ O열: 수수료지급일자 정산 자동 계산
+        // ⭐ [사용자 요청 정정] 공란이면 업데이트 해주고 값이 입력되어있으면 그냥 패스 (입력된 값이 날짜던 - 이표시던)
+        const currentPayDate = String(row[14] || '').trim();
+        const delDate = String(row[13] || '').trim();
+        const delStatus = String(row[11] || '').trim();
+
+        if (currentPayDate !== '') {
+          // 값이 이미 입력되어 있으면 (날짜이든 '-' 표시이든 기타 어떤 값이든 빈 칸이 아니면):
+          // 덮어쓰지 않고 패스 (기존 값 안전 보존)
+          preservedManualFeeDateCount++;
+        } else {
+          // 공란인 경우: 배송완료 및 유효한 배송일자가 존재할 때 자동 계산하여 업데이트!
+          if (delDate && delDate !== '-' && delStatus === "배송완료") {
+            const expectedFeeDate = calculateExpectedFeeDateSync(delDate, prod, rId, hq);
+            if (expectedFeeDate) {
+              row[14] = expectedFeeDate;
+              feeDateCalculatedCount++;
+            }
+          }
+        }
+
         allProcessedData[i] = row;
       }
     }
@@ -4853,6 +4880,7 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       skippedPastContractCount,
       preservedManualStatusCount,
       preservedManualDeliveryDateCount,
+      deliveryDateUpdatedCount,
       deliveryCompletedCount,
       deliveryExpectedCount,
       feeDateCalculatedCount,

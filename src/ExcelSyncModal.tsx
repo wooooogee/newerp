@@ -35,6 +35,7 @@ interface SyncStats {
   skippedPastContractCount?: number;
   preservedManualStatusCount: number;
   preservedManualDeliveryDateCount?: number;
+  deliveryDateUpdatedCount?: number;
   deliveryCompletedCount: number;
   deliveryExpectedCount: number;
   feeDateCalculatedCount: number;
@@ -879,7 +880,8 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
 
     const confirmMsg = `[안전 확인] 관리대장 시트에 전산 엑셀 데이터를 동기화하시겠습니까?\n\n` +
       `• 자동 백업 생성: ${autoBackup ? '예 (권장)' : '아니오'}\n` +
-      `• 기존 수기 계약상태(해약/취소), 배송일자(N열), 수수료지급일자(O열): 100% 안전 보존 (절대 변경되지 않음)\n` +
+      `• 수기 계약상태(해약/취소): 100% 안전 보존\n` +
+      `• 배송일자(N열) & 수수료일자(O열): 공란만 업데이트/자동계산, 기존 값(날짜 또는 '-' 등)은 100% 안전 보존(패스)\n` +
       `• 관리대장 1행 필터 및 상태/배송 서식일괄재적용 자동 반영\n\n` +
       `확인을 누르시면 즉시 구글 시트에 안전하게 반영됩니다.`;
 
@@ -952,10 +954,10 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         }
       }
       if (data.stats.preservedManualDeliveryDateCount !== undefined) {
-        successDetailMsg += `• 배송일자(N열): 관리대장 기존 값 100% 안전 보존 (변경 없음)\n`;
+        successDetailMsg += `• 배송일자(N열): 기존 값 ${data.stats.preservedManualDeliveryDateCount.toLocaleString()}건 보존(패스), 공란 업데이트 ${(data.stats.deliveryDateUpdatedCount || 0).toLocaleString()}건\n`;
       }
       if (data.stats.preservedManualFeeDateCount !== undefined) {
-        successDetailMsg += `• 수수료지급일자(O열): 관리대장 기존 값 100% 안전 보존 (변경 없음)\n`;
+        successDetailMsg += `• 수수료지급일자(O열): 기존 값 ${data.stats.preservedManualFeeDateCount.toLocaleString()}건 보존(패스), 공란 자동계산 ${data.stats.feeDateCalculatedCount.toLocaleString()}건\n`;
       }
       successDetailMsg += `• 서식양식: 1행 필터 재설정 및 상태/배송 서식일괄재적용 완료\n`;
       alert(successDetailMsg);
@@ -1456,11 +1458,15 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                 </div>
                 <div className="p-2.5 bg-white/80 rounded-xl border border-slate-200 flex items-center justify-between">
                   <span className="text-slate-600">🚚 배송일자 (N열):</span>
-                  <span className="font-black text-blue-600">100% 안전 보존 (변경 없음)</span>
+                  <span className="font-black text-blue-600">
+                    {(previewStats.preservedManualDeliveryDateCount || 0).toLocaleString()}건 보존 / {(previewStats.deliveryDateUpdatedCount || 0).toLocaleString()}건 반영
+                  </span>
                 </div>
                 <div className="p-2.5 bg-white/80 rounded-xl border border-slate-200 flex items-center justify-between">
                   <span className="text-slate-600">🔒 수수료일자 (O열):</span>
-                  <span className="font-black text-amber-600">100% 안전 보존 (변경 없음)</span>
+                  <span className="font-black text-amber-600">
+                    {previewStats.preservedManualFeeDateCount.toLocaleString()}건 보존 / {previewStats.feeDateCalculatedCount.toLocaleString()}건 계산
+                  </span>
                 </div>
                 <div className="p-2.5 bg-white/80 rounded-xl border border-indigo-200 flex items-center justify-between">
                   <span className="text-indigo-700">📦 과거 계약 격리:</span>
