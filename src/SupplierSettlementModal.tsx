@@ -124,6 +124,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   const [suppliers, setSuppliers] = useState<SupplierItem[]>(() => loadSuppliersFromStorage());
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('ALL'); // 'ALL' 또는 개별 공급사 ID
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchInput, setSearchInput] = useState('');
 
   // 모달 오픈 시 최신 공급사 정보 재로드
   useEffect(() => {
@@ -841,17 +842,44 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
             </div>
           </div>
 
-          {/* 우측 검색창 */}
+          {/* 우측 검색창 (Enter 또는 검색 버튼 클릭 시 검색) */}
           {viewMode === 'DETAIL' && (
-            <div className="relative w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-              <input
-                type="text"
-                placeholder="렌탈계약번호/고객명/본부/제품 검색..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-8.5 pr-3 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-              />
+            <div className="relative w-80 flex items-center gap-1.5">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <input
+                  type="text"
+                  placeholder="렌탈계약번호/고객명/본부/제품 (Enter)..."
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setSearchTerm(searchInput.trim());
+                    }
+                  }}
+                  className="w-full pl-8.5 pr-7 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500 transition-all"
+                />
+                {(searchInput || searchTerm) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchInput('');
+                      setSearchTerm('');
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+                    title="검색어 지우기"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSearchTerm(searchInput.trim())}
+                className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-2xs whitespace-nowrap cursor-pointer shrink-0"
+              >
+                검색
+              </button>
             </div>
           )}
         </div>

@@ -312,6 +312,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [editedStates, setEditedStates] = useState<Record<string, DeliveryState>>({});
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [requestDateFilter, setRequestDateFilter] = useState<'all' | 'has_value' | 'no_value'>('all');
   const [stateFilter, setStateFilter] = useState<'all' | DeliveryState>('all');
   const [joinStatusFilter, setJoinStatusFilter] = useState<'all' | 'active' | 'cancelled'>('active');
@@ -1690,7 +1691,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </div>
 
               {/* 필터 및 정렬 조건 초기화 버튼 */}
-              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || installCertFilter !== 'all' || requestDateFilter !== 'all' || supplierFilter !== 'all' || joinStatusFilter !== 'active' || sortField !== null) && (
+              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || installCertFilter !== 'all' || requestDateFilter !== 'all' || supplierFilter !== 'all' || joinStatusFilter !== 'active' || sortField !== null || searchTerm !== '' || searchInput !== '') && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1702,9 +1703,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     setJoinStatusFilter('active');
                     setSortField(null);
                     setSortDirection('desc');
+                    setSearchTerm('');
+                    setSearchInput('');
+                    setCurrentPage(1);
                   }}
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs"
-                  title="월별, 요청일, 공급사, 가입상태 필터 및 정렬 초기화"
+                  title="월별, 요청일, 공급사, 검색어 및 정렬 초기화"
                 >
                   <RotateCcw size={12} />
                   <span>초기화</span>
@@ -1712,16 +1716,48 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               )}
             </div>
 
-            {/* 검색어 (제일 우측 끝에 배치) */}
-            <div className="relative min-w-[240px] max-w-sm sm:w-72 ml-auto">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="계약번호, 회원명, 핸드폰, 상품명, 송장번호..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-8.5 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 transition-all"
-              />
+            {/* 검색어 (제일 우측 끝에 배치, Enter 또는 검색 버튼 클릭 시 검색) */}
+            <div className="relative min-w-[280px] max-w-sm sm:w-80 ml-auto flex items-center gap-1.5">
+              <div className="relative flex-1">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="계약번호, 회원명, 핸드폰, 상품명... (Enter)"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setSearchTerm(searchInput.trim());
+                      setCurrentPage(1);
+                    }
+                  }}
+                  className="w-full pl-8.5 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 transition-all"
+                />
+                {(searchInput || searchTerm) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchInput('');
+                      setSearchTerm('');
+                      setCurrentPage(1);
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+                    title="검색어 지우기"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm(searchInput.trim());
+                  setCurrentPage(1);
+                }}
+                className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-2xs whitespace-nowrap cursor-pointer shrink-0"
+              >
+                검색
+              </button>
             </div>
           </div>
 

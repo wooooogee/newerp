@@ -479,7 +479,7 @@ export const getDisplayPayDate = (item: any) => {
   return displayPayDate;
 };
 
-// 상단 헤더 검색 바 (타이핑 시 부모 App 리렌더링 방지, 350ms 디바운스 + 검색 버튼 및 Enter 즉시 실행 지원)
+// 상단 헤더 검색 바 (엔터 키 또는 검색 버튼 클릭 시에만 검색 실행 - 타이핑 중 수만 건 불필요한 필터링 연산 완전 제거)
 const TopSearchBar: React.FC<{
   searchTerm: string;
   onSearch: (val: string) => void;
@@ -490,17 +490,8 @@ const TopSearchBar: React.FC<{
     setQuery(searchTerm);
   }, [searchTerm]);
 
-  // 디바운스 자동 검색 (350ms)
-  useEffect(() => {
-    if (query === searchTerm) return;
-    const timer = setTimeout(() => {
-      onSearch(query);
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [query, searchTerm, onSearch]);
-
-  const handleExplicitSearch = (val: string = query) => {
-    onSearch(val);
+  const handleExplicitSearch = () => {
+    onSearch(query);
     setTimeout(() => {
       document.getElementById('data-filter-area')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
@@ -517,7 +508,7 @@ const TopSearchBar: React.FC<{
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
-              handleExplicitSearch(query);
+              handleExplicitSearch();
             }
           }}
           className="w-full pl-9 pr-7 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
@@ -538,7 +529,7 @@ const TopSearchBar: React.FC<{
       </div>
       <button
         type="button"
-        onClick={() => handleExplicitSearch(query)}
+        onClick={handleExplicitSearch}
         className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all shrink-0 flex items-center gap-1 cursor-pointer"
       >
         <Search size={13} />
@@ -548,7 +539,7 @@ const TopSearchBar: React.FC<{
   );
 });
 
-// 하단 데이터 테이블 필터 검색창 (디바운스 250ms, 한글 입력 렉 방지 및 X 지우기 버튼)
+// 하단 데이터 테이블 필터 검색창 (엔터 키 또는 검색 버튼 클릭 시에만 검색 실행)
 const TableSearchInput: React.FC<{
   searchTerm: string;
   onSearch: (val: string) => void;
@@ -559,42 +550,48 @@ const TableSearchInput: React.FC<{
     setQuery(searchTerm);
   }, [searchTerm]);
 
-  useEffect(() => {
-    if (query === searchTerm) return;
-    const timer = setTimeout(() => {
-      onSearch(query);
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [query, searchTerm, onSearch]);
+  const handleSearch = () => {
+    onSearch(query);
+  };
 
   return (
-    <div className="relative min-w-[220px] sm:min-w-[260px] flex-1 max-w-sm">
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
-      <input
-        type="text"
-        placeholder="회원명, 회원번호, 렌탈번호, 영업사원명 검색..."
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            onSearch(query);
-          }
-        }}
-        className="w-full pl-10 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
-      />
-      {query && (
-        <button
-          type="button"
-          onClick={() => {
-            setQuery('');
-            onSearch('');
+    <div className="flex items-center gap-1.5 flex-1 max-w-md min-w-[240px]">
+      <div className="relative flex-1">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
+        <input
+          type="text"
+          placeholder="회원명, 회원번호, 렌탈번호, 영업사원명 검색 (Enter)..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              handleSearch();
+            }
           }}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 cursor-pointer"
-          title="검색어 지우기"
-        >
-          <X size={14} />
-        </button>
-      )}
+          className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-[13px] font-medium focus:ring-2 focus:ring-blue-100 outline-none shadow-sm"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery('');
+              onSearch('');
+            }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 cursor-pointer"
+            title="검색어 지우기"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={handleSearch}
+        className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all shrink-0 flex items-center gap-1 cursor-pointer whitespace-nowrap"
+      >
+        <Search size={13} />
+        <span>검색</span>
+      </button>
     </div>
   );
 });
@@ -11350,9 +11347,9 @@ const ERP_Dashboard = () => {
                                 {rule.incentiveName || '수당 명칭 미입력'}
                               </span>
                               {targetDivs.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-0.5">
+                                <div className="flex items-center gap-1 mt-0.5 overflow-hidden whitespace-nowrap">
                                   {targetDivs.map(name => (
-                                    <span key={name} className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                                    <span key={name} className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap shrink-0 ${
                                       isActive ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
                                     }`}>
                                       🏢 {name}
@@ -11361,11 +11358,11 @@ const ERP_Dashboard = () => {
                                 </div>
                               )}
                               {rule.targetItems && !rule.targetItems.includes('ALL') && rule.targetItems.length > 0 && (
-                                <div className="flex items-center gap-1 mt-0.5 overflow-hidden">
-                                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold truncate max-w-full ${
+                                <div className="flex items-center gap-1 mt-0.5 overflow-hidden whitespace-nowrap">
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold whitespace-nowrap truncate ${
                                     isActive ? 'bg-white/20 text-white' : 'bg-purple-50 text-purple-700 border border-purple-200'
-                                  }`}>
-                                    📦 {rule.targetItems[0]}{rule.targetItems.length > 1 ? ` 외 ${rule.targetItems.length - 1}개` : ''}
+                                  }`} title={rule.targetItems.join(', ')}>
+                                    📦 {rule.targetItems.join(', ')}
                                   </span>
                                 </div>
                               )}
