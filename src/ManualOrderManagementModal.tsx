@@ -1748,14 +1748,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           )}
                         </button>
                       </th>
-                      <th className="py-3 px-3 w-12 text-center border-r border-slate-200">No</th>
                       <th
                         onClick={() => handleSort('contractDate')}
-                        className="py-3 px-3 w-28 border-r border-slate-200 text-slate-800 bg-slate-200/50 text-center cursor-pointer select-none hover:bg-slate-300/70 transition-colors group"
+                        className="py-3 px-2 w-[96px] min-w-[96px] border-r border-slate-200 text-slate-800 bg-slate-200/50 text-center cursor-pointer select-none hover:bg-slate-300/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
                         <div className="inline-flex items-center justify-center gap-1 w-full">
-                          <span>계약일자</span>
+                          <span>계약일</span>
                           {sortField === 'contractDate' ? (
                             sortDirection === 'desc' ? (
                               <ChevronDown size={14} className="text-blue-600 font-bold shrink-0" />
@@ -1769,11 +1768,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       </th>
                       <th
                         onClick={() => handleSort('requestDate')}
-                        className="py-3 px-3 w-28 border-r border-slate-200 text-blue-800 bg-blue-50/60 text-center cursor-pointer select-none hover:bg-blue-100/70 transition-colors group"
+                        className="py-3 px-2 w-[96px] min-w-[96px] border-r border-slate-200 text-blue-800 bg-blue-50/60 text-center cursor-pointer select-none hover:bg-blue-100/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
                         <div className="inline-flex items-center justify-center gap-1 w-full">
-                          <span>요청일자</span>
+                          <span>요청일</span>
                           {sortField === 'requestDate' ? (
                             sortDirection === 'desc' ? (
                               <ChevronDown size={14} className="text-blue-600 font-bold shrink-0" />
@@ -1785,30 +1784,21 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono">
+                      <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono whitespace-nowrap">
                         계약번호
                       </th>
-                      <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60">
-                        <div className="flex flex-col gap-0.5">
-                          <span>회원명</span>
-                          <span className="text-[10px] text-blue-600 font-normal">/ 수취인(H열)</span>
-                        </div>
+                      <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60 whitespace-nowrap">
+                        회원명 / 수취인
                       </th>
-                      <th className="py-3 px-3 w-36 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono">
-                        <div className="flex flex-col gap-0.5">
-                          <span>핸드폰</span>
-                          <span className="text-[10px] text-blue-600 font-normal">/ 연락처(J열)</span>
-                        </div>
+                      <th className="py-3 px-3 w-36 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono whitespace-nowrap">
+                        핸드폰 / 연락처
                       </th>
-                      <th className="py-3 px-3 min-w-[200px] max-w-[260px] border-r border-slate-200 text-blue-800 bg-blue-50/60">
-                        <div className="flex flex-col gap-0.5">
-                          <span>배송지 주소</span>
-                          <span className="text-[10px] text-blue-600 font-normal">수기발주 L열</span>
-                        </div>
+                      <th className="py-3 px-3 min-w-[240px] max-w-[340px] border-r border-slate-200 text-blue-800 bg-blue-50/60 whitespace-nowrap">
+                        배송지 주소
                       </th>
                       <th
                         onClick={() => handleSort('rentalProdClean')}
-                        className="py-3 px-3 min-w-[180px] border-r border-slate-200 text-blue-800 bg-blue-50/60 cursor-pointer select-none hover:bg-blue-100/70 transition-colors group"
+                        className="py-3 px-3 min-w-[180px] border-r border-slate-200 text-blue-800 bg-blue-50/60 cursor-pointer select-none hover:bg-blue-100/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
                         <div className="inline-flex items-center gap-1">
@@ -1824,15 +1814,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-3 w-28 text-center border-r border-slate-200">
+                      <th className="py-3 px-3 w-24 text-center border-r border-slate-200 whitespace-nowrap">
                         가입상태
                       </th>
-                      <th className="py-3 px-3 w-28 text-center border-r border-slate-200">
+                      <th className="py-3 px-3 w-28 text-center border-r border-slate-200 whitespace-nowrap">
                         배송상태
                       </th>
                       <th
                         onClick={() => handleSort('orderDate')}
-                        className="py-3 px-3 w-36 text-purple-900 bg-purple-50/60 border-r border-slate-200 text-center cursor-pointer select-none hover:bg-purple-100/70 transition-colors group"
+                        className="py-3 px-3 w-32 text-purple-900 bg-purple-50/60 border-r border-slate-200 text-center cursor-pointer select-none hover:bg-purple-100/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
                         <div className="inline-flex items-center justify-center gap-1 w-full">
@@ -1848,16 +1838,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-3 w-36 text-amber-800 bg-amber-50/60 border-r border-slate-200">
+                      <th className="py-3 px-3 w-32 text-amber-800 bg-amber-50/60 border-r border-slate-200 text-center whitespace-nowrap">
                         배송일 / 설치일
                       </th>
-                      <th className="py-3 px-3 w-36 text-amber-800 bg-amber-50/60 border-r border-slate-200">
-                        택배사
+                      <th className="py-3 px-3 w-52 min-w-[200px] text-amber-800 bg-amber-50/60 text-center whitespace-nowrap">
+                        택배사 / 송장번호
                       </th>
-                      <th className="py-3 px-3 w-40 text-amber-800 bg-amber-50/60 border-r border-slate-200">
-                        송장번호
-                      </th>
-                      <th className="py-3 px-3 w-20 text-center text-slate-700 bg-slate-100">조회</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
@@ -1903,18 +1889,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                             </button>
                           </td>
 
-                          {/* No */}
-                          <td className="py-2.5 px-3 text-center text-slate-400 border-r border-slate-200 font-mono text-[11px]">
-                            {(currentPage - 1) * pageSize + idx + 1}
-                          </td>
-
-                          {/* 계약일자 */}
-                          <td className="py-2.5 px-3 text-center text-slate-700 border-r border-slate-200 font-mono text-[11px] font-medium">
+                          {/* 계약일 (한 줄 표기 보장) */}
+                          <td className="py-2.5 px-2 text-center text-slate-700 border-r border-slate-200 font-mono text-[11px] font-medium whitespace-nowrap">
                             {order.contractDate || '-'}
                           </td>
 
-                          {/* 요청일자 */}
-                          <td className="py-2.5 px-3 text-center text-blue-900 border-r border-slate-200 font-mono text-[11px] font-semibold bg-blue-50/20">
+                          {/* 요청일 (한 줄 표기 보장) */}
+                          <td className="py-2.5 px-2 text-center text-blue-900 border-r border-slate-200 font-mono text-[11px] font-semibold bg-blue-50/20 whitespace-nowrap">
                             {order.requestDate || '-'}
                           </td>
 
@@ -2018,14 +1999,14 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                             </div>
                           </td>
 
-                          {/* 배송지 주소 (L열, 말줄임 + 전체 툴팁 + 우편번호 + 원클릭 복사) */}
-                          <td className="py-2 px-3 border-r border-slate-200 max-w-[260px]">
+                          {/* 배송지 주소 (전체 다 보이도록 2줄 허용 + 원클릭 복사) */}
+                          <td className="py-2 px-3 border-r border-slate-200 min-w-[240px] max-w-[340px]">
                             {order.address ? (
-                              <div className="flex items-center justify-between gap-1.5 group/addr">
-                                <div className="truncate text-slate-700 text-xs" title={`${order.zipCode ? `[${order.zipCode}] ` : ''}${order.address}`}>
+                              <div className="flex items-start justify-between gap-1.5 group/addr">
+                                <div className="text-slate-800 text-xs leading-relaxed break-keep" title={`${order.zipCode ? `[${order.zipCode}] ` : ''}${order.address}`}>
                                   {order.zipCode && (
-                                    <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1 py-0.5 rounded mr-1">
-                                      {order.zipCode}
+                                    <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1 py-0.5 rounded mr-1.5 font-semibold">
+                                      [{order.zipCode}]
                                     </span>
                                   )}
                                   <span>{order.address}</span>
@@ -2033,7 +2014,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                                 <button
                                   type="button"
                                   onClick={() => handleCopyText(order.address, '배송지 주소')}
-                                  className="shrink-0 p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-blue-600 cursor-pointer transition-colors"
+                                  className="shrink-0 p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-blue-600 cursor-pointer transition-colors mt-0.5"
                                   title="배송지 주소 복사"
                                 >
                                   <Copy size={12} />
@@ -2134,28 +2115,31 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                             />
                           </td>
 
-                          {/* 택배사 */}
-                          <td className="py-2 px-3 border-r border-slate-200 bg-amber-50/10">
-                            <div className="flex flex-col gap-1">
-                              <select
-                                value={COURIER_OPTIONS.includes(courier) ? courier : courier ? 'custom' : ''}
-                                onChange={(e) => {
-                                  if (e.target.value === 'custom') {
-                                    handleInputChange(order.contractNo, 'courier', courier && !COURIER_OPTIONS.includes(courier) ? courier : ' ');
-                                  } else {
-                                    handleInputChange(order.contractNo, 'courier', e.target.value);
-                                  }
-                                }}
-                                className="w-full px-1.5 py-1 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:border-amber-500"
-                              >
-                                <option value="">택배사 선택</option>
-                                {COURIER_OPTIONS.map((c) => (
-                                  <option key={c} value={c}>
-                                    {c}
-                                  </option>
-                                ))}
-                                <option value="custom">직접입력...</option>
-                              </select>
+                          {/* 택배사 & 송장번호 (한 칸에 위아래 2줄로 통합 + 배송조회 버튼) */}
+                          <td className="py-2 px-2.5 bg-amber-50/10 min-w-[200px] w-52">
+                            <div className="flex flex-col gap-1.5">
+                              {/* 1줄: 택배사 선택 */}
+                              <div className="flex items-center gap-1">
+                                <select
+                                  value={COURIER_OPTIONS.includes(courier) ? courier : courier ? 'custom' : ''}
+                                  onChange={(e) => {
+                                    if (e.target.value === 'custom') {
+                                      handleInputChange(order.contractNo, 'courier', courier && !COURIER_OPTIONS.includes(courier) ? courier : ' ');
+                                    } else {
+                                      handleInputChange(order.contractNo, 'courier', e.target.value);
+                                    }
+                                  }}
+                                  className="w-full px-2 py-1 bg-white border border-slate-300 rounded-md text-xs text-slate-800 focus:border-amber-500"
+                                >
+                                  <option value="">택배사 선택</option>
+                                  {COURIER_OPTIONS.map((c) => (
+                                    <option key={c} value={c}>
+                                      {c}
+                                    </option>
+                                  ))}
+                                  <option value="custom">직접입력...</option>
+                                </select>
+                              </div>
                               {(!COURIER_OPTIONS.includes(courier) && courier !== '') && (
                                 <input
                                   type="text"
@@ -2165,39 +2149,37 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                                   className="w-full px-2 py-0.5 bg-white border border-slate-300 rounded-md text-xs text-slate-800"
                                 />
                               )}
+
+                              {/* 2줄: 송장번호 입력창 + 배송조회 버튼 */}
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  placeholder="송장번호 입력"
+                                  value={tracking}
+                                  onChange={(e) => handleInputChange(order.contractNo, 'trackingNo', e.target.value)}
+                                  className={`flex-1 min-w-0 px-2 py-1 bg-white border rounded-md text-xs font-mono transition-all ${
+                                    editedValues[order.contractNo]?.trackingNo !== undefined &&
+                                    editedValues[order.contractNo]?.trackingNo !== order.trackingNo
+                                      ? 'border-blue-500 text-blue-700 ring-1 ring-blue-100 font-bold'
+                                      : 'border-slate-300 text-slate-800 focus:border-amber-500'
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenTracking(courier, tracking)}
+                                  disabled={!hasTracking}
+                                  className={`shrink-0 inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                                    hasTracking
+                                      ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs'
+                                      : 'bg-slate-100 text-slate-300 border border-slate-200 cursor-not-allowed'
+                                  }`}
+                                  title={hasTracking ? `${courier} ${tracking} 배송조회` : '택배사와 송장번호를 입력하면 조회가 가능합니다'}
+                                >
+                                  조회
+                                  <ExternalLink size={10} />
+                                </button>
+                              </div>
                             </div>
-                          </td>
-
-                          {/* 송장번호 */}
-                          <td className="py-2 px-3 border-r border-slate-200 bg-amber-50/10">
-                            <input
-                              type="text"
-                              placeholder="송장번호 입력"
-                              value={tracking}
-                              onChange={(e) => handleInputChange(order.contractNo, 'trackingNo', e.target.value)}
-                              className={`w-full px-2.5 py-1 bg-white border rounded-lg text-xs font-mono transition-all ${
-                                editedValues[order.contractNo]?.trackingNo !== undefined &&
-                                editedValues[order.contractNo]?.trackingNo !== order.trackingNo
-                                  ? 'border-blue-500 text-blue-700 ring-2 ring-blue-100 font-bold'
-                                  : 'border-slate-300 text-slate-800 focus:border-amber-500'
-                              }`}
-                            />
-                          </td>
-
-                          {/* 조회 버튼 */}
-                          <td className="py-2 px-2 text-center">
-                            <button
-                              onClick={() => handleOpenTracking(courier, tracking)}
-                              disabled={!hasTracking}
-                              className={`inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                                hasTracking
-                                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 shadow-2xs'
-                                  : 'bg-slate-100 text-slate-300 border border-slate-200 cursor-not-allowed'
-                              }`}
-                            >
-                              조회
-                              <ExternalLink size={12} />
-                            </button>
                           </td>
                         </tr>
                       );
