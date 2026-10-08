@@ -4020,8 +4020,10 @@ const ERP_Dashboard = () => {
                   specialPayouts.push({
                     id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
                     hq: hqName,
+                    originHq: item.hq || hqName,
                     branch: item.branch || '-',
                     targetName: 'SELF_HQ',
+                    ruleId: rule.id,
                     incentiveName: detail,
                     rentalNo: item.rentalNo || item.resNo || '-',
                     memName: item.memName || '-',
@@ -4049,8 +4051,10 @@ const ERP_Dashboard = () => {
                   specialPayouts.push({
                     id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
                     hq: rule.targetName || item.hq || '-',
+                    originHq: item.hq || '-',
                     branch: item.branch || '-',
                     targetName: rule.targetName,
+                    ruleId: rule.id,
                     incentiveName: detail,
                     rentalNo: item.rentalNo || item.resNo || '-',
                     memName: item.memName || '-',
@@ -4087,8 +4091,10 @@ const ERP_Dashboard = () => {
               specialPayouts.push({
                 id: `guarantee_${rule.id}`,
                 hq: rule.targetName || '-',
+                originHq: '-',
                 branch: '-',
                 targetName: rule.targetName,
+                ruleId: rule.id,
                 incentiveName: detail + ' (최저보장)',
                 rentalNo: '-',
                 memName: '-',
@@ -13263,7 +13269,56 @@ const ERP_Dashboard = () => {
                         productSummary[item.prodName].total += totalCommission;
                       });
 
-                      const activeTab = previewTabs[s.hqName] || 'summary';
+                      // 해당 본부/대상자의 특수수당 실지급 내역
+                      const actualSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === s.hqName);
+
+                      // 특수수당 그룹화 (수당 명칭별: 예 - '굿라이프(컨설팅)', '공급수수료' 등 분리)
+                      const specialGroups: Record<string, { name: string; payouts: any[]; totalAmount: number }> = {};
+                      if (actualSpecialPayouts.length > 0) {
+                        actualSpecialPayouts.forEach((sp: any) => {
+                          const incName = sp.incentiveName || '특수수당';
+                          if (!specialGroups[incName]) {
+                            specialGroups[incName] = { name: incName, payouts: [], totalAmount: 0 };
+                          }
+                          specialGroups[incName].payouts.push(sp);
+                          specialGroups[incName].totalAmount += Number(sp.amount || 0);
+                        });
+                      } else if (s.specialSum > 0) {
+                        const matchedSpecialRule = globalIncentiveRules.find(r => r.targetName === s.hqName) || globalIncentiveRules.find(r => 
+                          (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
+                          isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)
+                        );
+                        const incName = matchedSpecialRule?.incentiveName || (s.hqName === '조재윤' || s.hqName === '조재은' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+                        specialGroups[incName] = { name: incName, payouts: [], totalAmount: s.specialSum };
+                      }
+
+                      const specialGroupKeys = Object.keys(specialGroups);
+
+                      // 탭 목록 동적 생성
+                      const tabList: { key: string; name: string }[] = [
+                        { key: 'summary', name: '정산내역 요약' },
+                        { key: 'tax', name: '세금계산서 요약' },
+                      ];
+                      if (s.items.length > 0) {
+                        tabList.push({ key: 'products', name: '상품별 요약' });
+                        tabList.push({ key: 'details', name: '일반수수료 내역' });
+                      }
+                      if (s.hqMaintenancePayouts.length > 0) {
+                        tabList.push({ key: 'maintenance', name: '유지수수료 내역' });
+                      }
+                      specialGroupKeys.forEach(incName => {
+                        tabList.push({ key: `special_${incName}`, name: `${incName} 내역` });
+                      });
+
+                      const rawActiveTab = previewTabs[s.hqName] || 'summary';
+                      let activeTab = rawActiveTab;
+                      if (activeTab === 'special') {
+                        activeTab = specialGroupKeys.length > 0 ? `special_${specialGroupKeys[0]}` : 'summary';
+                      }
+                      if (!tabList.some(t => t.key === activeTab)) {
+                        activeTab = 'summary';
+                      }
+
                       const generalSum = s.totalSum - s.maintenanceSum - s.specialSum;
 
                       return (
@@ -13280,34 +13335,16 @@ const ERP_Dashboard = () => {
                             </button>
                           </div>
                           
-                          <div className="flex border-b border-slate-200 gap-1.5">
-                            {['summary', 'tax', 'products', 'details', 'maintenance', 'special'].map(tab => {
-                              if (tab === 'maintenance' && s.hqMaintenancePayouts.length === 0) return null;
-                              if (tab === 'products' && s.items.length === 0) return null;
-                              if (tab === 'details' && s.items.length === 0) return null;
-                              if (tab === 'special' && s.specialSum === 0) return null;
-
-                              const matchedSpecialRule = globalIncentiveRules.find(r => r.targetName === s.hqName) || globalIncentiveRules.find(r => 
-                                (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
-                                isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)
-                              );
-                              const specialIncentiveLabel = matchedSpecialRule?.incentiveName || (s.hqName === '조재윤' || s.hqName === '조재은' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
-
-                              const tabNames: Record<string, string> = {
-                                'summary': '정산내역 요약',
-                                'tax': '세금계산서 요약',
-                                'products': '상품별 요약',
-                                'details': '일반수수료 내역',
-                                'maintenance': '유지수수료 내역',
-                                'special': `${specialIncentiveLabel} 내역`
-                              };
-                              return (
-                                <button key={tab} onClick={() => setPreviewTabs(prev => ({...prev, [s.hqName]: tab}))}
-                                  className={`px-3 py-1 font-bold text-xs transition-colors border-b-2 ${activeTab === tab ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                                  {tabNames[tab]}
-                                </button>
-                              );
-                            })}
+                          <div className="flex border-b border-slate-200 gap-1.5 overflow-x-auto whitespace-nowrap">
+                            {tabList.map(t => (
+                              <button
+                                key={t.key}
+                                onClick={() => setPreviewTabs(prev => ({ ...prev, [s.hqName]: t.key }))}
+                                className={`px-3 py-1 font-bold text-xs transition-colors border-b-2 whitespace-nowrap ${activeTab === t.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                              >
+                                {t.name}
+                              </button>
+                            ))}
                           </div>
 
                           {activeTab === 'summary' && (
@@ -13357,23 +13394,18 @@ const ERP_Dashboard = () => {
                                       <td className="border border-slate-300 p-1.5 text-right font-bold text-slate-800">{s.maintenanceSum.toLocaleString()}원</td>
                                     </tr>
                                   )}
-                                  {s.specialSum > 0 && (
-                                    <tr>
-                                      <td className="border border-slate-300 p-1.5 font-bold text-slate-600">
-                                        {(() => {
-                                          const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName) || globalIncentiveRules.find(r => 
-                                            (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
-                                            isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)
-                                          );
-                                          return matchedRule?.incentiveName || (s.hqName === '조재윤' || s.hqName === '조재은' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
-                                        })()}
-                                      </td>
-                                      <td className="border border-slate-300 p-1.5 text-center">
-                                        {(() => { const count = settlementStats.globalIncentivesCountSummary?.[s.hqName] || (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === s.hqName || sp.targetName === s.hqName).length || 5; return count + '건'; })()}
-                                      </td>
-                                      <td className="border border-slate-300 p-1.5 text-right font-bold text-slate-800">{s.specialSum.toLocaleString()}원</td>
-                                    </tr>
-                                  )}
+                                  {specialGroupKeys.map((incName) => {
+                                    const grp = specialGroups[incName];
+                                    return (
+                                      <tr key={incName}>
+                                        <td className="border border-slate-300 p-1.5 font-bold text-slate-600">{grp.name}</td>
+                                        <td className="border border-slate-300 p-1.5 text-center">
+                                          {grp.payouts.length > 0 ? `${grp.payouts.length}건` : '-'}
+                                        </td>
+                                        <td className="border border-slate-300 p-1.5 text-right font-bold text-slate-800">{grp.totalAmount.toLocaleString()}원</td>
+                                      </tr>
+                                    );
+                                  })}
                                   <tr className="bg-blue-50/50 font-bold">
                                     <td className="border border-slate-300 p-1.5 text-blue-900 bg-blue-50">총합계 금액</td>
                                     <td className="border border-slate-300 p-1.5 text-center bg-blue-50 text-slate-400 font-normal">-</td>
@@ -13435,25 +13467,24 @@ const ERP_Dashboard = () => {
                                       </td>
                                     </tr>
                                   )}
-                                  {s.specialSum > 0 && (
-                                    <tr>
-                                      <td className="border border-slate-300 p-1.5 bg-slate-50 font-bold text-left">
-                                        {(() => {
-                                          const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName || r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '');
-                                          return matchedRule?.incentiveName || (s.hqName === '조재윤' || s.hqName === '조재은' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
-                                        })()}
-                                      </td>
-                                      <td className="border border-slate-300 p-1.5">
-                                        {s.setting?.settlementType?.includes('개인') ? s.specialSum.toLocaleString() : Math.round(s.specialSum / 1.1).toLocaleString()}원
-                                      </td>
-                                      <td className="border border-slate-300 p-1.5 text-red-600">
-                                        {s.setting?.settlementType?.includes('개인') ? Math.floor(s.specialSum * 0.033).toLocaleString() : (s.specialSum - Math.round(s.specialSum / 1.1)).toLocaleString()}원
-                                      </td>
-                                      <td className="border border-slate-300 p-1.5 font-bold text-slate-800">
-                                        {s.setting?.settlementType?.includes('개인') ? (s.specialSum - Math.floor(s.specialSum * 0.033)).toLocaleString() : s.specialSum.toLocaleString()}원
-                                      </td>
-                                    </tr>
-                                  )}
+                                  {specialGroupKeys.map((incName) => {
+                                     const grp = specialGroups[incName];
+                                     const amt = grp.totalAmount;
+                                     return (
+                                       <tr key={incName}>
+                                         <td className="border border-slate-300 p-1.5 bg-slate-50 font-bold text-left">{grp.name}</td>
+                                         <td className="border border-slate-300 p-1.5">
+                                           {s.setting?.settlementType?.includes('개인') ? amt.toLocaleString() : Math.round(amt / 1.1).toLocaleString()}원
+                                         </td>
+                                         <td className="border border-slate-300 p-1.5 text-red-600">
+                                           {s.setting?.settlementType?.includes('개인') ? Math.floor(amt * 0.033).toLocaleString() : (amt - Math.round(amt / 1.1)).toLocaleString()}원
+                                         </td>
+                                         <td className="border border-slate-300 p-1.5 font-bold text-slate-800">
+                                           {s.setting?.settlementType?.includes('개인') ? (amt - Math.floor(amt * 0.033)).toLocaleString() : amt.toLocaleString()}원
+                                         </td>
+                                       </tr>
+                                     );
+                                   })}
                                   <tr className="font-bold bg-blue-50/50">
                                     <td className="border border-slate-300 p-1.5 bg-blue-100 text-blue-900 text-left">총 합계액</td>
                                     <td className="border border-slate-300 p-1.5 text-blue-800">
@@ -13507,6 +13538,7 @@ const ERP_Dashboard = () => {
                                   <thead>
                                     <tr className="bg-slate-100 text-slate-700 text-center font-bold">
                                       <th className="border border-slate-300 p-1.5">No</th>
+                                      <th className="border border-slate-300 p-1.5">본부</th>
                                       <th className="border border-slate-300 p-1.5">지사</th>
                                       <th className="border border-slate-300 p-1.5">사원명</th>
                                       <th className="border border-slate-300 p-1.5">고객명</th>
@@ -13524,6 +13556,7 @@ const ERP_Dashboard = () => {
                                       return (
                                         <tr key={i} className="text-center hover:bg-slate-50">
                                           <td className="border border-slate-300 p-1.5">{i + 1}</td>
+                                          <td className="border border-slate-300 p-1.5 font-bold text-slate-700">{item.hq || '-'}</td>
                                           <td className="border border-slate-300 p-1.5">{item.branch || '-'}</td>
                                           <td className="border border-slate-300 p-1.5">{item.empName || '-'}</td>
                                           <td className="border border-slate-300 p-1.5">{item.memName || item.customerName || '-'}</td>
@@ -13536,7 +13569,7 @@ const ERP_Dashboard = () => {
                                       );
                                     })}
                                     <tr className="bg-slate-50 font-bold">
-                                      <td colSpan={8} className="border border-slate-300 p-1.5 text-center text-slate-700">총합계 ({s.items.length}건)</td>
+                                      <td colSpan={9} className="border border-slate-300 p-1.5 text-center text-slate-700">총합계 ({s.items.length}건)</td>
                                       <td className="border border-slate-300 p-1.5 font-bold text-right text-blue-700">
                                         {s.items.reduce((sum: number, it: any) => sum + calculateCommissionDetails(it, s.stats).totalCommission, 0).toLocaleString()}원
                                       </td>
@@ -13579,25 +13612,21 @@ const ERP_Dashboard = () => {
                             </div>
                           )}
 
-                          {activeTab === 'special' && (() => {
-                            const matchedRule = globalIncentiveRules.find(r => r.targetName === s.hqName) || globalIncentiveRules.find(r => 
-                              (r.targetName === 'SELF_HQ' || r.targetName === '해당본부' || r.targetName === '판매본부' || !r.targetName || r.targetName.trim() === '') &&
-                              isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)
-                            );
-                            const matchedIncentiveName = matchedRule?.incentiveName || (s.hqName === '조재윤' || s.hqName === '조재은' ? '모델비' : (s.hqName === '조민경' ? '컨설팅비' : '공급수수료'));
+                          {activeTab.startsWith('special_') && (() => {
+                            const curIncName = activeTab.replace('special_', '');
+                            const curGroup = specialGroups[curIncName] || { name: curIncName, payouts: [], totalAmount: 0 };
+                            const groupPayouts = curGroup.payouts;
 
-                            // 실제 정산 로직에서 산출된 수당 발생 목록(specialPayouts)
-                            const actualSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === s.hqName);
-
-                            if (actualSpecialPayouts.length > 0) {
+                            if (groupPayouts.length > 0) {
                               return (
                                 <div className="bg-white p-4 rounded-lg border border-slate-200">
-                                  <div className="mb-2 font-bold text-xs text-slate-700">■ {matchedIncentiveName} 내역 (총 {s.specialSum.toLocaleString()}원)</div>
+                                  <div className="mb-2 font-bold text-xs text-slate-700">■ {curGroup.name} 내역 (총 {curGroup.totalAmount.toLocaleString()}원)</div>
                                   <div className="overflow-x-auto">
                                     <table className="w-full border-collapse border border-slate-300 text-[10px] whitespace-nowrap">
                                       <thead>
                                         <tr className="bg-slate-100 text-slate-700 text-center font-bold">
                                           <th className="border border-slate-300 p-1.5">No</th>
+                                          <th className="border border-slate-300 p-1.5">본부</th>
                                           <th className="border border-slate-300 p-1.5">지사</th>
                                           <th className="border border-slate-300 p-1.5">사원명</th>
                                           <th className="border border-slate-300 p-1.5">고객명</th>
@@ -13609,13 +13638,21 @@ const ERP_Dashboard = () => {
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {actualSpecialPayouts.map((sp: any, i: number) => {
+                                        {groupPayouts.map((sp: any, i: number) => {
+                                          const originContract = filteredData.find((d: any) => 
+                                            (sp.rentalNo && sp.rentalNo !== '-' && (d.rentalNo === sp.rentalNo || d.resNo === sp.rentalNo)) || 
+                                            (sp.memName && sp.memName !== '-' && d.memName === sp.memName)
+                                          );
+                                          const hqVal = sp.originHq && sp.originHq !== '-' 
+                                            ? sp.originHq 
+                                            : (originContract ? originContract.hq : (sp.hq || '-'));
                                           const branchVal = sp.branch && sp.branch !== '-'
                                             ? sp.branch
-                                            : (s.items.find((it: any) => (it.rentalNo && it.rentalNo === sp.rentalNo) || it.memName === sp.memName)?.branch || '-');
+                                            : (originContract ? originContract.branch : (s.items.find((it: any) => (it.rentalNo && it.rentalNo === sp.rentalNo) || it.memName === sp.memName)?.branch || '-'));
                                           return (
                                             <tr key={i} className="text-center hover:bg-slate-50">
                                               <td className="border border-slate-300 p-1.5">{i + 1}</td>
+                                              <td className="border border-slate-300 p-1.5 font-bold text-slate-700">{hqVal}</td>
                                               <td className="border border-slate-300 p-1.5">{branchVal}</td>
                                               <td className="border border-slate-300 p-1.5">{sp.empName || '-'}</td>
                                               <td className="border border-slate-300 p-1.5">{sp.memName || '-'}</td>
@@ -13630,9 +13667,9 @@ const ERP_Dashboard = () => {
                                           );
                                         })}
                                         <tr className="bg-slate-50 font-bold">
-                                          <td colSpan={8} className="border border-slate-300 p-1.5 text-center text-slate-700">총합계 ({actualSpecialPayouts.length}건)</td>
+                                          <td colSpan={9} className="border border-slate-300 p-1.5 text-center text-slate-700">총합계 ({groupPayouts.length}건)</td>
                                           <td className="border border-slate-300 p-1.5 font-bold text-right text-blue-700">
-                                            {actualSpecialPayouts.reduce((sum: number, sp: any) => sum + Number(sp.amount || 0), 0).toLocaleString()}원
+                                            {groupPayouts.reduce((sum: number, sp: any) => sum + Number(sp.amount || 0), 0).toLocaleString()}원
                                           </td>
                                         </tr>
                                       </tbody>
@@ -13642,7 +13679,8 @@ const ERP_Dashboard = () => {
                               );
                             }
 
-                            // 중복 없는 수당 해당 계약건 필터링 (Fallback)
+                            // Fallback: specialItems (payouts가 없는 특수한 경우)
+                            const matchedRule = globalIncentiveRules.find(r => r.incentiveName === curIncName && (r.targetName === s.hqName || r.targetName === 'SELF_HQ' || isHqMatchedForSpecialRule(r, s.hqName, divisionSettings)));
                             const processedRentalNos = new Set<string>();
                             const specialItems = s.items.filter((item: any) => {
                               if (!matchedRule) return true;
@@ -13675,12 +13713,13 @@ const ERP_Dashboard = () => {
 
                             return (
                               <div className="bg-white p-4 rounded-lg border border-slate-200">
-                                <div className="mb-2 font-bold text-xs text-slate-700">■ {matchedIncentiveName} 내역 (총 {s.specialSum.toLocaleString()}원)</div>
+                                <div className="mb-2 font-bold text-xs text-slate-700">■ {curGroup.name} 내역 (총 {curGroup.totalAmount.toLocaleString()}원)</div>
                                 <div className="overflow-x-auto">
                                   <table className="w-full border-collapse border border-slate-300 text-[10px] whitespace-nowrap">
                                     <thead>
                                       <tr className="bg-slate-100 text-slate-700 text-center font-bold">
                                         <th className="border border-slate-300 p-1.5">No</th>
+                                        <th className="border border-slate-300 p-1.5">본부</th>
                                         <th className="border border-slate-300 p-1.5">지사</th>
                                         <th className="border border-slate-300 p-1.5">사원명</th>
                                         <th className="border border-slate-300 p-1.5">고객명</th>
@@ -13693,22 +13732,13 @@ const ERP_Dashboard = () => {
                                     </thead>
                                     <tbody>
                                       {displayItems.map((item: any, i: number) => {
-                                        // specialPayouts에서 실제 매칭되는 수당 금액 검색
-                                        const rentalKey = item.rentalNo || item.resNo;
-                                        const matchedSp = (settlementStats.specialPayouts || []).find((sp: any) => 
-                                          sp.hq === s.hqName && (sp.rentalNo === rentalKey || sp.memName === item.memName)
-                                        );
-                                        
-                                        let itemAmount = matchedSp ? matchedSp.amount : (matchedRule?.commissionPerUnit || 0);
-                                        if (itemAmount === 0 && displayItems.length > 0) {
-                                          itemAmount = Math.round(s.specialSum / displayItems.length);
-                                        }
-
                                         const prodModel = item.rentalProd || item.modelName || item.productModel || item.prodName || '-';
+                                        let itemAmount = matchedRule?.commissionPerUnit || (displayItems.length > 0 ? Math.round(curGroup.totalAmount / displayItems.length) : 0);
 
                                         return (
                                           <tr key={i} className="text-center hover:bg-slate-50">
                                             <td className="border border-slate-300 p-1.5">{i + 1}</td>
+                                            <td className="border border-slate-300 p-1.5 font-bold text-slate-700">{item.hq || '-'}</td>
                                             <td className="border border-slate-300 p-1.5">{item.branch || '-'}</td>
                                             <td className="border border-slate-300 p-1.5">{item.empName || '-'}</td>
                                             <td className="border border-slate-300 p-1.5">{item.memName || item.customerName || '-'}</td>
@@ -13721,9 +13751,9 @@ const ERP_Dashboard = () => {
                                         );
                                       })}
                                       <tr className="bg-slate-50 font-bold">
-                                        <td colSpan={8} className="border border-slate-300 p-1.5 text-center text-slate-700">총합계 ({displayItems.length}건)</td>
+                                        <td colSpan={9} className="border border-slate-300 p-1.5 text-center text-slate-700">총합계 ({displayItems.length}건)</td>
                                         <td className="border border-slate-300 p-1.5 font-bold text-right text-blue-700">
-                                          {s.specialSum.toLocaleString()}원
+                                          {curGroup.totalAmount.toLocaleString()}원
                                         </td>
                                       </tr>
                                     </tbody>
