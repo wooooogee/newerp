@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { X, Calendar, Download, Search, Building2, ChevronRight, ChevronDown, FileSpreadsheet, Layers, CreditCard, ArrowUpDown, Filter, Check, RotateCcw } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { X, Calendar, Download, Search, Building2, ChevronRight, ChevronDown, FileSpreadsheet, Layers, CreditCard, ArrowUpDown, Filter, Check, RotateCcw, Lock, Unlock, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // @ts-ignore
@@ -16,6 +16,15 @@ export interface MonthlySettlementModalProps {
   calculateCommissionDetails: (item: any, countMap: Map<string, number>) => any;
   onExportHqSettlement?: (hqName: string, monthStr?: string) => Promise<void>;
   calculateMaintenancePayouts?: (items: any[], monthStr?: string, ignoreDay?: boolean) => any[];
+}
+
+interface SettlementClosureItem {
+  month: string;
+  closedAt: string;
+  closedBy: string;
+  status: 'CLOSED';
+  totalCount: number;
+  totalNet: number;
 }
 
 interface HqMonthlyStat {
@@ -103,6 +112,56 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   const [hqSearchInput, setHqSearchInput] = useState('');
   const hqDropdownRef = useRef<HTMLDivElement>(null);
 
+  // 마감 관리 상태
+  const [closureList, setClosureList] = useState<SettlementClosureItem[]>([]);
+  const [closedDetailMap, setClosedDetailMap] = useState<Record<string, { stats: HqMonthlyStat[]; closedAt: string; closedBy: string }>>({});
+  const [isLoadingClosure, setIsLoadingClosure] = useState<boolean>(false);
+
+  // 마감 목록 조회
+  const fetchClosureList = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sheets/settlement-closure/list');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setClosureList(json.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch closure list:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchClosureList();
+    }
+  }, [isOpen, fetchClosureList]);
+
+  // 현재 선택 월의 마감 여부
+  const currentClosure = useMemo(() => {
+    return closureList.find(c => c.month === selectedMonth);
+  }, [closureList, selectedMonth]);
+
+  const isCurrentMonthClosed = Boolean(currentClosure);
+
+  // 마감된 월의 확정 스냅샷 데이터 로드
+  useEffect(() => {
+    if (isCurrentMonthClosed && selectedMonth && !closedDetailMap[selectedMonth]) {
+      setIsLoadingClosure(true);
+      fetch(`/api/sheets/settlement-closure/detail?month=${encodeURIComponent(selectedMonth)}`)
+        .then(res => res.json())
+        .then(json => {
+          if (json.success && json.data) {
+            setClosedDetailMap(prev => ({
+              ...prev,
+              [selectedMonth]: json.data
+            }));
+          }
+        })
+        .catch(err => console.error('Failed to load closure detail:', err))
+        .finally(() => setIsLoadingClosure(false));
+    }
+  }, [isCurrentMonthClosed, selectedMonth, closedDetailMap]);
+
   // 1. 데이터에서 존재하는 모든 월(YYYY-MM) 목록 추출 (최신순 정렬)
   const availableMonths = useMemo(() => {
     const months = new Set<string>();
@@ -137,15 +196,39 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     }
   }, [availableMonths, selectedMonth]);
 
-  // 2. 전체 데이터 통계 맵 (수수료 단가 산출용)
+  // 2. 전체 데이터 통계 맵 (월별 실적 및 본부전체/그룹/해당상품 구간 판정 완벽 지원)
   const globalStatsMap = useMemo(() => {
-    const stats = new Map<string, number>();
+    const map = new Map<string, number>();
     (data || []).forEach(item => {
-      if ((item.status?.includes('취소') || item.status?.includes('해약')) && !item.payDate?.trim()) return;
-      const key = `${item.hq}_${item.prodName}_${item.payDate}`;
-      stats.set(key, (stats.get(key) || 0) + 1);
+      const isCancelled = item.status && (item.status.includes('취소') || item.status.includes('해약') || item.status.includes('철회') || item.status.includes('반품'));
+      if (isCancelled && !item.payDate?.trim()) return;
+      if (!item.hq) return;
+
+      const pDate = item.payDate || '';
+      const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+      const month = m ? `${m[1]}-${m[2].padStart(2, '0')}` : 'ALL';
+      const prod = item.prodName || '';
+
+      // 1) 본부 + 상품 + 월
+      const kProdMonth = `${item.hq}|${prod}|${month}`;
+      map.set(kProdMonth, (map.get(kProdMonth) || 0) + 1);
+
+      // 2) 본부 + 전체상품(__ALL__) + 월
+      const kAllMonth = `${item.hq}|__ALL__|${month}`;
+      map.set(kAllMonth, (map.get(kAllMonth) || 0) + 1);
+
+      // 3) 전체 누적 fallback (월 무관)
+      const kProd = `${item.hq}|${prod}`;
+      map.set(kProd, (map.get(kProd) || 0) + 1);
+
+      const kAll = `${item.hq}|__ALL__`;
+      map.set(kAll, (map.get(kAll) || 0) + 1);
+
+      // 4) 기존 언더스코어 호환용 키
+      const kLegacy = `${item.hq}_${prod}_${pDate}`;
+      map.set(kLegacy, (map.get(kLegacy) || 0) + 1);
     });
-    return stats;
+    return map;
   }, [data]);
 
   // 3. 선택된 월에 해당하는 본부별 정산 집계 계산
@@ -456,17 +539,25 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     return Array.from(statsMap.values());
   }, [data, selectedMonth, hqSettings, maintenancePayouts, globalIncentiveRules, divisionSettings, calculateCommissionDetails, globalStatsMap, calculateMaintenancePayouts]);
 
+  // 마감된 월은 확정 스냅샷 데이터(stats)를 우선 사용하고, 미마감 월은 실시간 계산 stats 사용
+  const effectiveHqMonthlyStats = useMemo(() => {
+    if (isCurrentMonthClosed && closedDetailMap[selectedMonth]?.stats) {
+      return closedDetailMap[selectedMonth].stats;
+    }
+    return hqMonthlyStats;
+  }, [isCurrentMonthClosed, closedDetailMap, selectedMonth, hqMonthlyStats]);
+
   // 3-1. 현재 월의 전체 고유 본부 목록
   const allAvailableHqs = useMemo(() => {
-    return Array.from<string>(new Set(hqMonthlyStats.map(s => s.hqName))).sort((a, b) => a.localeCompare(b, 'ko'));
-  }, [hqMonthlyStats]);
+    return Array.from<string>(new Set(effectiveHqMonthlyStats.map(s => s.hqName))).sort((a, b) => a.localeCompare(b, 'ko'));
+  }, [effectiveHqMonthlyStats]);
 
   // 3-2. 본부명 -> 통계 빠른 조회를 위한 맵
   const hqStatMap = useMemo(() => {
     const map = new Map<string, HqMonthlyStat>();
-    hqMonthlyStats.forEach(s => map.set(s.hqName, s));
+    effectiveHqMonthlyStats.forEach(s => map.set(s.hqName, s));
     return map;
-  }, [hqMonthlyStats]);
+  }, [effectiveHqMonthlyStats]);
 
   // 3-3. 월 변경 또는 초기 로드 시 본부 선택 목록 초기화/동기화
   const prevMonthRef = useRef<string>('');
@@ -530,7 +621,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
   // 필터링 및 정렬된 본부 목록
   const filteredAndSortedStats = useMemo(() => {
-    let list = hqMonthlyStats.filter(stat => {
+    let list = effectiveHqMonthlyStats.filter(stat => {
       // 1. 본부 다중 선택 필터
       if (!selectedHqs.includes(stat.hqName)) {
         return false;
@@ -561,7 +652,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
 
     return list;
-  }, [hqMonthlyStats, selectedHqs, typeFilter, searchTerm, sortField, sortAsc]);
+  }, [effectiveHqMonthlyStats, selectedHqs, typeFilter, searchTerm, sortField, sortAsc]);
 
   // 테이블 내 현재 표시된 본부들의 전체 선택 여부 판별
   const visibleHqNames = useMemo(() => filteredAndSortedStats.map(s => s.hqName), [filteredAndSortedStats]);
@@ -621,6 +712,85 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     } else {
       setSortField(field);
       setSortAsc(false);
+    }
+  };
+
+  // 정산 마감 확정 처리
+  const handleCloseSettlement = async () => {
+    if (!selectedMonth) return;
+    const ok = await (window as any).customConfirm?.(
+      `【 ${selectedMonth} 정산 마감 확정 】\n\n총 실적 건수: ${summaryTotals.totalCount.toLocaleString()}건\n총 지급 금액: ${summaryTotals.totalNet.toLocaleString()}원\n\n정산을 마감 확정하시겠습니까?\n확정 시 현재 시점의 실적 건수와 본부별 수수료 지급액이 구글 시트에 영구 보존됩니다.`
+    ) ?? window.confirm(`${selectedMonth} 정산을 마감 확정하시겠습니까?`);
+
+    if (!ok) return;
+
+    try {
+      setIsLoadingClosure(true);
+      const res = await fetch('/api/sheets/settlement-closure/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          month: selectedMonth,
+          closedBy: '관리자',
+          totalCount: summaryTotals.totalCount,
+          totalNet: summaryTotals.totalNet,
+          stats: hqMonthlyStats
+        })
+      });
+      const json = await res.json();
+      if (json.success) {
+        alert(`${selectedMonth} 정산이 성공적으로 마감 확정되었습니다.`);
+        setClosedDetailMap(prev => ({
+          ...prev,
+          [selectedMonth]: {
+            stats: hqMonthlyStats,
+            closedAt: new Date().toISOString(),
+            closedBy: '관리자'
+          }
+        }));
+        await fetchClosureList();
+      } else {
+        alert(`마감 실패: ${json.error || '오류가 발생했습니다.'}`);
+      }
+    } catch (err: any) {
+      alert(`마감 요청 중 오류가 발생했습니다: ${err.message}`);
+    } finally {
+      setIsLoadingClosure(false);
+    }
+  };
+
+  // 정산 마감 해제 처리
+  const handleReopenSettlement = async () => {
+    if (!selectedMonth) return;
+    const ok = await (window as any).customConfirm?.(
+      `【 ${selectedMonth} 정산 마감 해제 】\n\n마감을 해제하시겠습니까?\n해제 시 최신 실시간 데이터와 수수료 설정을 기반으로 동적 계산 모드로 전환됩니다.`
+    ) ?? window.confirm(`${selectedMonth} 정산 마감을 해제하시겠습니까?`);
+
+    if (!ok) return;
+
+    try {
+      setIsLoadingClosure(true);
+      const res = await fetch('/api/sheets/settlement-closure/reopen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: selectedMonth })
+      });
+      const json = await res.json();
+      if (json.success) {
+        alert(`${selectedMonth} 정산 마감이 해제되었습니다. 실시간 계산 모드로 전환됩니다.`);
+        setClosedDetailMap(prev => {
+          const next = { ...prev };
+          delete next[selectedMonth];
+          return next;
+        });
+        await fetchClosureList();
+      } else {
+        alert(`마감 해제 실패: ${json.error || '오류가 발생했습니다.'}`);
+      }
+    } catch (err: any) {
+      alert(`마감 해제 요청 중 오류가 발생했습니다: ${err.message}`);
+    } finally {
+      setIsLoadingClosure(false);
     }
   };
 
@@ -971,9 +1141,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl font-bold text-slate-900 tracking-tight">월별 본부 정산서 조회</h2>
-                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 font-bold">
-                    월별 본부별 지급 총액 집계
-                  </span>
+                  {isCurrentMonthClosed ? (
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-300 font-bold flex items-center gap-1.5 shadow-2xs">
+                      <Lock size={12} className="text-emerald-600" />
+                      마감 확정됨 ({currentClosure?.closedAt ? new Date(currentClosure.closedAt).toLocaleDateString('ko-KR') : ''} {currentClosure?.closedBy || ''})
+                    </span>
+                  ) : (
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-300 font-bold flex items-center gap-1.5 shadow-2xs">
+                      <Sparkles size={12} className="text-amber-500" />
+                      실시간 계산 모드 (미마감)
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   선택한 월에 어떤 본부에 얼마의 수수료 및 수당이 정산되었는지 한눈에 파악합니다.
@@ -982,6 +1160,28 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             </div>
 
             <div className="flex items-center gap-2.5">
+              {isCurrentMonthClosed ? (
+                <button
+                  onClick={handleReopenSettlement}
+                  disabled={isLoadingClosure}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-all shadow-md shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+                  title="마감을 해제하고 최신 실시간 계산으로 복구합니다"
+                >
+                  <Unlock size={14} />
+                  정산 마감 해제
+                </button>
+              ) : (
+                <button
+                  onClick={handleCloseSettlement}
+                  disabled={isLoadingClosure}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/20 cursor-pointer disabled:opacity-50"
+                  title="현재 실적 건수 및 단가로 정산서를 마감 확정하여 영구 보존합니다"
+                >
+                  <Lock size={14} />
+                  {selectedMonth} 정산 마감 확정
+                </button>
+              )}
+
               <button
                 onClick={handleExportExcel}
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
@@ -1013,11 +1213,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                   onChange={(e) => setSelectedMonth(e.target.value)}
                   className="px-3 py-1.5 rounded-lg text-xs font-black cursor-pointer border-0 bg-white text-blue-700 shadow-2xs focus:outline-hidden"
                 >
-                  {availableMonths.map(m => (
-                    <option key={m} value={m}>
-                      {m.replace('-', '년 ')}월 정산
-                    </option>
-                  ))}
+                  {availableMonths.map(m => {
+                    const isClosed = closureList.some(c => c.month === m);
+                    return (
+                      <option key={m} value={m}>
+                        {m.replace('-', '년 ')}월 정산 {isClosed ? '🔒(마감확정)' : '⚡(실시간)'}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -1167,19 +1370,19 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                   onClick={() => setTypeFilter('all')}
                   className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${typeFilter === 'all' ? 'bg-white text-blue-700 font-bold shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
                 >
-                  전체 본부 ({hqMonthlyStats.length})
+                  전체 본부 ({effectiveHqMonthlyStats.length})
                 </button>
                 <button
                   onClick={() => setTypeFilter('사업자')}
                   className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${typeFilter === '사업자' ? 'bg-blue-600 text-white font-bold shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
                 >
-                  사업자 ({hqMonthlyStats.filter(s => !s.settlementType.includes('개인')).length})
+                  사업자 ({effectiveHqMonthlyStats.filter(s => !s.settlementType.includes('개인')).length})
                 </button>
                 <button
                   onClick={() => setTypeFilter('개인')}
                   className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${typeFilter === '개인' ? 'bg-purple-600 text-white font-bold shadow-2xs' : 'text-slate-500 hover:text-slate-800'}`}
                 >
-                  개인 3.3% ({hqMonthlyStats.filter(s => s.settlementType.includes('개인')).length})
+                  개인 3.3% ({effectiveHqMonthlyStats.filter(s => s.settlementType.includes('개인')).length})
                 </button>
               </div>
             </div>

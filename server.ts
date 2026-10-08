@@ -741,7 +741,8 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       '비율(영업)', '비율(팀장)', '비율(지사)', '비율(본부)', 
       '상품명', '전체수수료', '판매수수료', '판매촉진비', '오버라이딩적용', '구간1건', '구간1단가', '구간2건', '구간2단가', '구간3건', '구간3단가',
       '상품영업', '상품팀장', '상품지사', '상품본부',
-      '상품유지수수료활성', '상품유지수수료룰'
+      '상품유지수수료활성', '상품유지수수료룰',
+      '구간집계기준', '구간그룹상품'
     ];
 
     const rows: any[][] = [headers];
@@ -786,7 +787,9 @@ app.post('/api/sheets/settings/save', async (req, res) => {
               p.overriding?.branchManager ?? hq.overriding?.branchManager ?? 0,
               p.overriding?.hqManager ?? hq.overriding?.hqManager ?? 0,
               (p.applyMaintenance === true || p.applyMaintenance === 'Y' || p.applyMaintenance === 'true' || (p.applyMaintenance !== false && p.applyMaintenance !== 'N' && p.applyMaintenance !== 'false' && ((p.productName || '').includes('유지') || (p.maintenanceRules && p.maintenanceRules.length > 0)))) ? 'Y' : 'N',
-              JSON.stringify(p.maintenanceRules || [])
+              JSON.stringify(p.maintenanceRules || []),
+              p.tierCountBasis || 'self',
+              JSON.stringify(p.tierGroupProducts || [])
             ]);
           });
         } else {
@@ -1350,6 +1353,8 @@ app.get('/api/sheets/settings/load', async (req, res) => {
     const prodHmCol = col('상품본부');
     const applyMaintenanceCol = col('상품유지수수료활성');
     const maintenanceRulesCol = col('상품유지수수료룰');
+    const tierBasisCol = col('구간집계기준');
+    const tierGroupCol = col('구간그룹상품');
 
     console.log(`[CloudSync] Header detected: id=${idCol}, settlementType=${settlementTypeCol}, isActive=${isActiveCol}, bank=${bankCol}`);
 
@@ -1411,7 +1416,9 @@ app.get('/api/sheets/settings/load', async (req, res) => {
           applyMaintenance: applyMaintenanceCol >= 0 
             ? (row[applyMaintenanceCol] === 'Y' || row[applyMaintenanceCol] === 'true' || (row[applyMaintenanceCol] !== 'N' && row[applyMaintenanceCol] !== 'false' && (productName.includes('유지') || pMaintRules.length > 0)))
             : (productName.includes('유지') || pMaintRules.length > 0),
-          maintenanceRules: pMaintRules
+          maintenanceRules: pMaintRules,
+          tierCountBasis: tierBasisCol >= 0 ? (row[tierBasisCol] || 'self') : 'self',
+          tierGroupProducts: (tierGroupCol >= 0 && row[tierGroupCol]) ? (()=>{ try { return JSON.parse(row[tierGroupCol]); } catch(e){ return []; } })() : []
         });
       }
     });
@@ -2406,6 +2413,264 @@ app.post('/api/sheets/manual-settlement/save', async (req, res) => {
     res.json({ success: true });
   } catch (error: any) {
     console.error("[Manual Settlement Save Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
+// ===================================================================
+// 월정산 마감 확정(Settlement Closure) API
+// ===================================================================
+// 1. 월정산 마감 목록 조회
+app.get('/api/sheets/settlement-closure/list', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    const closureSheet = sheetsList.find(s => s.properties?.title === '월정산마감');
+
+    if (!closureSheet) {
+      return res.json({ success: true, closures: [] });
+    }
+
+    const resp = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '월정산마감!A:H',
+    });
+
+    const rows = resp.data.values || [];
+    if (rows.length <= 1) {
+      return res.json({ success: true, closures: [] });
+    }
+
+    const closures = rows.slice(1).map((r, idx) => {
+      let summaryObj: any = null;
+      try {
+        if (r[7]) summaryObj = JSON.parse(r[7]);
+      } catch (e) {}
+
+      return {
+        rowIdx: idx + 2,
+        month: String(r[0] || '').trim(),
+        closedAt: String(r[1] || '').trim(),
+        closedBy: String(r[2] || '').trim(),
+        status: String(r[3] || 'OPEN').trim() as 'CLOSED' | 'OPEN',
+        hqCount: Number(r[4]) || 0,
+        totalCount: Number(r[5]) || 0,
+        totalAmount: Number(r[6]) || 0,
+        summary: summaryObj
+      };
+    }).filter(c => !!c.month);
+
+    res.json({ success: true, closures });
+  } catch (error: any) {
+    console.error("[Settlement Closure List Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
+// 2. 특정 월의 상세 스냅샷 조회
+app.get('/api/sheets/settlement-closure/detail', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const targetMonth = String(req.query.month || '').trim();
+  if (!targetMonth) return res.status(400).json({ error: 'month parameter is required' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const resp = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '월정산마감!A:I',
+    });
+
+    const rows = resp.data.values || [];
+    const matchedRow = rows.slice(1).find(r => String(r[0] || '').trim() === targetMonth);
+
+    if (!matchedRow) {
+      return res.json({ success: true, found: false });
+    }
+
+    let summaryObj = null;
+    let detailsArr = null;
+    try {
+      if (matchedRow[7]) summaryObj = JSON.parse(matchedRow[7]);
+      if (matchedRow[8]) detailsArr = JSON.parse(matchedRow[8]);
+    } catch (e) {}
+
+    res.json({
+      success: true,
+      found: true,
+      closure: {
+        month: String(matchedRow[0] || '').trim(),
+        closedAt: String(matchedRow[1] || '').trim(),
+        closedBy: String(matchedRow[2] || '').trim(),
+        status: String(matchedRow[3] || 'OPEN').trim(),
+        hqCount: Number(matchedRow[4]) || 0,
+        totalCount: Number(matchedRow[5]) || 0,
+        totalAmount: Number(matchedRow[6]) || 0,
+        summary: summaryObj,
+        details: detailsArr
+      }
+    });
+  } catch (error: any) {
+    console.error("[Settlement Closure Detail Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
+// 3. 월정산 마감 확정 저장 (신규 또는 덮어쓰기)
+app.post('/api/sheets/settlement-closure/save', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { month, closedBy, summary, details } = req.body;
+  if (!month) return res.status(400).json({ error: 'month is required' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let closureSheet = sheetsList.find(s => s.properties?.title === '월정산마감');
+    let sheetInternalId = closureSheet?.properties?.sheetId;
+
+    const headers = [['정산월', '마감일시', '마감자', '마감상태', '본부수', '총건수', '총지급액', '요약데이터', '상세스냅샷']];
+
+    if (!closureSheet) {
+      console.log("[SettlementClosure] Creating '월정산마감' sheet...");
+      const addResp = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '월정산마감' } } }]
+        }
+      });
+      sheetInternalId = addResp.data.replies?.[0].addSheet?.properties?.sheetId;
+
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '월정산마감!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: headers }
+      });
+    }
+
+    // 기존 데이터 확인
+    const readResp = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '월정산마감!A:A',
+    });
+    const colA = (readResp.data.values || []).map(r => String(r[0] || '').trim());
+    const existingRowIdx = colA.findIndex((m, idx) => idx > 0 && m === month);
+
+    const nowStr = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+    const hqCount = Array.isArray(summary) ? summary.length : 0;
+    const totalCount = Array.isArray(summary) ? summary.reduce((sum: number, s: any) => sum + (s.count || 0), 0) : 0;
+    const totalAmount = Array.isArray(summary) ? summary.reduce((sum: number, s: any) => sum + (s.netTotal || s.totalAmount || 0), 0) : 0;
+
+    const rowData = [
+      month,
+      nowStr,
+      closedBy || '관리자',
+      'CLOSED',
+      hqCount,
+      totalCount,
+      totalAmount,
+      JSON.stringify(summary || []),
+      JSON.stringify(details || [])
+    ];
+
+    if (existingRowIdx > 0) {
+      // 1-based index (header is row 1, existingRowIdx is 0-based in colA)
+      const targetRowNum = existingRowIdx + 1;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `월정산마감!A${targetRowNum}:I${targetRowNum}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [rowData] }
+      });
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '월정산마감!A1',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [rowData] }
+      });
+    }
+
+    res.json({
+      success: true,
+      closure: {
+        month,
+        closedAt: nowStr,
+        closedBy: closedBy || '관리자',
+        status: 'CLOSED',
+        hqCount,
+        totalCount,
+        totalAmount
+      }
+    });
+  } catch (error: any) {
+    console.error("[Settlement Closure Save Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
+// 4. 월정산 마감 해제 API
+app.post('/api/sheets/settlement-closure/reopen', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { month } = req.body;
+  if (!month) return res.status(400).json({ error: 'month is required' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const readResp = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '월정산마감!A:D',
+    });
+    const rows = readResp.data.values || [];
+    const existingRowIdx = rows.findIndex((r, idx) => idx > 0 && String(r[0] || '').trim() === month);
+
+    if (existingRowIdx > 0) {
+      const targetRowNum = existingRowIdx + 1;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `월정산마감!D${targetRowNum}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [['OPEN']] }
+      });
+    }
+
+    res.json({ success: true, month, status: 'OPEN' });
+  } catch (error: any) {
+    console.error("[Settlement Closure Reopen Error]", error);
     return handleGoogleError(error, res);
   }
 });

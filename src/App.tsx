@@ -83,6 +83,8 @@ interface ProductRule {
   tier2Price: number;
   tier3Count: number;
   tier3Price: number;
+  tierCountBasis?: 'all' | 'self' | 'group'; // 구간 집계 기준: 'all'=본부 전체 상품 실적 합계, 'self'=해당 상품 단독 실적, 'group'=지정 상품군 실적 합산
+  tierGroupProducts?: string[]; // group일 때 묶을 상품명 목록
   applyOverriding?: boolean;
   overriding?: {
     salesperson: number;
@@ -2581,7 +2583,44 @@ const ERP_Dashboard = () => {
     }
   };
 
-  // 공통 수수료 계산 로직
+  // 본부별/월별 실적 건수 집계 맵 생성 헬퍼
+  const buildHqCountMap = useCallback((dataList: ERPDataItem[]) => {
+    const map = new Map<string, number>();
+
+    (dataList || []).forEach(item => {
+      const isCancelled = item.status && (item.status.includes('취소') || item.status.includes('해약') || item.status.includes('철회') || item.status.includes('반품'));
+      if (isCancelled && !item.payDate?.trim()) return;
+      if (!item.hq) return;
+
+      const pDate = item.payDate || '';
+      const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+      const month = m ? `${m[1]}-${m[2].padStart(2, '0')}` : 'ALL';
+      const prod = item.prodName || '';
+
+      // 1) 본부 + 상품 + 월
+      const kProdMonth = `${item.hq}|${prod}|${month}`;
+      map.set(kProdMonth, (map.get(kProdMonth) || 0) + 1);
+
+      // 2) 본부 + 전체상품(__ALL__) + 월
+      const kAllMonth = `${item.hq}|__ALL__|${month}`;
+      map.set(kAllMonth, (map.get(kAllMonth) || 0) + 1);
+
+      // 3) 전체 누적 fallback (월 무관)
+      const kProd = `${item.hq}|${prod}`;
+      map.set(kProd, (map.get(kProd) || 0) + 1);
+
+      const kAll = `${item.hq}|__ALL__`;
+      map.set(kAll, (map.get(kAll) || 0) + 1);
+
+      // 4) 기존 언더스코어 호환용 키
+      const kLegacy = `${item.hq}_${prod}_${getDisplayPayDate(item)}`;
+      map.set(kLegacy, (map.get(kLegacy) || 0) + 1);
+    });
+
+    return map;
+  }, []);
+
+  // 공통 수수료 계산 로직 (월별 실적 및 본부전체/그룹/해당상품 구간 판정 완벽 지원)
   const calculateCommissionDetails = (item: ERPDataItem, hqTotalCountMap: Map<string, number>) => {
     const setting = hqSettings.find(s => s.hqName === item.hq);
     const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
@@ -2602,7 +2641,31 @@ const ERP_Dashboard = () => {
       else if (setting.productRules.length > 0) productRule = setting.productRules[0];
     }
 
-    const count = hqTotalCountMap.get(`${item.hq}|${item.prodName}`) || 1;
+    const pRule = productRule as ProductRule | undefined;
+    const basis = pRule?.tierCountBasis || 'self'; // 'all' | 'self' | 'group'
+    const pDate = item.payDate || '';
+    const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+    const month = m ? `${m[1]}-${m[2].padStart(2, '0')}` : 'ALL';
+
+    // 실적 건수 산정
+    let count = 1;
+    if (basis === 'all') {
+      // 본부 전체 상품 당월 실적 합계
+      count = hqTotalCountMap.get(`${item.hq}|__ALL__|${month}`) ?? hqTotalCountMap.get(`${item.hq}|__ALL__`) ?? 1;
+    } else if (basis === 'group' && Array.isArray(pRule?.tierGroupProducts) && pRule.tierGroupProducts.length > 0) {
+      // 지정된 일부 상품 그룹 당월 실적 합계
+      const groupSum = pRule.tierGroupProducts.reduce((sum, gProd) => {
+        const c = hqTotalCountMap.get(`${item.hq}|${gProd}|${month}`) ?? hqTotalCountMap.get(`${item.hq}|${gProd}`) ?? 0;
+        return sum + c;
+      }, 0);
+      count = groupSum > 0 ? groupSum : 1;
+    } else {
+      // 해당 상품 단독 당월 실적
+      count = hqTotalCountMap.get(`${item.hq}|${item.prodName}|${month}`) ??
+        hqTotalCountMap.get(`${item.hq}|${item.prodName}`) ??
+        hqTotalCountMap.get(`${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`) ?? 1;
+    }
+
     let unitPrice = productRule?.totalAmount || 0;
     let salesPart = productRule?.salesAmount || 0;
     let isSpecialFixedProduct = false;
@@ -2613,8 +2676,7 @@ const ERP_Dashboard = () => {
       salesPart = 50000;
       isSpecialFixedProduct = true;
     }
-    else if (productRule) {
-      const pRule = productRule as ProductRule;
+    else if (pRule) {
       if (pRule.tier3Count > 0 && count >= pRule.tier3Count) unitPrice = pRule.tier3Price;
       else if (pRule.tier2Count > 0 && count >= pRule.tier2Count) unitPrice = pRule.tier2Price;
       else if (pRule.tier1Count > 0 && count >= pRule.tier1Count) unitPrice = pRule.tier1Price;
@@ -2665,7 +2727,9 @@ const ERP_Dashboard = () => {
       withholdingTax,
       finalPayable,
       supplyAmount,
-      productRule
+      productRule,
+      achievedCount: count,
+      tierBasis: basis
     };
   };
 
@@ -3680,12 +3744,7 @@ const ERP_Dashboard = () => {
   }, [maintenanceFilteredData, calculateMaintenancePayouts, isHQStaff]);
 
   const settlementStats = React.useMemo(() => {
-    const statsMap = new Map<string, number>();
-    data.forEach(item => {
-      if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
-      const key = `${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`;
-      statsMap.set(key, (statsMap.get(key) || 0) + 1);
-    });
+    const statsMap = buildHqCountMap(data);
 
     const summary: Record<string, { count: number, amount: number }> = {};
     const hqSummary: Record<string, { count: number, amount: number }> = {};
@@ -4061,12 +4120,7 @@ const ERP_Dashboard = () => {
   }, [filteredData, hqSettings, historyReconData, payDateFilter, isHQStaff, userHqNames, maintenancePayouts, globalIncentiveRules, divisionSettings]);
 
   const pendingDeliveryStats = React.useMemo(() => {
-    const statsMap = new Map<string, number>();
-    data.forEach(item => {
-      if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
-      const key = `${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`;
-      statsMap.set(key, (statsMap.get(key) || 0) + 1);
-    });
+    const statsMap = buildHqCountMap(data);
 
     let totalAmount = 0;
     let totalCount = 0;
@@ -10199,6 +10253,7 @@ const ERP_Dashboard = () => {
                                     const newRule: ProductRule = {
                                       productName: name, totalAmount: 0, salesAmount: 0,
                                       tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0,
+                                      tierCountBasis: 'self', tierGroupProducts: [],
                                       applyOverriding: false, applyMaintenance: false, maintenanceRules: []
                                     };
                                     setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: [...h.productRules, newRule] } : h));
@@ -10213,21 +10268,21 @@ const ERP_Dashboard = () => {
                                 <table className="w-full text-[12px] border-collapse">
                                   <thead>
                                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black uppercase tracking-tighter">
-                                      <th className="px-4 py-3 text-left w-[24%]">상품명</th>
-                                      <th className="px-4 py-3 text-right w-[11%]">전체</th>
-                                      <th className="px-4 py-3 text-right w-[11%]">판매</th>
-                                      <th className="px-4 py-3 text-right text-orange-600 w-[11%]">촉진</th>
-                                      <th className="px-4 py-3 text-center w-[9%]">오버라이딩</th>
-                                      <th className="px-4 py-3 text-center w-[9%]">유지수수료</th>
-                                      <th className="px-4 py-3 text-center border-l border-slate-100 bg-blue-50/30 w-[21%]">구간별 수수료 설정 (건 / 단가)</th>
-                                      <th className="px-4 py-3 text-center w-[4%]">삭제</th>
+                                      <th className="px-4 py-3 text-left w-[20%]">상품명</th>
+                                      <th className="px-3 py-3 text-right w-[10%]">전체</th>
+                                      <th className="px-3 py-3 text-right w-[10%]">판매</th>
+                                      <th className="px-3 py-3 text-right text-orange-600 w-[10%]">촉진</th>
+                                      <th className="px-2 py-3 text-center w-[7%]">오버라이딩</th>
+                                      <th className="px-2 py-3 text-center w-[7%]">유지수수료</th>
+                                      <th className="px-3 py-3 text-center border-l border-slate-100 bg-blue-50/30 w-[32%]">구간별 수수료 (실적기준 / 건 / 단가)</th>
+                                      <th className="px-2 py-3 text-center w-[4%]">삭제</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100">
                                     {s.productRules.map((pr, pIdx) => (
                                       <React.Fragment key={pIdx}>
                                       <tr className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-4 py-3 font-bold text-slate-700 w-[24%] align-middle">
+                                        <td className="px-4 py-3 font-bold text-slate-700 w-[20%] align-middle">
                                           <input
                                             type="text" value={pr.productName}
                                             onChange={(e) => {
@@ -10237,7 +10292,7 @@ const ERP_Dashboard = () => {
                                             className="w-full bg-transparent border-0 font-bold outline-none focus:text-blue-600"
                                           />
                                         </td>
-                                        <td className="px-4 py-3 w-[11%] align-middle">
+                                        <td className="px-3 py-3 w-[10%] align-middle">
                                           <input
                                             type="text" value={pr.totalAmount !== undefined && pr.totalAmount !== null ? pr.totalAmount.toLocaleString() : "0"}
                                             onChange={(e) => {
@@ -10247,7 +10302,7 @@ const ERP_Dashboard = () => {
                                             className="w-full bg-transparent border-0 text-right font-black outline-none"
                                           />
                                         </td>
-                                        <td className="px-4 py-3 w-[11%] align-middle">
+                                        <td className="px-3 py-3 w-[10%] align-middle">
                                           <input
                                             type="text" value={pr.salesAmount !== undefined && pr.salesAmount !== null ? pr.salesAmount.toLocaleString() : "0"}
                                             onChange={(e) => {
@@ -10257,10 +10312,10 @@ const ERP_Dashboard = () => {
                                             className="w-full bg-transparent border-0 text-right font-bold text-blue-600 outline-none"
                                           />
                                         </td>
-                                        <td className="px-4 py-3 text-right font-bold text-orange-500 w-[11%] align-middle">
+                                        <td className="px-3 py-3 text-right font-bold text-orange-500 w-[10%] align-middle">
                                           {(pr.totalAmount - pr.salesAmount).toLocaleString()}
                                         </td>
-                                        <td className="px-4 py-3 text-center align-middle w-[9%]">
+                                        <td className="px-2 py-3 text-center align-middle w-[7%]">
                                           <div className="flex flex-col items-center justify-center">
                                             <input type="checkbox" checked={pr.applyOverriding === true} onChange={(e) => {
                                               const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, applyOverriding: e.target.checked } : r);
@@ -10268,7 +10323,7 @@ const ERP_Dashboard = () => {
                                             }} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" />
                                           </div>
                                         </td>
-                                        <td className="px-4 py-3 text-center align-middle w-[9%]">
+                                        <td className="px-2 py-3 text-center align-middle w-[7%]">
                                           <div className="flex flex-col items-center justify-center">
                                             <input type="checkbox" checked={parseBooleanValue(pr.applyMaintenance)} onChange={(e) => {
                                               const updated = s.productRules.map((r, i) => {
@@ -10283,33 +10338,91 @@ const ERP_Dashboard = () => {
                                             }} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer" />
                                           </div>
                                         </td>
-                                        <td className="px-2 py-3 border-l border-slate-100 bg-blue-50/10 align-middle w-[21%]">
-                                          <div className="flex flex-col gap-1.5">
-                                            {[1, 2, 3].map(t => (
-                                              <div key={t} className="flex items-center justify-center gap-1 bg-white p-1 rounded border border-slate-100 shadow-sm max-w-[150px] mx-auto">
-                                                <span className="text-[9px] font-black text-indigo-400 min-w-[12px]">{t}</span>
-                                                <input
-                                                  type="number" value={(pr as any)[`tier${t}Count`]}
-                                                  onChange={(e) => {
-                                                    const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Count`]: parseInt(e.target.value) || 0 } : r);
-                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                                  }}
-                                                  className="w-8 text-[10px] text-center outline-none bg-slate-50/50 rounded"
-                                                  placeholder="건"
-                                                />
-                                                <span className="text-[8px] text-slate-300">↑</span>
-                                                <input
-                                                  type="text" value={(pr as any)[`tier${t}Price`] !== undefined && (pr as any)[`tier${t}Price`] !== null ? (pr as any)[`tier${t}Price`].toLocaleString() : "0"}
-                                                  onChange={(e) => {
-                                                    const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0 } : r);
-                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                                  }}
-                                                  className="w-14 text-[10px] text-right outline-none font-bold text-indigo-600 bg-slate-50/50 rounded pr-1"
-                                                  placeholder="단가"
-                                                />
+                                        <td className="px-3 py-3 border-l border-slate-100 bg-blue-50/10 align-middle w-[32%]">
+                                          <div className="flex flex-col gap-2">
+                                            {/* 실적 건수 판정 기준 */}
+                                            <div className="flex items-center gap-1.5 bg-white p-1 rounded-md border border-slate-200">
+                                              <span className="text-[10px] font-bold text-slate-500 shrink-0">기준:</span>
+                                              <select
+                                                value={pr.tierCountBasis || 'self'}
+                                                onChange={(e) => {
+                                                  const val = e.target.value as 'all' | 'self' | 'group';
+                                                  const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, tierCountBasis: val } : r);
+                                                  setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                }}
+                                                className="w-full text-[11px] font-bold text-slate-700 bg-transparent outline-none cursor-pointer"
+                                              >
+                                                <option value="self">📦 해당 상품 단독 건수</option>
+                                                <option value="all">🌐 본부 전체 상품 합산</option>
+                                                <option value="group">🗂️ 지정 상품군 합산</option>
+                                              </select>
+                                            </div>
+
+                                            {/* 지정 상품군 선택 팝업/영역 */}
+                                            {pr.tierCountBasis === 'group' && (
+                                              <div className="bg-indigo-50/70 p-2 rounded-lg border border-indigo-100 text-[10px]">
+                                                <div className="font-bold text-indigo-700 mb-1 flex items-center justify-between">
+                                                  <span>합산할 상품 선택:</span>
+                                                  <span className="text-[9px] text-indigo-500 font-normal">{(pr.tierGroupProducts || []).length}개 선택됨</span>
+                                                </div>
+                                                <div className="max-h-24 overflow-y-auto space-y-1 bg-white p-1.5 rounded border border-indigo-100">
+                                                  {s.productRules.map(otherPr => (
+                                                    <label key={otherPr.productName} className="flex items-center gap-1.5 text-[11px] cursor-pointer hover:bg-slate-50 p-0.5 rounded">
+                                                      <input
+                                                        type="checkbox"
+                                                        checked={(pr.tierGroupProducts || []).includes(otherPr.productName)}
+                                                        onChange={(e) => {
+                                                          const current = pr.tierGroupProducts || [];
+                                                          const next = e.target.checked
+                                                            ? [...current, otherPr.productName]
+                                                            : current.filter(p => p !== otherPr.productName);
+                                                          const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, tierGroupProducts: next } : r);
+                                                          setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                        }}
+                                                        className="w-3.5 h-3.5 text-indigo-600 rounded"
+                                                      />
+                                                      <span className="truncate">{otherPr.productName}</span>
+                                                    </label>
+                                                  ))}
+                                                </div>
                                               </div>
-                                            ))}
+                                            )}
+
+                                            {/* 1, 2, 3 구간 건수/단가 입력 */}
+                                            <div className="flex flex-col gap-1">
+                                              {[1, 2, 3].map(t => (
+                                                <div key={t} className="flex items-center justify-between gap-1 bg-white p-1 px-1.5 rounded border border-slate-100 shadow-xs">
+                                                  <span className="text-[10px] font-black text-indigo-400 min-w-[12px]">{t}</span>
+                                                  <div className="flex items-center gap-0.5">
+                                                    <input
+                                                      type="number" value={(pr as any)[`tier${t}Count`]}
+                                                      onChange={(e) => {
+                                                        const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Count`]: parseInt(e.target.value) || 0 } : r);
+                                                        setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                      }}
+                                                      className="w-9 text-[11px] text-center outline-none bg-slate-50/70 rounded border border-slate-200 py-0.5"
+                                                      placeholder="0"
+                                                    />
+                                                    <span className="text-[9px] text-slate-400">건↑</span>
+                                                  </div>
+                                                  <div className="flex items-center gap-0.5">
+                                                    <input
+                                                      type="text" value={(pr as any)[`tier${t}Price`] !== undefined && (pr as any)[`tier${t}Price`] !== null ? (pr as any)[`tier${t}Price`].toLocaleString() : "0"}
+                                                      onChange={(e) => {
+                                                        const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0 } : r);
+                                                        setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                      }}
+                                                      className="w-20 text-[11px] text-right outline-none font-bold text-indigo-600 bg-slate-50/70 rounded border border-slate-200 py-0.5 pr-1"
+                                                      placeholder="0"
+                                                    />
+                                                    <span className="text-[9px] text-slate-400">원</span>
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
                                           </div>
+                                        </td>
+                                        <td className="px-2 py-3 text-center align-middle w-[4%]">
                                           <button
                                             onClick={async () => {
                                               if (await (window as any).customConfirm('삭제하시겠습니까?')) {
@@ -10318,6 +10431,7 @@ const ERP_Dashboard = () => {
                                               }
                                             }}
                                             className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded transition-colors"
+                                            title="상품 삭제"
                                           >
                                             <X size={14} />
                                           </button>
@@ -10325,7 +10439,7 @@ const ERP_Dashboard = () => {
                                       </tr>
                                       {pr.applyOverriding === true && (
                                         <tr className="bg-indigo-50/40 border-b border-indigo-100">
-                                          <td colSpan={7} className="px-6 py-4">
+                                          <td colSpan={8} className="px-6 py-4">
                                             <div className="flex flex-col gap-2">
                                               <h6 className="text-[11px] font-black text-indigo-800 flex items-center gap-1.5"><Users size={12} /> {pr.productName} 오버라이딩 배분 구조 (고정금액)</h6>
                                               <div className="grid grid-cols-4 gap-4 mt-2">
