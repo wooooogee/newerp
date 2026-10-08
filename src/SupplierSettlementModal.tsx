@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplierItem, SupplierProductSetting, loadSuppliersFromStorage } from './SupplierManagementModal';
+import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo } from './manualOrderUtils';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -59,6 +60,8 @@ interface SupplierSettlementItem {
   recipientHolder?: string;
   deliveryDate: string;       // 배송일/설치확인일
   deliveryStatus: string;     // 배송완료
+  installCertStatus?: string; // 설치확인서 등록여부
+  installCertMonth?: string;  // 설치확인서 마감월
   hq: string;
   branch: string;
   empName: string;
@@ -129,21 +132,26 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     }
   }, [isOpen]);
 
-  // 로컬스토리지 수기발주 데이터 보정 맵 (수기발주에서 직접 수정한 배송일자/상태가 있을 경우 반영)
-  const manualOrderOverrideMap = useMemo(() => {
-    const map = new Map<string, { deliveryDate: string; deliveryState: string }>();
+  // 로컬스토리지 수기발주 데이터 보정 맵 및 저장소 로드 (수기발주에서 직접 수정한 배송일자/상태/확인서가 있을 경우 반영)
+  const manualOrderStores = useMemo(() => {
+    let stores: Record<string, ManualOrderInfo> = {};
     try {
-      const saved = localStorage.getItem('erp_manual_orders_v1');
-      if (saved) {
-        const parsed = JSON.parse(saved);
+      const saved = localStorage.getItem('erp_manual_orders_saved_store_v1');
+      if (saved) stores = JSON.parse(saved);
+      const legacySaved = localStorage.getItem('erp_manual_orders_v1');
+      if (legacySaved) {
+        const parsed = JSON.parse(legacySaved);
         if (Array.isArray(parsed)) {
           parsed.forEach((o: any) => {
             const key = o.contractNo || o.rentalNo || o.memNo;
-            if (key) {
-              map.set(key, {
+            if (key && !stores[key]) {
+              stores[key] = {
                 deliveryDate: o.deliveryDate || '',
-                deliveryState: o.deliveryState || ''
-              });
+                deliveryState: o.deliveryState || '',
+                installCertStatus: o.installCertStatus || '미등록',
+                installCertDate: o.installCertDate || '',
+                installCertMonth: o.installCertMonth || '',
+              };
             }
           });
         }
@@ -151,13 +159,23 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     } catch (e) {
       console.error(e);
     }
-    return map;
+    return stores;
+  }, [isOpen]);
+
+  const manualOrderTargetProducts = useMemo(() => {
+    try {
+      const saved = localStorage.getItem('erp_manual_order_target_products_v1');
+      if (saved) return JSON.parse(saved) as string[];
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
   }, [isOpen]);
 
   // 정산 대상 데이터 추출 및 공급사 매핑 엔진
   // 요구사항:
   // 1) 배송완료 상태
-  // 2) 해당 월 말일까지 배송일/설치확인일 등록 완료된 건
+  // 2) 설치확인서 등록여부 및 정산 마감월(selectedMonth) 등록 완료 건
   // 3) 회원번호 불필요 -> 고유 렌탈계약번호(rentalNo) 기준으로 상품개수 1개씩 운영
   // 4) 본부별 차등 공급 수수료 우선 매칭
   const settlementItems = useMemo<SupplierSettlementItem[]>(() => {
@@ -176,24 +194,31 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         item.deliveryStatus?.includes('취소');
       if (isCancelled) return;
 
-      // 2. 수기발주 오버라이드 확인
-      const override = manualOrderOverrideMap.get(item.rentalNo) || 
-                       manualOrderOverrideMap.get(item.memNo) ||
-                       manualOrderOverrideMap.get(item.uniqueKey);
+      // 2. 수기발주 및 설치확인서 판별
+      const manualInfo = getManualOrderInfo(item, manualOrderStores);
+      const certEligibility = checkInstallCertEligibility(item, manualOrderStores, manualOrderTargetProducts);
 
-      const effectiveDeliveryStatus = override?.deliveryState || item.deliveryStatus || '';
-      const effectiveDeliveryDate = override?.deliveryDate || item.deliveryDate || '';
+      const effectiveDeliveryStatus = manualInfo?.deliveryState || item.deliveryStatus || '';
+      const effectiveDeliveryDate = manualInfo?.deliveryDate || item.deliveryDate || '';
 
       // 조건: 배송완료 상태여야 함
       if (!effectiveDeliveryStatus.includes('완료') && effectiveDeliveryStatus !== '배송완료') {
         return;
       }
 
-      // 조건: 해당 월(YYYY-MM) 내 배송/설치확인 완료 건 (말일까지 설치확인서 등록 기준)
-      if (!effectiveDeliveryDate) return;
-      const normalizedDelDate = effectiveDeliveryDate.replace(/[./]/g, '-');
-      const delMonth = normalizedDelDate.substring(0, 7);
-      if (delMonth !== selectedMonth) return;
+      // 조건: 수기발주 대상 건인 경우 설치확인서 등록 여부 및 마감월 기준 판정
+      if (certEligibility.isTargetOrder) {
+        // 미등록 또는 보류인 경우 공급수수료 정산 대상 제외
+        if (certEligibility.isHold) return;
+        // 설치확인서 등록 건인 경우: 마감월(certMonth)이 해당 월(selectedMonth)과 일치해야 함
+        if (certEligibility.certMonth !== selectedMonth) return;
+      } else {
+        // 일반 상품인 경우: 배송일자 기준 해당 월 내 완료 건
+        if (!effectiveDeliveryDate) return;
+        const normalizedDelDate = effectiveDeliveryDate.replace(/[./]/g, '-');
+        const delMonth = normalizedDelDate.substring(0, 7);
+        if (delMonth !== selectedMonth) return;
+      }
 
       // 3. 렌탈계약번호 기준 상품개수 운영 (동일 렌탈계약번호 중복 제거)
       const cleanRentalNo = (item.rentalNo || '').trim();
@@ -285,6 +310,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
           recipientHolder: matchedProductSetting.recipientHolder || matchedSupplier.accountHolder,
           deliveryDate: effectiveDeliveryDate,
           deliveryStatus: '배송완료',
+          installCertStatus: certEligibility?.isCertRegistered ? '등록' : (manualInfo?.installCertStatus || undefined),
+          installCertMonth: certEligibility?.certMonth || (manualInfo?.installCertMonth || undefined),
           hq: item.hq || '-',
           branch: item.branch || '-',
           empName: item.empName || '-'
@@ -293,7 +320,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     });
 
     return result;
-  }, [data, suppliers, selectedMonth, manualOrderOverrideMap]);
+  }, [data, suppliers, selectedMonth, manualOrderStores, manualOrderTargetProducts]);
 
   // ==========================================
   // [1] 물품 대금 집계 (공급사별)

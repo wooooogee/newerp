@@ -28,6 +28,7 @@ import { VocManagementModal } from './VocManagementModal';
 import { AccountManagementModal } from './AccountManagementModal';
 import { OrganizationChartModal } from './OrganizationChartModal';
 import { MonthlySettlementModal } from './MonthlySettlementModal';
+import { checkInstallCertEligibility, isSupplyCommissionRule } from './manualOrderUtils';
 import { TargetItemsSelectorModal } from './TargetItemsSelectorModal';
 import { ExcelSyncModal } from './ExcelSyncModal';
 import { CmsRegistrationModal } from './CmsRegistrationModal';
@@ -3823,6 +3824,18 @@ const ERP_Dashboard = () => {
     const globalIncentivesCountSummary: Record<string, number> = {};
     const specialPayouts: any[] = [];
 
+    // 수기발주 저장소 및 대상 상품 캐시
+    let manualOrderStores: Record<string, any> = {};
+    let manualOrderProducts: string[] = [];
+    try {
+      const savedStores = localStorage.getItem('erp_manual_orders_saved_store_v1');
+      if (savedStores) manualOrderStores = JSON.parse(savedStores);
+      const savedProd = localStorage.getItem('erp_manual_order_target_products_v1');
+      if (savedProd) manualOrderProducts = JSON.parse(savedProd);
+    } catch (e) {
+      console.error(e);
+    }
+
     if (!isHQStaff) {
       globalIncentiveRules.forEach(rule => {
         let matchedCount = 0;
@@ -3890,24 +3903,50 @@ const ERP_Dashboard = () => {
             if (!isItemMatch) return;
           }
 
-          let dateStr = '';
-          if (rule.baseDateType === 'DELIVERY') {
-            dateStr = item.deliveryDate || '';
-            if (!dateStr) return;
-            if (item.deliveryStatus && !item.deliveryStatus.includes('완료') && item.deliveryStatus !== '-' && item.deliveryStatus.trim() !== '') return;
-          } else {
-            dateStr = item.contractDate || '';
+          // 공급수수료 / 특수수당인 경우 수기발주 설치확인서 등록 및 마감월 연동 검사
+          const isSupplyRule = isSupplyCommissionRule(rule);
+          let certEligibility: ReturnType<typeof checkInstallCertEligibility> | null = null;
+          let effectiveBaseDate = '';
+
+          if (isSupplyRule) {
+            certEligibility = checkInstallCertEligibility(item, manualOrderStores, manualOrderProducts);
+            if (certEligibility.isTargetOrder) {
+              // 수기발주 대상 주문인데 설치확인서 미등록 또는 보류(배송 미완료 등)이면 공급수수료 지급 제외
+              if (certEligibility.isHold) return;
+
+              // 설치확인서 등록 건인 경우: 마감월을 실적일자로 채택 (예: '2026-10' -> '2026-10-01')
+              if (certEligibility.certMonth) {
+                effectiveBaseDate = `${certEligibility.certMonth}-01`;
+              }
+            }
+          }
+
+          let dateStr = effectiveBaseDate;
+          if (!dateStr) {
+            if (rule.baseDateType === 'DELIVERY') {
+              dateStr = item.deliveryDate || '';
+              if (!dateStr) return;
+              if (item.deliveryStatus && !item.deliveryStatus.includes('완료') && item.deliveryStatus !== '-' && item.deliveryStatus.trim() !== '') return;
+            } else {
+              dateStr = item.contractDate || '';
+            }
           }
 
           let isMatchedDate = false;
           const itemPayDateDisplay = item.payDate || getDisplayPayDate(item) || '';
-          
-          // 지급일자 필터가 특정 일자(ALL이 아님)로 지정된 경우
-          if (payDateFilter && payDateFilter !== 'ALL') {
-            const cleanDisplay = itemPayDateDisplay ? itemPayDateDisplay.replace(/[-./]/g, '') : '';
-            const normDisplay = cleanDisplay.length === 6 ? '20' + cleanDisplay : cleanDisplay;
-            const normFilter = filterClean.length === 6 ? '20' + filterClean : filterClean;
+          const cleanDisplay = itemPayDateDisplay ? itemPayDateDisplay.replace(/[-./]/g, '') : '';
+          const normDisplay = cleanDisplay.length === 6 ? '20' + cleanDisplay : cleanDisplay;
+          const normFilter = filterClean.length === 6 ? '20' + filterClean : filterClean;
 
+          // 설치확인서 마감월이 존재하는 수기발주 대상 건인 경우: 마감월의 익월 25일 지급 규칙 최우선 적용
+          if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
+            if (payDateFilter && payDateFilter !== 'ALL') {
+              const filterYM = normFilter.length >= 6 ? `${normFilter.substring(0, 4)}-${normFilter.substring(4, 6)}` : '';
+              isMatchedDate = filterYM === certEligibility.expectedPayoutMonth;
+            } else {
+              isMatchedDate = true;
+            }
+          } else if (payDateFilter && payDateFilter !== 'ALL') {
             if (rule.payDay && rule.payDay > 0) {
               // 1) "지정일 (다음달 N일, 예: 25일)" 수당 정책
               if (normDisplay && normDisplay === normFilter) {

@@ -66,6 +66,11 @@ interface OrderRow {
   trackingNo: string; // 송장번호 (수기 W열 / 22)
   deliveryState: DeliveryState; // 배송상태 구별
 
+  // 설치확인서 정보 (마감월 기준 관리)
+  installCertStatus?: '등록' | '미등록'; // 설치확인서 등록여부
+  installCertDate?: string; // 설치확인서 등록일자 (YYYY-MM-DD)
+  installCertMonth?: string; // 설치확인서 마감월 (YYYY-MM)
+
   rawOrderRow?: any[];
 }
 
@@ -92,7 +97,7 @@ const LOCAL_STORAGE_KEY = 'erp_manual_order_target_products_v1';
 const SHEET_ORDER_ROWS_CACHE_KEY = 'erp_manual_order_sheet_rows_cache_v2';
 
 export const parseSheetRowsToMap = (rows: any[][]) => {
-  const map = new Map<string, { rowIdx: number; requestDate: string; recipientName: string; recipientPhone: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; raw: any[] }>();
+  const map = new Map<string, { rowIdx: number; requestDate: string; recipientName: string; recipientPhone: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; installCertDate: string; installCertMonth: string; installCertStatus: '등록' | '미등록'; raw: any[] }>();
   if (!Array.isArray(rows) || rows.length < 2) return map;
 
   const headerRow = (rows[0] || []).map((h: any) => String(h || '').trim());
@@ -110,6 +115,8 @@ export const parseSheetRowsToMap = (rows: any[][]) => {
   const delDateCol = findCol(['배송일', '배송일자', '설치일'], 20);
   const courierCol = findCol(['택배사', '배송업체'], 21);
   const trackingCol = findCol(['송장번호', '운송장번호'], 22);
+  const installCertDateCol = findCol(['설치확인서등록', '설치확인서일자', '설치확인일자', '설치확인일', '설치확인서'], 24);
+  const installCertMonthCol = findCol(['설치확인서마감', '확인서마감월', '마감월', '정산마감월'], 25);
 
   rows.slice(1).forEach((row, idx) => {
     const rowIdx = idx + 2;
@@ -124,6 +131,9 @@ export const parseSheetRowsToMap = (rows: any[][]) => {
     const delDate = String(row[delDateCol] !== undefined ? row[delDateCol] : (row[20] || '')).trim();
     const courier = String(row[courierCol] !== undefined ? row[courierCol] : (row[21] || '')).trim();
     const tracking = String(row[trackingCol] !== undefined ? row[trackingCol] : (row[22] || '')).trim();
+    const certDate = String(row[installCertDateCol] !== undefined ? row[installCertDateCol] : (row[24] || '')).trim();
+    const certMonth = String(row[installCertMonthCol] !== undefined ? row[installCertMonthCol] : (row[25] || '')).trim();
+    const certStatus: '등록' | '미등록' = (certDate || certMonth) ? '등록' : '미등록';
 
     const matchObj = {
       rowIdx,
@@ -135,6 +145,9 @@ export const parseSheetRowsToMap = (rows: any[][]) => {
       deliveryDate: delDate,
       courier,
       trackingNo: tracking,
+      installCertDate: certDate,
+      installCertMonth: certMonth || (certDate ? certDate.substring(0, 7) : ''),
+      installCertStatus: certStatus,
       raw: row,
     };
 
@@ -287,7 +300,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     return [];
   });
 
-  const [savedOrderStore, setSavedOrderStore] = useState<Record<string, { orderDate?: string; deliveryDate?: string; courier?: string; trackingNo?: string; deliveryState?: DeliveryState }>>(() => {
+  const [savedOrderStore, setSavedOrderStore] = useState<Record<string, { orderDate?: string; deliveryDate?: string; courier?: string; trackingNo?: string; deliveryState?: DeliveryState; installCertStatus?: '등록' | '미등록'; installCertDate?: string; installCertMonth?: string }>>(() => {
     try {
       const saved = localStorage.getItem('erp_manual_orders_saved_store_v1');
       if (saved) return JSON.parse(saved);
@@ -295,7 +308,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     return {};
   });
 
-  const [editedValues, setEditedValues] = useState<Record<string, { orderDate?: string; deliveryDate?: string; courier?: string; trackingNo?: string }>>({});
+  const [editedValues, setEditedValues] = useState<Record<string, { orderDate?: string; deliveryDate?: string; courier?: string; trackingNo?: string; installCertStatus?: '등록' | '미등록'; installCertDate?: string; installCertMonth?: string }>>({});
   const [editedStates, setEditedStates] = useState<Record<string, DeliveryState>>({});
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
@@ -304,6 +317,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [joinStatusFilter, setJoinStatusFilter] = useState<'all' | 'active' | 'cancelled'>('active');
   const [contractMonthFilter, setContractMonthFilter] = useState<string>('all');
   const [deliveryMonthFilter, setDeliveryMonthFilter] = useState<string>('all');
+  const [installCertFilter, setInstallCertFilter] = useState<'all' | 'registered' | 'unregistered'>('all');
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -530,6 +544,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         dState = '발주완료';
       }
 
+      const certDate = savedData?.installCertDate !== undefined ? savedData.installCertDate : (sheetMatch?.installCertDate || '');
+      const certMonth = savedData?.installCertMonth !== undefined ? savedData.installCertMonth : (sheetMatch?.installCertMonth || (certDate ? certDate.substring(0, 7) : ''));
+      const certStatus: '등록' | '미등록' = savedData?.installCertStatus || (certDate || certMonth ? '등록' : '미등록');
+
       list.push({
         uniqueKey: item.uniqueKey || `item-${contractNo}`,
         rowIdx: sheetMatch?.rowIdx,
@@ -551,6 +569,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         courier,
         trackingNo: tracking,
         deliveryState: dState,
+        installCertStatus: certStatus,
+        installCertDate: certDate,
+        installCertMonth: certMonth,
         rawOrderRow: sheetMatch?.raw,
       });
     });
@@ -574,6 +595,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         const courier = normalizeCourierName(savedData?.courier !== undefined ? savedData.courier : String(row[21] || '').trim());
         const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : String(row[22] || '').trim();
         const explicitState = savedData?.deliveryState || (row[23] as DeliveryState);
+
+        const certDate = savedData?.installCertDate !== undefined ? savedData.installCertDate : String(row[24] || '').trim();
+        const certMonth = savedData?.installCertMonth !== undefined ? savedData.installCertMonth : String(row[25] || (certDate ? certDate.substring(0, 7) : '')).trim();
+        const certStatus: '등록' | '미등록' = savedData?.installCertStatus || (certDate || certMonth ? '등록' : '미등록');
 
         let dState: DeliveryState = explicitState || '발주대기';
         if (!explicitState) {
@@ -603,6 +628,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           courier,
           trackingNo: tracking,
           deliveryState: dState,
+          installCertStatus: certStatus,
+          installCertDate: certDate,
+          installCertMonth: certMonth,
           rawOrderRow: row,
         });
       });
@@ -655,21 +683,81 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     });
   };
 
-  const handleInputChange = (contractNo: string, field: 'orderDate' | 'deliveryDate' | 'courier' | 'trackingNo', value: string) => {
-    setEditedValues((prev) => ({
-      ...prev,
-      [contractNo]: {
-        ...prev[contractNo],
-        [field]: value,
-      },
-    }));
+  const handleInputChange = (
+    contractNo: string,
+    field: 'orderDate' | 'deliveryDate' | 'courier' | 'trackingNo' | 'installCertStatus' | 'installCertDate' | 'installCertMonth',
+    value: string
+  ) => {
+    setEditedValues((prev) => {
+      const cur = { ...prev[contractNo] };
+      (cur as any)[field] = value;
+
+      // 설치확인서 등록일자 변경 시 등록상태 및 마감월 자동 동기화
+      if (field === 'installCertDate') {
+        const trimmed = value.trim();
+        if (trimmed) {
+          cur.installCertStatus = '등록';
+          cur.installCertMonth = trimmed.substring(0, 7);
+        } else {
+          cur.installCertStatus = '미등록';
+          cur.installCertMonth = '';
+        }
+      } else if (field === 'installCertStatus') {
+        if (value === '등록') {
+          const today = new Date().toISOString().slice(0, 10);
+          if (!cur.installCertDate) cur.installCertDate = today;
+          if (!cur.installCertMonth) cur.installCertMonth = today.substring(0, 7);
+        } else {
+          cur.installCertDate = '';
+          cur.installCertMonth = '';
+        }
+      }
+
+      return {
+        ...prev,
+        [contractNo]: cur,
+      };
+    });
   };
 
-  const getFieldValue = (row: OrderRow, field: 'orderDate' | 'deliveryDate' | 'courier' | 'trackingNo') => {
-    if (editedValues[row.contractNo] && editedValues[row.contractNo][field] !== undefined) {
-      return editedValues[row.contractNo][field]!;
+  // 설치확인서 일괄 등록 / 해제 핸들러
+  const handleBulkInstallCert = (status: '등록' | '미등록', customDate?: string, customMonth?: string) => {
+    if (selectedKeys.size === 0) {
+      alert('설치확인서를 변경할 항목을 최소 1개 이상 체크해 주세요.');
+      return;
     }
-    return row[field];
+
+    const targets = extractedOrders.filter((o) => selectedKeys.has(o.uniqueKey));
+    if (targets.length === 0) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const setDate = customDate || today;
+    const setMonth = customMonth || setDate.substring(0, 7);
+
+    setEditedValues((prev) => {
+      const next = { ...prev };
+      targets.forEach((t) => {
+        next[t.contractNo] = {
+          ...next[t.contractNo],
+          installCertStatus: status,
+          installCertDate: status === '등록' ? setDate : '',
+          installCertMonth: status === '등록' ? setMonth : '',
+        };
+      });
+      return next;
+    });
+
+    setNotification({
+      message: `선택된 ${targets.length}건의 설치확인서가 [${status === '등록' ? `${setMonth}월 마감 등록` : '미등록'}] (으)로 변경되었습니다. 상단 [저장하기] 버튼을 눌러 확정하세요.`,
+      type: 'success',
+    });
+  };
+
+  const getFieldValue = (row: OrderRow, field: 'orderDate' | 'deliveryDate' | 'courier' | 'trackingNo' | 'installCertStatus' | 'installCertDate' | 'installCertMonth') => {
+    if (editedValues[row.contractNo] && (editedValues[row.contractNo] as any)[field] !== undefined) {
+      return (editedValues[row.contractNo] as any)[field]!;
+    }
+    return (row as any)[field];
   };
 
   const getRowDeliveryState = (row: OrderRow): DeliveryState => {
@@ -684,9 +772,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const row = extractedOrders.find((o) => o.contractNo === cNo);
       if (!row) return false;
       const edited = editedValues[cNo];
+      if (edited.orderDate !== undefined && edited.orderDate !== row.orderDate) return true;
       if (edited.deliveryDate !== undefined && edited.deliveryDate !== row.deliveryDate) return true;
       if (edited.courier !== undefined && edited.courier !== row.courier) return true;
       if (edited.trackingNo !== undefined && edited.trackingNo !== row.trackingNo) return true;
+      if (edited.installCertStatus !== undefined && edited.installCertStatus !== row.installCertStatus) return true;
+      if (edited.installCertDate !== undefined && edited.installCertDate !== row.installCertDate) return true;
+      if (edited.installCertMonth !== undefined && edited.installCertMonth !== row.installCertMonth) return true;
       return false;
     });
 
@@ -766,9 +858,16 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         if (joinStatusFilter === 'cancelled' && !isCancelled) return false;
       }
 
+      // 설치확인서 필터
+      if (installCertFilter !== 'all') {
+        const cStatus = getFieldValue(order, 'installCertStatus');
+        if (installCertFilter === 'registered' && cStatus !== '등록') return false;
+        if (installCertFilter === 'unregistered' && cStatus === '등록') return false;
+      }
+
       return true;
     });
-  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, supplierFilter, joinStatusFilter, editedValues, getMatchedSupplierName]);
+  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, supplierFilter, joinStatusFilter, installCertFilter, editedValues, getMatchedSupplierName]);
 
   // 요청일자 필터까지 적용된 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
   const ordersFilteredByReqDate = useMemo(() => {
@@ -931,12 +1030,19 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           }
         }
 
+        let newCertStatus = editedVal?.installCertStatus !== undefined ? editedVal.installCertStatus : (existing.installCertStatus ?? row.installCertStatus ?? '미등록');
+        let newCertDate = editedVal?.installCertDate !== undefined ? editedVal.installCertDate : (existing.installCertDate ?? row.installCertDate ?? '');
+        let newCertMonth = editedVal?.installCertMonth !== undefined ? editedVal.installCertMonth : (existing.installCertMonth ?? row.installCertMonth ?? (newCertDate ? newCertDate.substring(0, 7) : ''));
+
         const valObj = {
           orderDate: newOrdDate,
           deliveryDate: newDelDate,
           courier: newCourier,
           trackingNo: newTracking,
           deliveryState: newDState,
+          installCertStatus: newCertStatus,
+          installCertDate: newCertDate,
+          installCertMonth: newCertMonth,
         };
 
         nextStore[cKey] = valObj;
@@ -944,13 +1050,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         const cDigits = cNo.replace(/[^0-9]/g, '');
         if (cDigits) nextStore[cDigits] = valObj;
 
-        // 구글 시트 업데이트 객체 생성 (rowIdx가 존재하는 수기발주 건 - 발주일 O열/14 포함)
+        // 구글 시트 업데이트 객체 생성 (rowIdx가 존재하는 수기발주 건 - 발주일 O열/14, 배송일 U열/20, 택배사 V열/21, 송장 W열/22, 상태 X열/23, 확인서등록일 Y열/24, 확인서마감월 Z열/25)
         if (row.rowIdx) {
           if (newOrdDate) sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 14, newValue: newOrdDate });
           sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 20, newValue: newDelDate });
           sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 21, newValue: newCourier });
           sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 22, newValue: newTracking });
           sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 23, newValue: newDState });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 24, newValue: newCertDate });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 25, newValue: newCertMonth });
         }
       });
 
@@ -1503,6 +1611,25 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </select>
               </div>
 
+              {/* 설치확인서 필터 드롭다운 */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
+                  <FileSpreadsheet size={13} className={installCertFilter !== 'all' ? 'text-indigo-600' : 'text-slate-400'} />
+                  <span>설치확인서</span>
+                </div>
+                <select
+                  value={installCertFilter}
+                  onChange={(e) => setInstallCertFilter(e.target.value as any)}
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
+                    installCertFilter !== 'all' ? 'text-indigo-600 font-bold' : 'text-slate-700'
+                  }`}
+                >
+                  <option value="all">전체 (확인서)</option>
+                  <option value="registered">📄 등록 완료</option>
+                  <option value="unregistered">❌ 미등록 (지급보류)</option>
+                </select>
+              </div>
+
               {/* 렌탈상품 다중 선택 드롭다운 */}
               {/* 배송상태 탭 필터 */}
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold whitespace-nowrap">
@@ -1563,12 +1690,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </div>
 
               {/* 필터 및 정렬 조건 초기화 버튼 */}
-              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || requestDateFilter !== 'all' || supplierFilter !== 'all' || joinStatusFilter !== 'active' || sortField !== null) && (
+              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || installCertFilter !== 'all' || requestDateFilter !== 'all' || supplierFilter !== 'all' || joinStatusFilter !== 'active' || sortField !== null) && (
                 <button
                   type="button"
                   onClick={() => {
                     setContractMonthFilter('all');
                     setDeliveryMonthFilter('all');
+                    setInstallCertFilter('all');
                     setRequestDateFilter('all');
                     setSupplierFilter('all');
                     setJoinStatusFilter('active');
@@ -1644,6 +1772,43 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   <option value="발주취소" className="bg-white text-rose-700 font-medium">
                     발주취소
                   </option>
+                </select>
+              </div>
+
+              {/* 설치확인서 일괄 변경 */}
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                <span className="text-xs font-bold text-indigo-700 whitespace-nowrap">
+                  설치확인서 일괄:
+                </span>
+                <select
+                  defaultValue=""
+                  onChange={async (e) => {
+                    const action = e.target.value;
+                    if (!action) return;
+                    if (action === 'register_today') {
+                      handleBulkInstallCert('등록');
+                    } else if (action === 'register_custom') {
+                      const inputMonth = await (window as any).customPrompt?.('마감월을 입력하세요 (예: 2026-10):') || window.prompt('마감월을 입력하세요 (예: 2026-10):', new Date().toISOString().slice(0, 7));
+                      if (inputMonth && inputMonth.trim()) {
+                        const m = inputMonth.trim();
+                        handleBulkInstallCert('등록', `${m}-01`, m);
+                      }
+                    } else if (action === 'unregister') {
+                      handleBulkInstallCert('미등록');
+                    }
+                    e.target.value = '';
+                  }}
+                  disabled={selectedKeys.size === 0}
+                  className={`text-xs font-bold rounded-lg px-2.5 py-1 transition-all cursor-pointer border focus:outline-hidden ${
+                    selectedKeys.size > 0
+                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700 shadow-2xs'
+                      : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                  }`}
+                >
+                  <option value="" disabled>설치확인서 선택...</option>
+                  <option value="register_today" className="bg-white text-slate-800 font-medium">📄 당월 일자로 등록 (당월 마감)</option>
+                  <option value="register_custom" className="bg-white text-slate-800 font-medium">🗓️ 마감월 직접 지정 등록...</option>
+                  <option value="unregister" className="bg-white text-rose-700 font-medium">❌ 미등록으로 일괄 해제</option>
                 </select>
               </div>
 
@@ -1838,11 +2003,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-3 w-32 text-amber-800 bg-amber-50/60 border-r border-slate-200 text-center whitespace-nowrap">
-                        배송일 / 설치일
-                      </th>
-                      <th className="py-3 px-3 w-52 min-w-[200px] text-amber-800 bg-amber-50/60 text-center whitespace-nowrap">
+                      <th className="py-3 px-3 w-52 min-w-[200px] text-amber-800 bg-amber-50/60 text-center whitespace-nowrap border-r border-slate-200">
                         택배사 / 송장번호
+                      </th>
+                      <th className="py-3 px-3 w-52 min-w-[200px] text-indigo-900 bg-indigo-50/70 text-center whitespace-nowrap">
+                        설치확인서 (등록일 / 마감월)
                       </th>
                     </tr>
                   </thead>
@@ -1856,6 +2021,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       const courier = normalizeCourierName(rawCourier);
                       const tracking = getFieldValue(order, 'trackingNo');
                       const hasTracking = !!(courier.trim() && tracking.trim());
+                      const certStatus = (getFieldValue(order, 'installCertStatus') || '미등록') as '등록' | '미등록';
+                      const certDate = getFieldValue(order, 'installCertDate') || '';
+                      const certMonth = getFieldValue(order, 'installCertMonth') || (certDate ? certDate.substring(0, 7) : '');
 
                       const currentState = getRowDeliveryState(order);
                       const isCancelled = order.status !== '가입' || currentState === '발주취소';
@@ -2181,6 +2349,90 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                               </div>
                             </div>
                           </td>
+
+                          {/* 설치확인서 (등록일 / 마감월 / 공급수수료 정산예정) */}
+                          <td className="py-2 px-3 bg-indigo-50/20">
+                            <div className="flex flex-col gap-1.5 min-w-[190px]">
+                              <div className="flex items-center gap-1.5 justify-between">
+                                <select
+                                  value={certStatus}
+                                  onChange={(e) => handleInputChange(order.contractNo, 'installCertStatus', e.target.value)}
+                                  className={`px-2 py-0.5 rounded text-xs font-semibold border transition-all cursor-pointer ${
+                                    certStatus === '등록'
+                                      ? 'bg-indigo-50 text-indigo-700 border-indigo-300 ring-1 ring-indigo-100'
+                                      : 'bg-rose-50 text-rose-600 border-rose-200'
+                                  } ${
+                                    editedValues[order.contractNo]?.installCertStatus !== undefined &&
+                                    editedValues[order.contractNo]?.installCertStatus !== (order.installCertStatus ?? '미등록')
+                                      ? 'ring-2 ring-blue-500 font-bold'
+                                      : ''
+                                  }`}
+                                >
+                                  <option value="등록">📄 등록</option>
+                                  <option value="미등록">❌ 미등록</option>
+                                </select>
+
+                                {certStatus === '등록' && certMonth ? (
+                                  <span
+                                    className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono tracking-tight shrink-0 shadow-2xs"
+                                    title={`마감월: ${certMonth} ➔ 공급수수료는 익월 25일에 정산 지급됩니다.`}
+                                  >
+                                    {(() => {
+                                      const parts = certMonth.split('-');
+                                      if (parts.length === 2) {
+                                        const m = parseInt(parts[1], 10);
+                                        const nextM = m === 12 ? 1 : m + 1;
+                                        return `${nextM}월 25일 지급`;
+                                      }
+                                      return '익월 25일 지급';
+                                    })()}
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-rose-100/70 text-rose-700 shrink-0"
+                                    title="설치확인서가 미등록 상태이면 공급수수료 지급이 보류됩니다."
+                                  >
+                                    수당 지급보류
+                                  </span>
+                                )}
+                              </div>
+
+                              {certStatus === '등록' && (
+                                <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                                  <div>
+                                    <span className="block text-[9px] text-slate-500 font-medium mb-0.5">확인서 등록일</span>
+                                    <input
+                                      type="date"
+                                      value={certDate}
+                                      onChange={(e) => handleInputChange(order.contractNo, 'installCertDate', e.target.value)}
+                                      className={`w-full px-1.5 py-0.5 text-[11px] font-mono border rounded bg-white text-slate-800 transition-all ${
+                                        editedValues[order.contractNo]?.installCertDate !== undefined &&
+                                        editedValues[order.contractNo]?.installCertDate !== (order.installCertDate ?? '')
+                                          ? 'border-blue-500 text-blue-700 ring-1 ring-blue-100 font-bold'
+                                          : 'border-slate-300 focus:border-indigo-500'
+                                      }`}
+                                      title="설치확인서가 접수/등록된 날짜"
+                                    />
+                                  </div>
+                                  <div>
+                                    <span className="block text-[9px] text-indigo-700 font-semibold mb-0.5">정산 마감월</span>
+                                    <input
+                                      type="month"
+                                      value={certMonth}
+                                      onChange={(e) => handleInputChange(order.contractNo, 'installCertMonth', e.target.value)}
+                                      className={`w-full px-1.5 py-0.5 text-[11px] font-mono font-bold border rounded bg-white text-indigo-900 transition-all ${
+                                        editedValues[order.contractNo]?.installCertMonth !== undefined &&
+                                        editedValues[order.contractNo]?.installCertMonth !== (order.installCertMonth ?? '')
+                                          ? 'border-blue-500 text-blue-700 ring-1 ring-blue-100 font-bold'
+                                          : 'border-indigo-300 focus:border-indigo-500'
+                                      }`}
+                                      title="해당 건의 특수수당(공급수수료) 실적 마감월 (지급일: 마감월 익월 25일)"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       );
                     })}
@@ -2211,6 +2463,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </span>
               <span>
                 발주취소: <strong className="text-rose-600 font-mono font-bold">{extractedOrders.filter((o) => o.deliveryState === '발주취소').length}</strong>건
+              </span>
+              <span className="text-slate-300">|</span>
+              <span>
+                확인서 등록: <strong className="text-indigo-600 font-mono font-bold">{extractedOrders.filter((o) => (getFieldValue(o, 'installCertStatus') || o.installCertStatus) === '등록').length}</strong>건
+              </span>
+              <span>
+                확인서 미등록: <strong className="text-rose-600 font-mono font-bold">{extractedOrders.filter((o) => (getFieldValue(o, 'installCertStatus') || o.installCertStatus) !== '등록').length}</strong>건
               </span>
             </div>
 

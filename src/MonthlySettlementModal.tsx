@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { X, Calendar, Download, Search, Building2, ChevronRight, ChevronDown, FileSpreadsheet, Layers, CreditCard, ArrowUpDown, Filter, Check, RotateCcw, Lock, Unlock, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { checkInstallCertEligibility, isSupplyCommissionRule } from './manualOrderUtils';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -333,6 +334,18 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       const prevMonthStr = String(prevDate.getMonth() + 1).padStart(2, '0');
       const prevMonthKey = `${prevYearStr}-${prevMonthStr}`;
 
+      // 수기발주 저장소 및 대상 상품 캐시 로드
+      let manualOrderStores: Record<string, any> = {};
+      let manualOrderProducts: string[] = [];
+      try {
+        const savedStores = localStorage.getItem('erp_manual_orders_saved_store_v1');
+        if (savedStores) manualOrderStores = JSON.parse(savedStores);
+        const savedProd = localStorage.getItem('erp_manual_order_target_products_v1');
+        if (savedProd) manualOrderProducts = JSON.parse(savedProd);
+      } catch (e) {
+        console.error(e);
+      }
+
       globalIncentiveRules.forEach(rule => {
         if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
 
@@ -375,14 +388,34 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             if (!isItemMatch) return;
           }
 
+          // 공급수수료 / 특수수당인 경우 수기발주 설치확인서 등록 및 마감월 연동 검사
+          const isSupplyRule = isSupplyCommissionRule(rule);
+          let certEligibility: ReturnType<typeof checkInstallCertEligibility> | null = null;
+          let effectiveBaseDate = '';
+
+          if (isSupplyRule) {
+            certEligibility = checkInstallCertEligibility(item, manualOrderStores, manualOrderProducts);
+            if (certEligibility.isTargetOrder) {
+              // 수기발주 대상 주문인데 설치확인서 미등록 또는 보류(배송 미완료 등)이면 수당 지급 제외
+              if (certEligibility.isHold) return;
+
+              // 설치확인서 등록 건인 경우: 마감월을 실적일자로 채택 (예: '2026-10' -> '2026-10-01')
+              if (certEligibility.certMonth) {
+                effectiveBaseDate = `${certEligibility.certMonth}-01`;
+              }
+            }
+          }
+
           // 실적 기준일 (DELIVERY: 배송일자 vs CONTRACT: 계약일자)
-          let dateStr = '';
-          if (rule.baseDateType === 'DELIVERY') {
-            dateStr = item.deliveryDate || '';
-            if (!dateStr) return;
-            if (item.deliveryStatus && !item.deliveryStatus.includes('완료') && item.deliveryStatus !== '-' && item.deliveryStatus.trim() !== '') return;
-          } else {
-            dateStr = item.contractDate || '';
+          let dateStr = effectiveBaseDate;
+          if (!dateStr) {
+            if (rule.baseDateType === 'DELIVERY') {
+              dateStr = item.deliveryDate || '';
+              if (!dateStr) return;
+              if (item.deliveryStatus && !item.deliveryStatus.includes('완료') && item.deliveryStatus !== '-' && item.deliveryStatus.trim() !== '') return;
+            } else {
+              dateStr = item.contractDate || '';
+            }
           }
 
           // 해당 월(selectedMonth) 정산 대상 매칭
@@ -391,7 +424,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
           const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
 
-          if (rule.payDay && rule.payDay > 0) {
+          // 설치확인서 마감월이 존재하는 수기발주 대상 건인 경우: 마감월의 익월(selectedMonth) 지급 규칙 최우선 적용
+          if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
+            isMatchedDate = certEligibility.expectedPayoutMonth === selectedMonth;
+          } else if (rule.payDay && rule.payDay > 0) {
             // 지정일 수당 (다음달 N일 지급: 예: 25일)
             if (itemPayMonth === selectedMonth) {
               isMatchedDate = true;
@@ -451,7 +487,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             amount: itemComm,
             contractDate: item.contractDate || '-',
             deliveryDate: item.deliveryDate || '-',
-            payDate: item.payDate || '-'
+            payDate: item.payDate || '-',
+            installCertStatus: certEligibility?.certMonth ? '등록' : undefined,
+            installCertMonth: certEligibility?.certMonth
           };
 
           if (isSelfHq) {
