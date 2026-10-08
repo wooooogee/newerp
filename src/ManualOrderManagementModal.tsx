@@ -50,6 +50,8 @@ interface OrderRow {
   requestDate: string; // 수기발주 O열 요청일 (14)
   memName: string; // D열 회원명
   phone: string; // F열 핸드폰
+  recipientName: string; // 수기발주 H열 수취인명 (없으면 memName)
+  recipientPhone: string; // 수기발주 J열 수취인연락처 (없으면 phone)
   rentalProdRaw: string; // 원본 렌탈상품명
   rentalProdClean: string; // 정제된 렌탈상품명
   status: string; // B열 가입상태
@@ -90,7 +92,7 @@ const LOCAL_STORAGE_KEY = 'erp_manual_order_target_products_v1';
 const SHEET_ORDER_ROWS_CACHE_KEY = 'erp_manual_order_sheet_rows_cache_v2';
 
 export const parseSheetRowsToMap = (rows: any[][]) => {
-  const map = new Map<string, { rowIdx: number; requestDate: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; raw: any[] }>();
+  const map = new Map<string, { rowIdx: number; requestDate: string; recipientName: string; recipientPhone: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; raw: any[] }>();
   if (!Array.isArray(rows) || rows.length < 2) return map;
 
   const headerRow = (rows[0] || []).map((h: any) => String(h || '').trim());
@@ -100,18 +102,22 @@ export const parseSheetRowsToMap = (rows: any[][]) => {
   };
 
   const contractNoCol = findCol(['계약번호', '렌탈계약번호', '회원번호'], 1);
+  const recipientNameCol = findCol(['고객명', '수취인', '수취인명', '받는분'], 7); // H열 (Col 7)
+  const recipientPhoneCol = findCol(['연락처', '수취인연락처', '핸드폰', 'CTN'], 9); // J열 (Col 9)
+  const zipCodeCol = findCol(['우편번호'], 10); // K열 (Col 10)
+  const addressCol = findCol(['주소', '배송지', '수취인주소', '받는분주소'], 11); // L열 (Col 11)
   const reqDateCol = findCol(['요청일', '요청일자', '발주일자'], 14);
   const delDateCol = findCol(['배송일', '배송일자', '설치일'], 20);
   const courierCol = findCol(['택배사', '배송업체'], 21);
   const trackingCol = findCol(['송장번호', '운송장번호'], 22);
-  const addressCol = findCol(['주소', '배송지'], 11);
-  const zipCodeCol = findCol(['우편번호'], 10);
 
   rows.slice(1).forEach((row, idx) => {
     const rowIdx = idx + 2;
     const rawContractNo = String(row[contractNoCol] || row[1] || '').trim();
     if (!rawContractNo) return;
 
+    const recipientName = String(row[recipientNameCol] !== undefined ? row[recipientNameCol] : (row[7] || '')).trim();
+    const recipientPhone = String(row[recipientPhoneCol] !== undefined ? row[recipientPhoneCol] : (row[9] || '')).trim();
     const reqDate = String(row[reqDateCol] !== undefined ? row[reqDateCol] : (row[14] || '')).trim();
     const address = String(row[addressCol] !== undefined ? row[addressCol] : (row[11] || '')).trim();
     const zipCode = String(row[zipCodeCol] !== undefined ? row[zipCodeCol] : (row[10] || '')).trim();
@@ -122,6 +128,8 @@ export const parseSheetRowsToMap = (rows: any[][]) => {
     const matchObj = {
       rowIdx,
       requestDate: reqDate,
+      recipientName,
+      recipientPhone,
       address,
       zipCode,
       deliveryDate: delDate,
@@ -369,14 +377,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     });
   };
 
-  const handleCopyContractNo = (contractNo: string) => {
-    if (!contractNo) return;
+  const handleCopyText = (text: string, label: string = '값') => {
+    if (!text || !text.trim() || text === '-') return;
     try {
-      navigator.clipboard.writeText(contractNo);
-      setNotification({ message: `계약번호 [${contractNo}] 가 클립보드에 복사되었습니다!`, type: 'success' });
+      navigator.clipboard.writeText(text.trim());
+      setNotification({ message: `${label} [${text.trim()}] 이(가) 클립보드에 복사되었습니다!`, type: 'success' });
     } catch (e) {
       console.error('Copy error:', e);
     }
+  };
+
+  const handleCopyContractNo = (contractNo: string) => {
+    handleCopyText(contractNo, '계약번호');
   };
 
   const handleAddProduct = () => {
@@ -526,6 +538,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         requestDate: reqDate,
         memName: item.memName || '',
         phone: item.phone || '',
+        recipientName: sheetMatch?.recipientName || item.memName || '',
+        recipientPhone: sheetMatch?.recipientPhone || item.phone || '',
         rentalProdRaw: rawProdName,
         rentalProdClean: cleanProdName,
         status: itemStatus,
@@ -576,6 +590,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           requestDate: String(row[14] || '').trim(),
           memName: String(row[3] || '').trim(),
           phone: String(row[5] || '').trim(),
+          recipientName: String(row[7] || row[3] || '').trim(),
+          recipientPhone: String(row[9] || row[5] || '').trim(),
           rentalProdRaw: rawProdName,
           rentalProdClean: cleanProdName,
           status: String(row[1] || '가입').trim(),
@@ -1024,7 +1040,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     setIsOrderModalOpen(true);
   };
 
-  // 기존 발주서 엑셀 다운로드 (4개 필드: 받는분, 연락처, 받는분주소, 상품명)
+  // 발주서 엑셀 다운로드 (5개 필드: NO, 렌탈계약번호, 받는분, 연락처, 받는분주소, 상품명)
   const handleDownloadOrderExcel = () => {
     if (!XLSX) {
       alert('XLSX 라이브러리를 로드하지 못했습니다.');
@@ -1037,12 +1053,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     }
 
     const todayStr = new Date().toISOString().slice(0, 10);
-    const headers = ['NO', '받는분', '연락처', '받는분주소', '상품명'];
+    const headers = ['NO', '렌탈계약번호', '받는분', '연락처', '받는분주소', '상품명'];
 
     const exportRows = selectedOrdersList.map((o, idx) => [
       idx + 1,
-      o.memName,
-      formatPhoneNum(o.phone),
+      o.contractNo,
+      o.recipientName || o.memName,
+      formatPhoneNum(o.recipientPhone || o.phone),
       o.address,
       o.rentalProdClean,
     ]);
@@ -1771,11 +1788,23 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono">
                         계약번호
                       </th>
-                      <th className="py-3 px-3 w-28 border-r border-slate-200 text-blue-800 bg-blue-50/60">
-                        회원명
+                      <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60">
+                        <div className="flex flex-col gap-0.5">
+                          <span>회원명</span>
+                          <span className="text-[10px] text-blue-600 font-normal">/ 수취인(H열)</span>
+                        </div>
                       </th>
-                      <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono">
-                        핸드폰
+                      <th className="py-3 px-3 w-36 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono">
+                        <div className="flex flex-col gap-0.5">
+                          <span>핸드폰</span>
+                          <span className="text-[10px] text-blue-600 font-normal">/ 연락처(J열)</span>
+                        </div>
+                      </th>
+                      <th className="py-3 px-3 min-w-[200px] max-w-[260px] border-r border-slate-200 text-blue-800 bg-blue-50/60">
+                        <div className="flex flex-col gap-0.5">
+                          <span>배송지 주소</span>
+                          <span className="text-[10px] text-blue-600 font-normal">수기발주 L열</span>
+                        </div>
                       </th>
                       <th
                         onClick={() => handleSort('rentalProdClean')}
@@ -1902,14 +1931,117 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                             </button>
                           </td>
 
-                          {/* 회원명 */}
-                          <td className="py-2.5 px-3 border-r border-slate-200 font-bold text-slate-900">
-                            {order.memName || '-'}
+                          {/* 회원명 / 수취인명 (2줄 컴팩트 + 원클릭 복사) */}
+                          <td className="py-2 px-3 border-r border-slate-200">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-1 group/m">
+                                <span className="font-bold text-slate-900 truncate" title={`회원명: ${order.memName || '-'}`}>
+                                  {order.memName || '-'}
+                                </span>
+                                {order.memName && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyText(order.memName, '회원명')}
+                                    className="opacity-0 group-hover/m:opacity-100 hover:text-blue-600 cursor-pointer transition-opacity"
+                                    title="회원명 복사"
+                                  >
+                                    <Copy size={11} className="text-slate-400 hover:text-blue-600" />
+                                  </button>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between gap-1 group/r pt-0.5 border-t border-slate-100">
+                                <span
+                                  className={`text-[11px] truncate ${
+                                    order.recipientName && order.recipientName !== order.memName
+                                      ? 'text-indigo-600 font-semibold'
+                                      : 'text-slate-500'
+                                  }`}
+                                  title={`수취인명: ${order.recipientName || order.memName || '-'}`}
+                                >
+                                  <span className="text-[10px] text-slate-400 mr-1">수취:</span>
+                                  {order.recipientName || order.memName || '-'}
+                                </span>
+                                {(order.recipientName || order.memName) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyText(order.recipientName || order.memName, '수취인명')}
+                                    className="opacity-0 group-hover/r:opacity-100 hover:text-indigo-600 cursor-pointer transition-opacity"
+                                    title="수취인명 복사"
+                                  >
+                                    <Copy size={11} className="text-slate-400 hover:text-indigo-600" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </td>
 
-                          {/* 핸드폰 */}
-                          <td className="py-2.5 px-3 border-r border-slate-200 font-mono text-slate-700">
-                            {order.phone || '-'}
+                          {/* 핸드폰 / 수취인 연락처 (2줄 컴팩트 + 원클릭 복사) */}
+                          <td className="py-2 px-3 border-r border-slate-200 font-mono">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between gap-1 group/p">
+                                <span className="text-slate-700 text-xs truncate" title={`핸드폰: ${formatPhoneNum(order.phone) || '-'}`}>
+                                  {formatPhoneNum(order.phone) || '-'}
+                                </span>
+                                {order.phone && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyText(formatPhoneNum(order.phone), '핸드폰')}
+                                    className="opacity-0 group-hover/p:opacity-100 hover:text-blue-600 cursor-pointer transition-opacity"
+                                    title="핸드폰 번호 복사"
+                                  >
+                                    <Copy size={11} className="text-slate-400 hover:text-blue-600" />
+                                  </button>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between gap-1 group/rp pt-0.5 border-t border-slate-100">
+                                <span
+                                  className={`text-[11px] truncate ${
+                                    order.recipientPhone && order.recipientPhone !== order.phone
+                                      ? 'text-indigo-600 font-semibold'
+                                      : 'text-slate-500'
+                                  }`}
+                                  title={`수취인 연락처: ${formatPhoneNum(order.recipientPhone) || formatPhoneNum(order.phone) || '-'}`}
+                                >
+                                  {formatPhoneNum(order.recipientPhone) || formatPhoneNum(order.phone) || '-'}
+                                </span>
+                                {(order.recipientPhone || order.phone) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyText(formatPhoneNum(order.recipientPhone || order.phone), '수취인 연락처')}
+                                    className="opacity-0 group-hover/rp:opacity-100 hover:text-indigo-600 cursor-pointer transition-opacity"
+                                    title="수취인 연락처 복사"
+                                  >
+                                    <Copy size={11} className="text-slate-400 hover:text-indigo-600" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 배송지 주소 (L열, 말줄임 + 전체 툴팁 + 우편번호 + 원클릭 복사) */}
+                          <td className="py-2 px-3 border-r border-slate-200 max-w-[260px]">
+                            {order.address ? (
+                              <div className="flex items-center justify-between gap-1.5 group/addr">
+                                <div className="truncate text-slate-700 text-xs" title={`${order.zipCode ? `[${order.zipCode}] ` : ''}${order.address}`}>
+                                  {order.zipCode && (
+                                    <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1 py-0.5 rounded mr-1">
+                                      {order.zipCode}
+                                    </span>
+                                  )}
+                                  <span>{order.address}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyText(order.address, '배송지 주소')}
+                                  className="shrink-0 p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-blue-600 cursor-pointer transition-colors"
+                                  title="배송지 주소 복사"
+                                >
+                                  <Copy size={12} />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-slate-300">-</span>
+                            )}
                           </td>
 
                           {/* 렌탈상품명 */}
@@ -2182,7 +2314,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               {/* Action Bar */}
               <div className="p-4 border-b border-slate-200 bg-white flex items-center justify-between">
                 <span className="text-xs text-slate-500 font-medium">
-                  * 선택된 {selectedOrdersList.length}건이 아래 4개 필드(받는분, 연락처, 받는분주소, 상품명) 양식으로 엑셀 다운로드됩니다.
+                  * 각 항목(렌탈계약번호, 받는분, 연락처, 주소, 상품명)을 클릭하면 바로 클립보드에 복사됩니다.
                 </span>
 
                 <button
@@ -2198,25 +2330,84 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               <div className="flex-1 overflow-auto p-4 custom-scrollbar bg-slate-100/60">
                 <div className="border border-slate-200 rounded-xl bg-white shadow-sm overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-slate-100 text-slate-800 font-bold border-b border-slate-200">
+                    <thead className="bg-slate-100 text-slate-800 font-bold border-b border-slate-200 select-none">
                       <tr>
-                        <th className="py-3 px-4 border-r border-slate-200 w-12 text-center text-slate-400">NO</th>
-                        <th className="py-3 px-4 border-r border-slate-200 text-blue-900 font-bold w-36">받는분</th>
-                        <th className="py-3 px-4 border-r border-slate-200 font-mono w-40">연락처</th>
-                        <th className="py-3 px-4 border-r border-slate-200 min-w-[280px]">받는분주소</th>
-                        <th className="py-3 px-4 font-bold text-slate-900 min-w-[200px]">상품명</th>
+                        <th className="py-3 px-3 border-r border-slate-200 w-12 text-center text-slate-400">NO</th>
+                        <th className="py-3 px-3 border-r border-slate-200 text-blue-900 font-bold w-36 text-center">렌탈계약번호</th>
+                        <th className="py-3 px-3 border-r border-slate-200 text-slate-900 font-bold w-32">받는분</th>
+                        <th className="py-3 px-3 border-r border-slate-200 font-mono w-36">연락처</th>
+                        <th className="py-3 px-3 border-r border-slate-200 min-w-[280px]">받는분주소</th>
+                        <th className="py-3 px-3 font-bold text-slate-900 min-w-[200px]">상품명</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {selectedOrdersList.map((o, idx) => (
-                        <tr key={o.uniqueKey} className="hover:bg-slate-50">
-                          <td className="py-2.5 px-4 border-r border-slate-200 text-center font-mono text-slate-400">{idx + 1}</td>
-                          <td className="py-2.5 px-4 border-r border-slate-200 font-bold text-slate-900">{o.memName}</td>
-                          <td className="py-2.5 px-4 border-r border-slate-200 font-mono text-slate-700">{formatPhoneNum(o.phone)}</td>
-                          <td className="py-2.5 px-4 border-r border-slate-200 text-slate-700">{o.address || '-'}</td>
-                          <td className="py-2.5 px-4 font-semibold text-blue-900">{o.rentalProdClean}</td>
-                        </tr>
-                      ))}
+                      {selectedOrdersList.map((o, idx) => {
+                        const targetRecipient = o.recipientName || o.memName;
+                        const targetPhone = formatPhoneNum(o.recipientPhone || o.phone);
+                        const targetAddress = o.address || '-';
+                        const targetProd = o.rentalProdClean;
+
+                        return (
+                          <tr key={o.uniqueKey} className="hover:bg-blue-50/40 transition-colors">
+                            <td className="py-2.5 px-3 border-r border-slate-200 text-center font-mono text-slate-400">{idx + 1}</td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 font-bold font-mono text-center text-blue-950">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyText(o.contractNo, '렌탈계약번호')}
+                                className="w-full inline-flex items-center justify-center gap-1.5 px-2 py-1 rounded hover:bg-blue-100/70 text-blue-900 transition-colors group cursor-pointer"
+                                title="클릭 시 렌탈계약번호 복사"
+                              >
+                                <span>{o.contractNo}</span>
+                                <Copy size={12} className="opacity-40 group-hover:opacity-100 text-blue-600 shrink-0" />
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 font-bold text-slate-900">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyText(targetRecipient, '받는분')}
+                                className="w-full inline-flex items-center justify-between gap-1 px-2 py-1 rounded hover:bg-slate-200/60 transition-colors group cursor-pointer text-left"
+                                title="클릭 시 받는분 복사"
+                              >
+                                <span>{targetRecipient}</span>
+                                <Copy size={12} className="opacity-30 group-hover:opacity-100 text-slate-600 shrink-0" />
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 font-mono text-slate-700">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyText(targetPhone, '연락처')}
+                                className="w-full inline-flex items-center justify-between gap-1 px-2 py-1 rounded hover:bg-slate-200/60 transition-colors group cursor-pointer text-left"
+                                title="클릭 시 연락처 복사"
+                              >
+                                <span>{targetPhone}</span>
+                                <Copy size={12} className="opacity-30 group-hover:opacity-100 text-slate-600 shrink-0" />
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 border-r border-slate-200 text-slate-700">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyText(o.address, '받는분주소')}
+                                className="w-full inline-flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-slate-200/60 transition-colors group cursor-pointer text-left"
+                                title="클릭 시 받는분주소 복사"
+                              >
+                                <span className="truncate">{targetAddress}</span>
+                                <Copy size={12} className="opacity-30 group-hover:opacity-100 text-slate-600 shrink-0" />
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 font-semibold text-blue-900">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyText(targetProd, '상품명')}
+                                className="w-full inline-flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-blue-100/60 transition-colors group cursor-pointer text-left"
+                                title="클릭 시 상품명 복사"
+                              >
+                                <span>{targetProd}</span>
+                                <Copy size={12} className="opacity-30 group-hover:opacity-100 text-blue-600 shrink-0" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
