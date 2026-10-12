@@ -39,7 +39,7 @@ interface ManualOrderManagementModalProps {
 }
 
 export type DeliveryState = '발주대기' | '발주완료' | '배송중' | '배송완료' | '발주취소';
-export type SortField = 'contractDate' | 'requestDate' | 'rentalProdClean' | 'orderDate';
+export type SortField = 'contractDate' | 'requestDate' | 'rentalProdClean' | 'orderDate' | 'deliveryDate';
 export type SortDirection = 'asc' | 'desc';
 
 interface OrderRow {
@@ -932,6 +932,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       } else if (sortField === 'orderDate') {
         valA = (getFieldValue(a, 'orderDate') || '').trim();
         valB = (getFieldValue(b, 'orderDate') || '').trim();
+      } else if (sortField === 'deliveryDate') {
+        valA = (getFieldValue(a, 'deliveryDate') || '').trim();
+        valB = (getFieldValue(b, 'deliveryDate') || '').trim();
       }
 
       if (!valA && !valB) return 0;
@@ -964,6 +967,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, supplierFilter, joinStatusFilter, stateFilter, requestDateFilter, contractMonthFilter, deliveryMonthFilter]);
+
+  // 배송상태 및 주요 필터 변경 시 선택된 체크박스 초기화 (오작동 및 타 상태 변경 방지)
+  useEffect(() => {
+    setSelectedKeys(new Set());
+  }, [stateFilter, supplierFilter, requestDateFilter]);
 
   // 체크박스 핸들러
   const handleToggleSelect = (key: string) => {
@@ -1636,7 +1644,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold whitespace-nowrap">
                 <button
                   type="button"
-                  onClick={() => setStateFilter('all')}
+                  onClick={() => {
+                    setStateFilter('all');
+                    setSelectedKeys(new Set());
+                  }}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     stateFilter === 'all' ? 'bg-white text-blue-700 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
@@ -1645,7 +1656,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStateFilter('발주대기')}
+                  onClick={() => {
+                    setStateFilter('발주대기');
+                    setSelectedKeys(new Set());
+                  }}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     stateFilter === '발주대기' ? 'bg-amber-500 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
@@ -1654,7 +1668,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStateFilter('발주완료')}
+                  onClick={() => {
+                    setStateFilter('발주완료');
+                    setSelectedKeys(new Set());
+                  }}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     stateFilter === '발주완료' ? 'bg-purple-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
@@ -1663,7 +1680,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStateFilter('배송중')}
+                  onClick={() => {
+                    setStateFilter('배송중');
+                    setSelectedKeys(new Set());
+                  }}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     stateFilter === '배송중' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
@@ -1672,7 +1692,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStateFilter('배송완료')}
+                  onClick={() => {
+                    setStateFilter('배송완료');
+                    setSelectedKeys(new Set());
+                  }}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     stateFilter === '배송완료' ? 'bg-emerald-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
@@ -1681,7 +1704,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStateFilter('발주취소')}
+                  onClick={() => {
+                    setStateFilter('발주취소');
+                    setSelectedKeys(new Set());
+                  }}
                   className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                     stateFilter === '발주취소' ? 'bg-rose-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
@@ -1933,11 +1959,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 <p className="text-sm font-semibold text-slate-600">추출된 수기발주 계약이 없습니다.</p>
               </div>
             ) : (
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
+              <div className="border border-slate-200 rounded-xl overflow-x-auto bg-white shadow-xs">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-slate-100/90 text-slate-700 sticky top-0 backdrop-blur-md z-10 font-bold border-b border-slate-200">
                     <tr>
-                      <th className="py-3 px-3 w-10 text-center border-r border-slate-200">
+                      <th className="py-3 px-2.5 w-10 text-center border-r border-slate-200">
                         <button
                           onClick={handleToggleSelectAll}
                           className="text-slate-500 hover:text-blue-600 transition-colors cursor-pointer"
@@ -1951,7 +1977,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       </th>
                       <th
                         onClick={() => handleSort('contractDate')}
-                        className="py-3 px-2 w-[96px] min-w-[96px] border-r border-slate-200 text-slate-800 bg-slate-200/50 text-center cursor-pointer select-none hover:bg-slate-300/70 transition-colors group whitespace-nowrap"
+                        className="py-3 px-2 w-[90px] min-w-[90px] border-r border-slate-200 text-slate-800 bg-slate-200/50 text-center cursor-pointer select-none hover:bg-slate-300/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
                         <div className="inline-flex items-center justify-center gap-1 w-full">
@@ -1969,7 +1995,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       </th>
                       <th
                         onClick={() => handleSort('requestDate')}
-                        className="py-3 px-2 w-[96px] min-w-[96px] border-r border-slate-200 text-blue-800 bg-blue-50/60 text-center cursor-pointer select-none hover:bg-blue-100/70 transition-colors group whitespace-nowrap"
+                        className="py-3 px-2 w-[90px] min-w-[90px] border-r border-slate-200 text-blue-800 bg-blue-50/60 text-center cursor-pointer select-none hover:bg-blue-100/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
                         <div className="inline-flex items-center justify-center gap-1 w-full">
@@ -1985,21 +2011,21 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono whitespace-nowrap">
+                      <th className="py-3 px-2.5 w-28 min-w-[100px] border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono whitespace-nowrap">
                         계약번호
                       </th>
-                      <th className="py-3 px-3 w-32 border-r border-slate-200 text-blue-800 bg-blue-50/60 whitespace-nowrap">
+                      <th className="py-3 px-2.5 w-28 min-w-[105px] border-r border-slate-200 text-blue-800 bg-blue-50/60 whitespace-nowrap">
                         회원명 / 수취인
                       </th>
-                      <th className="py-3 px-3 w-36 border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono whitespace-nowrap">
+                      <th className="py-3 px-2.5 w-32 min-w-[120px] border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono whitespace-nowrap">
                         핸드폰 / 연락처
                       </th>
-                      <th className="py-3 px-3 min-w-[240px] max-w-[340px] border-r border-slate-200 text-blue-800 bg-blue-50/60 whitespace-nowrap">
+                      <th className="py-3 px-3 min-w-[200px] max-w-[280px] border-r border-slate-200 text-blue-800 bg-blue-50/60 whitespace-nowrap">
                         배송지 주소
                       </th>
                       <th
                         onClick={() => handleSort('rentalProdClean')}
-                        className="py-3 px-3 min-w-[180px] border-r border-slate-200 text-blue-800 bg-blue-50/60 cursor-pointer select-none hover:bg-blue-100/70 transition-colors group whitespace-nowrap"
+                        className="py-3 px-2.5 min-w-[160px] border-r border-slate-200 text-blue-800 bg-blue-50/60 cursor-pointer select-none hover:bg-blue-100/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
                         <div className="inline-flex items-center gap-1">
@@ -2015,15 +2041,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-3 w-24 text-center border-r border-slate-200 whitespace-nowrap">
+                      <th className="py-3 px-2 w-20 min-w-[70px] text-center border-r border-slate-200 whitespace-nowrap">
                         가입상태
                       </th>
-                      <th className="py-3 px-3 w-28 text-center border-r border-slate-200 whitespace-nowrap">
+                      <th className="py-3 px-2 w-24 min-w-[85px] text-center border-r border-slate-200 whitespace-nowrap">
                         배송상태
                       </th>
                       <th
                         onClick={() => handleSort('orderDate')}
-                        className="py-3 px-3 w-32 text-purple-900 bg-purple-50/60 border-r border-slate-200 text-center cursor-pointer select-none hover:bg-purple-100/70 transition-colors group whitespace-nowrap"
+                        className="py-3 px-2 w-28 min-w-[110px] text-purple-900 bg-purple-50/60 border-r border-slate-200 text-center cursor-pointer select-none hover:bg-purple-100/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
                         <div className="inline-flex items-center justify-center gap-1 w-full">
@@ -2039,11 +2065,29 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-3 w-52 min-w-[200px] text-amber-800 bg-amber-50/60 text-center whitespace-nowrap border-r border-slate-200">
+                      <th
+                        onClick={() => handleSort('deliveryDate')}
+                        className="py-3 px-2 w-28 min-w-[110px] text-amber-900 bg-amber-50/60 border-r border-slate-200 text-center cursor-pointer select-none hover:bg-amber-100/70 transition-colors group whitespace-nowrap"
+                        title="클릭 시 내림차순/올림차순 정렬"
+                      >
+                        <div className="inline-flex items-center justify-center gap-1 w-full">
+                          <span>배송일</span>
+                          {sortField === 'deliveryDate' ? (
+                            sortDirection === 'desc' ? (
+                              <ChevronDown size={14} className="text-amber-700 font-bold shrink-0" />
+                            ) : (
+                              <ChevronUp size={14} className="text-amber-700 font-bold shrink-0" />
+                            )
+                          ) : (
+                            <ArrowUpDown size={12} className="text-amber-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                          )}
+                        </div>
+                      </th>
+                      <th className="py-3 px-2.5 w-48 min-w-[190px] text-amber-800 bg-amber-50/60 text-center whitespace-nowrap border-r border-slate-200">
                         택배사 / 송장번호
                       </th>
-                      <th className="py-3 px-3 w-52 min-w-[200px] text-indigo-900 bg-indigo-50/70 text-center whitespace-nowrap">
-                        설치확인서 (등록일 / 마감월)
+                      <th className="py-3 px-2.5 w-52 min-w-[200px] text-indigo-900 bg-indigo-50/70 text-center whitespace-nowrap">
+                        설치확인서 (등록유무)
                       </th>
                     </tr>
                   </thead>
@@ -2104,7 +2148,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 계약번호 (원클릭 복사 기능) */}
-                          <td className="py-2.5 px-3 font-semibold text-blue-950 border-r border-slate-200 font-mono text-xs">
+                          <td className="py-2.5 px-2.5 font-semibold text-blue-950 border-r border-slate-200 font-mono text-xs w-28 min-w-[100px]">
                             <button
                               type="button"
                               onClick={() => handleCopyContractNo(order.contractNo)}
@@ -2117,7 +2161,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 회원명 / 수취인명 (2줄 컴팩트 + 원클릭 복사) */}
-                          <td className="py-2 px-3 border-r border-slate-200">
+                          <td className="py-2 px-2.5 border-r border-slate-200 w-28 min-w-[105px]">
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center justify-between gap-1 group/m">
                                 <span className="font-bold text-slate-900 truncate" title={`회원명: ${order.memName || '-'}`}>
@@ -2161,7 +2205,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 핸드폰 / 수취인 연락처 (2줄 컴팩트 + 원클릭 복사) */}
-                          <td className="py-2 px-3 border-r border-slate-200 font-mono">
+                          <td className="py-2 px-2.5 border-r border-slate-200 font-mono w-32 min-w-[120px]">
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center justify-between gap-1 group/p">
                                 <span className="text-slate-700 text-xs truncate" title={`핸드폰: ${formatPhoneNum(order.phone) || '-'}`}>
@@ -2204,7 +2248,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 배송지 주소 (전체 다 보이도록 2줄 허용 + 원클릭 복사) */}
-                          <td className="py-2 px-3 border-r border-slate-200 min-w-[240px] max-w-[340px]">
+                          <td className="py-2 px-3 border-r border-slate-200 min-w-[200px] max-w-[280px]">
                             {order.address ? (
                               <div className="flex items-start justify-between gap-1.5 group/addr">
                                 <div className="text-slate-800 text-xs leading-relaxed break-keep" title={`${order.zipCode ? `[${order.zipCode}] ` : ''}${order.address}`}>
@@ -2230,12 +2274,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 렌탈상품명 */}
-                          <td className="py-2.5 px-3 border-r border-slate-200 font-semibold text-slate-800">
+                          <td className="py-2.5 px-2.5 border-r border-slate-200 font-semibold text-slate-800 min-w-[160px]">
                             {order.rentalProdClean}
                           </td>
 
                           {/* 가입상태 */}
-                          <td className="py-2.5 px-3 text-center border-r border-slate-200">
+                          <td className="py-2.5 px-2 text-center border-r border-slate-200 w-20 min-w-[70px]">
                             {order.status === '가입' ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                 가입
@@ -2255,7 +2299,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 배송상태 선택 (드롭다운) */}
-                          <td className="py-2.5 px-3 text-center border-r border-slate-200">
+                          <td className="py-2.5 px-2 text-center border-r border-slate-200 w-24 min-w-[85px]">
                             <select
                               value={currentState}
                               onChange={(e) => handleStateChange(order.contractNo, e.target.value as DeliveryState)}
@@ -2290,12 +2334,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 발주일 (신규 추가) */}
-                          <td className="py-2 px-3 border-r border-slate-200 bg-purple-50/10">
+                          <td className="py-2 px-1.5 border-r border-slate-200 bg-purple-50/10 w-28 min-w-[110px]">
                             <input
                               type="date"
                               value={ordDate}
                               onChange={(e) => handleInputChange(order.contractNo, 'orderDate', e.target.value)}
-                              className={`w-full px-2 py-1 bg-white border rounded-lg text-xs font-mono transition-all ${
+                              className={`w-full px-1.5 py-1 bg-white border rounded-lg text-xs font-mono transition-all ${
                                 editedValues[order.contractNo]?.orderDate !== undefined &&
                                 editedValues[order.contractNo]?.orderDate !== order.orderDate
                                   ? 'border-purple-500 text-purple-700 ring-2 ring-purple-100 font-bold'
@@ -2305,12 +2349,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 배송일 / 설치일 */}
-                          <td className="py-2 px-3 border-r border-slate-200 bg-amber-50/10">
+                          <td className="py-2 px-1.5 border-r border-slate-200 bg-amber-50/10 w-28 min-w-[110px]">
                             <input
                               type="date"
                               value={delDate}
                               onChange={(e) => handleInputChange(order.contractNo, 'deliveryDate', e.target.value)}
-                              className={`w-full px-2 py-1 bg-white border rounded-lg text-xs font-mono transition-all ${
+                              className={`w-full px-1.5 py-1 bg-white border rounded-lg text-xs font-mono transition-all ${
                                 editedValues[order.contractNo]?.deliveryDate !== undefined &&
                                 editedValues[order.contractNo]?.deliveryDate !== order.deliveryDate
                                   ? 'border-blue-500 text-blue-700 ring-2 ring-blue-100 font-bold'
@@ -2320,7 +2364,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 택배사 & 송장번호 (한 칸에 위아래 2줄로 통합 + 배송조회 버튼) */}
-                          <td className="py-2 px-2.5 bg-amber-50/10 min-w-[200px] w-52">
+                          <td className="py-2 px-2 bg-amber-50/10 min-w-[190px] w-48 border-r border-slate-200">
                             <div className="flex flex-col gap-1.5">
                               {/* 1줄: 택배사 선택 */}
                               <div className="flex items-center gap-1">
@@ -2387,7 +2431,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 설치확인서 (등록일 / 마감월 / 공급수수료 정산예정) */}
-                          <td className="py-2 px-3 bg-indigo-50/20">
+                          <td className="py-2 px-2 bg-indigo-50/20 min-w-[200px] w-52">
                             <div className="flex flex-col gap-1.5 min-w-[190px]">
                               <div className="flex items-center gap-1.5 justify-between">
                                 <select
