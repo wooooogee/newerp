@@ -241,14 +241,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   useEffect(() => {
     if (isOpen) {
       setSuppliers(loadSuppliersFromStorage());
-      // 모달 열릴 때 항상 기본 화면으로 초기화 (가입상태: 정상 가입만 기본값)
+      // 모달 열릴 때 항상 기본 화면으로 초기화 (가입상태: 전체 기본값으로 취소/정상 모두 집계)
       setSupplierFilter('all');
-      setJoinStatusFilter('active');
+      setJoinStatusFilter('all');
       setStateFilter('all');
       setRequestDateFilter('all');
       setContractMonthFilter('all');
       setDeliveryMonthFilter('all');
       setSearchTerm('');
+      setSearchInput('');
       setCurrentPage(1);
       setSelectedKeys(new Set());
       setSortField(null);
@@ -315,7 +316,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [searchInput, setSearchInput] = useState('');
   const [requestDateFilter, setRequestDateFilter] = useState<'all' | 'has_value' | 'no_value'>('all');
   const [stateFilter, setStateFilter] = useState<'all' | DeliveryState>('all');
-  const [joinStatusFilter, setJoinStatusFilter] = useState<'all' | 'active' | 'cancelled'>('active');
+  const [joinStatusFilter, setJoinStatusFilter] = useState<'all' | 'active' | 'cancelled'>('all');
   const [contractMonthFilter, setContractMonthFilter] = useState<string>('all');
   const [deliveryMonthFilter, setDeliveryMonthFilter] = useState<string>('all');
   const [installCertFilter, setInstallCertFilter] = useState<'all' | 'registered' | 'unregistered'>('all');
@@ -324,6 +325,50 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(100);
+
+  // 모든 필터 조건 원클릭 초기화
+  const handleResetAllFilters = useCallback(() => {
+    setContractMonthFilter('all');
+    setDeliveryMonthFilter('all');
+    setInstallCertFilter('all');
+    setRequestDateFilter('all');
+    setSupplierFilter('all');
+    setJoinStatusFilter('all');
+    setStateFilter('all');
+    setSortField(null);
+    setSortDirection('desc');
+    setSearchTerm('');
+    setSearchInput('');
+    setCurrentPage(1);
+    setSelectedKeys(new Set());
+  }, []);
+
+  // 필터 활성화 여부 판별
+  const isAnyFilterActive = useMemo(() => {
+    return (
+      contractMonthFilter !== 'all' ||
+      deliveryMonthFilter !== 'all' ||
+      installCertFilter !== 'all' ||
+      requestDateFilter !== 'all' ||
+      supplierFilter !== 'all' ||
+      joinStatusFilter !== 'all' ||
+      stateFilter !== 'all' ||
+      sortField !== null ||
+      searchTerm.trim() !== '' ||
+      searchInput.trim() !== ''
+    );
+  }, [
+    contractMonthFilter,
+    deliveryMonthFilter,
+    installCertFilter,
+    requestDateFilter,
+    supplierFilter,
+    joinStatusFilter,
+    stateFilter,
+    sortField,
+    searchTerm,
+    searchInput,
+  ]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -851,8 +896,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         if (suppName !== supplierFilter) return false;
       }
 
-      // 가입상태 필터
-      if (joinStatusFilter !== 'all') {
+      // 가입상태 필터 (단, 배송상태 탭이 '발주취소'인 경우 취소건 조회 보장)
+      if (joinStatusFilter !== 'all' && stateFilter !== '발주취소') {
         const itemStatus = String(order.status || '').trim();
         const isCancelled = itemStatus.includes('취소') || itemStatus.includes('해지') || itemStatus.includes('철회') || itemStatus === '해약';
         if (joinStatusFilter === 'active' && isCancelled) return false;
@@ -868,9 +913,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
       return true;
     });
-  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, supplierFilter, joinStatusFilter, installCertFilter, editedValues, getMatchedSupplierName]);
+  }, [extractedOrders, contractMonthFilter, deliveryMonthFilter, supplierFilter, joinStatusFilter, stateFilter, installCertFilter, editedValues, getMatchedSupplierName]);
 
-  // 요청일자 필터까지 적용된 리스트 (배송상태 탭 카운트 및 독립 필터링 연동용)
+  // 요청일자 필터까지 적용된 리스트 (기본 상태 카운트 연동용)
   const ordersFilteredByReqDate = useMemo(() => {
     return ordersFilteredByMonthsAndProd.filter((order) => {
       if (requestDateFilter === 'has_value') {
@@ -882,6 +927,25 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       return true;
     });
   }, [ordersFilteredByMonthsAndProd, requestDateFilter]);
+
+  // 검색어까지 반영된 상태별 카운트 리스트 (상태 탭 숫자와 실제 리스트 건수 일치)
+  const ordersFilteredForTabCounts = useMemo(() => {
+    if (!searchTerm.trim()) return ordersFilteredByReqDate;
+    const term = searchTerm.trim().toLowerCase();
+    return ordersFilteredByReqDate.filter((order) => {
+      const matchContract = order.contractNo.toLowerCase().includes(term);
+      const matchDate = order.contractDate.toLowerCase().includes(term);
+      const matchReqDate = order.requestDate.toLowerCase().includes(term);
+      const matchMemName = order.memName.toLowerCase().includes(term);
+      const matchPhone = order.phone.toLowerCase().includes(term);
+      const matchProd = order.rentalProdClean.toLowerCase().includes(term);
+      const matchCourier = getFieldValue(order, 'courier').toLowerCase().includes(term);
+      const matchTracking = getFieldValue(order, 'trackingNo').toLowerCase().includes(term);
+      const matchStatus = (order.status || '').toLowerCase().includes(term);
+      const matchDeliveryState = (order.deliveryState || '').toLowerCase().includes(term);
+      return matchContract || matchDate || matchReqDate || matchMemName || matchPhone || matchProd || matchCourier || matchTracking || matchStatus || matchDeliveryState;
+    });
+  }, [ordersFilteredByReqDate, searchTerm, editedValues]);
 
   // 검색 및 요청일(O열 탭), 계약월, 배송월, 상품명 다중선택, 상태 필터링 및 정렬
   const filteredOrders = useMemo(() => {
@@ -1481,7 +1545,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             </div>
             <button
               type="button"
-              onClick={() => setSupplierFilter('all')}
+              onClick={() => {
+                setSupplierFilter('all');
+                setCurrentPage(1);
+              }}
               className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
                 supplierFilter === 'all'
                   ? 'bg-indigo-600 text-white shadow-xs'
@@ -1496,7 +1563,20 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => setSupplierFilter(s.name)}
+                  onClick={() => {
+                    setSupplierFilter(s.name);
+                    setCurrentPage(1);
+                    // 만약 바꾼 공급사에 현재 선택된 배송상태의 건수가 0건이면 전체로 자동 전환
+                    if (stateFilter !== 'all') {
+                      const suppOrders = extractedOrders.filter(
+                        (o) => getMatchedSupplierName(o.rentalProdRaw || o.rentalProdClean) === s.name
+                      );
+                      const hasState = suppOrders.some((o) => o.deliveryState === stateFilter);
+                      if (!hasState) {
+                        setStateFilter('all');
+                      }
+                    }
+                  }}
                   className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
                     supplierFilter === s.name
                       ? 'bg-indigo-600 text-white shadow-xs'
@@ -1510,7 +1590,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             {supplierCounts['-'] > 0 && (
               <button
                 type="button"
-                onClick={() => setSupplierFilter('-')}
+                onClick={() => {
+                  setSupplierFilter('-');
+                  setCurrentPage(1);
+                }}
                 className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
                   supplierFilter === '-'
                     ? 'bg-slate-700 text-white shadow-xs'
@@ -1652,7 +1735,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === 'all' ? 'bg-white text-blue-700 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  전체 ({ordersFilteredByReqDate.length})
+                  전체 ({ordersFilteredForTabCounts.length})
                 </button>
                 <button
                   type="button"
@@ -1664,7 +1747,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === '발주대기' ? 'bg-amber-500 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  발주대기 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '발주대기').length})
+                  발주대기 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '발주대기').length})
                 </button>
                 <button
                   type="button"
@@ -1676,7 +1759,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === '발주완료' ? 'bg-purple-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  발주완료 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '발주완료').length})
+                  발주완료 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '발주완료').length})
                 </button>
                 <button
                   type="button"
@@ -1688,7 +1771,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === '배송중' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  배송중 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '배송중').length})
+                  배송중 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '배송중').length})
                 </button>
                 <button
                   type="button"
@@ -1700,7 +1783,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === '배송완료' ? 'bg-emerald-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  배송완료 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '배송완료').length})
+                  배송완료 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '배송완료').length})
                 </button>
                 <button
                   type="button"
@@ -1712,27 +1795,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     stateFilter === '발주취소' ? 'bg-rose-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  발주취소 ({ordersFilteredByReqDate.filter((o) => o.deliveryState === '발주취소').length})
+                  발주취소 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '발주취소').length})
                 </button>
               </div>
 
               {/* 필터 및 정렬 조건 초기화 버튼 */}
-              {(contractMonthFilter !== 'all' || deliveryMonthFilter !== 'all' || installCertFilter !== 'all' || requestDateFilter !== 'all' || supplierFilter !== 'all' || joinStatusFilter !== 'active' || sortField !== null || searchTerm !== '' || searchInput !== '') && (
+              {isAnyFilterActive && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setContractMonthFilter('all');
-                    setDeliveryMonthFilter('all');
-                    setInstallCertFilter('all');
-                    setRequestDateFilter('all');
-                    setSupplierFilter('all');
-                    setJoinStatusFilter('active');
-                    setSortField(null);
-                    setSortDirection('desc');
-                    setSearchTerm('');
-                    setSearchInput('');
-                    setCurrentPage(1);
-                  }}
+                  onClick={handleResetAllFilters}
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs"
                   title="월별, 요청일, 공급사, 검색어 및 정렬 초기화"
                 >
@@ -1750,7 +1821,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   type="text"
                   placeholder="계약번호, 회원명, 핸드폰, 상품명... (Enter)"
                   value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSearchInput(val);
+                    // 검색창이 비워지면 숨겨진 검색 필터도 즉시 해제
+                    if (!val.trim()) {
+                      setSearchTerm('');
+                      setCurrentPage(1);
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       setSearchTerm(searchInput.trim());
@@ -1954,9 +2033,84 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 <p className="text-xs font-medium text-slate-500">수기발주 데이터를 로딩하는 중입니다...</p>
               </div>
             ) : filteredOrders.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center gap-2 text-slate-400">
-                <Package size={40} className="text-slate-300" />
-                <p className="text-sm font-semibold text-slate-600">추출된 수기발주 계약이 없습니다.</p>
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-400 p-8">
+                <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400">
+                  <Package size={36} />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-bold text-slate-700">조회된 수기발주 계약이 없습니다.</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    현재 적용된 필터 조건에 일치하는 데이터가 없습니다.
+                  </p>
+                </div>
+
+                {/* 활성화된 필터 뱃지 안내 */}
+                {isAnyFilterActive && (
+                  <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-xl my-2">
+                    {supplierFilter !== 'all' && (
+                      <span className="px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold">
+                        공급사: {supplierFilter}
+                      </span>
+                    )}
+                    {stateFilter !== 'all' && (
+                      <span className="px-2.5 py-1 rounded-lg bg-purple-50 border border-purple-200 text-purple-700 text-xs font-semibold">
+                        배송상태: {stateFilter}
+                      </span>
+                    )}
+                    {searchTerm.trim() && (
+                      <span className="px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold">
+                        검색어: "{searchTerm}"
+                      </span>
+                    )}
+                    {requestDateFilter !== 'all' && (
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold">
+                        요청일: {requestDateFilter === 'has_value' ? '있음' : '없음'}
+                      </span>
+                    )}
+                    {contractMonthFilter !== 'all' && (
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold">
+                        계약월: {contractMonthFilter}
+                      </span>
+                    )}
+                    {deliveryMonthFilter !== 'all' && (
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold">
+                        배송월: {deliveryMonthFilter === 'none' ? '배송일 없음' : deliveryMonthFilter}
+                      </span>
+                    )}
+                    {joinStatusFilter !== 'all' && (
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold">
+                        가입상태: {joinStatusFilter === 'active' ? '정상 가입만' : '취소/해약'}
+                      </span>
+                    )}
+                    {installCertFilter !== 'all' && (
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold">
+                        설치확인서: {installCertFilter === 'registered' ? '등록' : '미등록'}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {isAnyFilterActive && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <button
+                      type="button"
+                      onClick={handleResetAllFilters}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 cursor-pointer transition-all active:scale-95"
+                    >
+                      <RotateCcw size={14} />
+                      모든 필터 초기화하고 전체 보기
+                    </button>
+                    {stateFilter !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => setStateFilter('all')}
+                        className="flex items-center gap-1 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold cursor-pointer transition-all"
+                      >
+                        배송상태 전체 보기
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="border border-slate-200 rounded-xl overflow-x-auto bg-white shadow-xs">

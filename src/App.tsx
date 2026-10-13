@@ -1573,6 +1573,14 @@ const ERP_Dashboard = () => {
     isSavingCloudRef.current = true;
     if (!silent) setSaveSettingsStatus('saving');
     try {
+      // 본부 설정 로컬 스토리지 즉시 백업 (클라우드 통신 실패/지연 대비)
+      try {
+        if (hqSettingsRef.current && Array.isArray(hqSettingsRef.current)) {
+          localStorage.setItem('erp_hq_settings', JSON.stringify(hqSettingsRef.current));
+          localStorage.setItem('erp_hq_settings_backup_v1', JSON.stringify(hqSettingsRef.current));
+        }
+      } catch (e) {}
+
       // 로컬 스토리지에 보관된 수기발주 및 보고서 설정 추가 수집
       let manualOrderProducts: string[] | undefined;
       let manualOrderStores: Record<string, any> | undefined;
@@ -3134,11 +3142,7 @@ const ERP_Dashboard = () => {
         return;
       }
 
-      const stats = new Map<string, number>();
-      filteredForSettlement.forEach(item => {
-        const key = `${item.hq}|${item.prodName}`;
-        stats.set(key, (stats.get(key) || 0) + 1);
-      });
+      const stats = buildHqCountMap(filteredForSettlement);
 
       const excelData = filteredForSettlement.map((item, idx) => {
         const { totalCommission, salesComm, promoFee, unitPrice, displayPayDate, setting, settlementType, vat, withholdingTax, finalPayable, productRule } = calculateCommissionDetails(item, stats);
@@ -4275,12 +4279,7 @@ const ERP_Dashboard = () => {
         return;
       }
 
-      const statsMap = new Map<string, number>();
-      data.forEach(item => {
-        if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
-        const key = `${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`;
-        statsMap.set(key, (statsMap.get(key) || 0) + 1);
-      });
+      const statsMap = buildHqCountMap(data);
 
       const specialAdditions = settlementStats.globalIncentivesSummary || {};
       const payDateSample = payDateFilter !== 'ALL' && payDateFilter ? payDateFilter : (filteredData[0]?.payDate || '지급일 미지정');
@@ -4721,12 +4720,7 @@ const ERP_Dashboard = () => {
 
   const exportIntegratedSettlement = async (appendSheetData?: { name: string, data: any[][] } | null) => {
     try {
-      const statsMap = new Map<string, number>();
-      data.forEach(item => {
-        if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
-        const key = `${item.hq}_${item.prodName}_${getDisplayPayDate(item)}`;
-        statsMap.set(key, (statsMap.get(key) || 0) + 1);
-      });
+      const statsMap = buildHqCountMap(data);
 
       const directOrgMap = new Map<string, { teamLeader: string, branchManager: string, hqManager: string }>();
       const employeeBankMap = new Map<string, { bank: string, account: string, holder: string }>();
@@ -5974,12 +5968,7 @@ const ERP_Dashboard = () => {
 
       const setting = hqSettings.find(h => h.hqName === hqName);
       const wb = XLSX.utils.book_new();
-      const stats = new Map<string, number>();
-      filteredData.forEach(item => {
-        if (item.status.includes('취소')) return;
-        const key = `${item.hq}|${item.prodName}`;
-        stats.set(key, (stats.get(key) || 0) + 1);
-      });
+      const stats = buildHqCountMap(filteredData);
 
       let generalSum = 0;
       let salesSum = 0;
@@ -9625,7 +9614,7 @@ const ERP_Dashboard = () => {
                       const hcInfo = getHealthcareMaintenanceInfo(item, targetPayDate);
                       if (!hcInfo) return null;
                       
-                      const statsMap = new Map<string, number>();
+                      const statsMap = buildHqCountMap(data);
                       const details = calculateCommissionDetails(item, statsMap);
                       
                       let pendingCommission = details.unitPrice;
@@ -10441,9 +10430,11 @@ const ERP_Dashboard = () => {
                                                   <span className="text-[10px] font-black text-indigo-400 min-w-[12px]">{t}</span>
                                                   <div className="flex items-center gap-0.5">
                                                     <input
-                                                      type="number" value={(pr as any)[`tier${t}Count`]}
+                                                      type="text"
+                                                      value={(pr as any)[`tier${t}Count`] !== undefined && (pr as any)[`tier${t}Count`] !== null && (pr as any)[`tier${t}Count`] !== 0 ? (pr as any)[`tier${t}Count`] : ""}
                                                       onChange={(e) => {
-                                                        const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Count`]: parseInt(e.target.value) || 0 } : r);
+                                                        const val = parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0;
+                                                        const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Count`]: val } : r);
                                                         setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                                       }}
                                                       className="w-9 text-[11px] text-center outline-none bg-slate-50/70 rounded border border-slate-200 py-0.5"
@@ -10453,9 +10444,11 @@ const ERP_Dashboard = () => {
                                                   </div>
                                                   <div className="flex items-center gap-0.5">
                                                     <input
-                                                      type="text" value={(pr as any)[`tier${t}Price`] !== undefined && (pr as any)[`tier${t}Price`] !== null ? (pr as any)[`tier${t}Price`].toLocaleString() : "0"}
+                                                      type="text"
+                                                      value={(pr as any)[`tier${t}Price`] !== undefined && (pr as any)[`tier${t}Price`] !== null && (pr as any)[`tier${t}Price`] !== 0 ? Number((pr as any)[`tier${t}Price`]).toLocaleString() : ""}
                                                       onChange={(e) => {
-                                                        const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0 } : r);
+                                                        const val = parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0;
+                                                        const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: val } : r);
                                                         setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                                       }}
                                                       className="w-20 text-[11px] text-right outline-none font-bold text-indigo-600 bg-slate-50/70 rounded border border-slate-200 py-0.5 pr-1"
@@ -13139,12 +13132,7 @@ const ERP_Dashboard = () => {
                           const specialSum = specialAdditions[hqName] || 0;
                           if (items.length === 0 && maintenanceSum === 0 && specialSum === 0) return null;
                           const setting = hqSettings.find(h => h.hqName === hqName);
-                          const stats = new Map<string, number>();
-                          filteredData.forEach(item => {
-                            if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
-                            const key = `${item.hq}|${item.prodName}`;
-                            stats.set(key, (stats.get(key) || 0) + 1);
-                          });
+                          const stats = buildHqCountMap(filteredData);
                           let generalSum = 0;
                           items.forEach(item => {
                             const { totalCommission } = calculateCommissionDetails(item, stats);
@@ -13203,13 +13191,7 @@ const ERP_Dashboard = () => {
                       if (items.length === 0 && maintenanceSum === 0 && specialSum === 0) return null;
 
                       const setting = hqSettings.find(h => h.hqName === hqName);
-                      
-                      const stats = new Map<string, number>();
-                      filteredData.forEach(item => {
-                        if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return;
-                        const key = `${item.hq}|${item.prodName}`;
-                        stats.set(key, (stats.get(key) || 0) + 1);
-                      });
+                      const stats = buildHqCountMap(filteredData);
 
                       let generalSum = 0;
                       let salesSum = 0;

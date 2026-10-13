@@ -798,7 +798,8 @@ app.post('/api/sheets/settings/save', async (req, res) => {
             ...baseInfo,
             '-', 0, 0, 0, 'Y', 0, 0, 0, 0, 0, 0,
             hq.overriding?.salesperson ?? 0, hq.overriding?.teamLeader ?? 0, hq.overriding?.branchManager ?? 0, hq.overriding?.hqManager ?? 0,
-            'N', '[]'
+            'N', '[]',
+            'self', '[]'
           ]);
         }
       });
@@ -1358,6 +1359,14 @@ app.get('/api/sheets/settings/load', async (req, res) => {
 
     console.log(`[CloudSync] Header detected: id=${idCol}, settlementType=${settlementTypeCol}, isActive=${isActiveCol}, bank=${bankCol}`);
 
+    const safeParseInt = (val: any): number => {
+      if (val === undefined || val === null || val === '') return 0;
+      if (typeof val === 'number') return isNaN(val) ? 0 : Math.round(val);
+      const cleaned = String(val).replace(/[^0-9.-]/g, '');
+      const parsed = parseInt(cleaned, 10);
+      return isNaN(parsed) ? 0 : parsed;
+    };
+
     const hqMap = new Map<string, any>();
     
     rows.slice(1).forEach((row: string[]) => {
@@ -1376,10 +1385,10 @@ app.get('/api/sheets/settings/load', async (req, res) => {
           paymentMethod: paymentMethodCol >= 0 ? (row[paymentMethodCol] || '') : '',
           enableOverriding: overridingCol >= 0 ? row[overridingCol] === 'Y' : false,
           overriding: {
-            salesperson: salespersonCol >= 0 ? (Number(row[salespersonCol]) || 0) : 0,
-            teamLeader: teamLeaderCol >= 0 ? (Number(row[teamLeaderCol]) || 0) : 0,
-            branchManager: branchManagerCol >= 0 ? (Number(row[branchManagerCol]) || 0) : 0,
-            hqManager: hqManagerCol >= 0 ? (Number(row[hqManagerCol]) || 0) : 0,
+            salesperson: salespersonCol >= 0 ? (safeParseInt(row[salespersonCol])) : 0,
+            teamLeader: teamLeaderCol >= 0 ? (safeParseInt(row[teamLeaderCol])) : 0,
+            branchManager: branchManagerCol >= 0 ? (safeParseInt(row[branchManagerCol])) : 0,
+            hqManager: hqManagerCol >= 0 ? (safeParseInt(row[hqManagerCol])) : 0,
           },
           productRules: []
         });
@@ -1398,20 +1407,20 @@ app.get('/api/sheets/settings/load', async (req, res) => {
 
         hqMap.get(id).productRules.push({
           productName,
-          totalAmount: totalAmountCol >= 0 ? (Number(row[totalAmountCol]) || 0) : 0,
-          salesAmount: salesAmountCol >= 0 ? (Number(row[salesAmountCol]) || 0) : 0,
+          totalAmount: totalAmountCol >= 0 ? safeParseInt(row[totalAmountCol]) : 0,
+          salesAmount: salesAmountCol >= 0 ? safeParseInt(row[salesAmountCol]) : 0,
           applyOverriding: productOverrideCol >= 0 ? row[productOverrideCol] !== 'N' : true,
-          tier1Count: tier1CountCol >= 0 ? (Number(row[tier1CountCol]) || 0) : 0,
-          tier1Price: tier1PriceCol >= 0 ? (Number(row[tier1PriceCol]) || 0) : 0,
-          tier2Count: tier2CountCol >= 0 ? (Number(row[tier2CountCol]) || 0) : 0,
-          tier2Price: tier2PriceCol >= 0 ? (Number(row[tier2PriceCol]) || 0) : 0,
-          tier3Count: tier3CountCol >= 0 ? (Number(row[tier3CountCol]) || 0) : 0,
-          tier3Price: tier3PriceCol >= 0 ? (Number(row[tier3PriceCol]) || 0) : 0,
+          tier1Count: tier1CountCol >= 0 ? safeParseInt(row[tier1CountCol]) : 0,
+          tier1Price: tier1PriceCol >= 0 ? safeParseInt(row[tier1PriceCol]) : 0,
+          tier2Count: tier2CountCol >= 0 ? safeParseInt(row[tier2CountCol]) : 0,
+          tier2Price: tier2PriceCol >= 0 ? safeParseInt(row[tier2PriceCol]) : 0,
+          tier3Count: tier3CountCol >= 0 ? safeParseInt(row[tier3CountCol]) : 0,
+          tier3Price: tier3PriceCol >= 0 ? safeParseInt(row[tier3PriceCol]) : 0,
           overriding: (prodSpCol >= 0 && row[prodSpCol] !== undefined) ? {
-            salesperson: Number(row[prodSpCol]) || 0,
-            teamLeader: Number(row[prodTlCol]) || 0,
-            branchManager: Number(row[prodBmCol]) || 0,
-            hqManager: Number(row[prodHmCol]) || 0
+            salesperson: safeParseInt(row[prodSpCol]),
+            teamLeader: safeParseInt(row[prodTlCol]),
+            branchManager: safeParseInt(row[prodBmCol]),
+            hqManager: safeParseInt(row[prodHmCol])
           } : undefined,
           applyMaintenance: applyMaintenanceCol >= 0 
             ? (row[applyMaintenanceCol] === 'Y' || row[applyMaintenanceCol] === 'true' || (row[applyMaintenanceCol] !== 'N' && row[applyMaintenanceCol] !== 'false' && (productName.includes('유지') || pMaintRules.length > 0)))
