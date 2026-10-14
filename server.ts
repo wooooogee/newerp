@@ -1619,22 +1619,26 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         }
         if (!manualOrderProducts && cacheData.manualOrderProducts) manualOrderProducts = cacheData.manualOrderProducts;
         if (!manualOrderStores && cacheData.manualOrderStores) manualOrderStores = cacheData.manualOrderStores;
-        if (cacheData.divisions && Array.isArray(cacheData.divisions) && cacheData.divisions.length > 0) {
-          if (!divisions || (Array.isArray(divisions) && divisions.length === 0)) {
-            divisions = cacheData.divisions;
-          } else {
-            const cacheDivMap = new Map(cacheData.divisions.map((d: any) => [d.id, d]));
-            divisions = divisions.map((d: any) => {
-              const cached = cacheDivMap.get(d.id);
-              if (cached && Array.isArray(cached.hqNames) && Array.isArray(d.hqNames)) {
-                return {
-                  ...d,
-                  hqNames: Array.from(new Set([...d.hqNames, ...cached.hqNames]))
-                };
-              }
-              return d;
+        if (divisions && Array.isArray(divisions) && divisions.length > 0) {
+          // 구글 시트 데이터가 최신 원본이므로 캐시를 동기화 (옛날 캐시와 합집합 병합 방지)
+          cacheData.divisions = divisions;
+          try { fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8'); } catch (e) {}
+        } else if (cacheData.divisions && Array.isArray(cacheData.divisions) && cacheData.divisions.length > 0) {
+          // 시트에 없을 때만 캐시를 fallback으로 사용
+          divisions = cacheData.divisions;
+        }
+
+        // 사업단 간 본부 중복 배정 방지 정제 (한 본부는 1개 사업단에만 소속)
+        if (divisions && Array.isArray(divisions)) {
+          const seenHqs = new Set<string>();
+          divisions = divisions.map((d: any) => {
+            const cleanHqs = (d.hqNames || []).filter((h: string) => {
+              if (seenHqs.has(h)) return false;
+              seenHqs.add(h);
+              return true;
             });
-          }
+            return { ...d, hqNames: cleanHqs };
+          });
         }
       }
     } catch (e) {}

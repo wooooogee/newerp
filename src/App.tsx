@@ -1675,31 +1675,23 @@ const ERP_Dashboard = () => {
         }));
         setHqSettings(sanitizedSettings);
         if (data.divisions && Array.isArray(data.divisions) && data.divisions.length > 0) {
-          const savedDivsStr = localStorage.getItem('erp_division_settings');
-          let localDivs: DivisionSetting[] = [];
-          if (savedDivsStr) {
-            try {
-              const p = JSON.parse(savedDivsStr);
-              if (Array.isArray(p)) localDivs = p;
-            } catch (e) {}
-          }
-
-          const mergedDivisions = data.divisions.map((cloudDiv: any) => {
-            const localDiv = localDivs.find(ld => ld.id === cloudDiv.id);
-            if (localDiv && Array.isArray(localDiv.hqNames) && Array.isArray(cloudDiv.hqNames)) {
-              // 로컬에 등록된 본부 배정이 풀리지 않도록 합집합 병합 보존
-              const mergedHqs = Array.from(new Set([...cloudDiv.hqNames, ...localDiv.hqNames]));
-              return {
-                ...cloudDiv,
-                hqNames: mergedHqs
-              };
-            }
-            return cloudDiv;
+          // 클라우드에서 받아온 사업단 설정이 최신 원본 (로컬 스토리지와의 합집합 병합 방지)
+          const seenHqs = new Set<string>();
+          const sanitizedDivisions = data.divisions.map((d: any) => {
+            const cleanHqs = (d.hqNames || []).filter((h: string) => {
+              if (seenHqs.has(h)) return false;
+              seenHqs.add(h);
+              return true;
+            });
+            return {
+              ...d,
+              hqNames: cleanHqs
+            };
           });
 
-          setDivisionSettings(mergedDivisions);
-          localStorage.setItem('erp_division_settings', JSON.stringify(mergedDivisions));
-          divisionSettingsRef.current = mergedDivisions;
+          setDivisionSettings(sanitizedDivisions);
+          localStorage.setItem('erp_division_settings', JSON.stringify(sanitizedDivisions));
+          divisionSettingsRef.current = sanitizedDivisions;
         } else {
           // 서버 응답이 비어있을 경우 기존 로컬스토리지의 사업단 설정 보존
           const savedDivs = localStorage.getItem('erp_division_settings');
@@ -13833,7 +13825,7 @@ const ERP_Dashboard = () => {
 
                                 if (isAllPreview && divisionSettings && divisionSettings.length > 0) {
                                   divisionSettings.forEach(div => {
-                                    const members = targetSummaries.filter(s => (div.hqNames || []).includes(s.hqName));
+                                    const members = targetSummaries.filter(s => !processedHqNames.has(s.hqName) && (div.hqNames || []).includes(s.hqName));
                                     if (members.length > 0) {
                                       members.forEach(m => processedHqNames.add(m.hqName));
                                       const totalGross = members.reduce((sum, m) => sum + (m.totalSum || 0), 0);
