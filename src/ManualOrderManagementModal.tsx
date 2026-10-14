@@ -783,6 +783,20 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     });
   };
 
+  const getFieldValue = (row: OrderRow, field: 'orderDate' | 'deliveryDate' | 'courier' | 'trackingNo' | 'installCertStatus' | 'installCertDate' | 'installCertMonth') => {
+    if (editedValues[row.contractNo] && (editedValues[row.contractNo] as any)[field] !== undefined) {
+      return (editedValues[row.contractNo] as any)[field]!;
+    }
+    return (row as any)[field];
+  };
+
+  const getRowDeliveryState = (row: OrderRow): DeliveryState => {
+    if (editedStates[row.contractNo]) {
+      return editedStates[row.contractNo];
+    }
+    return row.deliveryState;
+  };
+
   // 설치확인서 일괄 등록 / 해제 핸들러
   const handleBulkInstallCert = (status: '등록' | '미등록', customDate?: string, customMonth?: string) => {
     if (selectedKeys.size === 0) {
@@ -930,19 +944,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     }
   };
 
-  const getFieldValue = (row: OrderRow, field: 'orderDate' | 'deliveryDate' | 'courier' | 'trackingNo' | 'installCertStatus' | 'installCertDate' | 'installCertMonth') => {
-    if (editedValues[row.contractNo] && (editedValues[row.contractNo] as any)[field] !== undefined) {
-      return (editedValues[row.contractNo] as any)[field]!;
-    }
-    return (row as any)[field];
-  };
-
-  const getRowDeliveryState = (row: OrderRow): DeliveryState => {
-    if (editedStates[row.contractNo]) {
-      return editedStates[row.contractNo];
-    }
-    return row.deliveryState;
-  };
 
   const isChanged = useMemo(() => {
     const hasValueEdit = Object.keys(editedValues).some((cNo) => {
