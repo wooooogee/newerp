@@ -202,7 +202,12 @@ export const isHqMatchedForSpecialRule = (
   // 2. 사업단 매칭 확인 (소속 본부 일괄 적용)
   if (hasDivisions) {
     const isDivMatch = (divisionList || []).some(div => {
-      const isTargetDiv = targetDivisions.includes(div.id) || targetDivisions.includes(div.name);
+      const isTargetDiv = targetDivisions.some(td => {
+        if (!td) return false;
+        if (td === div.id || td === div.name) return true;
+        if ((td === 'div-goodlife' || td.includes('goodlife') || td === '굿라이프') && (div.name || '').includes('굿라이프')) return true;
+        return false;
+      });
       if (!isTargetDiv) return false;
       return (div.hqNames || []).some(h => normalizeHq(h) === cleanHq);
     });
@@ -1682,11 +1687,51 @@ const ERP_Dashboard = () => {
           }))
         }));
         setHqSettings(sanitizedSettings);
-        if (data.divisions && Array.isArray(data.divisions) && data.divisions.length > 0) {
-          // 클라우드에서 받아온 사업단 설정이 최신 원본 (로컬 스토리지와의 합집합 병합 방지)
+        const savedDivsStr = localStorage.getItem("erp_division_settings") || localStorage.getItem("erp_division_settings_bak");
+        let localDivs: DivisionSetting[] = [];
+        if (savedDivsStr) {
+          try {
+            const p = JSON.parse(savedDivsStr);
+            if (Array.isArray(p)) localDivs = p;
+          } catch (e) {}
+        }
+
+        let effectiveDivisions = data.divisions;
+        if (!effectiveDivisions || !Array.isArray(effectiveDivisions) || effectiveDivisions.length === 0) {
+          effectiveDivisions = localDivs;
+        } else if (localDivs.length > 0) {
+          if (localDivs.length >= effectiveDivisions.length) {
+            const cloudMap = new Map(effectiveDivisions.map((cd: any) => [cd.id, cd]));
+            effectiveDivisions = localDivs.map(ld => {
+              const matched = cloudMap.get(ld.id);
+              if (matched) {
+                return {
+                  ...matched,
+                  ...ld,
+                  name: ld.name || matched.name,
+                  hqNames: Array.isArray(ld.hqNames) && ld.hqNames.length > 0 ? ld.hqNames : (matched.hqNames || [])
+                };
+              }
+              return ld;
+            });
+          }
+        }
+
+        if (effectiveDivisions && Array.isArray(effectiveDivisions) && effectiveDivisions.length > 0) {
           const seenHqs = new Set<string>();
-          const sanitizedDivisions = data.divisions.map((d: any) => {
+          const sanitizedDivisions = effectiveDivisions.map((d: any) => {
+            let hqs = Array.isArray(d.hqNames) ? [...d.hqNames] : [];
+            if ((d.name || "").includes("꿈잇다") && !hqs.includes("꿈잇다")) {
+              hqs.push("꿈잇다");
+            }
+            return { ...d, hqNames: hqs };
+          });
+
+          const finalDivisions = sanitizedDivisions.map((d: any) => {
             const cleanHqs = (d.hqNames || []).filter((h: string) => {
+              if (h === "꿈잇다" && !(d.name || "").includes("꿈잇다") && sanitizedDivisions.some((sd: any) => (sd.name || "").includes("꿈잇다"))) {
+                return false;
+              }
               if (seenHqs.has(h)) return false;
               seenHqs.add(h);
               return true;
@@ -1697,39 +1742,53 @@ const ERP_Dashboard = () => {
             };
           });
 
-          setDivisionSettings(sanitizedDivisions);
-          localStorage.setItem('erp_division_settings', JSON.stringify(sanitizedDivisions));
-          divisionSettingsRef.current = sanitizedDivisions;
-        } else {
-          // 서버 응답이 비어있을 경우 기존 로컬스토리지의 사업단 설정 보존
-          const savedDivs = localStorage.getItem('erp_division_settings');
-          if (savedDivs) {
-            try {
-              const parsed = JSON.parse(savedDivs);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setDivisionSettings(parsed);
-                divisionSettingsRef.current = parsed;
-              }
-            } catch (e) {}
-          }
+          setDivisionSettings(finalDivisions);
+          localStorage.setItem("erp_division_settings", JSON.stringify(finalDivisions));
+          localStorage.setItem("erp_division_settings_bak", JSON.stringify(finalDivisions));
+          divisionSettingsRef.current = finalDivisions;
         }
         if (data.globalIncentives && Array.isArray(data.globalIncentives) && data.globalIncentives.length > 0) {
-          const sanitizedInc = data.globalIncentives.map((r: any) => ({
-            ...r,
-            targetHqs: Array.isArray(r.targetHqs) ? r.targetHqs : (r.targetHq ? [r.targetHq] : ['ALL']),
-            targetDivisions: Array.isArray(r.targetDivisions) ? r.targetDivisions : [],
-            payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
-            commissionPerUnit: Number(r.commissionPerUnit || 0),
-            minimumGuarantee: Number(r.minimumGuarantee || 0)
-          }));
+          let localIncMap = new Map();
+          try {
+            const savedIncStr = localStorage.getItem("erp_global_incentives") || localStorage.getItem("erp_global_incentives_bak");
+            if (savedIncStr) {
+              const parsedInc = JSON.parse(savedIncStr);
+              if (Array.isArray(parsedInc)) {
+                parsedInc.forEach((r: any) => { if (r?.id) localIncMap.set(r.id, r); });
+              }
+            }
+          } catch (e) {}
+
+          const sanitizedInc = data.globalIncentives.map((r: any) => {
+            const localR = localIncMap.get(r.id);
+            let targetDivs = Array.isArray(r.targetDivisions) ? r.targetDivisions : [];
+            if (targetDivs.length === 0 && localR && Array.isArray(localR.targetDivisions) && localR.targetDivisions.length > 0) {
+              targetDivs = localR.targetDivisions;
+            }
+            let targetHqs = Array.isArray(r.targetHqs) ? r.targetHqs : (r.targetHq ? [r.targetHq] : []);
+            if ((!targetHqs || targetHqs.length === 0 || targetHqs.includes("ALL")) && localR && Array.isArray(localR.targetHqs) && localR.targetHqs.length > 0 && !localR.targetHqs.includes("ALL")) {
+              targetHqs = localR.targetHqs;
+            }
+            if (!targetHqs || targetHqs.length === 0) {
+              targetHqs = targetDivs.length > 0 ? [] : ["ALL"];
+            }
+
+            return {
+              ...r,
+              targetHqs,
+              targetDivisions: targetDivs,
+              payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : (localR?.payDay ?? 0),
+              commissionPerUnit: Number(r.commissionPerUnit || localR?.commissionPerUnit || 0),
+              minimumGuarantee: Number(r.minimumGuarantee || localR?.minimumGuarantee || 0)
+            };
+          });
           setGlobalIncentiveRules(sanitizedInc);
           try {
-            localStorage.setItem('erp_global_incentives', JSON.stringify(sanitizedInc));
-            localStorage.setItem('erp_global_incentives_bak', JSON.stringify(sanitizedInc));
+            localStorage.setItem("erp_global_incentives", JSON.stringify(sanitizedInc));
+            localStorage.setItem("erp_global_incentives_bak", JSON.stringify(sanitizedInc));
           } catch (e) {}
         } else {
-          // 서버 응답에 특수수당이 비어있을 경우 기존 로컬 백업에서 안전 복원
-          const savedInc = localStorage.getItem('erp_global_incentives') || localStorage.getItem('erp_global_incentives_bak');
+          const savedInc = localStorage.getItem("erp_global_incentives") || localStorage.getItem("erp_global_incentives_bak");
           if (savedInc) {
             try {
               const parsed = JSON.parse(savedInc);

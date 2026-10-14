@@ -294,8 +294,12 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
               ) : (
                 <>
                   {(draft.targetDivisions || []).map((divId) => {
-                    const div = (divisionSettings || []).find((d) => d.id === divId || d.name === divId);
-                    const divName = div ? div.name : divId;
+                    const div = (divisionSettings || []).find((d) => 
+                      d.id === divId || 
+                      d.name === divId || 
+                      ((divId === 'div-goodlife' || divId.includes('goodlife') || divId === '굿라이프') && (d.name || '').includes('굿라이프'))
+                    );
+                    const divName = div ? div.name : (divId === 'div-goodlife' ? '굿라이프 사업단' : divId);
                     const hqCount = div?.hqNames?.length ?? 0;
                     return (
                       <span
