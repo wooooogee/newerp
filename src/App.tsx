@@ -12534,6 +12534,8 @@ const ERP_Dashboard = () => {
             onClose={() => setIsSupplierManagementModalOpen(false)}
             availableProducts={availableRentalProducts}
             availableHqs={uniqueHqs.filter(h => h !== '전체')}
+            hqSettings={hqSettings}
+            divisionSettings={divisionSettings}
           />
           <ManualOrderManagementModal
             isOpen={isManualOrderModalOpen}

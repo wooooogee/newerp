@@ -77,12 +77,42 @@ export const saveSuppliersToStorage = (suppliers: SupplierItem[]): void => {
   }
 };
 
+export interface HqAccountInfo {
+  name: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+  type?: 'HQ' | 'DIVISION';
+}
+
+export const DEFAULT_HQ_ACCOUNTS: HqAccountInfo[] = [
+  { name: '리치웰페어', bankName: '-', accountNumber: '-', accountHolder: '-' },
+  { name: '한가득플러스', bankName: '우리', accountNumber: '1005304615801', accountHolder: '(주)한가득플러스' },
+  { name: '맥스', bankName: '우리', accountNumber: '1005603174407', accountHolder: '김학민(골프존파크)' },
+  { name: '더라이프앤', bankName: '하나', accountNumber: '79391040692907', accountHolder: '박인천(더드림)' },
+  { name: '더원시스템', bankName: '하나', accountNumber: '17291002173204', accountHolder: '주식회사 더원시스템' },
+  { name: '위더스앤씨', bankName: '기업', accountNumber: '49707471104012', accountHolder: '주식회사 위더스앤씨' },
+  { name: '커런시마켓', bankName: '하나', accountNumber: '77991002664704', accountHolder: '주식회사 커런시마켓' },
+  { name: '드라마플라워', bankName: '-', accountNumber: '-', accountHolder: '-' },
+  { name: '파파쿡', bankName: 'MG새마을금고', accountNumber: '9003293506338', accountHolder: '박진우(파파쿡)' },
+  { name: '글로씨', bankName: '카카오뱅크', accountNumber: '3333133132556', accountHolder: '이동현' },
+  { name: '웰다잉라이프', bankName: '기업', accountNumber: '16417285904019', accountHolder: '박서영(웰다잉라이프)' },
+  { name: '뷰티가이', bankName: '기업', accountNumber: '116-132917-01-018', accountHolder: '서정일 (뷰티가이)' },
+  { name: '파란하늘', bankName: '기업', accountNumber: '185-096869-02-019', accountHolder: '파란하늘(노은경)' },
+  { name: '조민경', bankName: '카카오뱅크', accountNumber: '3333027476861', accountHolder: '조민경' },
+  { name: '조재윤', bankName: '수협', accountNumber: '206000673009', accountHolder: '조재윤' },
+  { name: '조재은', bankName: '수협', accountNumber: '206000673009', accountHolder: '조재은' },
+  { name: '언바운드컴퍼니', bankName: '국민은행', accountNumber: '79400104179154', accountHolder: '주식회사 언바운드컴퍼니' }
+];
+
 interface SupplierManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuppliersUpdated?: (suppliers: SupplierItem[]) => void;
   availableProducts?: string[];
   availableHqs?: string[];
+  hqSettings?: any[];
+  divisionSettings?: any[];
 }
 
 export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = ({
@@ -90,7 +120,9 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
   onClose,
   onSuppliersUpdated,
   availableProducts = [],
-  availableHqs = []
+  availableHqs = [],
+  hqSettings = [],
+  divisionSettings = []
 }) => {
   const [suppliers, setSuppliers] = useState<SupplierItem[]>(() => loadSuppliersFromStorage());
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
@@ -193,6 +225,177 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
       .sort(([a], [b]) => b - a)
       .map(([commission, items]) => ({ commission, items }));
   }, [productForm.hqCommissions]);
+
+  // 본부 및 사업단 계좌 정보 맵 (DEFAULT_HQ_ACCOUNTS + localStorage + props)
+  const hqAccountMap = useMemo(() => {
+    const map = new Map<string, HqAccountInfo>();
+
+    // 1) 기본 백업 계좌 (DEFAULT_HQ_ACCOUNTS)
+    DEFAULT_HQ_ACCOUNTS.forEach(acc => {
+      const key = acc.name.trim().toLowerCase();
+      if (key) {
+        map.set(key, { ...acc });
+      }
+    });
+
+    // 2) 로컬 스토리지 - 본부 설정 ('erp_hq_settings_v2')
+    try {
+      const savedHqs = localStorage.getItem('erp_hq_settings_v2');
+      if (savedHqs) {
+        const parsed = JSON.parse(savedHqs);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((h: any) => {
+            const name = (h.name || '').trim();
+            if (name) {
+              const key = name.toLowerCase();
+              const existing = map.get(key) || { name, bankName: '', accountNumber: '', accountHolder: '' };
+              map.set(key, {
+                name,
+                bankName: h.bankName || existing.bankName || '',
+                accountNumber: h.accountNumber || existing.accountNumber || '',
+                accountHolder: h.accountHolder || existing.accountHolder || '',
+                type: 'HQ'
+              });
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse erp_hq_settings_v2:', e);
+    }
+
+    // 3) 로컬 스토리지 - 사업단 설정 ('erp_division_settings_v1')
+    try {
+      const savedDivs = localStorage.getItem('erp_division_settings_v1');
+      if (savedDivs) {
+        const parsed = JSON.parse(savedDivs);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((d: any) => {
+            const name = (d.name || '').trim();
+            if (name) {
+              const key = name.toLowerCase();
+              const existing = map.get(key) || { name, bankName: '', accountNumber: '', accountHolder: '' };
+              map.set(key, {
+                name,
+                bankName: d.bankName || existing.bankName || '',
+                accountNumber: d.accountNumber || existing.accountNumber || '',
+                accountHolder: d.accountHolder || existing.accountHolder || '',
+                type: 'DIVISION'
+              });
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse erp_division_settings_v1:', e);
+    }
+
+    // 4) props: hqSettings
+    if (Array.isArray(hqSettings)) {
+      hqSettings.forEach((h: any) => {
+        const name = (h.name || '').trim();
+        if (name) {
+          const key = name.toLowerCase();
+          const existing = map.get(key) || { name, bankName: '', accountNumber: '', accountHolder: '' };
+          map.set(key, {
+            name,
+            bankName: h.bankName || existing.bankName || '',
+            accountNumber: h.accountNumber || existing.accountNumber || '',
+            accountHolder: h.accountHolder || existing.accountHolder || '',
+            type: 'HQ'
+          });
+        }
+      });
+    }
+
+    // 5) props: divisionSettings
+    if (Array.isArray(divisionSettings)) {
+      divisionSettings.forEach((d: any) => {
+        const name = (d.name || '').trim();
+        if (name) {
+          const key = name.toLowerCase();
+          const existing = map.get(key) || { name, bankName: '', accountNumber: '', accountHolder: '' };
+          map.set(key, {
+            name,
+            bankName: d.bankName || existing.bankName || '',
+            accountNumber: d.accountNumber || existing.accountNumber || '',
+            accountHolder: d.accountHolder || existing.accountHolder || '',
+            type: 'DIVISION'
+          });
+        }
+      });
+    }
+
+    // 6) availableHqs 목록
+    availableHqs.forEach(h => {
+      const name = (h || '').trim();
+      if (name && name !== '전체' && name !== '전체본부') {
+        const key = name.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, {
+            name,
+            bankName: '',
+            accountNumber: '',
+            accountHolder: '',
+            type: 'HQ'
+          });
+        }
+      }
+    });
+
+    return map;
+  }, [hqSettings, divisionSettings, availableHqs]);
+
+  // 본부 목록 드롭다운 옵션
+  const hqAccountOptions = useMemo<HqAccountInfo[]>(() => {
+    const list = Array.from(hqAccountMap.values()) as HqAccountInfo[];
+    return list.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  }, [hqAccountMap]);
+
+  // 본부 선택 시 수령처 및 계좌정보 자동 채우기 핸들러
+  const handleSelectHqForRecipient = (hqName: string) => {
+    if (!hqName) return;
+    const key = hqName.trim().toLowerCase();
+    const info = hqAccountMap.get(key);
+    if (info) {
+      setProductForm(prev => ({
+        ...prev,
+        commissionRecipient: info.name,
+        recipientBank: (info.bankName && info.bankName !== '-') ? info.bankName : '',
+        recipientAccount: (info.accountNumber && info.accountNumber !== '-') ? info.accountNumber : '',
+        recipientHolder: (info.accountHolder && info.accountHolder !== '-') ? info.accountHolder : ''
+      }));
+    } else {
+      setProductForm(prev => ({
+        ...prev,
+        commissionRecipient: hqName
+      }));
+    }
+  };
+
+  // 공급사 기본 계좌로 채우기 핸들러
+  const handleResetToSupplierAccount = () => {
+    if (activeSupplier) {
+      setProductForm(prev => ({
+        ...prev,
+        commissionRecipient: activeSupplier.name || '',
+        recipientBank: activeSupplier.bankName || '',
+        recipientAccount: activeSupplier.accountNumber || '',
+        recipientHolder: activeSupplier.accountHolder || ''
+      }));
+    }
+  };
+
+  // 수령처 초기화 핸들러
+  const handleClearRecipient = () => {
+    setProductForm(prev => ({
+      ...prev,
+      commissionRecipient: '',
+      recipientBank: '',
+      recipientAccount: '',
+      recipientHolder: ''
+    }));
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -1442,33 +1645,122 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                     )}
                   </div>
 
-                  {/* 수수료 수령자 / 계좌정보 */}
-                  <div className="pt-2 border-t border-slate-100">
-                    <label className="font-bold text-slate-700 mb-1 block">
-                      수수료 수령처 / 계좌정보 (선택사항, 미입력 시 공급사 기본계좌로 지급)
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      <input
-                        type="text"
-                        placeholder="수령자 성명/처"
-                        value={productForm.commissionRecipient || ''}
-                        onChange={(e) => setProductForm({ ...productForm, commissionRecipient: e.target.value })}
-                        className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white outline-none"
-                      />
-                      <input
-                        type="text"
-                        placeholder="은행명"
-                        value={productForm.recipientBank || ''}
-                        onChange={(e) => setProductForm({ ...productForm, recipientBank: e.target.value })}
-                        className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white outline-none"
-                      />
-                      <input
-                        type="text"
-                        placeholder="계좌번호"
-                        value={productForm.recipientAccount || ''}
-                        onChange={(e) => setProductForm({ ...productForm, recipientAccount: e.target.value })}
-                        className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white outline-none"
-                      />
+                  {/* 수수료 수령처 / 계좌정보 (본부 선택 연동 지원) */}
+                  <div className="pt-3 border-t border-slate-200/80 bg-slate-50/70 -mx-6 px-6 py-3 rounded-b-2xl">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <CreditCard size={14} className="text-purple-600" />
+                        <label className="font-bold text-slate-800 text-xs">
+                          수수료 수령처 및 지급 계좌정보
+                        </label>
+                        <span className="text-[10px] bg-purple-100 text-purple-700 font-semibold px-1.5 py-0.5 rounded">
+                          본부 계좌 연동
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={handleResetToSupplierAccount}
+                          className="px-2 py-0.5 text-[11px] font-semibold text-slate-600 bg-white hover:bg-slate-100 border border-slate-200 rounded-md cursor-pointer transition-colors shadow-2xs"
+                          title="이 공급사의 기본 계좌정보로 채웁니다"
+                        >
+                          공급사 기본계좌로 설정
+                        </button>
+                        {(productForm.commissionRecipient || productForm.recipientBank || productForm.recipientAccount || productForm.recipientHolder) && (
+                          <button
+                            type="button"
+                            onClick={handleClearRecipient}
+                            className="px-2 py-0.5 text-[11px] font-semibold text-rose-500 hover:bg-rose-50 border border-rose-200 rounded-md cursor-pointer transition-colors"
+                          >
+                            비우기
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {/* 본부 선택 셀렉트 */}
+                      <div className="flex items-center gap-2">
+                        <div className="text-[11px] font-bold text-slate-600 whitespace-nowrap min-w-[75px]">
+                          수령 본부 선택:
+                        </div>
+                        <select
+                          value={
+                            hqAccountOptions.some(h => h.name === productForm.commissionRecipient)
+                              ? (productForm.commissionRecipient || '')
+                              : ''
+                          }
+                          onChange={(e) => handleSelectHqForRecipient(e.target.value)}
+                          className="flex-1 px-2.5 py-1.5 bg-white border border-purple-200 rounded-lg text-xs font-semibold text-purple-900 focus:ring-2 focus:ring-purple-400 focus:border-purple-400 outline-none cursor-pointer shadow-2xs"
+                        >
+                          <option value="">-- 본부를 선택하면 해당 본부의 계좌정보가 자동 연동됩니다 --</option>
+                          {hqAccountOptions.map((hq) => {
+                            const hasAccount = hq.bankName && hq.bankName !== '-' && hq.accountNumber && hq.accountNumber !== '-';
+                            return (
+                              <option key={hq.name} value={hq.name}>
+                                {hq.name} {hasAccount ? `(${hq.bankName} ${hq.accountNumber} · ${hq.accountHolder})` : '(계좌 미등록)'}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      {/* 계좌 상세 입력 필드 (4분할: 수령처, 은행명, 계좌번호, 예금주) */}
+                      <div className="grid grid-cols-4 gap-2">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 mb-0.5 block">수령처명 / 본부</label>
+                          <input
+                            type="text"
+                            placeholder="수령처 (예: 맥스)"
+                            value={productForm.commissionRecipient || ''}
+                            onChange={(e) => setProductForm({ ...productForm, commissionRecipient: e.target.value })}
+                            className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:border-purple-400 focus:ring-1 focus:ring-purple-400 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 mb-0.5 block">은행명</label>
+                          <input
+                            type="text"
+                            placeholder="은행명 (예: 우리)"
+                            value={productForm.recipientBank || ''}
+                            onChange={(e) => setProductForm({ ...productForm, recipientBank: e.target.value })}
+                            className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:border-purple-400 focus:ring-1 focus:ring-purple-400 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 mb-0.5 block">계좌번호</label>
+                          <input
+                            type="text"
+                            placeholder="계좌번호"
+                            value={productForm.recipientAccount || ''}
+                            onChange={(e) => setProductForm({ ...productForm, recipientAccount: e.target.value })}
+                            className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-semibold focus:border-purple-400 focus:ring-1 focus:ring-purple-400 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 mb-0.5 block">예금주</label>
+                          <input
+                            type="text"
+                            placeholder="예금주 성명"
+                            value={productForm.recipientHolder || ''}
+                            onChange={(e) => setProductForm({ ...productForm, recipientHolder: e.target.value })}
+                            className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:border-purple-400 focus:ring-1 focus:ring-purple-400 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                        <span className="text-[10px] text-slate-400">
+                          * 미입력 시 공급사 기본 계좌로 자동 정산됩니다. 직접 수정하거나 위 본부를 선택하세요.
+                        </span>
+                        {productForm.commissionRecipient && (
+                          <span className="text-[11px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 flex items-center gap-1">
+                            <CheckCircle2 size={12} className="text-purple-600" />
+                            지급처: {productForm.commissionRecipient}
+                            {productForm.recipientBank && ` (${productForm.recipientBank} ${productForm.recipientHolder || ''})`}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
