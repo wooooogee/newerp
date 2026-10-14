@@ -702,7 +702,36 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     if (globalIncentives && Array.isArray(globalIncentives) && globalIncentives.length > 0) cacheData.globalIncentives = globalIncentives;
     if (maintenanceRules && Array.isArray(maintenanceRules) && maintenanceRules.length > 0) cacheData.maintenanceRules = maintenanceRules;
     if (manualOrderProducts) cacheData.manualOrderProducts = manualOrderProducts;
-    if (manualOrderStores) cacheData.manualOrderStores = manualOrderStores;
+    if (manualOrderStores && typeof manualOrderStores === 'object') {
+      const existingStores = cacheData.manualOrderStores || {};
+      const mergedStores: Record<string, any> = { ...existingStores };
+      for (const [key, inc] of Object.entries(manualOrderStores)) {
+        if (!inc || typeof inc !== 'object') continue;
+        const ex = mergedStores[key];
+        if (!ex) {
+          mergedStores[key] = { ...(inc as any) };
+        } else {
+          let certStatus = (inc as any).installCertStatus;
+          let certDate = (inc as any).installCertDate;
+          let certMonth = (inc as any).installCertMonth;
+          if (!certStatus || certStatus === '미등록') {
+            if (ex.installCertStatus === '등록' || ex.installCertDate || ex.installCertMonth) {
+              certStatus = '등록';
+              certDate = certDate || ex.installCertDate;
+              certMonth = certMonth || ex.installCertMonth;
+            }
+          }
+          mergedStores[key] = {
+            ...ex,
+            ...(inc as any),
+            installCertStatus: certStatus || ex.installCertStatus || '미등록',
+            installCertDate: certDate || ex.installCertDate || '',
+            installCertMonth: certMonth || ex.installCertMonth || '',
+          };
+        }
+      }
+      cacheData.manualOrderStores = mergedStores;
+    }
     if (reportSettings) cacheData.reportSettings = reportSettings;
     if (divisions && Array.isArray(divisions) && divisions.length > 0) cacheData.divisions = divisions;
     fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8');

@@ -42,6 +42,69 @@ export function getManualOrderInfo(
 }
 
 /**
+ * 로컬스토리지와 클라우드 수기발주 저장소를 비파괴적으로 안전하게 병합 (Deep Non-Destructive Merge)
+ * - 클라우드 데이터 로드 시 로컬에 이미 등록된 '등록' 상태나 확인서 일자/마감월이 누락/미등록으로 리셋되지 않도록 완벽 보존
+ */
+export function mergeManualOrderStores(
+  baseStore: Record<string, ManualOrderInfo> = {},
+  incomingStore: Record<string, ManualOrderInfo> = {}
+): Record<string, ManualOrderInfo> {
+  const merged: Record<string, ManualOrderInfo> = {};
+
+  // 1. baseStore 복사
+  Object.entries(baseStore || {}).forEach(([k, v]) => {
+    if (v && typeof v === 'object') {
+      merged[k] = { ...v };
+    }
+  });
+
+  // 2. incomingStore 안전 병합
+  Object.entries(incomingStore || {}).forEach(([key, incoming]) => {
+    if (!incoming || typeof incoming !== 'object') return;
+    const existing = merged[key];
+
+    if (!existing) {
+      merged[key] = { ...incoming };
+      return;
+    }
+
+    // 기본 배송정보는 들어오는 쪽의 값이 비어있지 않으면 우선 적용
+    const orderDate = incoming.orderDate?.trim() || existing.orderDate || '';
+    const deliveryDate = incoming.deliveryDate?.trim() || existing.deliveryDate || '';
+    const courier = incoming.courier?.trim() || existing.courier || '';
+    const trackingNo = incoming.trackingNo?.trim() || existing.trackingNo || '';
+    const deliveryState = incoming.deliveryState?.trim() || existing.deliveryState || '';
+
+    // ⭐ 설치확인서 관련 필드는 '등록' 상태나 유효한 날짜가 있는 쪽을 최우선으로 보존!
+    let installCertStatus: '등록' | '미등록' = '미등록';
+    if (incoming.installCertStatus === '등록' || existing.installCertStatus === '등록') {
+      installCertStatus = '등록';
+    } else if (incoming.installCertDate || incoming.installCertMonth || existing.installCertDate || existing.installCertMonth) {
+      installCertStatus = '등록';
+    }
+
+    const installCertDate = incoming.installCertDate?.trim() || existing.installCertDate || '';
+    let installCertMonth = incoming.installCertMonth?.trim() || existing.installCertMonth || '';
+    if (!installCertMonth && installCertDate) {
+      installCertMonth = installCertDate.substring(0, 7);
+    }
+
+    merged[key] = {
+      orderDate,
+      deliveryDate,
+      courier,
+      trackingNo,
+      deliveryState,
+      installCertStatus,
+      installCertDate,
+      installCertMonth,
+    };
+  });
+
+  return merged;
+}
+
+/**
  * 수기발주 대상 상품인지 판별
  */
 export function isManualTargetProduct(

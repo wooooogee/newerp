@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ShieldCheck, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw, ArrowUpDown, Building, Calculator } from 'lucide-react';
+import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ShieldCheck, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw, ArrowUpDown, Building, Calculator, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ManualOrderReconModal } from './ManualOrderReconModal';
 import { SupplierItem, loadSuppliersFromStorage } from './SupplierManagementModal';
+import { mergeManualOrderStores } from './manualOrderUtils';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -115,8 +116,8 @@ export const parseSheetRowsToMap = (rows: any[][]) => {
   const delDateCol = findCol(['배송일', '배송일자', '설치일'], 20);
   const courierCol = findCol(['택배사', '배송업체'], 21);
   const trackingCol = findCol(['송장번호', '운송장번호'], 22);
-  const installCertDateCol = findCol(['설치확인서등록', '설치확인서일자', '설치확인일자', '설치확인일', '설치확인서'], 24);
-  const installCertMonthCol = findCol(['설치확인서마감', '확인서마감월', '마감월', '정산마감월'], 25);
+  const installCertDateCol = findCol(['설치확인서등록일', '설치확인서등록', '설치확인서일자', '설치확인일자', '설치확인일', '설치확인서'], 24);
+  const installCertMonthCol = findCol(['설치확인서마감월', '설치확인서마감', '확인서마감월', '정산마감월', '마감월'], 25);
 
   rows.slice(1).forEach((row, idx) => {
     const rowIdx = idx + 2;
@@ -507,11 +508,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         if (cloudRes.ok) {
           const cloudData = await cloudRes.json();
           if (cloudData.manualOrderStores && typeof cloudData.manualOrderStores === 'object') {
-            setSavedOrderStore((prev) => ({
-              ...cloudData.manualOrderStores,
-              ...prev,
-            }));
-            localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(cloudData.manualOrderStores));
+            setSavedOrderStore((prev) => {
+              const merged = mergeManualOrderStores(prev, cloudData.manualOrderStores);
+              try {
+                localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(merged));
+              } catch (e) {}
+              return merged;
+            });
           }
         }
       } catch (cloudErr) {
@@ -590,9 +593,16 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         dState = '발주완료';
       }
 
-      const certDate = savedData?.installCertDate !== undefined ? savedData.installCertDate : (sheetMatch?.installCertDate || '');
-      const certMonth = savedData?.installCertMonth !== undefined ? savedData.installCertMonth : (sheetMatch?.installCertMonth || (certDate ? certDate.substring(0, 7) : ''));
-      const certStatus: '등록' | '미등록' = savedData?.installCertStatus || (certDate || certMonth ? '등록' : '미등록');
+      const certDate = (savedData?.installCertDate && savedData.installCertDate.trim()) 
+        ? savedData.installCertDate.trim() 
+        : (sheetMatch?.installCertDate || '');
+      let certMonth = (savedData?.installCertMonth && savedData.installCertMonth.trim()) 
+        ? savedData.installCertMonth.trim() 
+        : (sheetMatch?.installCertMonth || (certDate ? certDate.substring(0, 7) : ''));
+      if (!certMonth && certDate) {
+        certMonth = certDate.substring(0, 7);
+      }
+      const certStatus: '등록' | '미등록' = (savedData?.installCertStatus === '등록' || certDate || certMonth) ? '등록' : '미등록';
 
       list.push({
         uniqueKey: item.uniqueKey || `item-${contractNo}`,
@@ -642,9 +652,16 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : String(row[22] || '').trim();
         const explicitState = savedData?.deliveryState || (row[23] as DeliveryState);
 
-        const certDate = savedData?.installCertDate !== undefined ? savedData.installCertDate : String(row[24] || '').trim();
-        const certMonth = savedData?.installCertMonth !== undefined ? savedData.installCertMonth : String(row[25] || (certDate ? certDate.substring(0, 7) : '')).trim();
-        const certStatus: '등록' | '미등록' = savedData?.installCertStatus || (certDate || certMonth ? '등록' : '미등록');
+        const certDate = (savedData?.installCertDate && savedData.installCertDate.trim()) 
+          ? savedData.installCertDate.trim() 
+          : String(row[24] || '').trim();
+        let certMonth = (savedData?.installCertMonth && savedData.installCertMonth.trim()) 
+          ? savedData.installCertMonth.trim() 
+          : String(row[25] || (certDate ? certDate.substring(0, 7) : '')).trim();
+        if (!certMonth && certDate) {
+          certMonth = certDate.substring(0, 7);
+        }
+        const certStatus: '등록' | '미등록' = (savedData?.installCertStatus === '등록' || certDate || certMonth) ? '등록' : '미등록';
 
         let dState: DeliveryState = explicitState || '발주대기';
         if (!explicitState) {
@@ -797,6 +814,120 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       message: `선택된 ${targets.length}건의 설치확인서가 [${status === '등록' ? `${setMonth}월 마감 등록` : '미등록'}] (으)로 변경되었습니다. 상단 [저장하기] 버튼을 눌러 확정하세요.`,
       type: 'success',
     });
+  };
+
+  // 배송완료 건 중 설치확인서 미등록 건 목록
+  const unregisteredDeliveredOrders = useMemo(() => {
+    return extractedOrders.filter((o) => {
+      const state = getRowDeliveryState(o);
+      const delDate = getFieldValue(o, 'deliveryDate');
+      const isDelivered = state === '배송완료' || !!(delDate && delDate.trim());
+      const certStatus = getFieldValue(o, 'installCertStatus');
+      return isDelivered && certStatus !== '등록';
+    });
+  }, [extractedOrders, editedStates, editedValues]);
+
+  // 배송완료 건 설치확인서 자동 일괄 등록 및 즉시 확정 저장 핸들러
+  const handleAutoRegisterDeliveredCert = async () => {
+    if (unregisteredDeliveredOrders.length === 0) {
+      alert('설치확인서가 미등록된 배송완료 주문이 없습니다.');
+      return;
+    }
+
+    const count = unregisteredDeliveredOrders.length;
+    const isConfirmed = window.confirm(
+      `배송완료 상태인 미등록 주문 총 ${count}건을 배송일자 기준으로 설치확인서에 자동 등록하고 즉시 구글 시트와 저장소에 저장하시겠습니까?`
+    );
+    if (!isConfirmed) return;
+
+    setSaving(true);
+    setNotification(null);
+
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const nextStore = { ...savedOrderStore };
+      const sheetUpdates: { rowIdx: number; colIdx: number; newValue: string }[] = [];
+
+      unregisteredDeliveredOrders.forEach((row) => {
+        const cNo = row.contractNo;
+        const cKey = cNo.toUpperCase();
+        const existing = nextStore[cKey] || nextStore[cNo] || {};
+
+        const delDate = getFieldValue(row, 'deliveryDate') || today;
+        const certDate = delDate;
+        const certMonth = delDate.substring(0, 7);
+
+        const valObj = {
+          orderDate: existing.orderDate ?? row.orderDate ?? '',
+          deliveryDate: existing.deliveryDate ?? row.deliveryDate ?? delDate,
+          courier: existing.courier ?? row.courier ?? '',
+          trackingNo: existing.trackingNo ?? row.trackingNo ?? '',
+          deliveryState: '배송완료' as DeliveryState,
+          installCertStatus: '등록' as const,
+          installCertDate: certDate,
+          installCertMonth: certMonth,
+        };
+
+        nextStore[cKey] = valObj;
+        nextStore[cNo] = valObj;
+        const cDigits = cNo.replace(/[^0-9]/g, '');
+        if (cDigits) nextStore[cDigits] = valObj;
+
+        if (row.rowIdx) {
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 20, newValue: delDate });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 23, newValue: '배송완료' });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 24, newValue: certDate });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 25, newValue: certMonth });
+        }
+      });
+
+      // 1. 구글 시트 업데이트
+      if (sheetUpdates.length > 0) {
+        try {
+          await fetch('/api/sheets/batch-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sheetName: '수기발주',
+              updates: sheetUpdates,
+            }),
+          });
+        } catch (e) {
+          console.warn('구글 시트 저장 중 예외:', e);
+        }
+      }
+
+      // 2. 로컬 스토리지 및 클라우드 설정 저장
+      setSavedOrderStore(nextStore);
+      localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(nextStore));
+
+      try {
+        await fetch('/api/sheets/settings/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            manualOrderStores: nextStore,
+            manualOrderProducts: targetProducts,
+          }),
+        });
+      } catch (cloudErr) {
+        console.warn('클라우드 동기화 저장 오류:', cloudErr);
+      }
+
+      await fetchOrderSheetData();
+
+      setNotification({
+        message: `배송완료 ${count}건의 설치확인서가 성공적으로 등록 및 확정 저장되었습니다!`,
+        type: 'success',
+      });
+      setEditedValues({});
+      setEditedStates({});
+    } catch (err: any) {
+      console.error(err);
+      setNotification({ message: '자동 등록 중 오류가 발생했습니다: ' + err.message, type: 'error' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const getFieldValue = (row: OrderRow, field: 'orderDate' | 'deliveryDate' | 'courier' | 'trackingNo' | 'installCertStatus' | 'installCertDate' | 'installCertMonth') => {
@@ -1459,7 +1590,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 {showProductConfig ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </button>
               <button
-                onClick={fetchOrderSheetData}
+                onClick={() => {
+                  if (isChanged && !window.confirm('저장되지 않은 변경사항이 있습니다. 새로고침하면 변경사항이 취소됩니다. 진행하시겠습니까?')) {
+                    return;
+                  }
+                  fetchOrderSheetData();
+                }}
                 disabled={loading}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold transition-all cursor-pointer shadow-xs"
                 title="데이터 새로고침"
@@ -1468,7 +1604,12 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 새로고침
               </button>
               <button
-                onClick={onClose}
+                onClick={() => {
+                  if (isChanged && !window.confirm('저장되지 않은 변경사항이 있습니다. 저장하지 않고 닫으시겠습니까?')) {
+                    return;
+                  }
+                  onClose();
+                }}
                 className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-all cursor-pointer"
               >
                 <X size={18} />
@@ -1950,6 +2091,20 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   <option value="unregister" className="bg-white text-rose-700 font-medium">❌ 미등록으로 일괄 해제</option>
                 </select>
               </div>
+
+              {/* 배송완료 건 설치확인서 자동 일괄 등록 및 복구 버튼 */}
+              {unregisteredDeliveredOrders.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleAutoRegisterDeliveredCert}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-amber-500/25 ring-2 ring-amber-200"
+                  title="배송완료되었으나 설치확인서가 미등록인 주문 건을 배송일자 기준으로 일괄 자동 등록하고 저장합니다."
+                >
+                  <Sparkles size={14} />
+                  <span>⚡ 배송완료 확인서 자동등록 ({unregisteredDeliveredOrders.length}건)</span>
+                </button>
+              )}
 
               {/* 발주하기 버튼 (기존 4개 필드 발주서 모달) */}
               <button

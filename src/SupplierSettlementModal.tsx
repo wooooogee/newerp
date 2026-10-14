@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplierItem, SupplierProductSetting, loadSuppliersFromStorage } from './SupplierManagementModal';
-import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo, getNextMonthStr } from './manualOrderUtils';
+import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo, getNextMonthStr, mergeManualOrderStores } from './manualOrderUtils';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -171,9 +171,13 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         if (res.ok) {
           const cloudData = await res.json();
           if (cloudData.manualOrderStores && typeof cloudData.manualOrderStores === 'object') {
-            setCloudOrderStores(cloudData.manualOrderStores);
+            setCloudOrderStores((prev) => mergeManualOrderStores(prev, cloudData.manualOrderStores));
             try {
-              localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(cloudData.manualOrderStores));
+              let curLocal = {};
+              const cur = localStorage.getItem('erp_manual_orders_saved_store_v1');
+              if (cur) curLocal = JSON.parse(cur);
+              const merged = mergeManualOrderStores(curLocal, cloudData.manualOrderStores);
+              localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(merged));
             } catch (e) {}
           }
         }
@@ -223,7 +227,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
   // 로컬 + 클라우드 병합 수기발주 대장 스토어
   const effectiveManualStores = useMemo(() => {
-    return { ...manualOrderStores, ...cloudOrderStores };
+    return mergeManualOrderStores(manualOrderStores, cloudOrderStores);
   }, [manualOrderStores, cloudOrderStores]);
 
   const manualOrderTargetProducts = useMemo(() => {

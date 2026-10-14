@@ -28,7 +28,7 @@ import { VocManagementModal } from './VocManagementModal';
 import { AccountManagementModal } from './AccountManagementModal';
 import { OrganizationChartModal } from './OrganizationChartModal';
 import { MonthlySettlementModal } from './MonthlySettlementModal';
-import { checkInstallCertEligibility, isSupplyCommissionRule } from './manualOrderUtils';
+import { checkInstallCertEligibility, isSupplyCommissionRule, mergeManualOrderStores } from './manualOrderUtils';
 import { SpecialIncentiveRuleEditor } from './SpecialIncentiveRuleEditor';
 import { TargetItemsSelectorModal } from './TargetItemsSelectorModal';
 import { ExcelSyncModal } from './ExcelSyncModal';
@@ -1746,7 +1746,13 @@ const ERP_Dashboard = () => {
           localStorage.setItem('erp_manual_order_target_products_v1', JSON.stringify(data.manualOrderProducts));
         }
         if (data.manualOrderStores && typeof data.manualOrderStores === 'object') {
-          localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(data.manualOrderStores));
+          let curLocal = {};
+          try {
+            const cur = localStorage.getItem('erp_manual_orders_saved_store_v1');
+            if (cur) curLocal = JSON.parse(cur);
+          } catch (e) {}
+          const merged = mergeManualOrderStores(curLocal, data.manualOrderStores);
+          localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(merged));
         }
         if (data.reportSettings && typeof data.reportSettings === 'object') {
           if (data.reportSettings.extraMetrics) localStorage.setItem('report_extra_metrics', JSON.stringify(data.reportSettings.extraMetrics));
