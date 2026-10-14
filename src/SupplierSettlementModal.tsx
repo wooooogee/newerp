@@ -8,6 +8,13 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplierItem, SupplierProductSetting, loadSuppliersFromStorage } from './SupplierManagementModal';
 import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo, getNextMonthStr, mergeManualOrderStores } from './manualOrderUtils';
+import { 
+  CommissionSettlementDetailModal, 
+  exportCommissionStatementExcel, 
+  SettlementDetailItem, 
+  CommissionDetailTarget,
+  numberToKorean
+} from './CommissionSettlementDetailModal';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -152,8 +159,16 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   // 'NEXT_MONTH': 설치확인서 마감월 익월 지급 (다음달 지급)
   const [payoutRuleMode, setPayoutRuleMode] = useState<'CERT_MONTH' | 'NEXT_MONTH'>('CERT_MONTH');
 
-  // 공급 수수료 탭 필터: 전체 vs 지급 대상만 vs 미등록 보류만
+  // 공급 수수료 탭 필터
   const [certFilter, setCertFilter] = useState<'ALL' | 'PAYABLE' | 'HOLD'>('ALL');
+
+  // 공급 수수료 집계 기준: 관련 공급사 기준별 vs 수령처별 통합
+  const [commissionGroupMode, setCommissionGroupMode] = useState<'SUPPLIER_BASED' | 'RECIPIENT_BASED'>('SUPPLIER_BASED');
+
+  // 상세 내역 모달 상태
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [detailModalTarget, setDetailModalTarget] = useState<CommissionDetailTarget | null>(null);
+  const [detailRecipientAllItems, setDetailRecipientAllItems] = useState<SettlementDetailItem[]>([]);
 
   const [suppliers, setSuppliers] = useState<SupplierItem[]>(() => loadSuppliersFromStorage());
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('ALL'); // 'ALL' 또는 개별 공급사 ID
@@ -474,8 +489,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   }, [selectedSupplierId, supplyPriceSummaries]);
 
   // ==========================================
-  // [2] 공급 수수료(특수수당) 집계 (공급사/수령처별)
-  // 설치확인서 등록완료 건만 실제 지급 집계, 미등록 건은 보류 통계 집계
+  // [2] 공급 수수료(특수수당) 집계 (관련 공급사 기준별)
+  // 지급 대상 건만 정상 집계 (확인서 미등록 보류 분리 제거)
   // ==========================================
   const commissionSummaries = useMemo<CommissionSummary[]>(() => {
     const summaryMap = new Map<string, CommissionSummary>();
@@ -507,14 +522,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       }
 
       if (item.isCommissionPayable) {
-        // 설치확인서 등록 완료 및 해당 정산월 지급 건
         comm.productCount += item.quantity;
         comm.totalCommissionAmount += item.totalCommission;
-        comm.items.push(item);
-      } else if (item.isCertHold) {
-        // 배송완료 건 중 설치확인서 미등록 보류 건 (사용자 요구: 배송완료 처리된 건 중 확인서 미등록 보류 값 확인)
-        comm.holdCount += item.quantity;
-        comm.holdCommissionAmount += item.totalCommission;
         comm.items.push(item);
       }
     });
@@ -522,27 +531,121 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     return Array.from(summaryMap.values());
   }, [allSettlementItems]);
 
-  // 공급 수수료 전체 KPI (지급 대상 vs 보류 통계 분리)
+  // ==========================================
+  // [2-1] 수령처별 통합 집계 (리치웰페어 -> 수령처 직접 지급 기준)
+  // 동일 수령처의 모든 관련 공급사 건을 1건으로 통합
+  // ==========================================
+  const commissionRecipientSummaries = useMemo<CommissionSummary[]>(() => {
+    const summaryMap = new Map<string, CommissionSummary>();
+
+    allSettlementItems.forEach((item) => {
+      if (item.totalCommission <= 0) return;
+      if (!item.isCommissionPayable) return;
+
+      const recipientName = item.commissionRecipient || item.matchedSupplierName;
+      const key = recipientName;
+
+      let comm = summaryMap.get(key);
+      if (!comm) {
+        comm = {
+          recipientKey: key,
+          supplierId: item.matchedSupplierId,
+          supplierName: item.matchedSupplierName,
+          commissionRecipient: recipientName,
+          recipientBank: item.recipientBank || '-',
+          recipientAccount: item.recipientAccount || '-',
+          recipientHolder: item.recipientHolder || '-',
+          productCount: 0,
+          totalCommissionAmount: 0,
+          holdCount: 0,
+          holdCommissionAmount: 0,
+          items: []
+        };
+        summaryMap.set(key, comm);
+      }
+
+      comm.productCount += item.quantity;
+      comm.totalCommissionAmount += item.totalCommission;
+      comm.items.push(item);
+    });
+
+    const list = Array.from(summaryMap.values());
+    list.forEach(c => {
+      const suppSet = Array.from(new Set(c.items.map(i => i.matchedSupplierName))).filter(Boolean);
+      if (suppSet.length > 1) {
+        c.supplierName = `${suppSet.join(', ')} (${suppSet.length}개 공급사)`;
+      } else if (suppSet.length === 1) {
+        c.supplierName = suppSet[0];
+      }
+    });
+
+    return list;
+  }, [allSettlementItems]);
+
+  // 현재 집계 모드에 따른 표시 목록 (관련 공급사 기준별 vs 수령처별 통합)
+  const displayedCommissionSummaries = useMemo(() => {
+    return commissionGroupMode === 'RECIPIENT_BASED'
+      ? commissionRecipientSummaries
+      : commissionSummaries;
+  }, [commissionGroupMode, commissionRecipientSummaries, commissionSummaries]);
+
+  // 공급 수수료 전체 KPI (세금계산서 공급가액 및 부가세 산출)
   const commissionTotalStats = useMemo(() => {
     let productCount = 0;
     let totalCommissionAmount = 0;
-    let holdCount = 0;
-    let holdCommissionAmount = 0;
 
     commissionSummaries.forEach(c => {
       productCount += c.productCount;
       totalCommissionAmount += c.totalCommissionAmount;
-      holdCount += c.holdCount;
-      holdCommissionAmount += c.holdCommissionAmount;
     });
+
+    const supplyPrice = Math.round(totalCommissionAmount / 1.1);
+    const vat = totalCommissionAmount - supplyPrice;
 
     return { 
       productCount, 
       totalCommissionAmount, 
-      holdCount, 
-      holdCommissionAmount 
+      supplyPrice,
+      vat,
+      recipientCount: new Set(commissionSummaries.map(c => c.commissionRecipient)).size,
+      holdCount: 0, 
+      holdCommissionAmount: 0 
     };
   }, [commissionSummaries]);
+
+  // 상세 내역 모달 열기 핸들러
+  const handleOpenDetailModal = (summary: CommissionSummary) => {
+    const recipientItems = allSettlementItems.filter(
+      i => (i.commissionRecipient || i.matchedSupplierName) === summary.commissionRecipient && i.isCommissionPayable
+    );
+    setDetailModalTarget({
+      recipientKey: summary.recipientKey,
+      supplierId: summary.supplierId,
+      supplierName: summary.supplierName,
+      commissionRecipient: summary.commissionRecipient,
+      recipientBank: summary.recipientBank,
+      recipientAccount: summary.recipientAccount,
+      recipientHolder: summary.recipientHolder,
+      productCount: summary.productCount,
+      totalCommissionAmount: summary.totalCommissionAmount,
+      items: summary.items as SettlementDetailItem[]
+    });
+    setDetailRecipientAllItems(recipientItems as SettlementDetailItem[]);
+    setIsDetailModalOpen(true);
+  };
+
+  // 개별 명세서 엑셀 다운로드 핸들러
+  const handleExportSingleCommissionStatement = (summary: CommissionSummary) => {
+    exportCommissionStatementExcel(
+      summary.commissionRecipient,
+      summary.recipientBank,
+      summary.recipientAccount,
+      summary.recipientHolder,
+      selectedMonth,
+      summary.items as SettlementDetailItem[],
+      commissionGroupMode === 'SUPPLIER_BASED' ? summary.supplierName : undefined
+    );
+  };
 
   // 필터링된 상세 건별 목록 (검색, 공급사, 탭, 설치확인서 필터 연동)
   const filteredDetailItems = useMemo(() => {
@@ -746,26 +849,31 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     // 1. 공급 수수료 총괄 요약 시트
     const summaryRows: any[][] = [
       [`리치웰페어 - 공급 수수료(특수수당) 정산 총괄표 (${selectedMonth} 기준)`],
-      [`정산 기준: 설치확인서 등록완료 및 ${payoutRuleMode === 'NEXT_MONTH' ? '익월지급' : '당월정산'} (금액: VAT 포함)`],
+      [`지급 주체: (주)리치웰페어  |  정산 기준: 배송완료 및 설치확인 건 (금액: VAT 포함)`],
+      [`※ 관련 공급사는 정산 산정 기준 표기이며, (주)리치웰페어에서 수령처 계좌로 직접 지급합니다.`],
       [`출력일시: ${new Date().toLocaleString()}`],
       [],
-      ['공급사명', '수수료 수령처', '정산은행', '계좌번호', '예금주', '지급 대상 건수', '총 지급 수수료 (VAT포함)', '확인서 미등록 보류 건수', '보류 수수료 합계']
+      ['관련 공급사 (기준)', '수수료 수령처', '정산은행', '계좌번호', '예금주', '지급 대상 건수', '공급가액', '부가세 (10%)', '총 지급 수수료 (VAT포함)']
     ];
 
     const targetSummaries = targetSupplierId && targetSupplierId !== 'ALL'
       ? commissionSummaries.filter(c => c.supplierId === targetSupplierId)
-      : commissionSummaries;
+      : (commissionGroupMode === 'RECIPIENT_BASED' ? commissionRecipientSummaries : commissionSummaries);
 
     let subTotalCount = 0;
     let subTotalAmount = 0;
-    let subTotalHoldCount = 0;
-    let subTotalHoldAmount = 0;
+    let subTotalSupply = 0;
+    let subTotalVat = 0;
 
     targetSummaries.forEach((c) => {
+      const supply = Math.round(c.totalCommissionAmount / 1.1);
+      const vat = c.totalCommissionAmount - supply;
+
       subTotalCount += c.productCount;
       subTotalAmount += c.totalCommissionAmount;
-      subTotalHoldCount += c.holdCount;
-      subTotalHoldAmount += c.holdCommissionAmount;
+      subTotalSupply += supply;
+      subTotalVat += vat;
+
       summaryRows.push([
         c.supplierName,
         c.commissionRecipient,
@@ -773,9 +881,9 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         c.recipientAccount,
         c.recipientHolder,
         c.productCount,
-        { v: c.totalCommissionAmount, t: 'n', z: '#,##0' },
-        c.holdCount,
-        { v: c.holdCommissionAmount, t: 'n', z: '#,##0' }
+        { v: supply, t: 'n', z: '#,##0' },
+        { v: vat, t: 'n', z: '#,##0' },
+        { v: c.totalCommissionAmount, t: 'n', z: '#,##0' }
       ]);
     });
 
@@ -786,9 +894,9 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       '',
       '',
       subTotalCount,
-      { v: subTotalAmount, t: 'n', z: '#,##0' },
-      subTotalHoldCount,
-      { v: subTotalHoldAmount, t: 'n', z: '#,##0' }
+      { v: subTotalSupply, t: 'n', z: '#,##0' },
+      { v: subTotalVat, t: 'n', z: '#,##0' },
+      { v: subTotalAmount, t: 'n', z: '#,##0' }
     ]);
 
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
@@ -894,97 +1002,6 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     wsSpecial['!cols'] = specialColWidths.map(w => ({ wch: Math.min(Math.max(w + 4, 10), 40) }));
     applyDetailSheetStyles(wsSpecial);
     XLSX.utils.book_append_sheet(wb, wsSpecial, "특수수당상세");
-
-    // 3. 확인서 미등록 보류 명세 시트 (배송완료 처리된 건 중 확인서 미등록 보류 건 - 동일 양식)
-    const holdItems = allSettlementItems.filter(i => {
-      const matchSupp = !targetSupplierId || targetSupplierId === 'ALL' || i.matchedSupplierId === targetSupplierId;
-      return matchSupp && i.totalCommission > 0 && i.isCertHold;
-    });
-
-    if (holdItems.length > 0) {
-      const sortedHoldItems = [...holdItems].sort((a, b) => {
-        const prodA = a.matchedProductName || a.rentalProdRaw || a.prodName || '';
-        const prodB = b.matchedProductName || b.rentalProdRaw || b.prodName || '';
-        const prodDiff = prodA.localeCompare(prodB, 'ko');
-        if (prodDiff !== 0) return prodDiff;
-        const hqDiff = (a.hq || '').localeCompare(b.hq || '', 'ko');
-        if (hqDiff !== 0) return hqDiff;
-        return (a.memName || '').localeCompare(b.memName || '', 'ko');
-      });
-
-      const holdRows: any[][] = [['본부', '지사', '사원명', '고객명', '상품명', '제품명', '계약일자', '배송일자', '보류수수료']];
-      let currentHoldProdKey = '';
-      let holdSubCount = 0;
-      let holdSubAmount = 0;
-      let totalHoldCount = 0;
-      let totalHoldAmount = 0;
-
-      sortedHoldItems.forEach((sp, idx) => {
-        const prodKey = sp.matchedProductName || sp.rentalProdRaw || sp.prodName || '기타제품';
-
-        if (idx > 0 && currentHoldProdKey !== prodKey) {
-          holdRows.push([
-            `[${currentHoldProdKey}] 소계`,
-            '', '', '', '', '', '',
-            `${holdSubCount}건`,
-            { v: holdSubAmount, t: 'n', z: '#,##0' }
-          ]);
-          holdSubCount = 0;
-          holdSubAmount = 0;
-        }
-
-        currentHoldProdKey = prodKey;
-        holdSubCount++;
-        holdSubAmount += sp.totalCommission;
-        totalHoldCount++;
-        totalHoldAmount += sp.totalCommission;
-
-        holdRows.push([
-          sp.hq || '-',
-          sp.branch || '-',
-          sp.empName || '-',
-          sp.memName || '-',
-          sp.prodName || '-',
-          sp.rentalProdRaw || sp.matchedProductName || sp.prodName || '-',
-          sp.contractDate || '-',
-          sp.deliveryDate || '-',
-          { v: sp.totalCommission, t: 'n', z: '#,##0' }
-        ]);
-      });
-
-      if (holdSubCount > 0) {
-        holdRows.push([
-          `[${currentHoldProdKey}] 소계`,
-          '', '', '', '', '', '',
-          `${holdSubCount}건`,
-          { v: holdSubAmount, t: 'n', z: '#,##0' }
-        ]);
-      }
-
-      if (totalHoldCount > 0) {
-        holdRows.push([
-          '총합계',
-          '', '', '', '', '', '',
-          `${totalHoldCount}건`,
-          { v: totalHoldAmount, t: 'n', z: '#,##0' }
-        ]);
-      }
-
-      const wsHold = XLSX.utils.aoa_to_sheet(holdRows);
-      const holdColWidths = holdRows.reduce((acc, row) => {
-        row.forEach((cell, i) => {
-          let str = '';
-          if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
-          else if (cell !== null && cell !== undefined) str = cell.toString();
-          const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
-          if (!acc[i] || len > acc[i]) acc[i] = len;
-        });
-        return acc;
-      }, [] as number[]);
-      wsHold['!cols'] = holdColWidths.map(w => ({ wch: Math.min(Math.max(w + 4, 10), 40) }));
-      applyDetailSheetStyles(wsHold);
-      XLSX.utils.book_append_sheet(wb, wsHold, "확인서미등록보류");
-    }
 
     const fileName = targetSupplierId && targetSupplierId !== 'ALL'
       ? `${suppliers.find(s => s.id === targetSupplierId)?.name || '공급사'}_공급수수료정산서_${selectedMonth}.xlsx`
@@ -1153,49 +1170,40 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
               </select>
             </div>
 
-            {/* 공급수수료 탭 전용: 설치확인서 필터 및 지급규칙 토글 */}
+            {/* 공급수수료 탭 전용: 집계 기준 토글 및 지급규칙 선택 */}
             {mainTab === 'COMMISSION' && (
               <>
                 <div className="h-4 w-px bg-slate-200 mx-0.5" />
 
-                {/* 설치확인서 필터 토글 */}
+                {/* 집계 방식 토글: 관련 공급사 기준별 vs 수령처별 통합 */}
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
-                    <FileText size={13} className="text-purple-600" />
-                    확인서 필터:
+                    <Layers size={13} className="text-purple-600" />
+                    집계 방식:
                   </span>
                   <div className="flex items-center bg-purple-50 p-0.5 rounded-xl border border-purple-200">
                     <button
-                      onClick={() => setCertFilter('ALL')}
+                      onClick={() => setCommissionGroupMode('SUPPLIER_BASED')}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                        certFilter === 'ALL'
+                        commissionGroupMode === 'SUPPLIER_BASED'
                           ? 'bg-purple-600 text-white shadow-xs'
                           : 'text-purple-800 hover:text-purple-950'
                       }`}
+                      title="관련 공급사(기준)별로 각 행 분리 표기"
                     >
-                      전체보기
+                      관련 공급사 기준별
                     </button>
                     <button
-                      onClick={() => setCertFilter('PAYABLE')}
+                      onClick={() => setCommissionGroupMode('RECIPIENT_BASED')}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                        certFilter === 'PAYABLE'
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'text-emerald-700 hover:text-emerald-900'
+                        commissionGroupMode === 'RECIPIENT_BASED'
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'text-purple-800 hover:text-purple-950'
                       }`}
+                      title="리치웰페어에서 수령처로 지급하는 실지급 수령처별 통합 표기"
                     >
                       <CheckCircle size={12} />
-                      <span>지급 대상 ({commissionTotalStats.productCount})</span>
-                    </button>
-                    <button
-                      onClick={() => setCertFilter('HOLD')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                        certFilter === 'HOLD'
-                          ? 'bg-amber-600 text-white shadow-xs'
-                          : 'text-amber-700 hover:text-amber-900'
-                      }`}
-                    >
-                      <AlertCircle size={12} />
-                      <span>미등록 보류 ({commissionTotalStats.holdCount})</span>
+                      <span>수령처별 통합</span>
                     </button>
                   </div>
                 </div>
@@ -1393,31 +1401,32 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
               </div>
             </div>
 
-            {/* 카드 3: 설치확인서 미등록 지급 보류 건수 및 금액 */}
-            <div className={`p-3.5 rounded-xl border shadow-2xs flex items-center justify-between transition-all ${
-              commissionTotalStats.holdCount > 0
-                ? 'bg-amber-50/80 border-amber-300 text-amber-900'
-                : 'bg-white border-slate-200 text-slate-700'
-            }`}>
+            {/* 카드 3: 세금계산서 발행 내역 (부가세 포함된 금액으로 부가세와 공급가 표기) */}
+            <div className="bg-white p-3.5 rounded-xl border border-indigo-200 shadow-2xs flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-1.5">
-                  <AlertCircle size={12} className={commissionTotalStats.holdCount > 0 ? "text-amber-600" : "text-slate-400"} />
-                  <p className={`text-[11px] font-bold uppercase ${commissionTotalStats.holdCount > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
-                    확인서 미등록 보류 (배송완료 건)
+                  <Receipt size={13} className="text-indigo-600" />
+                  <p className="text-[11px] font-bold uppercase text-indigo-900">
+                    세금계산서 발행 합계 (리치웰페어 → 수령처)
                   </p>
                 </div>
-                <h3 className={`text-xl font-black mt-0.5 font-mono ${commissionTotalStats.holdCount > 0 ? 'text-amber-700' : 'text-slate-400'}`}>
-                  {commissionTotalStats.holdCount.toLocaleString()} <span className="text-xs font-bold">개</span>
-                  <span className="text-xs font-semibold ml-1.5">
-                    ({commissionTotalStats.holdCommissionAmount.toLocaleString()}원)
+                <div className="flex items-baseline gap-2 mt-0.5">
+                  <span className="text-xs font-bold text-slate-500">공급가</span>
+                  <span className="text-base font-black text-slate-800 font-mono">
+                    {commissionTotalStats.supplyPrice.toLocaleString()}원
                   </span>
-                </h3>
-                <p className={`text-[10px] mt-0.5 font-medium ${commissionTotalStats.holdCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
-                  확인서 등록 시 즉시 정산 지급 대상 전환
+                  <span className="text-xs font-bold text-slate-400">+</span>
+                  <span className="text-xs font-bold text-indigo-600">부가세</span>
+                  <span className="text-base font-black text-indigo-700 font-mono">
+                    {commissionTotalStats.vat.toLocaleString()}원
+                  </span>
+                </div>
+                <p className="text-[10px] mt-0.5 font-medium text-slate-500">
+                  합계: <strong className="text-purple-700 font-mono">{commissionTotalStats.totalCommissionAmount.toLocaleString()}원</strong> (VAT포함) · 총 {commissionTotalStats.recipientCount}개 수령처
                 </p>
               </div>
-              <div className={`p-2 rounded-lg ${commissionTotalStats.holdCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'}`}>
-                <Coins size={18} />
+              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                <Receipt size={18} />
               </div>
             </div>
           </div>
@@ -1613,11 +1622,11 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                       수령처별 {selectedMonth} 공급 수수료(특수수당) 정산 총괄 현황
                     </h3>
                     <span className="text-xs text-slate-500 font-medium">
-                      (설치확인서 등록완료 기준 · 상품개수 기준 · VAT 포함)
+                      (지급처: (주)리치웰페어 · 관련 공급사는 기준 표기 · 상품개수 기준 · VAT 포함)
                     </span>
                   </div>
                   <div className="text-xs font-bold text-slate-500">
-                    총 {commissionSummaries.length}개 수령처
+                    총 {displayedCommissionSummaries.length}개 대상 ({commissionGroupMode === 'RECIPIENT_BASED' ? '수령처별 통합' : '관련 공급사 기준'})
                   </div>
                 </div>
 
@@ -1625,26 +1634,26 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr className="bg-slate-100/80 text-slate-700 border-b border-slate-200 font-bold whitespace-nowrap">
-                        <th className="p-3.5 pl-5">관련 공급사</th>
+                        <th className="p-3.5 pl-5">관련 공급사 (기준)</th>
                         <th className="p-3.5">수수료 수령처</th>
                         <th className="p-3.5">수령 은행</th>
                         <th className="p-3.5">수령 계좌번호</th>
                         <th className="p-3.5">예금주</th>
                         <th className="p-3.5 text-right font-black text-emerald-800">지급 대상 개수</th>
                         <th className="p-3.5 text-right font-black text-purple-900 pr-5">총 지급 수수료 (VAT포함)</th>
-                        <th className="p-3.5 text-center text-amber-700">확인서 미등록 보류</th>
+                        <th className="p-3.5 text-center w-24 text-purple-900">상세 내역</th>
                         <th className="p-3.5 text-center w-28">명세서 다운로드</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {commissionSummaries.length === 0 ? (
+                      {displayedCommissionSummaries.length === 0 ? (
                         <tr>
                           <td colSpan={9} className="py-12 text-center text-slate-400 whitespace-nowrap">
                             해당 조건에 부합하는 공급 수수료 정산 대상 건이 없습니다.
                           </td>
                         </tr>
                       ) : (
-                        commissionSummaries.map((c) => (
+                        displayedCommissionSummaries.map((c) => (
                           <tr key={c.recipientKey} className="hover:bg-slate-50/80 transition-colors whitespace-nowrap">
                             <td className="p-3.5 pl-5 font-bold text-slate-900">
                               <div className="flex items-center gap-2">
@@ -1670,22 +1679,24 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                             <td className="p-3.5 text-right font-mono font-black text-purple-700 text-sm pr-5">
                               {c.totalCommissionAmount.toLocaleString()}원
                             </td>
-                            <td className="p-3.5 text-center">
-                              {c.holdCount > 0 ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300 text-[11px] font-bold">
-                                  <AlertCircle size={10} />
-                                  <span>{c.holdCount}개 ({c.holdCommissionAmount.toLocaleString()}원)</span>
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 text-[11px]">-</span>
-                              )}
-                            </td>
+                            {/* 상세 내역 모달창 호출 버튼 */}
                             <td className="p-3.5 text-center">
                               <button
-                                onClick={() => handleExportCommissionExcel(c.supplierId)}
-                                disabled={c.productCount === 0 && c.holdCount === 0}
+                                onClick={() => handleOpenDetailModal(c)}
+                                className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[11px] font-bold border border-purple-200 transition-colors cursor-pointer flex items-center gap-1 mx-auto shadow-2xs"
+                                title="상세 내역 및 세금계산서 명세서 모달창 보기"
+                              >
+                                <FileText size={11} className="text-purple-600" />
+                                <span>상세내역</span>
+                              </button>
+                            </td>
+                            {/* 명세서 다운로드 버튼 */}
+                            <td className="p-3.5 text-center">
+                              <button
+                                onClick={() => handleExportSingleCommissionStatement(c)}
+                                disabled={c.productCount === 0}
                                 className="px-2.5 py-1 bg-slate-100 hover:bg-purple-50 hover:text-purple-600 text-slate-600 rounded-lg text-[11px] font-bold border border-slate-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 mx-auto"
-                                title="이 공급사/수령처 공급수수료 정산명세서 다운로드"
+                                title="이 수령처 정산명세서 엑셀 다운로드 (계좌정보, 세금계산서, 상품별, 상세)"
                               >
                                 <Download size={11} />
                                 <span>명세서</span>
@@ -1695,15 +1706,13 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                         ))
                       )}
                     </tbody>
-                    {commissionSummaries.length > 0 && (
+                    {displayedCommissionSummaries.length > 0 && (
                       <tfoot>
                         <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300 whitespace-nowrap">
                           <td className="p-3.5 pl-5" colSpan={5}>합계</td>
                           <td className="p-3.5 text-right font-mono text-emerald-800">{commissionTotalStats.productCount.toLocaleString()}개</td>
                           <td className="p-3.5 text-right font-mono text-purple-900 text-sm pr-5">{commissionTotalStats.totalCommissionAmount.toLocaleString()}원</td>
-                          <td className="p-3.5 text-center font-mono text-amber-800 text-xs">
-                            {commissionTotalStats.holdCount > 0 ? `${commissionTotalStats.holdCount}개 (${commissionTotalStats.holdCommissionAmount.toLocaleString()}원)` : '-'}
-                          </td>
+                          <td></td>
                           <td></td>
                         </tr>
                       </tfoot>
@@ -1848,6 +1857,15 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
           )}
         </div>
       </motion.div>
+
+      {/* 공급수수료 상세 내역 및 명세서 모달창 */}
+      <CommissionSettlementDetailModal
+        isOpen={isDetailModalOpen}
+        onClose={() => setIsDetailModalOpen(false)}
+        target={detailModalTarget}
+        allRecipientItems={detailRecipientAllItems}
+        selectedMonth={selectedMonth}
+      />
     </div>
   );
 };
