@@ -520,6 +520,63 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       } catch (cloudErr) {
         console.warn('클라우드 수기발주 설정 로드 실패:', cloudErr);
       }
+
+      // 공급사대사작업 시트의 과거 마감 확정 데이터 교차 연동 (이중 안전망: 과거 마감 데이터 영구 보존)
+      try {
+        const reconRes = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('공급사대사작업')}&t=${timestamp}`);
+        if (reconRes.ok) {
+          const reconRows: any[][] = await reconRes.json();
+          if (Array.isArray(reconRows) && reconRows.length >= 2) {
+            const rHeaders = (reconRows[0] || []).map((h: any) => String(h || '').trim());
+            const cIdx = rHeaders.indexOf('계약번호');
+            const certIdx = rHeaders.indexOf('설치확인서');
+            const certDateIdx = rHeaders.indexOf('설치확인서등록일');
+            const delDateIdx = rHeaders.indexOf('배송일');
+
+            if (cIdx >= 0 && (certIdx >= 0 || certDateIdx >= 0)) {
+              setSavedOrderStore((prev) => {
+                const updated = { ...prev };
+                let hasChange = false;
+                reconRows.slice(1).forEach((r) => {
+                  const cNo = String(r[cIdx] || '').trim();
+                  const certVal = String(certIdx >= 0 ? r[certIdx] : '').trim();
+                  const certDateVal = String(certDateIdx >= 0 ? r[certDateIdx] : '').trim();
+                  const delDateVal = String(delDateIdx >= 0 ? r[delDateIdx] : '').trim();
+                  if (cNo && (certVal || certDateVal)) {
+                    const actualDate = certDateVal || delDateVal;
+                    const actualMonth = actualDate ? actualDate.substring(0, 7) : '';
+                    const existing = updated[cNo] || {};
+                    if (existing.installCertStatus !== '등록' || !existing.installCertDate) {
+                      updated[cNo] = {
+                        ...existing,
+                        deliveryDate: delDateVal || existing.deliveryDate || '',
+                        deliveryState: '배송완료',
+                        installCertStatus: '등록',
+                        installCertDate: actualDate,
+                        installCertMonth: actualMonth,
+                      };
+                      const cDigits = cNo.replace(/[^0-9]/g, '');
+                      if (cDigits && cDigits !== cNo) {
+                        updated[cDigits] = updated[cNo];
+                      }
+                      hasChange = true;
+                    }
+                  }
+                });
+                if (hasChange) {
+                  try {
+                    localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(updated));
+                  } catch (e) {}
+                  return updated;
+                }
+                return prev;
+              });
+            }
+          }
+        }
+      } catch (reconErr) {
+        console.warn('공급사대사작업 교차 동기화 생략:', reconErr);
+      }
     } catch (err: any) {
       console.warn('수기발주 시트 로드 실패:', err);
     } finally {

@@ -3278,576 +3278,1238 @@
     "AC-40AB10FNW"
   ],
   "manualOrderStores": {
+    "12278270": {
+      "deliveryDate": "2026-06-25",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-06-25",
+      "installCertMonth": "2026-06"
+    },
+    "12303637": {
+      "deliveryDate": "2026-08-29",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-31",
+      "installCertMonth": "2026-08"
+    },
+    "12303655": {
+      "deliveryDate": "2026-08-13",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-26",
+      "installCertMonth": "2026-08"
+    },
+    "12305763": {
+      "deliveryDate": "2026-08-14",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-26",
+      "installCertMonth": "2026-08"
+    },
+    "12308134": {
+      "deliveryDate": "2026-08-19",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-26",
+      "installCertMonth": "2026-08"
+    },
+    "12308137": {
+      "deliveryDate": "2026-08-28",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-28",
+      "installCertMonth": "2026-08"
+    },
+    "12309442": {
+      "deliveryDate": "2026-08-28",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-31",
+      "installCertMonth": "2026-08"
+    },
+    "12309450": {
+      "deliveryDate": "2026-08-16",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-18",
+      "installCertMonth": "2026-08"
+    },
+    "12318615": {
+      "deliveryDate": "2026-08-16",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-18",
+      "installCertMonth": "2026-08"
+    },
     "12319207": {
-      "deliveryDate": "2026-08-11",
+      "orderDate": "",
+      "deliveryDate": "2026-08-16",
       "courier": "롯데",
       "trackingNo": "263323730585",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-18",
+      "installCertMonth": "2026-08"
     },
     "12319285": {
-      "deliveryDate": "2026-08-11",
+      "orderDate": "",
+      "deliveryDate": "2026-08-21",
       "courier": "롯데",
       "trackingNo": "263323730574",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-25",
+      "installCertMonth": "2026-08"
     },
     "12319825": {
-      "deliveryDate": "2026-08-13",
+      "orderDate": "",
+      "deliveryDate": "2026-07-25",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-07-27",
+      "installCertMonth": "2026-07"
     },
     "12320318": {
-      "deliveryDate": "2026-08-12",
+      "orderDate": "",
+      "deliveryDate": "2026-08-21",
       "courier": "롯데택배",
       "trackingNo": "263323765784",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-25",
+      "installCertMonth": "2026-08"
     },
     "12320326": {
-      "deliveryDate": "2026-08-12",
+      "orderDate": "",
+      "deliveryDate": "2026-08-28",
       "courier": "롯데택배",
       "trackingNo": "263323765795",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-28",
+      "installCertMonth": "2026-08"
     },
     "12320552": {
-      "deliveryDate": "2026-08-16",
+      "orderDate": "",
+      "deliveryDate": "2026-08-28",
       "courier": "CJ대한통운",
       "trackingNo": "699632754423",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-28",
+      "installCertMonth": "2026-08"
     },
     "12321300": {
-      "deliveryDate": "2026-08-16",
+      "orderDate": "",
+      "deliveryDate": "2026-08-29",
       "courier": "CJ대한통운",
       "trackingNo": "699632754401",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-31",
+      "installCertMonth": "2026-08"
     },
     "12321812": {
-      "deliveryDate": "2026-08-14",
+      "orderDate": "",
+      "deliveryDate": "2026-07-29",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-07-30",
+      "installCertMonth": "2026-07"
     },
     "12322013": {
+      "orderDate": "",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "21일 예정",
-      "deliveryState": "배송중"
+      "deliveryState": "배송중",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     },
     "12322056": {
-      "deliveryDate": "2026-08-16",
+      "orderDate": "",
+      "deliveryDate": "2026-08-06",
       "courier": "CJ대한통운",
       "trackingNo": "699632754412",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-11",
+      "installCertMonth": "2026-08"
     },
     "12322213": {
-      "deliveryDate": "2026-08-19",
+      "orderDate": "",
+      "deliveryDate": "2026-07-29",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-07-30",
+      "installCertMonth": "2026-07"
     },
     "12322866": {
-      "deliveryDate": "2026-08-21",
+      "orderDate": "",
+      "deliveryDate": "2026-07-25",
       "courier": "CJ대한통운",
       "trackingNo": "699742715205",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-07-27",
+      "installCertMonth": "2026-07"
     },
     "12323698": {
-      "deliveryDate": "2026-08-21",
+      "orderDate": "",
+      "deliveryDate": "2026-07-25",
       "courier": "CJ대한통운",
       "trackingNo": "699742715194",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-07-27",
+      "installCertMonth": "2026-07"
     },
     "12327050": {
       "orderDate": "",
-      "deliveryDate": "2026-08-31",
+      "deliveryDate": "2026-08-11",
       "courier": "CJ대한통운",
       "trackingNo": "600019295684",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-12",
+      "installCertMonth": "2026-08"
     },
     "12327167": {
-      "deliveryDate": "2026-08-28",
+      "orderDate": "",
+      "deliveryDate": "2026-07-31",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-05",
+      "installCertMonth": "2026-08"
     },
     "12327174": {
-      "deliveryDate": "2026-08-28",
+      "orderDate": "",
+      "deliveryDate": "2026-07-31",
       "courier": "CJ대한통운",
       "trackingNo": "699866958603",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-05",
+      "installCertMonth": "2026-08"
     },
     "12327856": {
       "orderDate": "",
       "deliveryDate": "2026-08-28",
       "courier": "CJ대한통운",
       "trackingNo": "699866958625",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-04",
+      "installCertMonth": "2026-09"
     },
     "12329532": {
+      "orderDate": "",
       "deliveryDate": "",
       "courier": "롯데택배",
       "trackingNo": "263687058412",
-      "deliveryState": "배송중"
+      "deliveryState": "배송중",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     },
     "12330246": {
       "orderDate": "",
-      "deliveryDate": "2026-08-29",
+      "deliveryDate": "2026-08-12",
       "courier": "경동택배",
       "trackingNo": "8026081623250",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-12",
+      "installCertMonth": "2026-08"
     },
     "12330329": {
-      "deliveryDate": "2026-08-28",
+      "orderDate": "",
+      "deliveryDate": "2026-08-11",
       "courier": "CJ대한통운",
       "trackingNo": "699866958614",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-20",
+      "installCertMonth": "2026-08"
     },
     "12330481": {
       "orderDate": "",
-      "deliveryDate": "2026-08-29",
+      "deliveryDate": "2026-08-12",
       "courier": "CJ대한통운",
       "trackingNo": "600019295695",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-08-12",
+      "installCertMonth": "2026-08"
     },
     "12330539": {
       "orderDate": "",
       "deliveryDate": "2026-09-02",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-07",
+      "installCertMonth": "2026-09"
     },
     "12331355": {
       "orderDate": "2026-09-03",
       "deliveryDate": "2026-09-07",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-08",
+      "installCertMonth": "2026-09"
     },
     "12331580": {
       "orderDate": "2026-09-14",
       "deliveryDate": "2026-09-20",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-21",
+      "installCertMonth": "2026-09"
     },
     "12332288": {
       "orderDate": "2026-09-03",
       "deliveryDate": "2026-09-04",
       "courier": "",
       "trackingNo": "9월4일 예쩡",
-      "deliveryState": "배송중"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-04",
+      "installCertMonth": "2026-09"
     },
     "12333173": {
       "orderDate": "2026-09-03",
       "deliveryDate": "2026-09-02",
       "courier": "CJ대한통운",
       "trackingNo": "600082938074",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-04",
+      "installCertMonth": "2026-09"
     },
     "12333656": {
       "orderDate": "2026-09-03",
-      "deliveryDate": "2026-09-04",
+      "deliveryDate": "2026-09-03",
       "courier": "",
       "trackingNo": "9월3일",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-15",
+      "installCertMonth": "2026-09"
     },
     "12334800": {
       "orderDate": "2026-09-03",
       "deliveryDate": "2026-09-02",
       "courier": "CJ대한통운",
       "trackingNo": "600082938085",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-04",
+      "installCertMonth": "2026-09"
     },
     "12334806": {
       "orderDate": "2026-09-03",
       "deliveryDate": "2026-09-07",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-08",
+      "installCertMonth": "2026-09"
     },
     "12335108": {
       "orderDate": "2026-09-03",
       "deliveryDate": "2026-09-04",
       "courier": "CJ대한통운",
       "trackingNo": "600129310893",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-07",
+      "installCertMonth": "2026-09"
     },
     "12336996": {
       "orderDate": "2026-09-06",
       "deliveryDate": "2026-09-08",
       "courier": "CJ대한통운",
       "trackingNo": "600193984630",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-08",
+      "installCertMonth": "2026-09"
     },
     "12340266": {
       "orderDate": "2026-09-06",
       "deliveryDate": "2026-09-08",
       "courier": "CJ대한통운",
       "trackingNo": "600193984641",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-08",
+      "installCertMonth": "2026-09"
     },
     "12340685": {
       "orderDate": "2026-09-09",
-      "deliveryDate": "2026-09-14",
+      "deliveryDate": "2026-09-11",
       "courier": "경동택배",
       "trackingNo": "8026090596668",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-15",
+      "installCertMonth": "2026-09"
     },
     "12340738": {
       "orderDate": "2026-09-09",
       "deliveryDate": "2026-09-10",
       "courier": "CJ대한통운",
       "trackingNo": "600243626036",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-11",
+      "installCertMonth": "2026-09"
     },
     "12342023": {
       "orderDate": "2026-09-10",
       "deliveryDate": "2026-09-15",
       "courier": "경동택배",
       "trackingNo": "8026090888971",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-16",
+      "installCertMonth": "2026-09"
     },
     "12342026": {
       "orderDate": "2026-09-10",
-      "deliveryDate": "2026-09-14",
+      "deliveryDate": "2026-09-16",
       "courier": "CJ대한통운",
       "trackingNo": "600347677945",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-17",
+      "installCertMonth": "2026-09"
     },
     "12342076": {
       "orderDate": "2026-09-11",
       "deliveryDate": "2026-09-19",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-21",
+      "installCertMonth": "2026-09"
     },
     "12343277": {
       "orderDate": "2026-09-09",
       "deliveryDate": "2026-09-23",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12343279": {
       "orderDate": "2026-09-14",
       "deliveryDate": "2026-09-18",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-21",
+      "installCertMonth": "2026-09"
     },
     "12343341": {
       "orderDate": "2026-09-10",
       "deliveryDate": "2026-09-19",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-21",
+      "installCertMonth": "2026-09"
     },
     "12343597": {
       "orderDate": "2026-09-10",
       "deliveryDate": "2026-09-15",
       "courier": "CJ대한통운",
       "trackingNo": "600347677956",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-16",
+      "installCertMonth": "2026-09"
     },
     "12344814": {
       "orderDate": "2026-09-11",
       "deliveryDate": "2026-09-16",
       "courier": "CJ대한통운",
       "trackingNo": "600378940074",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-17",
+      "installCertMonth": "2026-09"
     },
     "12344818": {
       "orderDate": "2026-09-11",
       "deliveryDate": "2026-09-16",
       "courier": "CJ대한통운",
       "trackingNo": "600378940085",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-17",
+      "installCertMonth": "2026-09"
     },
     "12344946": {
       "orderDate": "2026-09-11",
       "deliveryDate": "2026-09-16",
       "courier": "CJ대한통운",
       "trackingNo": "600378940052",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-17",
+      "installCertMonth": "2026-09"
     },
     "12344995": {
       "orderDate": "2026-09-11",
       "deliveryDate": "2026-09-19",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12345624": {
       "orderDate": "2026-09-11",
       "deliveryDate": "2026-09-16",
       "courier": "CJ대한통운",
       "trackingNo": "600378940063",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-17",
+      "installCertMonth": "2026-09"
     },
     "12345717": {
       "orderDate": "2026-09-14",
       "deliveryDate": "2026-09-19",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12345804": {
       "orderDate": "2026-09-14",
       "deliveryDate": "2026-09-15",
       "courier": "경동택배",
       "trackingNo": "8026090888970",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-16",
+      "installCertMonth": "2026-09"
     },
     "12345838": {
       "orderDate": "2026-09-14",
       "deliveryDate": "2026-09-15",
       "courier": "CJ대한통운",
       "trackingNo": "600347677960",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-16",
+      "installCertMonth": "2026-09"
     },
     "12346412": {
       "orderDate": "2026-09-14",
       "deliveryDate": "2026-09-15",
       "courier": "CJ대한통운",
       "trackingNo": "600347677934",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-15",
+      "installCertMonth": "2026-09"
     },
     "12346650": {
       "orderDate": "2026-09-16",
       "deliveryDate": "2026-09-17",
       "courier": "롯데택배",
       "trackingNo": "263982685116",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-21",
+      "installCertMonth": "2026-09"
     },
     "12346669": {
       "orderDate": "2026-09-16",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     },
     "12346949": {
       "orderDate": "2026-09-16",
       "deliveryDate": "2026-09-18",
       "courier": "경동택배",
       "trackingNo": "8026091099299",
-      "deliveryState": "발주취소"
+      "deliveryState": "발주취소",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     },
     "12347163": {
       "orderDate": "2026-09-16",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     },
     "12347222": {
       "orderDate": "2026-09-18",
       "deliveryDate": "2026-09-28",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-30",
+      "installCertMonth": "2026-09"
     },
     "12347239": {
       "orderDate": "2026-09-21",
       "deliveryDate": "2026-09-23",
       "courier": "CJ대한통운",
       "trackingNo": "600540389172",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12348394": {
       "orderDate": "2026-09-17",
       "deliveryDate": "2026-09-19",
       "courier": "CJ대한통운",
       "trackingNo": "600438526712",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-23",
+      "installCertMonth": "2026-09"
     },
     "12348447": {
       "orderDate": "2026-09-16",
       "deliveryDate": "2026-09-23",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12348539": {
       "orderDate": "2026-09-17",
       "deliveryDate": "2026-09-19",
       "courier": "CJ대한통운",
       "trackingNo": "600438526723",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-23",
+      "installCertMonth": "2026-09"
     },
     "12348702": {
       "orderDate": "2026-09-16",
       "deliveryDate": "2026-09-22",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12349343": {
       "orderDate": "2026-09-16",
       "deliveryDate": "2026-09-17",
       "courier": "경동택배",
       "trackingNo": "8026091099300",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-21",
+      "installCertMonth": "2026-09"
     },
     "12350795": {
       "orderDate": "2026-09-17",
       "deliveryDate": "2026-09-18",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-21",
+      "installCertMonth": "2026-09"
     },
     "12351254": {
       "orderDate": "2026-09-17",
-      "deliveryDate": "",
+      "deliveryDate": "2026-09-28",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-13",
+      "installCertMonth": "2026-10"
     },
     "12351403": {
       "orderDate": "2026-09-17",
       "deliveryDate": "2026-09-28",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12352256": {
       "orderDate": "2026-09-21",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     },
     "12352347": {
       "orderDate": "2026-09-21",
       "deliveryDate": "2026-09-22",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12352367": {
       "orderDate": "2026-09-21",
       "deliveryDate": "2026-09-23",
       "courier": "CJ대한통운",
       "trackingNo": "600540389150",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12352501": {
       "orderDate": "2026-09-21",
       "deliveryDate": "2026-09-28",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-30",
+      "installCertMonth": "2026-09"
     },
     "12353114": {
       "orderDate": "2026-09-21",
       "deliveryDate": "2026-09-23",
       "courier": "CJ대한통운",
       "trackingNo": "600540389161",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12353286": {
       "orderDate": "2026-09-21",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     },
     "12353307": {
       "orderDate": "2026-09-21",
       "deliveryDate": "2026-09-23",
       "courier": "CJ대한통운",
       "trackingNo": "600540389183",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-28",
+      "installCertMonth": "2026-09"
     },
     "12353562": {
       "orderDate": "2026-09-28",
-      "deliveryDate": "",
+      "deliveryDate": "2026-10-01",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-01",
+      "installCertMonth": "2026-10"
     },
     "12353592": {
       "orderDate": "2026-10-01",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     },
     "12353619": {
       "orderDate": "",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주취소"
+      "deliveryState": "발주취소",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     },
     "12354370": {
       "orderDate": "2026-09-28",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-10-01",
+      "courier": "CJ대한통운",
+      "trackingNo": "600646294294",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-01",
+      "installCertMonth": "2026-10"
     },
     "12355777": {
       "orderDate": "2026-09-28",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-10-01",
+      "courier": "CJ대한통운",
+      "trackingNo": "600646294283",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-01",
+      "installCertMonth": "2026-10"
     },
     "12356343": {
       "orderDate": "2026-09-28",
       "deliveryDate": "2026-09-29",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "배송완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-09-30",
+      "installCertMonth": "2026-09"
     },
     "12356726": {
       "orderDate": "2026-10-01",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-10-03",
+      "courier": "CJ대한통운",
+      "trackingNo": "600686759566",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-03",
+      "installCertMonth": "2026-10"
     },
     "12356850": {
       "orderDate": "2026-09-30",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-10-02",
+      "courier": "경동택배",
+      "trackingNo": "8026100020011",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-02",
+      "installCertMonth": "2026-10"
     },
     "12357507": {
       "orderDate": "2026-09-30",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryDate": "2026-10-02",
+      "courier": "CJ대한통운",
+      "trackingNo": "600668713091",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-02",
+      "installCertMonth": "2026-10"
     },
     "12359995": {
       "orderDate": "2026-10-01",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     },
     "12360126": {
       "orderDate": "2026-09-30",
-      "deliveryDate": "",
+      "deliveryDate": "2026-10-06",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-06",
+      "installCertMonth": "2026-10"
     },
     "12360945": {
       "orderDate": "2026-09-30",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12361027": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "2026-10-08",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-13",
+      "installCertMonth": "2026-10"
     },
     "12361202": {
       "orderDate": "2026-10-01",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
-      "deliveryState": "발주완료"
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12361884": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12362015": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "2026-10-12",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-13",
+      "installCertMonth": "2026-10"
+    },
+    "12362138": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12362294": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12363873": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "2026-10-12",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-13",
+      "installCertMonth": "2026-10"
+    },
+    "12364141": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12364554": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12364571": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12365713": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12365827": {
+      "orderDate": "2026-10-07",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12366822": {
+      "orderDate": "2026-10-08",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12366887": {
+      "orderDate": "2026-10-08",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12369118": {
+      "orderDate": "2026-10-08",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12369309": {
+      "orderDate": "2026-10-08",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12369372": {
+      "orderDate": "2026-10-08",
+      "deliveryDate": "2026-10-09",
+      "courier": "CJ대한통운",
+      "trackingNo": "600786646604",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-09",
+      "installCertMonth": "2026-10"
+    },
+    "12370387": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12370665": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12370803": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12370895": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12371689": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12371771": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12372091": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12372236": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12372369": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12372488": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12373019": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12373134": {
+      "orderDate": "2026-10-12",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12374789": {
+      "orderDate": "2026-10-13",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12375048": {
+      "orderDate": "2026-10-13",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12375058": {
+      "orderDate": "2026-10-13",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12375603": {
+      "orderDate": "2026-10-13",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12375643": {
+      "orderDate": "2026-10-13",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     }
   },
   "reportSettings": {

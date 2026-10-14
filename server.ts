@@ -1069,12 +1069,53 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
     if (!targetManualProducts && extraCacheBackup.manualOrderProducts) targetManualProducts = extraCacheBackup.manualOrderProducts;
 
-    // manualOrderStores 결정
-    let targetManualStores = manualOrderStores;
-    if (!targetManualStores && existingExtraMap['MANUAL_ORDER_STORES']) {
-      try { targetManualStores = JSON.parse(existingExtraMap['MANUAL_ORDER_STORES']); } catch (e) {}
+    // manualOrderStores 결정 (비파괴 안전 Deep Merge: 기존 설치확인서 등록 상태 및 마감월 영구 보존)
+    let baseStores: Record<string, any> = {};
+    if (existingExtraMap['MANUAL_ORDER_STORES']) {
+      try { baseStores = JSON.parse(existingExtraMap['MANUAL_ORDER_STORES']) || {}; } catch (e) {}
     }
-    if (!targetManualStores && extraCacheBackup.manualOrderStores) targetManualStores = extraCacheBackup.manualOrderStores;
+    if (extraCacheBackup.manualOrderStores && typeof extraCacheBackup.manualOrderStores === 'object') {
+      for (const [k, v] of Object.entries(extraCacheBackup.manualOrderStores)) {
+        if (!baseStores[k]) baseStores[k] = v;
+        else if (v && typeof v === 'object') {
+          if ((v as any).installCertStatus === '등록' && baseStores[k].installCertStatus !== '등록') {
+            baseStores[k].installCertStatus = '등록';
+            baseStores[k].installCertDate = (v as any).installCertDate || baseStores[k].installCertDate;
+            baseStores[k].installCertMonth = (v as any).installCertMonth || baseStores[k].installCertMonth;
+          }
+        }
+      }
+    }
+
+    let targetManualStores: Record<string, any> = { ...baseStores };
+    if (manualOrderStores && typeof manualOrderStores === 'object') {
+      for (const [key, inc] of Object.entries(manualOrderStores)) {
+        if (!inc || typeof inc !== 'object') continue;
+        const ex = targetManualStores[key];
+        if (!ex) {
+          targetManualStores[key] = { ...(inc as any) };
+        } else {
+          let certStatus = (inc as any).installCertStatus;
+          let certDate = (inc as any).installCertDate;
+          let certMonth = (inc as any).installCertMonth;
+          // 기존에 등록 완료된 확인서는 클라이언트가 미등록으로 보내더라도 절대 덮어써서 해제하지 않음
+          if (!certStatus || certStatus === '미등록') {
+            if (ex.installCertStatus === '등록' || ex.installCertDate || ex.installCertMonth) {
+              certStatus = '등록';
+              certDate = certDate || ex.installCertDate;
+              certMonth = certMonth || ex.installCertMonth;
+            }
+          }
+          targetManualStores[key] = {
+            ...ex,
+            ...(inc as any),
+            installCertStatus: certStatus || ex.installCertStatus || '미등록',
+            installCertDate: certDate || ex.installCertDate || '',
+            installCertMonth: certMonth || ex.installCertMonth || '',
+          };
+        }
+      }
+    }
 
     // reportSettings 결정
     let targetReportSettings = reportSettings;
