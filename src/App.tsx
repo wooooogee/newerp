@@ -3618,7 +3618,17 @@ const ERP_Dashboard = () => {
 
       if (activeRules.length === 0) return;
 
+      // 당월 일반 판매수수료(1회차) 지급 대상인 건은 동일 정산일에 유지수수료 이중 지급 방지
+      const itemPayDateDisplay = getDisplayPayDate(item) || item.payDate || '';
+      const itemPayMonth = itemPayDateDisplay.substring(0, 7).replace(/[-.]/g, '');
+      const curPayMonth = currentYearMonth.substring(0, 6);
+      if (itemPayMonth === curPayMonth) {
+        return; // 당월 일반 판매수수료(1회차) 지급 건은 유지수수료 대상에서 제외
+      }
+
       // 회차 계산: 계약일(contractDate) 또는 최초납입일(raw[21]) 기준
+      // 계약 익월(1개월 경과) = 1회차(판매수수료 지급월, 유지수수료 제외)
+      // 계약 2개월 경과 = 2회차(유지수수료 첫 지급월)
       const baseDateStr = item.contractDate || item.deliveryDate || item.raw?.[21] || item.payDate;
       if (!baseDateStr) return;
       
@@ -3627,7 +3637,8 @@ const ERP_Dashboard = () => {
       const bdYear = parseInt(bdMatch[1]);
       const bdMonth = parseInt(bdMatch[2]);
       
-      let currentInstallment = (currentYear - bdYear) * 12 + (currentMonth - bdMonth) + 1;
+      const monthsDiff = (currentYear - bdYear) * 12 + (currentMonth - bdMonth);
+      let currentInstallment = monthsDiff;
       if (currentInstallment < 1) return;
 
       const i = currentInstallment;
@@ -14387,7 +14398,7 @@ const ERP_Dashboard = () => {
                                       if (bdMatch) {
                                         const bdYear = parseInt(bdMatch[1]);
                                         const bdMonth = parseInt(bdMatch[2]);
-                                        currentInstallment = (currentYear - bdYear) * 12 + (currentMonth - bdMonth) + 1;
+                                        currentInstallment = (currentYear - bdYear) * 12 + (currentMonth - bdMonth);
                                       }
                                     }
 
