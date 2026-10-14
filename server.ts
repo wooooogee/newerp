@@ -698,16 +698,22 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     if (fs.existsSync(cachePath)) {
       try { cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8')); } catch (e) {}
     }
-    if (settings) cacheData.settings = settings;
-    if (globalIncentives) cacheData.globalIncentives = globalIncentives;
-    if (maintenanceRules) cacheData.maintenanceRules = maintenanceRules;
+    if (settings && Array.isArray(settings) && settings.length > 0) cacheData.settings = settings;
+    if (globalIncentives && Array.isArray(globalIncentives) && globalIncentives.length > 0) cacheData.globalIncentives = globalIncentives;
+    if (maintenanceRules && Array.isArray(maintenanceRules) && maintenanceRules.length > 0) cacheData.maintenanceRules = maintenanceRules;
     if (manualOrderProducts) cacheData.manualOrderProducts = manualOrderProducts;
     if (manualOrderStores) cacheData.manualOrderStores = manualOrderStores;
     if (reportSettings) cacheData.reportSettings = reportSettings;
-    if (divisions && Array.isArray(divisions) && divisions.length > 0) {
-      cacheData.divisions = divisions;
-    }
+    if (divisions && Array.isArray(divisions) && divisions.length > 0) cacheData.divisions = divisions;
     fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8');
+
+    // 안전 자동 스냅샷 백업 보관 (.settings_backup_history/)
+    try {
+      const backupDir = path.join(process.cwd(), '.settings_backup_history');
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      fs.writeFileSync(path.join(backupDir, `settings_backup_${Date.now()}.json`), JSON.stringify(cacheData, null, 2), 'utf8');
+    } catch (bErr) {}
+
   } catch (e) {
     console.error("[CloudSync] Local cache write error:", e);
   }

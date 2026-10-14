@@ -1573,11 +1573,19 @@ const ERP_Dashboard = () => {
     isSavingCloudRef.current = true;
     if (!silent) setSaveSettingsStatus('saving');
     try {
-      // 본부 설정 로컬 스토리지 즉시 백업 (클라우드 통신 실패/지연 대비)
+      // 3대 핵심 설정(본부설정, 사업단, 특수수당) 로컬 스토리지 즉시 다중 백업 (데이터 절대 유실 방지)
       try {
-        if (hqSettingsRef.current && Array.isArray(hqSettingsRef.current)) {
+        if (hqSettingsRef.current && Array.isArray(hqSettingsRef.current) && hqSettingsRef.current.length > 0) {
           localStorage.setItem('erp_hq_settings', JSON.stringify(hqSettingsRef.current));
           localStorage.setItem('erp_hq_settings_backup_v1', JSON.stringify(hqSettingsRef.current));
+        }
+        if (divisionSettingsRef.current && Array.isArray(divisionSettingsRef.current) && divisionSettingsRef.current.length > 0) {
+          localStorage.setItem('erp_division_settings', JSON.stringify(divisionSettingsRef.current));
+          localStorage.setItem('erp_division_settings_bak', JSON.stringify(divisionSettingsRef.current));
+        }
+        if (globalIncentiveRulesRef.current && Array.isArray(globalIncentiveRulesRef.current) && globalIncentiveRulesRef.current.length > 0) {
+          localStorage.setItem('erp_global_incentives', JSON.stringify(globalIncentiveRulesRef.current));
+          localStorage.setItem('erp_global_incentives_bak', JSON.stringify(globalIncentiveRulesRef.current));
         }
       } catch (e) {}
 
@@ -1706,14 +1714,28 @@ const ERP_Dashboard = () => {
           }
         }
         if (data.globalIncentives && Array.isArray(data.globalIncentives) && data.globalIncentives.length > 0) {
-          setGlobalIncentiveRules(data.globalIncentives.map((r: any) => ({
+          const sanitizedInc = data.globalIncentives.map((r: any) => ({
             ...r,
             targetHqs: Array.isArray(r.targetHqs) ? r.targetHqs : (r.targetHq ? [r.targetHq] : ['ALL']),
             targetDivisions: Array.isArray(r.targetDivisions) ? r.targetDivisions : [],
             payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
             commissionPerUnit: Number(r.commissionPerUnit || 0),
             minimumGuarantee: Number(r.minimumGuarantee || 0)
-          })));
+          }));
+          setGlobalIncentiveRules(sanitizedInc);
+          try {
+            localStorage.setItem('erp_global_incentives', JSON.stringify(sanitizedInc));
+            localStorage.setItem('erp_global_incentives_bak', JSON.stringify(sanitizedInc));
+          } catch (e) {}
+        } else {
+          // 서버 응답에 특수수당이 비어있을 경우 기존 로컬 백업에서 안전 복원
+          const savedInc = localStorage.getItem('erp_global_incentives') || localStorage.getItem('erp_global_incentives_bak');
+          if (savedInc) {
+            try {
+              const parsed = JSON.parse(savedInc);
+              if (Array.isArray(parsed) && parsed.length > 0) setGlobalIncentiveRules(parsed);
+            } catch (e) {}
+          }
         }
         if (data.maintenanceRules && Array.isArray(data.maintenanceRules)) {
           setMaintenanceRules(data.maintenanceRules);
