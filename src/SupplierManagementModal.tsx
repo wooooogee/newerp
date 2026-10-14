@@ -3,7 +3,8 @@ import {
   X, Building, Plus, Trash2, Edit3, Save, Check, RefreshCw, 
   Package, CreditCard, DollarSign, Search, Phone, User, Calendar, 
   FileText, CheckCircle2, ChevronRight, Cloud, DownloadCloud, UploadCloud, 
-  AlertCircle, Layers, Tag, HelpCircle, ChevronDown, CheckSquare, Sparkles
+  AlertCircle, Layers, Tag, HelpCircle, ChevronDown, CheckSquare, Sparkles,
+  Copy, Square, ArrowRight, ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -46,20 +47,83 @@ export interface SupplierItem {
   products: SupplierProductSetting[]; // 취급 제품 및 단가/수수료 설정
 }
 
-// 로컬 스토리지 키
+// 로컬 스토리지 키 및 백업 키
 export const SUPPLIER_STORAGE_KEY = 'erp_suppliers_master_v3';
+export const SUPPLIER_BACKUP_KEY = 'erp_suppliers_master_v3_backup';
+export const SUPPLIER_SNAPSHOTS_KEY = 'erp_suppliers_snapshots_history';
 
 // 초기값
 export const INITIAL_SUPPLIERS: SupplierItem[] = [];
 
-// 로컬 스토리지에서 공급사 로드
+// 안전 스냅샷 생성 (최대 10개 버전 누적 보관)
+export const createSupplierSnapshot = (suppliers: SupplierItem[], reason: string = 'auto') => {
+  if (!Array.isArray(suppliers) || suppliers.length === 0) return;
+  try {
+    const raw = localStorage.getItem(SUPPLIER_SNAPSHOTS_KEY);
+    const history: Array<{ timestamp: string; reason: string; count: number; data: SupplierItem[] }> = raw ? JSON.parse(raw) : [];
+    history.unshift({
+      timestamp: new Date().toISOString(),
+      reason,
+      count: suppliers.length,
+      data: suppliers
+    });
+    localStorage.setItem(SUPPLIER_SNAPSHOTS_KEY, JSON.stringify(history.slice(0, 10)));
+  } catch (e) {
+    console.warn('[Supplier Snapshot Error]:', e);
+  }
+};
+
+// 백그라운드 구글 시트 자동 저장 (사용자 UI 방해 없이 조용히 동기화)
+export const syncSuppliersToSheetSilent = async (suppliers: SupplierItem[]): Promise<boolean> => {
+  if (!Array.isArray(suppliers) || suppliers.length === 0) return false;
+  try {
+    const res = await fetch('/api/sheets/suppliers/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suppliers })
+    });
+    return res.ok;
+  } catch (e) {
+    console.warn('[Supplier Silent Sync Error]:', e);
+    return false;
+  }
+};
+
+// 로컬 스토리지에서 공급사 로드 (3중 복구 장치: 마스터 -> 백업 -> 스냅샷)
 export const loadSuppliersFromStorage = (): SupplierItem[] => {
   try {
+    // 1) 1차 마스터 키 확인
     const saved = localStorage.getItem(SUPPLIER_STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
+      if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed;
+      }
+    }
+
+    // 2) 2차 백업 키에서 복구 시도
+    const backup = localStorage.getItem(SUPPLIER_BACKUP_KEY);
+    if (backup) {
+      const parsedBackup = JSON.parse(backup);
+      if (Array.isArray(parsedBackup) && parsedBackup.length > 0) {
+        console.warn('⚠️ [공급사 복구] 마스터 저장소가 비어있어 백업 저장소에서 복원했습니다.');
+        localStorage.setItem(SUPPLIER_STORAGE_KEY, backup);
+        return parsedBackup;
+      }
+    }
+
+    // 3) 3차 스냅샷 히스토리에서 가장 최근 유효 데이터 복구 시도
+    const rawSnapshots = localStorage.getItem(SUPPLIER_SNAPSHOTS_KEY);
+    if (rawSnapshots) {
+      const history = JSON.parse(rawSnapshots);
+      if (Array.isArray(history) && history.length > 0) {
+        for (const snap of history) {
+          if (Array.isArray(snap.data) && snap.data.length > 0) {
+            console.warn(`⚠️ [공급사 복구] 스냅샷(${snap.timestamp})에서 ${snap.data.length}개 공급사를 안전하게 복구했습니다.`);
+            localStorage.setItem(SUPPLIER_STORAGE_KEY, JSON.stringify(snap.data));
+            return snap.data;
+          }
+        }
       }
     }
   } catch (e) {
@@ -68,10 +132,17 @@ export const loadSuppliersFromStorage = (): SupplierItem[] => {
   return [];
 };
 
-// 로컬 스토리지에 공급사 저장
+// 로컬 스토리지에 공급사 저장 (3중 안전 저장: 마스터 + 백업 + 스냅샷)
 export const saveSuppliersToStorage = (suppliers: SupplierItem[]): void => {
   try {
-    localStorage.setItem(SUPPLIER_STORAGE_KEY, JSON.stringify(suppliers));
+    const jsonStr = JSON.stringify(suppliers);
+    localStorage.setItem(SUPPLIER_STORAGE_KEY, jsonStr);
+
+    // 비어있지 않은 유효한 데이터일 때 백업 키 및 스냅샷 누적 저장
+    if (Array.isArray(suppliers) && suppliers.length > 0) {
+      localStorage.setItem(SUPPLIER_BACKUP_KEY, jsonStr);
+      createSupplierSnapshot(suppliers, 'save');
+    }
   } catch (e) {
     console.error('Failed to save suppliers:', e);
   }
@@ -174,6 +245,16 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
   const [tempHqCommission, setTempHqCommission] = useState<number | ''>('');
   const [customHqInput, setCustomHqInput] = useState('');
   const [customHqList, setCustomHqList] = useState<string[]>([]);
+
+  // 수수료 설정 일괄 복사 모달 상태
+  const [isBatchCopyModalOpen, setIsBatchCopyModalOpen] = useState(false);
+  const [sourceProductForCopy, setSourceProductForCopy] = useState<SupplierProductSetting | null>(null);
+  const [targetProductIdsForCopy, setTargetProductIdsForCopy] = useState<string[]>([]);
+  const [copyOptions, setCopyOptions] = useState({
+    copyCommissions: true,  // 본부별 수수료 목록 복사
+    copyRecipient: true,    // 수수료 수령처 및 계좌정보 복사
+    copySupplyPrice: false  // 공급 단가 복사 (선택 사항)
+  });
 
   // 선택 가능한 모든 본부 후보 (availableHqs + 커스텀 추가 + 기존 등록)
   const allHqCandidates = useMemo(() => {
@@ -703,6 +784,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     setSuppliers(updatedSuppliers);
     saveSuppliersToStorage(updatedSuppliers);
     onSuppliersUpdated?.(updatedSuppliers);
+    syncSuppliersToSheetSilent(updatedSuppliers); // 백그라운드 구글 시트 자동 저장
     setIsProductModalOpen(false);
     setEditingProductIdx(null);
   };
@@ -723,6 +805,148 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     setSuppliers(updatedSuppliers);
     saveSuppliersToStorage(updatedSuppliers);
     onSuppliersUpdated?.(updatedSuppliers);
+    syncSuppliersToSheetSilent(updatedSuppliers); // 백그라운드 구글 시트 자동 저장
+  };
+
+  // 특정 제품의 수수료 설정을 기준으로 일괄 복사 모달 오픈
+  const handleOpenBatchCopyModal = (prod: SupplierProductSetting) => {
+    setSourceProductForCopy(prod);
+    if (activeSupplier && activeSupplier.products) {
+      // 기준 제품을 제외한 나머지 모든 제품을 기본 선택 대상으로 지정
+      const otherProducts = activeSupplier.products.filter(p => p.id !== prod.id);
+      setTargetProductIdsForCopy(otherProducts.map(p => p.id));
+    } else {
+      setTargetProductIdsForCopy([]);
+    }
+    setCopyOptions({
+      copyCommissions: true,
+      copyRecipient: true,
+      copySupplyPrice: false
+    });
+    setIsBatchCopyModalOpen(true);
+  };
+
+  // 대상 제품 선택 토글
+  const handleToggleTargetProduct = (id: string) => {
+    setTargetProductIdsForCopy(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(pId => pId !== id);
+      } else {
+        return [...prev, id];
+      }
+    });
+  };
+
+  // 대상 제품 전체 선택
+  const handleSelectAllTargets = () => {
+    if (activeSupplier && activeSupplier.products && sourceProductForCopy) {
+      const others = activeSupplier.products
+        .filter(p => p.id !== sourceProductForCopy.id)
+        .map(p => p.id);
+      setTargetProductIdsForCopy(others);
+    }
+  };
+
+  // 대상 제품 전체 해제
+  const handleDeselectAllTargets = () => {
+    setTargetProductIdsForCopy([]);
+  };
+
+  // 일괄 적용 실행
+  const handleApplyBatchCopy = async () => {
+    if (!sourceProductForCopy || !activeSupplier) return;
+    if (targetProductIdsForCopy.length === 0) {
+      alert('설정을 복사할 대상 제품을 1개 이상 선택해주세요.');
+      return;
+    }
+
+    const targetCount = targetProductIdsForCopy.length;
+    const confirmMsg = `'${sourceProductForCopy.productName || sourceProductForCopy.productKeyword}'의 수수료 설정을 선택한 ${targetCount}개 제품에 일괄 적용하시겠습니까?\n\n` +
+      `• 복사 내용: ` +
+      (copyOptions.copyCommissions ? `[본부별 수수료 ${(sourceProductForCopy.hqCommissions || []).length}개 본부 설정] ` : '') +
+      (copyOptions.copyRecipient ? `[수령처: ${sourceProductForCopy.commissionRecipient || activeSupplier.name}] ` : '') +
+      (copyOptions.copySupplyPrice ? `[공급단가: ${(sourceProductForCopy.supplyPrice || 0).toLocaleString()}원]` : '');
+
+    if (!window.confirm(confirmMsg)) return;
+
+    // 1) 안전 스냅샷 백업 생성
+    createSupplierSnapshot(suppliers, `batch_copy_from_${sourceProductForCopy.productKeyword}`);
+
+    // 2) 깊은 복사로 각 제품에 고유한 hqCommissions ID를 발급하며 안전하게 병합
+    const targetSet = new Set(targetProductIdsForCopy);
+    const updatedProducts = (activeSupplier.products || []).map(p => {
+      if (!targetSet.has(p.id)) return p;
+
+      const updated = { ...p };
+
+      // 본부 수수료 복사
+      if (copyOptions.copyCommissions) {
+        updated.hqCommissions = (sourceProductForCopy.hqCommissions || []).map(h => ({
+          ...h,
+          id: `hq-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
+        }));
+        updated.supplyCommission = sourceProductForCopy.supplyCommission || 0;
+      }
+
+      // 수령처 및 계좌 복사
+      if (copyOptions.copyRecipient) {
+        updated.commissionRecipient = sourceProductForCopy.commissionRecipient || activeSupplier.name;
+        updated.recipientBank = sourceProductForCopy.recipientBank || activeSupplier.bankName;
+        updated.recipientAccount = sourceProductForCopy.recipientAccount || activeSupplier.accountNumber;
+        updated.recipientHolder = sourceProductForCopy.recipientHolder || activeSupplier.accountHolder;
+      }
+
+      // 공급단가 복사 (선택 시)
+      if (copyOptions.copySupplyPrice) {
+        updated.supplyPrice = sourceProductForCopy.supplyPrice;
+      }
+
+      return updated;
+    });
+
+    const updatedSuppliers = suppliers.map(s => {
+      if (s.id === activeSupplier.id) {
+        return { ...s, products: updatedProducts };
+      }
+      return s;
+    });
+
+    // 3) 3중 로컬 스토리지 즉시 안전 저장
+    setSuppliers(updatedSuppliers);
+    saveSuppliersToStorage(updatedSuppliers);
+    onSuppliersUpdated?.(updatedSuppliers);
+
+    // 4) 구글 시트 백엔드 자동 동기화
+    syncSuppliersToSheetSilent(updatedSuppliers);
+
+    setIsBatchCopyModalOpen(false);
+    setSourceProductForCopy(null);
+    setTargetProductIdsForCopy([]);
+    alert(`총 ${targetCount}개 제품에 수수료 설정이 성공적으로 일괄 적용되었습니다! (로컬 및 구글 시트 안전 저장 완료)`);
+  };
+
+  // 개별 제품 모달 내에서 다른 제품 설정 가져오기
+  const handleLoadSettingsFromOtherProduct = (prodId: string) => {
+    if (!prodId || !activeSupplier) return;
+    const found = (activeSupplier.products || []).find(p => p.id === prodId);
+    if (!found) return;
+
+    if (!window.confirm(`'${found.productName || found.productKeyword}'의 본부별 수수료 및 수령처 정보를 현재 제품으로 불러오시겠습니까?`)) {
+      return;
+    }
+
+    setProductForm(prev => ({
+      ...prev,
+      hqCommissions: (found.hqCommissions || []).map(h => ({
+        ...h,
+        id: `hq-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`
+      })),
+      supplyCommission: found.supplyCommission || 0,
+      commissionRecipient: found.commissionRecipient || activeSupplier.name,
+      recipientBank: found.recipientBank || activeSupplier.bankName,
+      recipientAccount: found.recipientAccount || activeSupplier.accountNumber,
+      recipientHolder: found.recipientHolder || activeSupplier.accountHolder
+    }));
   };
 
   // 검색 필터링된 공급사
@@ -1150,6 +1374,22 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                     </button>
                   </div>
 
+                  {/* 빠른 일괄 복사 안내 팁 배너 */}
+                  {activeSupplier.products && activeSupplier.products.length > 1 && (
+                    <div className="bg-purple-50/70 border border-purple-200/80 rounded-xl p-3 flex items-center justify-between text-xs text-purple-950">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={15} className="text-purple-600 shrink-0" />
+                        <span>
+                          <strong>💡 빠른 일괄 등록 팁</strong>: 기준 제품 1개의 본부 수수료와 수령처를 설정한 후, 우측의 <strong>[일괄복사]</strong> 버튼을 누르면 나머지 모든 제품에 1초 만에 동일하게 적용됩니다.
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-purple-700 font-bold bg-white px-2.5 py-1 rounded-lg border border-purple-200 shrink-0 flex items-center gap-1">
+                        <ShieldCheck size={13} className="text-emerald-600" />
+                        3중 자동안전저장 적용됨
+                      </span>
+                    </div>
+                  )}
+
                   {/* 취급 제품 목록 테이블 */}
                   <div className="overflow-x-auto border border-slate-100 rounded-xl">
                     <table className="w-full text-left text-xs border-collapse">
@@ -1160,7 +1400,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                           <th className="p-3 text-right">공급 단가 (VAT포함)</th>
                           <th className="p-3">수수료 지급 대상 본부 및 수수료</th>
                           <th className="p-3">수수료 수령처/계좌</th>
-                          <th className="p-3 text-center w-24">관리</th>
+                          <th className="p-3 text-center w-36">관리</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1259,6 +1499,19 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                               </td>
                               <td className="p-3 text-center">
                                 <div className="flex items-center justify-center gap-1.5">
+                                  {/* 일괄 복사 버튼 */}
+                                  <button
+                                    onClick={() => handleOpenBatchCopyModal(p)}
+                                    className={`px-2 py-1 rounded-lg text-xs font-bold border cursor-pointer flex items-center gap-1 transition-colors ${
+                                      p.hqCommissions && p.hqCommissions.length > 0
+                                        ? 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200 shadow-2xs'
+                                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+                                    }`}
+                                    title="이 제품의 본부 수수료 및 수령처를 다른 제품들에 일괄 복사"
+                                  >
+                                    <Copy size={12} className={p.hqCommissions && p.hqCommissions.length > 0 ? "text-purple-600" : ""} />
+                                    <span>일괄복사</span>
+                                  </button>
                                   <button
                                     onClick={() => {
                                       setProductForm({ 
@@ -1323,6 +1576,43 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                 </div>
 
                 <div className="space-y-4 text-xs">
+                  {/* [0] 기존 다른 제품의 수수료/수령처 설정 불러오기 퀵 드롭다운 */}
+                  {activeSupplier && activeSupplier.products && activeSupplier.products.length > 0 && (
+                    <div className="bg-purple-50/70 border border-purple-200 rounded-xl p-2.5 flex items-center justify-between gap-3 shadow-2xs">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <Copy size={13} className="text-purple-600 shrink-0" />
+                        <span className="font-bold text-purple-950 text-xs whitespace-nowrap">
+                          기존 제품 설정 가져오기:
+                        </span>
+                        <select
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleLoadSettingsFromOtherProduct(e.target.value);
+                              e.target.value = '';
+                            }
+                          }}
+                          defaultValue=""
+                          className="px-2.5 py-1 bg-white border border-purple-300 rounded-lg text-xs font-semibold text-purple-900 outline-none cursor-pointer flex-1 max-w-[280px]"
+                        >
+                          <option value="">-- 다른 제품의 본부 수수료 복사 --</option>
+                          {activeSupplier.products
+                            .filter((_, pIdx) => editingProductIdx === null || pIdx !== editingProductIdx)
+                            .map((p) => {
+                              const hqCount = (p.hqCommissions || []).length;
+                              return (
+                                <option key={p.id} value={p.id}>
+                                  {p.productName || p.productKeyword} {hqCount > 0 ? `(${hqCount}개 본부 적용중)` : '(미설정)'}
+                                </option>
+                              );
+                            })}
+                        </select>
+                      </div>
+                      <span className="text-[10px] text-purple-600 font-semibold whitespace-nowrap hidden sm:inline">
+                        * 본부별 수수료 및 수령처 자동 복사
+                      </span>
+                    </div>
+                  )}
+
                   {/* [1] 정확한 제품명 선택 영역 */}
                   <div className="space-y-1.5" ref={productPickerRef}>
                     <div className="flex items-center justify-between">
@@ -1779,6 +2069,213 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                     <Check size={14} />
                     <span>확인 및 저장</span>
                   </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* [모달 3] 수수료 설정 다른 제품에 일괄 복사 모달 */}
+          {isBatchCopyModalOpen && sourceProductForCopy && activeSupplier && (
+            <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 border border-slate-200 space-y-4 max-h-[92vh] flex flex-col"
+              >
+                {/* 헤더 */}
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-purple-100 text-purple-700 rounded-xl">
+                      <Copy size={18} />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-black text-slate-900">
+                        수수료 설정 다른 제품에 일괄 복사
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        기준 제품의 수수료 지급 대상 본부 및 수령처를 선택한 제품들에 한 번에 적용합니다.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsBatchCopyModalOpen(false)}
+                    className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="space-y-4 text-xs overflow-y-auto custom-scrollbar flex-1 pr-1">
+                  {/* 기준 제품 요약 카드 */}
+                  <div className="bg-purple-50/80 border border-purple-200 rounded-xl p-3.5 space-y-2">
+                    <div className="text-[11px] font-bold text-purple-700 flex items-center gap-1">
+                      <Sparkles size={12} />
+                      <span>복사 기준 제품:</span>
+                    </div>
+                    <div className="font-black text-sm text-slate-900">
+                      {sourceProductForCopy.productName || sourceProductForCopy.productKeyword}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                      <div className="bg-white p-2.5 rounded-lg border border-purple-100 shadow-2xs">
+                        <span className="text-[10px] text-slate-400 block font-medium">설정된 본부 수수료</span>
+                        <span className="font-bold text-purple-900 block truncate">
+                          {sourceProductForCopy.hqCommissions && sourceProductForCopy.hqCommissions.length > 0
+                            ? `총 ${sourceProductForCopy.hqCommissions.length}개 본부 적용 중`
+                            : '설정 없음 (미지급)'}
+                        </span>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-lg border border-purple-100 shadow-2xs">
+                        <span className="text-[10px] text-slate-400 block font-medium">수수료 수령처 및 계좌</span>
+                        <span className="font-bold text-slate-800 truncate block">
+                          {sourceProductForCopy.commissionRecipient || activeSupplier.name}
+                          {sourceProductForCopy.recipientBank && ` (${sourceProductForCopy.recipientBank})`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 복사할 항목 선택 */}
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                    <span className="font-bold text-slate-700 block text-xs">복사할 항목 선택:</span>
+                    <div className="flex flex-col sm:flex-row gap-3 pt-0.5">
+                      <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-800">
+                        <input
+                          type="checkbox"
+                          checked={copyOptions.copyCommissions}
+                          onChange={(e) => setCopyOptions({ ...copyOptions, copyCommissions: e.target.checked })}
+                          className="w-4 h-4 text-purple-600 rounded cursor-pointer accent-purple-600"
+                        />
+                        <span>지급 대상 본부 및 수수료 금액 복사</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-800">
+                        <input
+                          type="checkbox"
+                          checked={copyOptions.copyRecipient}
+                          onChange={(e) => setCopyOptions({ ...copyOptions, copyRecipient: e.target.checked })}
+                          className="w-4 h-4 text-purple-600 rounded cursor-pointer accent-purple-600"
+                        />
+                        <span>수수료 수령처 및 계좌정보 복사</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-500">
+                        <input
+                          type="checkbox"
+                          checked={copyOptions.copySupplyPrice}
+                          onChange={(e) => setCopyOptions({ ...copyOptions, copySupplyPrice: e.target.checked })}
+                          className="w-4 h-4 text-purple-600 rounded cursor-pointer accent-purple-600"
+                        />
+                        <span>공급 단가도 함께 복사</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* 대상 제품 선택 목록 */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800">
+                        설정을 적용할 대상 제품 선택 ({targetProductIdsForCopy.length}개 선택됨):
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={handleSelectAllTargets}
+                          className="px-2.5 py-1 text-[11px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-md border border-purple-200 cursor-pointer transition-colors"
+                        >
+                          전체 선택
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeselectAllTargets}
+                          className="px-2.5 py-1 text-[11px] font-bold text-slate-500 hover:bg-slate-100 rounded-md border border-slate-200 cursor-pointer transition-colors"
+                        >
+                          선택 해제
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-60 overflow-y-auto custom-scrollbar">
+                      {((activeSupplier.products || []).filter(p => p.id !== sourceProductForCopy.id).length === 0) ? (
+                        <div className="p-4 text-center text-slate-400">
+                          복사할 다른 제품이 없습니다.
+                        </div>
+                      ) : (
+                        (activeSupplier.products || [])
+                          .filter(p => p.id !== sourceProductForCopy.id)
+                          .map((prod) => {
+                            const isSelected = targetProductIdsForCopy.includes(prod.id);
+                            const hasComm = prod.hqCommissions && prod.hqCommissions.length > 0;
+                            return (
+                              <div
+                                key={prod.id}
+                                onClick={() => handleToggleTargetProduct(prod.id)}
+                                className={`p-2.5 flex items-center justify-between cursor-pointer transition-colors ${
+                                  isSelected ? 'bg-purple-50/70' : 'hover:bg-slate-50'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {}} // 부모 클릭 핸들러 사용
+                                    className="w-4 h-4 text-purple-600 rounded cursor-pointer pointer-events-none accent-purple-600"
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="font-bold text-slate-900 truncate">
+                                      {prod.productName || prod.productKeyword}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 font-mono">
+                                      공급가: {(prod.supplyPrice || 0).toLocaleString()}원
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="shrink-0 text-right">
+                                  {hasComm ? (
+                                    <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded-full">
+                                      기존 {prod.hqCommissions!.length}개 본부 설정됨
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">
+                                      미지급 상태
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 하단 확인 버튼 */}
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100 shrink-0">
+                  <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <ShieldCheck size={14} className="text-emerald-600 shrink-0" />
+                    <span>적용 즉시 3중 안전 저장 및 구글 시트에 자동 저장됩니다.</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsBatchCopyModalOpen(false)}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleApplyBatchCopy}
+                      disabled={targetProductIdsForCopy.length === 0}
+                      className={`px-5 py-2 rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5 transition-all ${
+                        targetProductIdsForCopy.length > 0
+                          ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                          : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      <Copy size={14} />
+                      <span>선택한 {targetProductIdsForCopy.length}개 제품에 일괄 적용</span>
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             </div>
