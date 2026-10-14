@@ -922,7 +922,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         if (!order.requestDate || !order.requestDate.trim()) return false;
       } else if (requestDateFilter === 'no_value') {
         if (order.requestDate && order.requestDate.trim()) return false;
-        if (order.deliveryState === '배송완료') return false;
       }
       return true;
     });
@@ -955,7 +954,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         if (!order.requestDate || !order.requestDate.trim()) return false;
       } else if (requestDateFilter === 'no_value') {
         if (order.requestDate && order.requestDate.trim()) return false;
-        if (order.deliveryState === '배송완료') return false;
       }
 
       // 배송상태 탭 필터 (저장된 배송상태 기준: 배송상태를 변경하더라도 [저장하기] 누르기 전까지 목록에서 사라지지 않음)
@@ -1635,7 +1633,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     requestDateFilter === 'no_value' ? 'bg-slate-700 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  요청일자 없음 ({ordersFilteredByMonthsAndProd.filter((o) => !o.requestDate?.trim() && o.deliveryState !== '배송완료').length})
+                  요청일자 없음 ({ordersFilteredByMonthsAndProd.filter((o) => !o.requestDate?.trim()).length})
                 </button>
               </div>
 
