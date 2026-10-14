@@ -996,11 +996,26 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                                         .map(([comm, hqs]) => (
                                           <div
                                             key={comm}
-                                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-50 text-purple-800 border border-purple-200 text-[11px] font-medium w-fit"
+                                            onClick={() => {
+                                              setProductForm({ 
+                                                ...p,
+                                                hqCommissions: p.hqCommissions || [] 
+                                              });
+                                              setEditingProductIdx(idx);
+                                              setSelectedHqsForCommission([]);
+                                              setTempHqCommission('');
+                                              setCustomHqInput('');
+                                              setIsDirectInputMode(false);
+                                              setIsProductModalOpen(true);
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-[11px] font-medium w-fit cursor-pointer transition-colors"
+                                            title="클릭하여 본부별 수수료 수정"
                                           >
                                             <Tag size={10} className="text-purple-500 shrink-0" />
                                             <span className="font-bold text-slate-800 max-w-[220px] truncate" title={hqs.join(', ')}>
-                                              {hqs.length > 3 ? `${hqs.slice(0, 3).join(', ')} 외 ${hqs.length - 3}곳` : hqs.join(', ')}:
+                                              {hqs.includes('전체본부') || hqs.includes('전체')
+                                                ? '★ 전체본부 공통'
+                                                : (hqs.length > 3 ? `${hqs.slice(0, 3).join(', ')} 외 ${hqs.length - 3}곳` : hqs.join(', '))}:
                                             </span>
                                             <span className="font-mono font-black text-purple-700 shrink-0">
                                               {comm.toLocaleString()}원
@@ -1010,7 +1025,25 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                                     })()}
                                   </div>
                                 ) : (
-                                  <span className="text-slate-400 text-[11px]">수수료 미지급 (대상 본부 없음)</span>
+                                  <button
+                                    onClick={() => {
+                                      setProductForm({ 
+                                        ...p,
+                                        hqCommissions: p.hqCommissions || [] 
+                                      });
+                                      setEditingProductIdx(idx);
+                                      setSelectedHqsForCommission([]);
+                                      setTempHqCommission('');
+                                      setCustomHqInput('');
+                                      setIsDirectInputMode(false);
+                                      setIsProductModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-bold cursor-pointer transition-colors shadow-2xs"
+                                    title="지급 대상 본부와 수수료를 등록하세요"
+                                  >
+                                    <Plus size={11} />
+                                    <span>본부 수수료 설정하기 (미지급)</span>
+                                  </button>
                                 )}
                               </td>
                               <td className="p-3 text-slate-600 text-[11px]">
@@ -1036,17 +1069,18 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                                       setIsDirectInputMode(false);
                                       setIsProductModalOpen(true);
                                     }}
-                                    className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-100 cursor-pointer"
-                                    title="수정"
+                                    className="px-2 py-1 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 rounded-lg text-xs font-bold border border-slate-200 cursor-pointer flex items-center gap-1 transition-colors"
+                                    title="제품 단가 및 본부별 수수료 설정"
                                   >
-                                    <Edit3 size={14} />
+                                    <Edit3 size={12} />
+                                    <span>설정</span>
                                   </button>
                                   <button
                                     onClick={() => handleDeleteProduct(idx, p.productName)}
-                                    className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 cursor-pointer"
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 cursor-pointer transition-colors"
                                     title="삭제"
                                   >
-                                    <Trash2 size={14} />
+                                    <Trash2 size={13} />
                                   </button>
                                 </div>
                               </td>

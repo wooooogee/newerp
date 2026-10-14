@@ -3,14 +3,25 @@ import {
   X, Calculator, Building, Calendar, Download, RefreshCw, 
   Search, CheckCircle, Package, DollarSign, Filter, FileSpreadsheet, 
   ChevronRight, ExternalLink, AlertCircle, ArrowUpRight, CheckSquare, Square,
-  Tag, Info, Layers, Receipt, Coins
+  Tag, Info, Layers, Receipt, Coins, FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplierItem, SupplierProductSetting, loadSuppliersFromStorage } from './SupplierManagementModal';
-import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo } from './manualOrderUtils';
+import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo, getNextMonthStr } from './manualOrderUtils';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
+
+function formatSettlementDate(yearMonth: string, settlementDay: number = 31): string {
+  if (!yearMonth || !yearMonth.includes('-')) return '';
+  const parts = yearMonth.split('-');
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(y) || isNaN(m)) return '';
+  const lastDay = new Date(y, m, 0).getDate();
+  const day = Math.min(settlementDay, lastDay);
+  return `${parts[0]}-${parts[1].padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
 
 interface ERPDataItem {
   uniqueKey: string;
@@ -58,10 +69,24 @@ interface SupplierSettlementItem {
   recipientBank?: string;
   recipientAccount?: string;
   recipientHolder?: string;
-  deliveryDate: string;       // 배송일/설치확인일
+  deliveryDate: string;       // 배송일
   deliveryStatus: string;     // 배송완료
-  installCertStatus?: string; // 설치확인서 등록여부
-  installCertMonth?: string;  // 설치확인서 마감월
+  
+  // 설치확인서 관련 핵심 필드
+  installCertStatus: '등록' | '미등록'; // 설치확인서 등록 여부
+  installCertDate?: string;   // 설치확인일자 (YYYY-MM-DD)
+  installCertMonth?: string;  // 설치확인서 정산 마감월 (YYYY-MM)
+  
+  // 공급수수료 지급일자 및 정산월 (설치확인서 등록유무에 따라 결정)
+  payoutDate: string;         // 공급수수료 지급(예정)일자 (예: 2026-10-31)
+  payoutMonth: string;        // 공급수수료 정산월 (예: 2026-10)
+  isCommissionPayable: boolean;// 해당 월 정산 지급 대상 여부 (확인서 등록 + 정산월 일치 + 수수료 > 0)
+  isCertHold: boolean;        // 설치확인서 미등록으로 인한 보류 여부
+  commissionHoldReason?: string; // 보류/미지급 사유
+  
+  // 물품대금 정산 해당 여부
+  isSupplyPricePayable: boolean;
+
   hq: string;
   branch: string;
   empName: string;
@@ -90,9 +115,11 @@ interface CommissionSummary {
   recipientBank: string;
   recipientAccount: string;
   recipientHolder: string;
-  productCount: number;       // 수수료 대상 상품개수
+  productCount: number;       // 수수료 지급 대상 상품개수 (확인서 등록 완료 건)
   totalCommissionAmount: number; // 공급 수수료 합계 (VAT포함)
   hqDiffCount: number;        // 본부 차등 적용 건수
+  holdCount: number;          // 설치확인서 미등록 보류 건수
+  holdCommissionAmount: number;// 설치확인서 미등록 보류 수수료 합계
   items: SupplierSettlementItem[];
 }
 
@@ -121,10 +148,42 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   // 서브 뷰 탭: 총괄 요약표 vs 건별 상세 내역
   const [viewMode, setViewMode] = useState<'SUMMARY' | 'DETAIL'>('SUMMARY');
 
+  // 설치확인서 기준 공급수수료 지급월 판정 모드
+  // 'CERT_MONTH': 설치확인서 마감월 당월 정산 (말일/정산일 지급) - 기본값
+  // 'NEXT_MONTH': 설치확인서 마감월 익월 지급 (다음달 지급)
+  const [payoutRuleMode, setPayoutRuleMode] = useState<'CERT_MONTH' | 'NEXT_MONTH'>('CERT_MONTH');
+
+  // 공급 수수료 탭 필터: 전체 vs 지급 대상만 vs 미등록 보류만
+  const [certFilter, setCertFilter] = useState<'ALL' | 'PAYABLE' | 'HOLD'>('ALL');
+
   const [suppliers, setSuppliers] = useState<SupplierItem[]>(() => loadSuppliersFromStorage());
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('ALL'); // 'ALL' 또는 개별 공급사 ID
   const [searchTerm, setSearchTerm] = useState('');
   const [searchInput, setSearchInput] = useState('');
+
+  // 구글 시트 / 클라우드 설정에서 최신 수기발주 대장 및 설치확인서 정보 백그라운드 동기화
+  const [cloudOrderStores, setCloudOrderStores] = useState<Record<string, ManualOrderInfo>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const fetchLatestManualStores = async () => {
+      try {
+        const res = await fetch('/api/sheets/settings/load');
+        if (res.ok) {
+          const cloudData = await res.json();
+          if (cloudData.manualOrderStores && typeof cloudData.manualOrderStores === 'object') {
+            setCloudOrderStores(cloudData.manualOrderStores);
+            try {
+              localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(cloudData.manualOrderStores));
+            } catch (e) {}
+          }
+        }
+      } catch (e) {
+        console.warn('공급사 정산 모달: 클라우드 수기발주 설정 동기화 실패', e);
+      }
+    };
+    fetchLatestManualStores();
+  }, [isOpen]);
 
   // 모달 오픈 시 최신 공급사 정보 재로드
   useEffect(() => {
@@ -133,7 +192,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     }
   }, [isOpen]);
 
-  // 로컬스토리지 수기발주 데이터 보정 맵 및 저장소 로드 (수기발주에서 직접 수정한 배송일자/상태/확인서가 있을 경우 반영)
+  // 로컬스토리지 수기발주 데이터 보정 맵 및 저장소 로드
   const manualOrderStores = useMemo(() => {
     let stores: Record<string, ManualOrderInfo> = {};
     try {
@@ -163,6 +222,11 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     return stores;
   }, [isOpen]);
 
+  // 로컬 + 클라우드 병합 수기발주 대장 스토어
+  const effectiveManualStores = useMemo(() => {
+    return { ...manualOrderStores, ...cloudOrderStores };
+  }, [manualOrderStores, cloudOrderStores]);
+
   const manualOrderTargetProducts = useMemo(() => {
     try {
       const saved = localStorage.getItem('erp_manual_order_target_products_v1');
@@ -174,12 +238,14 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   }, [isOpen]);
 
   // 정산 대상 데이터 추출 및 공급사 매핑 엔진
-  // 요구사항:
+  // 핵심 요구사항:
   // 1) 배송완료 상태
-  // 2) 설치확인서 등록여부 및 정산 마감월(selectedMonth) 등록 완료 건
-  // 3) 회원번호 불필요 -> 고유 렌탈계약번호(rentalNo) 기준으로 상품개수 1개씩 운영
-  // 4) 본부별 차등 공급 수수료 우선 매칭
-  const settlementItems = useMemo<SupplierSettlementItem[]>(() => {
+  // 2) 공급사 취급제품 매칭 및 렌탈계약번호 기준 상품개수 1개씩 운영
+  // 3) 공급수수료는 설치확인서 등록유무에 따라 지급일자/정산월 결정:
+  //    - 설치확인서 등록완료 건: 마감월/지급월에 공급사 정산일자로 정상 지급 대상
+  //    - 설치확인서 미등록 건: 지급 보류 (합계 제외, 보류 현황 별도 표시)
+  // 4) 본부별 차등 공급수수료 우선 매칭 (미지정 본부는 0원 미지급)
+  const allSettlementItems = useMemo<SupplierSettlementItem[]>(() => {
     if (!data || data.length === 0 || suppliers.length === 0) return [];
 
     const result: SupplierSettlementItem[] = [];
@@ -195,42 +261,17 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         item.deliveryStatus?.includes('취소');
       if (isCancelled) return;
 
-      // 2. 수기발주 및 설치확인서 판별
-      const manualInfo = getManualOrderInfo(item, manualOrderStores);
-      const certEligibility = checkInstallCertEligibility(item, manualOrderStores, manualOrderTargetProducts);
-
+      // 2. 수기발주 및 배송 상태 판정
+      const manualInfo = getManualOrderInfo(item, effectiveManualStores);
       const effectiveDeliveryStatus = manualInfo?.deliveryState || item.deliveryStatus || '';
       const effectiveDeliveryDate = manualInfo?.deliveryDate || item.deliveryDate || '';
 
-      // 조건: 배송완료 상태여야 함
+      // 배송완료 상태여야 정산 대상
       if (!effectiveDeliveryStatus.includes('완료') && effectiveDeliveryStatus !== '배송완료') {
         return;
       }
 
-      // 조건: 수기발주 대상 건인 경우 설치확인서 등록 여부 및 마감월 기준 판정
-      if (certEligibility.isTargetOrder) {
-        // 미등록 또는 보류인 경우 공급수수료 정산 대상 제외
-        if (certEligibility.isHold) return;
-        // 설치확인서 등록 건인 경우: 마감월(certMonth)이 해당 월(selectedMonth)과 일치해야 함
-        if (certEligibility.certMonth !== selectedMonth) return;
-      } else {
-        // 일반 상품인 경우: 배송일자 기준 해당 월 내 완료 건
-        if (!effectiveDeliveryDate) return;
-        const normalizedDelDate = effectiveDeliveryDate.replace(/[./]/g, '-');
-        const delMonth = normalizedDelDate.substring(0, 7);
-        if (delMonth !== selectedMonth) return;
-      }
-
-      // 3. 렌탈계약번호 기준 상품개수 운영 (동일 렌탈계약번호 중복 제거)
-      const cleanRentalNo = (item.rentalNo || '').trim();
-      if (cleanRentalNo && cleanRentalNo !== '-' && cleanRentalNo !== 'null' && cleanRentalNo !== 'undefined') {
-        if (seenRentalNos.has(cleanRentalNo)) {
-          return; // 이미 집계된 렌탈계약번호 건은 중복 상품 카운트 방지
-        }
-        seenRentalNos.add(cleanRentalNo);
-      }
-
-      // 4. 공급사 및 취급 제품 매칭 (렌탈상품명 또는 제품명 대조)
+      // 3. 공급사 및 취급 제품 매칭 (렌탈상품명 또는 제품명 대조)
       const targetProdString = `${item.rentalProd || ''} ${item.prodName || ''}`.toLowerCase();
 
       let matchedSupplier: SupplierItem | null = null;
@@ -249,82 +290,145 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         if (matchedSupplier) break;
       }
 
-      // 공급사에 매칭된 제품만 정산 대상에 포함
-      if (matchedSupplier && matchedProductSetting) {
-        // 공급수수료: 내가 선택/지정한 본부에만 주는 구조 (선택하지 않은 본부는 0원 미지급)
-        let finalCommission = 0;
-        let isHqDiff = false;
-        let appliedHq = '';
+      if (!matchedSupplier || !matchedProductSetting) return;
 
-        if (matchedProductSetting.hqCommissions && matchedProductSetting.hqCommissions.length > 0) {
-          const itemHqName = (item.hq || '').trim().toLowerCase();
-          
-          // 1) 특정 본부 지정 매칭
-          const specificHqMatch = matchedProductSetting.hqCommissions.find(hc => {
-            const ruleHq = (hc.hqName || '').trim().toLowerCase();
-            return ruleHq && ruleHq !== '전체본부' && ruleHq !== '전체' && 
-                   (itemHqName.includes(ruleHq) || ruleHq.includes(itemHqName));
-          });
-
-          // 2) 전체본부 공통 지정 매칭
-          const allHqMatch = matchedProductSetting.hqCommissions.find(hc => 
-            hc.hqName === '전체본부' || hc.hqName === '전체'
-          );
-
-          if (specificHqMatch) {
-            finalCommission = specificHqMatch.commission;
-            isHqDiff = true;
-            appliedHq = specificHqMatch.hqName;
-          } else if (allHqMatch) {
-            finalCommission = allHqMatch.commission;
-            isHqDiff = false;
-            appliedHq = '전체본부';
-          }
-          // 지정되지 않은 본부는 finalCommission = 0 (미지급)
+      // 4. 렌탈계약번호 기준 상품개수 운영 (동일 렌탈계약번호 중복 제거)
+      const cleanRentalNo = (item.rentalNo || '').trim();
+      if (cleanRentalNo && cleanRentalNo !== '-' && cleanRentalNo !== 'null' && cleanRentalNo !== 'undefined') {
+        if (seenRentalNos.has(cleanRentalNo)) {
+          return;
         }
-
-        const qty = 1; // 렌탈계약번호 1건 = 상품개수 1개
-        const sPrice = matchedProductSetting.supplyPrice || 0;
-
-        result.push({
-          uniqueKey: cleanRentalNo || item.uniqueKey || `item-${Date.now()}-${Math.random()}`,
-          rentalNo: cleanRentalNo || item.rentalNo || '-',
-          contractDate: item.contractDate || '-',
-          memName: item.memName || '-',
-          phone: item.phone || '-',
-          prodName: item.prodName || '-',
-          rentalProdRaw: item.rentalProd || item.prodName || '-',
-          matchedSupplierId: matchedSupplier.id,
-          matchedSupplierName: matchedSupplier.name,
-          matchedProductId: matchedProductSetting.id,
-          matchedProductName: matchedProductSetting.productName || matchedProductSetting.productKeyword,
-          quantity: qty,
-          supplyPrice: sPrice,
-          totalSupplyPrice: sPrice * qty,
-          supplyCommission: finalCommission,
-          totalCommission: finalCommission * qty,
-          isHqDifferentiated: isHqDiff,
-          appliedHqName: appliedHq,
-          commissionRecipient: matchedProductSetting.commissionRecipient || matchedSupplier.name,
-          recipientBank: matchedProductSetting.recipientBank || matchedSupplier.bankName,
-          recipientAccount: matchedProductSetting.recipientAccount || matchedSupplier.accountNumber,
-          recipientHolder: matchedProductSetting.recipientHolder || matchedSupplier.accountHolder,
-          deliveryDate: effectiveDeliveryDate,
-          deliveryStatus: '배송완료',
-          installCertStatus: certEligibility?.isCertRegistered ? '등록' : (manualInfo?.installCertStatus || undefined),
-          installCertMonth: certEligibility?.certMonth || (manualInfo?.installCertMonth || undefined),
-          hq: item.hq || '-',
-          branch: item.branch || '-',
-          empName: item.empName || '-'
-        });
+        seenRentalNos.add(cleanRentalNo);
       }
+
+      // 5. 설치확인서 등록 여부 및 마감월 정밀 판정
+      const rawCertStatus = manualInfo?.installCertStatus;
+      const certDate = manualInfo?.installCertDate || '';
+      let certMonth = manualInfo?.installCertMonth || (certDate ? certDate.substring(0, 7) : '');
+
+      // 보조 헬퍼 확인
+      const certEligibility = checkInstallCertEligibility(item, effectiveManualStores, manualOrderTargetProducts);
+      if (!certMonth && certEligibility?.certMonth) {
+        certMonth = certEligibility.certMonth;
+      }
+
+      const isCertRegistered = (rawCertStatus === '등록' || !!certDate || !!certMonth) && !!certMonth;
+      const finalCertStatus: '등록' | '미등록' = isCertRegistered ? '등록' : '미등록';
+
+      // 6. 공급사 정산일 및 지급일자/지급월 계산
+      const sDay = matchedSupplier.settlementDay || 31;
+      let pMonth = '';
+      let pDate = '';
+
+      if (isCertRegistered && certMonth) {
+        pMonth = payoutRuleMode === 'NEXT_MONTH' ? getNextMonthStr(certMonth) : certMonth;
+        pDate = formatSettlementDate(pMonth, sDay);
+      } else {
+        pMonth = '';
+        pDate = '지급 보류 (확인서 미등록)';
+      }
+
+      // 7. 본부별 공급수수료 계산 (지정된 본부에만 지급, 미지정은 0원)
+      let finalCommission = 0;
+      let isHqDiff = false;
+      let appliedHq = '';
+
+      if (matchedProductSetting.hqCommissions && matchedProductSetting.hqCommissions.length > 0) {
+        const itemHqName = (item.hq || '').trim().toLowerCase();
+        
+        // 특정 본부 지정 매칭
+        const specificHqMatch = matchedProductSetting.hqCommissions.find(hc => {
+          const ruleHq = (hc.hqName || '').trim().toLowerCase();
+          return ruleHq && ruleHq !== '전체본부' && ruleHq !== '전체' && 
+                 (itemHqName.includes(ruleHq) || ruleHq.includes(itemHqName));
+        });
+
+        // 전체본부 공통 지정 매칭
+        const allHqMatch = matchedProductSetting.hqCommissions.find(hc => 
+          hc.hqName === '전체본부' || hc.hqName === '전체'
+        );
+
+        if (specificHqMatch) {
+          finalCommission = specificHqMatch.commission;
+          isHqDiff = true;
+          appliedHq = specificHqMatch.hqName;
+        } else if (allHqMatch) {
+          finalCommission = allHqMatch.commission;
+          isHqDiff = false;
+          appliedHq = '전체본부';
+        }
+      }
+
+      // 8. 물품대금 및 공급수수료 적격성/보류 여부 판별
+      const normalizedDelDate = effectiveDeliveryDate.replace(/[./]/g, '-');
+      const delMonth = normalizedDelDate.substring(0, 7);
+
+      const isSupplyPricePayable = delMonth === selectedMonth;
+
+      let isCommPayable = false;
+      let isCertHold = false;
+      let holdReason = '';
+
+      if (!isCertRegistered) {
+        // 설치확인서 미등록 시 무조건 공급수수료 지급 보류
+        isCertHold = true;
+        holdReason = '설치확인서 미등록 (지급보류)';
+      } else if (finalCommission <= 0) {
+        holdReason = '해당 본부 수수료 미지급 (0원)';
+      } else if (pMonth === selectedMonth) {
+        isCommPayable = true;
+      } else {
+        holdReason = `정산월 불일치 (지급월: ${pMonth})`;
+      }
+
+      const qty = 1; // 렌탈계약번호 1건 = 상품개수 1개
+      const sPrice = matchedProductSetting.supplyPrice || 0;
+
+      result.push({
+        uniqueKey: cleanRentalNo || item.uniqueKey || `item-${Date.now()}-${Math.random()}`,
+        rentalNo: cleanRentalNo || item.rentalNo || '-',
+        contractDate: item.contractDate || '-',
+        memName: item.memName || '-',
+        phone: item.phone || '-',
+        prodName: item.prodName || '-',
+        rentalProdRaw: item.rentalProd || item.prodName || '-',
+        matchedSupplierId: matchedSupplier.id,
+        matchedSupplierName: matchedSupplier.name,
+        matchedProductId: matchedProductSetting.id,
+        matchedProductName: matchedProductSetting.productName || matchedProductSetting.productKeyword,
+        quantity: qty,
+        supplyPrice: sPrice,
+        totalSupplyPrice: sPrice * qty,
+        supplyCommission: finalCommission,
+        totalCommission: finalCommission * qty,
+        isHqDifferentiated: isHqDiff,
+        appliedHqName: appliedHq,
+        commissionRecipient: matchedProductSetting.commissionRecipient || matchedSupplier.name,
+        recipientBank: matchedProductSetting.recipientBank || matchedSupplier.bankName,
+        recipientAccount: matchedProductSetting.recipientAccount || matchedSupplier.accountNumber,
+        recipientHolder: matchedProductSetting.recipientHolder || matchedSupplier.accountHolder,
+        deliveryDate: effectiveDeliveryDate,
+        deliveryStatus: '배송완료',
+        installCertStatus: finalCertStatus,
+        installCertDate: certDate || undefined,
+        installCertMonth: certMonth || undefined,
+        payoutDate: pDate,
+        payoutMonth: pMonth,
+        isCommissionPayable: isCommPayable,
+        isCertHold,
+        commissionHoldReason: holdReason,
+        isSupplyPricePayable,
+        hq: item.hq || '-',
+        branch: item.branch || '-',
+        empName: item.empName || '-'
+      });
     });
 
     return result;
-  }, [data, suppliers, selectedMonth, manualOrderStores, manualOrderTargetProducts]);
+  }, [data, suppliers, selectedMonth, effectiveManualStores, manualOrderTargetProducts, payoutRuleMode]);
 
   // ==========================================
-  // [1] 물품 대금 집계 (공급사별)
+  // [1] 물품 대금 집계 (공급사별) - 배송완료월 기준
   // ==========================================
   const supplyPriceSummaries = useMemo<SupplyPriceSummary[]>(() => {
     const summaryMap = new Map<string, SupplyPriceSummary>();
@@ -345,7 +449,10 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       });
     });
 
-    settlementItems.forEach((item) => {
+    allSettlementItems.forEach((item) => {
+      // 물품대금은 배송완료월이 selectedMonth인 건만 집계
+      if (!item.isSupplyPricePayable) return;
+
       let supp = summaryMap.get(item.matchedSupplierId);
       if (!supp) {
         supp = {
@@ -369,7 +476,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     });
 
     return Array.from(summaryMap.values());
-  }, [suppliers, settlementItems]);
+  }, [suppliers, allSettlementItems]);
 
   // 물품 대금 전체 KPI
   const supplyPriceTotalStats = useMemo(() => {
@@ -382,7 +489,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     return { productCount, totalSupplyAmount };
   }, [supplyPriceSummaries]);
 
-  // 선택된 특정 공급사 요약 정보 (공급사 선택 필터 연동)
+  // 선택된 특정 공급사 요약 정보
   const selectedSupplierSummary = useMemo(() => {
     if (selectedSupplierId === 'ALL') return null;
     return supplyPriceSummaries.find(s => s.supplierId === selectedSupplierId) || null;
@@ -390,12 +497,13 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
   // ==========================================
   // [2] 공급 수수료(특수수당) 집계 (공급사/수령처별)
+  // 설치확인서 등록완료 건만 실제 지급 집계, 미등록 건은 보류 통계 집계
   // ==========================================
   const commissionSummaries = useMemo<CommissionSummary[]>(() => {
     const summaryMap = new Map<string, CommissionSummary>();
 
-    settlementItems.forEach((item) => {
-      // 지정 본부 외 수수료 미지급 건(0원)은 수수료 집계에서 제외
+    allSettlementItems.forEach((item) => {
+      // 본부 수수료 0원인 건은 제외
       if (item.totalCommission <= 0) return;
 
       const recipientName = item.commissionRecipient || item.matchedSupplierName;
@@ -414,43 +522,87 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
           productCount: 0,
           totalCommissionAmount: 0,
           hqDiffCount: 0,
+          holdCount: 0,
+          holdCommissionAmount: 0,
           items: []
         };
         summaryMap.set(key, comm);
       }
 
-      comm.productCount += item.quantity;
-      comm.totalCommissionAmount += item.totalCommission;
-      if (item.isHqDifferentiated) {
-        comm.hqDiffCount += item.quantity;
+      if (item.isCommissionPayable) {
+        // 설치확인서 등록 완료 및 해당 정산월 지급 건
+        comm.productCount += item.quantity;
+        comm.totalCommissionAmount += item.totalCommission;
+        if (item.isHqDifferentiated) {
+          comm.hqDiffCount += item.quantity;
+        }
+        comm.items.push(item);
+      } else if (item.isCertHold) {
+        // 설치확인서 미등록 보류 건 (배송월이 해당월이거나 배송완료 건)
+        const delMonth = item.deliveryDate.replace(/[./]/g, '-').substring(0, 7);
+        if (delMonth === selectedMonth || !delMonth) {
+          comm.holdCount += item.quantity;
+          comm.holdCommissionAmount += item.totalCommission;
+          comm.items.push(item);
+        }
       }
-      comm.items.push(item);
     });
 
     return Array.from(summaryMap.values());
-  }, [settlementItems]);
+  }, [allSettlementItems, selectedMonth]);
 
-  // 공급 수수료 전체 KPI
+  // 공급 수수료 전체 KPI (지급 대상 vs 보류 통계 분리)
   const commissionTotalStats = useMemo(() => {
     let productCount = 0;
     let totalCommissionAmount = 0;
     let hqDiffCount = 0;
+    let holdCount = 0;
+    let holdCommissionAmount = 0;
+
     commissionSummaries.forEach(c => {
       productCount += c.productCount;
       totalCommissionAmount += c.totalCommissionAmount;
       hqDiffCount += c.hqDiffCount;
+      holdCount += c.holdCount;
+      holdCommissionAmount += c.holdCommissionAmount;
     });
-    return { productCount, totalCommissionAmount, hqDiffCount };
+
+    return { 
+      productCount, 
+      totalCommissionAmount, 
+      hqDiffCount, 
+      holdCount, 
+      holdCommissionAmount 
+    };
   }, [commissionSummaries]);
 
-  // 필터링된 상세 건별 목록 (검색 및 공급사 필터)
+  // 필터링된 상세 건별 목록 (검색, 공급사, 탭, 설치확인서 필터 연동)
   const filteredDetailItems = useMemo(() => {
-    return settlementItems.filter((item) => {
+    return allSettlementItems.filter((item) => {
       const matchSupplier = selectedSupplierId === 'ALL' || item.matchedSupplierId === selectedSupplierId;
       if (!matchSupplier) return false;
 
-      // 수수료 탭에서는 수수료 지급 대상(0원 초과) 건만 표시
-      if (mainTab === 'COMMISSION' && item.totalCommission <= 0) return false;
+      // 물품대금 탭인 경우
+      if (mainTab === 'SUPPLY_PRICE') {
+        if (!item.isSupplyPricePayable) return false;
+      }
+
+      // 공급 수수료 탭인 경우
+      if (mainTab === 'COMMISSION') {
+        if (item.totalCommission <= 0) return false;
+
+        // 설치확인서 필터 적용
+        if (certFilter === 'PAYABLE') {
+          if (!item.isCommissionPayable) return false;
+        } else if (certFilter === 'HOLD') {
+          if (!item.isCertHold) return false;
+        } else {
+          // ALL 모드: 해당월 지급 대상 또는 해당월 배송완료 보류 건
+          const delMonth = item.deliveryDate.replace(/[./]/g, '-').substring(0, 7);
+          const isRelevant = item.isCommissionPayable || (item.isCertHold && (delMonth === selectedMonth || !delMonth));
+          if (!isRelevant) return false;
+        }
+      }
 
       if (!searchTerm) return true;
       const term = searchTerm.toLowerCase();
@@ -464,7 +616,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         item.commissionRecipient.toLowerCase().includes(term)
       );
     });
-  }, [settlementItems, selectedSupplierId, searchTerm, mainTab]);
+  }, [allSettlementItems, selectedSupplierId, searchTerm, mainTab, certFilter, selectedMonth]);
 
   // ==========================================
   // [엑셀 다운로드 1] 물품 대금 전용 정산서
@@ -524,12 +676,12 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
     // 2. 건별 물품대금 상세 명세 시트
     const itemsToExport = targetSupplierId && targetSupplierId !== 'ALL'
-      ? settlementItems.filter(i => i.matchedSupplierId === targetSupplierId)
-      : settlementItems;
+      ? allSettlementItems.filter(i => i.matchedSupplierId === targetSupplierId && i.isSupplyPricePayable)
+      : allSettlementItems.filter(i => i.isSupplyPricePayable);
 
     const detailRows = [
       [`공급 물품대금 상세 명세서 (${selectedMonth})`],
-      ['렌탈계약번호', '계약일자', '배송/설치확인일', '공급사명', '고객명', '매칭 제품명', '상품개수', '공급단가 (VAT포함)', '공급 물품대금 (VAT포함)', '본부', '지사', '영업사원']
+      ['렌탈계약번호', '계약일자', '배송완료일', '공급사명', '고객명', '매칭 제품명', '상품개수', '공급단가 (VAT포함)', '공급 물품대금 (VAT포함)', '본부', '지사', '영업사원']
     ];
 
     itemsToExport.forEach((item) => {
@@ -561,6 +713,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
   // ==========================================
   // [엑셀 다운로드 2] 공급 수수료(특수수당) 전용 정산서
+  // 설치확인서 등록여부, 확인일자, 마감월, 지급일자 명시
   // ==========================================
   const handleExportCommissionExcel = (targetSupplierId?: string) => {
     if (!XLSX) {
@@ -573,10 +726,10 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     // 1. 공급 수수료 총괄 요약 시트
     const summaryRows: any[][] = [
       [`리치웰페어 - 공급 수수료(특수수당) 정산 총괄표 (${selectedMonth} 기준)`],
-      [`정산 기준: 배송완료 및 ${selectedMonth} 말일까지 설치확인된 건 (금액: VAT 부가세 포함, 본부별 차등 반영)`],
+      [`정산 기준: 설치확인서 등록완료 및 ${payoutRuleMode === 'NEXT_MONTH' ? '익월지급' : '마감월 당월정산'} (금액: VAT 부가세 포함, 본부별 차등 반영)`],
       [`출력일시: ${new Date().toLocaleString()}`],
       [],
-      ['공급사명', '수수료 수령처/인', '정산은행', '계좌번호', '예금주', '수수료 대상 상품개수', '본부차등적용 개수', '총 공급 수수료 (VAT포함)']
+      ['공급사명', '수수료 수령처/인', '정산은행', '계좌번호', '예금주', '지급 대상 상품개수', '본부차등적용 개수', '총 지급 수수료 (VAT포함)', '설치확인서 미등록 보류 건수', '보류 수수료 합계']
     ];
 
     const targetSummaries = targetSupplierId && targetSupplierId !== 'ALL'
@@ -586,11 +739,15 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     let subTotalCount = 0;
     let subTotalHqDiff = 0;
     let subTotalAmount = 0;
+    let subTotalHoldCount = 0;
+    let subTotalHoldAmount = 0;
 
     targetSummaries.forEach((c) => {
       subTotalCount += c.productCount;
       subTotalHqDiff += c.hqDiffCount;
       subTotalAmount += c.totalCommissionAmount;
+      subTotalHoldCount += c.holdCount;
+      subTotalHoldAmount += c.holdCommissionAmount;
       summaryRows.push([
         c.supplierName,
         c.commissionRecipient,
@@ -599,7 +756,9 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         c.recipientHolder,
         c.productCount,
         c.hqDiffCount,
-        c.totalCommissionAmount
+        c.totalCommissionAmount,
+        c.holdCount,
+        c.holdCommissionAmount
       ]);
     });
 
@@ -611,21 +770,25 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       '',
       subTotalCount,
       subTotalHqDiff,
-      subTotalAmount
+      subTotalAmount,
+      subTotalHoldCount,
+      subTotalHoldAmount
     ]);
 
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
     XLSX.utils.book_append_sheet(wb, wsSummary, '공급수수료총괄표');
 
-    // 2. 건별 공급 수수료 상세 명세 시트 (수수료 지급 대상 건만)
-    const itemsToExport = settlementItems.filter(i => {
+    // 2. 건별 공급 수수료 상세 명세 시트 (지급 대상 및 보류 건 포함 명확히 구분)
+    const itemsToExport = allSettlementItems.filter(i => {
       const matchSupp = !targetSupplierId || targetSupplierId === 'ALL' || i.matchedSupplierId === targetSupplierId;
-      return matchSupp && i.totalCommission > 0;
+      if (!matchSupp || i.totalCommission <= 0) return false;
+      const delMonth = i.deliveryDate.replace(/[./]/g, '-').substring(0, 7);
+      return i.isCommissionPayable || (i.isCertHold && (delMonth === selectedMonth || !delMonth));
     });
 
     const detailRows = [
       [`공급 수수료(특수수당) 상세 명세서 (${selectedMonth})`],
-      ['렌탈계약번호', '계약일자', '배송/설치확인일', '공급사명', '고객명', '매칭 제품명', '소속본부', '수수료유형', '상품개수', '수수료단가 (VAT포함)', '공급 수수료 합계 (VAT포함)', '수령처/계좌', '지사', '영업사원']
+      ['렌탈계약번호', '계약일자', '배송완료일', '설치확인서상태', '설치확인일자', '정산마감월', '수수료지급일자', '지급상태', '공급사명', '고객명', '매칭 제품명', '소속본부', '수수료유형', '상품개수', '수수료단가 (VAT포함)', '공급 수수료 합계 (VAT포함)', '수령처/계좌', '지사', '영업사원', '비고/보류사유']
     ];
 
     itemsToExport.forEach((item) => {
@@ -633,6 +796,11 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         item.rentalNo,
         item.contractDate,
         item.deliveryDate,
+        item.installCertStatus === '등록' ? `등록완료 (${item.installCertMonth || '마감'})` : '미등록',
+        item.installCertDate || '-',
+        item.installCertMonth || '-',
+        item.payoutDate,
+        item.isCommissionPayable ? '지급 대상' : (item.isCertHold ? '지급 보류' : '미지급'),
         item.matchedSupplierName,
         item.memName,
         item.matchedProductName,
@@ -643,7 +811,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         item.totalCommission,
         `${item.commissionRecipient} (${item.recipientBank} ${item.recipientAccount})`,
         item.branch,
-        item.empName
+        item.empName,
+        item.commissionHoldReason || '-'
       ]);
     });
 
@@ -783,8 +952,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         </div>
 
         {/* 컨트롤 필터 툴바 */}
-        <div className="px-6 py-3 bg-white border-b border-slate-200 flex items-center justify-between gap-4 shrink-0 whitespace-nowrap">
-          <div className="flex items-center gap-4">
+        <div className="px-6 py-3 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0 whitespace-nowrap">
+          <div className="flex flex-wrap items-center gap-3">
             {/* 정산 기준월 선택 */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
@@ -803,7 +972,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
                 <Building size={14} className="text-indigo-600" />
-                공급사 필터:
+                공급사:
               </span>
               <select
                 value={selectedSupplierId}
@@ -817,21 +986,89 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
               </select>
             </div>
 
+            {/* 공급수수료 탭 전용: 설치확인서 필터 및 지급규칙 토글 */}
+            {mainTab === 'COMMISSION' && (
+              <>
+                <div className="h-4 w-px bg-slate-200 mx-0.5" />
+
+                {/* 설치확인서 필터 토글 */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                    <FileText size={13} className="text-purple-600" />
+                    확인서 필터:
+                  </span>
+                  <div className="flex items-center bg-purple-50 p-0.5 rounded-xl border border-purple-200">
+                    <button
+                      onClick={() => setCertFilter('ALL')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                        certFilter === 'ALL'
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'text-purple-800 hover:text-purple-950'
+                      }`}
+                    >
+                      전체보기
+                    </button>
+                    <button
+                      onClick={() => setCertFilter('PAYABLE')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                        certFilter === 'PAYABLE'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-emerald-700 hover:text-emerald-900'
+                      }`}
+                    >
+                      <CheckCircle size={12} />
+                      <span>지급 대상 ({commissionTotalStats.productCount})</span>
+                    </button>
+                    <button
+                      onClick={() => setCertFilter('HOLD')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                        certFilter === 'HOLD'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'text-amber-700 hover:text-amber-900'
+                      }`}
+                    >
+                      <AlertCircle size={12} />
+                      <span>미등록 보류 ({commissionTotalStats.holdCount})</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 지급월 판정 규칙 토글 */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                    <Calendar size={13} className="text-indigo-600" />
+                    지급기준:
+                  </span>
+                  <select
+                    value={payoutRuleMode}
+                    onChange={(e) => setPayoutRuleMode(e.target.value as any)}
+                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-none cursor-pointer"
+                    title="설치확인서 마감월 당월 정산일 지급 vs 익월 지급 선택"
+                  >
+                    <option value="CERT_MONTH">마감월 당월 정산 (기본: 말일)</option>
+                    <option value="NEXT_MONTH">마감월 익월(다음달) 정산 지급</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            <div className="h-4 w-px bg-slate-200 mx-0.5" />
+
             {/* 뷰 모드 토글 (총괄 요약 / 건별 상세 내역) */}
             <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
               <button
                 onClick={() => setViewMode('SUMMARY')}
-                className={`px-3.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                   viewMode === 'SUMMARY'
                     ? 'bg-white text-indigo-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {mainTab === 'SUPPLY_PRICE' ? '공급사별 물품대금 총괄' : '수령처별 수수료 총괄'}
+                {mainTab === 'SUPPLY_PRICE' ? '공급사별 총괄' : '수령처별 총괄'}
               </button>
               <button
                 onClick={() => setViewMode('DETAIL')}
-                className={`px-3.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                   viewMode === 'DETAIL'
                     ? 'bg-white text-indigo-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -842,9 +1079,9 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
             </div>
           </div>
 
-          {/* 우측 검색창 (Enter 또는 검색 버튼 클릭 시 검색) */}
+          {/* 우측 검색창 */}
           {viewMode === 'DETAIL' && (
-            <div className="relative w-80 flex items-center gap-1.5">
+            <div className="relative w-72 flex items-center gap-1.5">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                 <input
@@ -956,38 +1193,75 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
             </div>
           </div>
         ) : (
-          /* [공급 수수료 전용 KPI 카드] */
-          <div className="px-6 py-3 bg-purple-50/50 border-b border-purple-100 grid grid-cols-3 gap-4 shrink-0 whitespace-nowrap">
+          /* [공급 수수료 전용 KPI 카드 - 4개 그리드로 확장] */
+          <div className="px-6 py-3 bg-purple-50/50 border-b border-purple-100 grid grid-cols-4 gap-3.5 shrink-0 whitespace-nowrap">
+            {/* 카드 1: 실제 지급 대상 상품개수 */}
+            <div className="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <p className="text-[11px] font-bold text-emerald-800 uppercase">수수료 지급 대상 상품</p>
+                </div>
+                <h3 className="text-xl font-black text-emerald-700 mt-0.5 font-mono">
+                  {commissionTotalStats.productCount.toLocaleString()} <span className="text-xs font-bold text-emerald-600">개</span>
+                </h3>
+                <p className="text-[10px] text-emerald-600 mt-0.5 font-medium">설치확인서 등록 완료 건</p>
+              </div>
+              <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                <CheckCircle size={18} />
+              </div>
+            </div>
+
+            {/* 카드 2: 총 지급 수수료 합계 */}
             <div className="bg-white p-3.5 rounded-xl border border-purple-100 shadow-2xs flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold text-slate-500 uppercase">수수료 대상 상품개수</p>
-                <h3 className="text-xl font-black text-slate-900 mt-0.5 font-mono">
-                  {commissionTotalStats.productCount.toLocaleString()} <span className="text-xs font-bold text-slate-500">개</span>
+                <p className="text-[11px] font-bold text-purple-700 uppercase">총 공급 수수료(특수수당) 지급액</p>
+                <h3 className="text-xl font-black text-purple-700 mt-0.5 font-mono">
+                  {commissionTotalStats.totalCommissionAmount.toLocaleString()} <span className="text-xs font-bold text-purple-500">원</span>
                 </h3>
+                <p className="text-[10px] text-purple-400 mt-0.5 font-medium">정산 대상 실지급 합계 (VAT포함)</p>
               </div>
               <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
+                <DollarSign size={18} />
+              </div>
+            </div>
+
+            {/* 카드 3: 설치확인서 미등록 지급 보류 건수 및 금액 */}
+            <div className={`p-3.5 rounded-xl border shadow-2xs flex items-center justify-between transition-all ${
+              commissionTotalStats.holdCount > 0
+                ? 'bg-amber-50/80 border-amber-300 text-amber-900'
+                : 'bg-white border-slate-200 text-slate-700'
+            }`}>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <AlertCircle size={12} className={commissionTotalStats.holdCount > 0 ? "text-amber-600" : "text-slate-400"} />
+                  <p className={`text-[11px] font-bold uppercase ${commissionTotalStats.holdCount > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
+                    설치확인서 미등록 (지급보류)
+                  </p>
+                </div>
+                <h3 className={`text-xl font-black mt-0.5 font-mono ${commissionTotalStats.holdCount > 0 ? 'text-amber-700' : 'text-slate-400'}`}>
+                  {commissionTotalStats.holdCount.toLocaleString()} <span className="text-xs font-bold">개</span>
+                  <span className="text-xs font-semibold ml-1.5">
+                    ({commissionTotalStats.holdCommissionAmount.toLocaleString()}원)
+                  </span>
+                </h3>
+                <p className={`text-[10px] mt-0.5 font-medium ${commissionTotalStats.holdCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                  확인서 등록 시 즉시 정산 지급 대상 전환
+                </p>
+              </div>
+              <div className={`p-2 rounded-lg ${commissionTotalStats.holdCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400'}`}>
                 <Coins size={18} />
               </div>
             </div>
 
-            <div className="bg-white p-3.5 rounded-xl border border-purple-100 shadow-2xs flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold text-purple-700 uppercase">총 공급 수수료(특수수당) 합계 (VAT포함)</p>
-                <h3 className="text-xl font-black text-purple-700 mt-0.5 font-mono">
-                  {commissionTotalStats.totalCommissionAmount.toLocaleString()} <span className="text-xs font-bold text-purple-500">원</span>
-                </h3>
-              </div>
-              <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
-                <Tag size={18} />
-              </div>
-            </div>
-
+            {/* 카드 4: 본부별 차등 적용 개수 */}
             <div className="bg-linear-to-br from-purple-900 to-indigo-950 text-white p-3.5 rounded-xl shadow-2xs flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold text-purple-200 uppercase">본부별 차등 수수료 적용 상품개수</p>
+                <p className="text-[11px] font-bold text-purple-200 uppercase">본부별 차등 수수료 적용 상품</p>
                 <h3 className="text-xl font-black text-amber-300 mt-0.5 font-mono">
                   {commissionTotalStats.hqDiffCount.toLocaleString()} <span className="text-xs font-bold text-purple-200">개</span>
                 </h3>
+                <p className="text-[10px] text-purple-300 mt-0.5 font-medium">본부 지정 맞춤 수수료 반영 건</p>
               </div>
               <div className="p-2 bg-white/10 text-amber-300 rounded-lg">
                 <Layers size={18} />
@@ -1029,7 +1303,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                       공급사별 {selectedMonth} 물품대금 정산 총괄 현황
                     </h3>
                     <span className="text-xs text-slate-500 font-medium">
-                      (렌탈계약번호 기준 상품개수 집계 · VAT 포함)
+                      (배송완료월 기준 · 렌탈계약번호 상품개수 1개 집계 · VAT 포함)
                     </span>
                   </div>
                   <div className="text-xs font-bold text-slate-500">
@@ -1122,7 +1396,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                       <tr className="bg-slate-100/80 text-slate-700 border-b border-slate-200 font-bold whitespace-nowrap">
                         <th className="p-3 pl-4 font-mono">렌탈계약번호</th>
                         <th className="p-3">계약일자</th>
-                        <th className="p-3">배송/설치확인일</th>
+                        <th className="p-3">배송완료일</th>
                         <th className="p-3">공급사</th>
                         <th className="p-3">고객명</th>
                         <th className="p-3">매칭 제품명</th>
@@ -1186,7 +1460,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                       수령처별 {selectedMonth} 공급 수수료(특수수당) 정산 총괄 현황
                     </h3>
                     <span className="text-xs text-slate-500 font-medium">
-                      (본부별 차등 수수료 우선 반영 · 상품개수 기준)
+                      (설치확인서 등록완료 및 본부별 차등 반영 · 상품개수 기준)
                     </span>
                   </div>
                   <div className="text-xs font-bold text-slate-500">
@@ -1203,16 +1477,17 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                         <th className="p-3.5">수령 은행</th>
                         <th className="p-3.5">수령 계좌번호</th>
                         <th className="p-3.5">예금주</th>
-                        <th className="p-3.5 text-right font-black text-slate-900">수수료 대상 상품개수</th>
+                        <th className="p-3.5 text-right font-black text-emerald-800">지급 대상 개수</th>
                         <th className="p-3.5 text-center text-purple-700">본부차등 적용</th>
-                        <th className="p-3.5 text-right font-black text-purple-900 pr-5">총 공급 수수료 (VAT포함)</th>
+                        <th className="p-3.5 text-right font-black text-purple-900 pr-5">총 지급 수수료 (VAT포함)</th>
+                        <th className="p-3.5 text-center text-amber-700">확인서 미등록 보류</th>
                         <th className="p-3.5 text-center w-28">명세서 다운로드</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {commissionSummaries.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="py-12 text-center text-slate-400 whitespace-nowrap">
+                          <td colSpan={10} className="py-12 text-center text-slate-400 whitespace-nowrap">
                             해당 조건에 부합하는 공급 수수료 정산 대상 건이 없습니다.
                           </td>
                         </tr>
@@ -1237,7 +1512,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                             <td className="p-3.5 text-slate-700 font-medium">
                               {c.recipientHolder}
                             </td>
-                            <td className="p-3.5 text-right font-bold font-mono text-slate-900">
+                            <td className="p-3.5 text-right font-bold font-mono text-emerald-700">
                               {c.productCount.toLocaleString()}개
                             </td>
                             <td className="p-3.5 text-center">
@@ -1254,9 +1529,19 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                               {c.totalCommissionAmount.toLocaleString()}원
                             </td>
                             <td className="p-3.5 text-center">
+                              {c.holdCount > 0 ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300 text-[11px] font-bold">
+                                  <AlertCircle size={10} />
+                                  <span>{c.holdCount}개 ({c.holdCommissionAmount.toLocaleString()}원)</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">-</span>
+                              )}
+                            </td>
+                            <td className="p-3.5 text-center">
                               <button
                                 onClick={() => handleExportCommissionExcel(c.supplierId)}
-                                disabled={c.productCount === 0}
+                                disabled={c.productCount === 0 && c.holdCount === 0}
                                 className="px-2.5 py-1 bg-slate-100 hover:bg-purple-50 hover:text-purple-600 text-slate-600 rounded-lg text-[11px] font-bold border border-slate-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 mx-auto"
                                 title="이 공급사/수령처 공급수수료 정산명세서 다운로드"
                               >
@@ -1272,9 +1557,12 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                       <tfoot>
                         <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300 whitespace-nowrap">
                           <td className="p-3.5 pl-5" colSpan={5}>합계</td>
-                          <td className="p-3.5 text-right font-mono">{commissionTotalStats.productCount.toLocaleString()}개</td>
+                          <td className="p-3.5 text-right font-mono text-emerald-800">{commissionTotalStats.productCount.toLocaleString()}개</td>
                           <td className="p-3.5 text-center font-mono text-purple-700">{commissionTotalStats.hqDiffCount}개 차등</td>
                           <td className="p-3.5 text-right font-mono text-purple-900 text-sm pr-5">{commissionTotalStats.totalCommissionAmount.toLocaleString()}원</td>
+                          <td className="p-3.5 text-center font-mono text-amber-800 text-xs">
+                            {commissionTotalStats.holdCount > 0 ? `${commissionTotalStats.holdCount}개 (${commissionTotalStats.holdCommissionAmount.toLocaleString()}원)` : '-'}
+                          </td>
                           <td></td>
                         </tr>
                       </tfoot>
@@ -1292,7 +1580,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                       건별 공급 수수료(특수수당) 상세 명세 ({filteredDetailItems.length}건)
                     </h3>
                     <span className="text-xs text-slate-500 font-medium">
-                      (본부별 차등 수수료 자동 적용 · 상품개수 기준)
+                      (설치확인서 등록유무에 따라 지급일자 자동 산출 · 상품개수 기준)
                     </span>
                   </div>
                 </div>
@@ -1303,7 +1591,10 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                       <tr className="bg-slate-100/80 text-slate-700 border-b border-slate-200 font-bold whitespace-nowrap">
                         <th className="p-3 pl-4 font-mono">렌탈계약번호</th>
                         <th className="p-3">계약일자</th>
-                        <th className="p-3">배송/설치확인일</th>
+                        <th className="p-3">배송완료일</th>
+                        <th className="p-3 text-center">설치확인서 상태</th>
+                        <th className="p-3 font-mono font-bold text-indigo-700">수수료 지급일자</th>
+                        <th className="p-3 text-center">지급 상태</th>
                         <th className="p-3">공급사</th>
                         <th className="p-3">고객명</th>
                         <th className="p-3">매칭 제품명</th>
@@ -1320,16 +1611,67 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                     <tbody className="divide-y divide-slate-100">
                       {filteredDetailItems.length === 0 ? (
                         <tr>
-                          <td colSpan={14} className="py-12 text-center text-slate-400 whitespace-nowrap">
+                          <td colSpan={17} className="py-12 text-center text-slate-400 whitespace-nowrap">
                             해당 조건에 부합하는 공급 수수료 정산 대상 건이 없습니다.
                           </td>
                         </tr>
                       ) : (
                         filteredDetailItems.map((item) => (
-                          <tr key={item.uniqueKey} className="hover:bg-slate-50/80 transition-colors whitespace-nowrap">
+                          <tr key={item.uniqueKey} className={`hover:bg-slate-50/80 transition-colors whitespace-nowrap ${
+                            item.isCertHold ? 'bg-amber-50/30' : ''
+                          }`}>
                             <td className="p-3 pl-4 font-mono font-bold text-indigo-700">{item.rentalNo}</td>
                             <td className="p-3 font-mono text-slate-500">{item.contractDate}</td>
                             <td className="p-3 font-mono font-bold text-emerald-700">{item.deliveryDate}</td>
+                            
+                            {/* 설치확인서 등록 상태 */}
+                            <td className="p-3 text-center">
+                              {item.installCertStatus === '등록' ? (
+                                <div className="inline-flex flex-col items-center">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
+                                    <CheckCircle size={10} />
+                                    <span>등록완료 ({item.installCertMonth || '마감'})</span>
+                                  </span>
+                                  {item.installCertDate && (
+                                    <span className="text-[10px] text-slate-400 font-mono mt-0.5">{item.installCertDate}</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300 text-[11px] font-bold">
+                                  <AlertCircle size={10} />
+                                  <span>미등록 (보류)</span>
+                                </span>
+                              )}
+                            </td>
+
+                            {/* 공급수수료 지급일자 */}
+                            <td className="p-3 font-mono font-bold">
+                              {item.isCommissionPayable ? (
+                                <span className="text-indigo-700">{item.payoutDate}</span>
+                              ) : item.isCertHold ? (
+                                <span className="text-amber-700 text-[11px]">- (확인서 등록 대기)</span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">-</span>
+                              )}
+                            </td>
+
+                            {/* 지급 상태 배지 */}
+                            <td className="p-3 text-center">
+                              {item.isCommissionPayable ? (
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[11px] font-bold">
+                                  지급 대상
+                                </span>
+                              ) : item.isCertHold ? (
+                                <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md text-[11px] font-bold" title={item.commissionHoldReason}>
+                                  지급 보류
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md text-[11px] font-medium" title={item.commissionHoldReason}>
+                                  {item.commissionHoldReason || '미지급'}
+                                </span>
+                              )}
+                            </td>
+
                             <td className="p-3 font-bold text-slate-800">{item.matchedSupplierName}</td>
                             <td className="p-3 font-bold text-slate-900">{item.memName}</td>
                             <td className="p-3 font-medium text-slate-800">{item.matchedProductName}</td>
