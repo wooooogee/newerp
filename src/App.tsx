@@ -15015,6 +15015,20 @@ const ERP_Dashboard = () => {
 
                         const payoutIncentivesSummary: Record<string, number> = {};
                         const payoutIncentivesCountSummary: Record<string, number> = {};
+                        const payoutIncentivesDetailMap: Record<string, Array<{
+                          rentalNo: string;
+                          memName: string;
+                          hq: string;
+                          branch: string;
+                          empName: string;
+                          prodName: string;
+                          rentalProd: string;
+                          contractDate: string;
+                          deliveryDate: string;
+                          payDate: string;
+                          commission: number;
+                          ruleName: string;
+                        }>> = {};
 
                         let manualOrderStores: Record<string, any> = {};
                         let manualOrderProducts: string[] = [];
@@ -15144,16 +15158,36 @@ const ERP_Dashboard = () => {
                                 itemComm = rule.commissionPerUnit;
                               }
 
-                              if (isSelfHq) {
-                                const hqName = item.hq;
-                                if (hqName && itemComm > 0) {
-                                  payoutIncentivesSummary[hqName] = (payoutIncentivesSummary[hqName] || 0) + itemComm;
-                                  payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + 1;
-                                }
-                              } else {
-                                if (itemComm > 0) {
+                              if (itemComm > 0) {
+                                const detailItem = {
+                                  rentalNo: item.rentalNo || item.resNo || '-',
+                                  memName: item.memName || '-',
+                                  hq: item.hq || '-',
+                                  branch: item.branch || '-',
+                                  empName: item.empName || '-',
+                                  prodName: item.prodName || '-',
+                                  rentalProd: item.rentalProd || item.modelName || item.productModel || '-',
+                                  contractDate: item.contractDate || '-',
+                                  deliveryDate: item.deliveryDate || '-',
+                                  payDate: item.payDate || getDisplayPayDate(item) || '-',
+                                  commission: itemComm,
+                                  ruleName: rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : rule.targetName === '조민경' ? '컨설팅비' : rule.targetName?.includes('신동우') ? '대표이사 수수료' : '특수수당')
+                                };
+
+                                if (isSelfHq) {
+                                  const hqName = item.hq;
+                                  if (hqName) {
+                                    payoutIncentivesSummary[hqName] = (payoutIncentivesSummary[hqName] || 0) + itemComm;
+                                    payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + 1;
+                                    if (!payoutIncentivesDetailMap[hqName]) payoutIncentivesDetailMap[hqName] = [];
+                                    payoutIncentivesDetailMap[hqName].push(detailItem);
+                                  }
+                                } else {
                                   matchedCount++;
                                   commission += itemComm;
+                                  const tName = rule.targetName || '특수수당';
+                                  if (!payoutIncentivesDetailMap[tName]) payoutIncentivesDetailMap[tName] = [];
+                                  payoutIncentivesDetailMap[tName].push(detailItem);
                                 }
                               }
                             }
@@ -15432,6 +15466,206 @@ const ERP_Dashboard = () => {
                         const wb = XLSX.utils.book_new();
                         XLSX.utils.book_append_sheet(wb, wsRecon, '대사보고');
                         XLSX.utils.book_append_sheet(wb, wsSummary, '정산보고서');
+
+                        // --- 3번째 시트 이후: 더좋은라이프 추가 수수료 및 본사 지출 각 항목별 상세내역 시트 동적 추가 ---
+                        const sanitizeSheetName = (name: string): string => {
+                          return name.replace(/[\\/*?:[\]]/g, '').trim().slice(0, 31);
+                        };
+
+                        const applyDetailTableStyles = (ws: any) => {
+                          const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+                          for (let R = range.s.r; R <= range.e.r; ++R) {
+                            const isTitle = R === 0;
+                            const isHeader = R === 2;
+                            const isTotal = R === range.e.r;
+
+                            for (let C = range.s.c; C <= range.e.c; ++C) {
+                              const addr = XLSX.utils.encode_cell({ r: R, c: C });
+                              if (!ws[addr]) continue;
+
+                              if (isTitle) {
+                                ws[addr].s = {
+                                  font: { bold: true, sz: 12, color: { rgb: "1E293B" } },
+                                  alignment: { vertical: "center", horizontal: "left" }
+                                };
+                                continue;
+                              }
+
+                              if (isHeader) {
+                                ws[addr].s = {
+                                  fill: { fgColor: { rgb: "2F5597" } },
+                                  font: { bold: true, sz: 10, color: { rgb: "FFFFFF" } },
+                                  alignment: { vertical: "center", horizontal: "center" },
+                                  border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+                                };
+                                continue;
+                              }
+
+                              if (isTotal) {
+                                ws[addr].s = {
+                                  fill: { fgColor: { rgb: "E2EFDA" } },
+                                  font: { bold: true, sz: 10, color: { rgb: "276749" } },
+                                  alignment: { vertical: "center", horizontal: ws[addr].t === 'n' ? "right" : "center" },
+                                  border: { top: { style: "thin" }, bottom: { style: "double" }, left: { style: "thin" }, right: { style: "thin" } }
+                                };
+                                continue;
+                              }
+
+                              ws[addr].s = {
+                                font: { sz: 9 },
+                                alignment: { vertical: "center", horizontal: ws[addr].t === 'n' ? "right" : "center" },
+                                border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+                              };
+                            }
+                          }
+                        };
+
+                        const addedSheetNames = new Set<string>(['대사보고', '정산보고서']);
+
+                        // 1. 특수수당 / 컨설팅 / 모델비 등 항목별 상세 명세 시트 생성
+                        Object.entries(payoutIncentivesDetailMap).forEach(([targetName, details]) => {
+                          if (!details || details.length === 0) return;
+
+                          let sheetTitle = `${targetName}_상세`;
+                          if (targetName.includes('신동우')) sheetTitle = '신동우대표_상세';
+                          else if (targetName === '조재윤' || targetName === '조재은') sheetTitle = '조재윤_모델비_상세';
+                          else if (targetName === '조민경') sheetTitle = '조민경_컨설팅비_상세';
+                          else if (targetName === '이종연') sheetTitle = '이종연_컨설팅비_상세';
+                          else if (targetName === '황미주') sheetTitle = '황미주_컨설팅비_상세';
+                          
+                          sheetTitle = sanitizeSheetName(sheetTitle);
+                          if (addedSheetNames.has(sheetTitle)) {
+                            sheetTitle = sanitizeSheetName(`${sheetTitle}_${addedSheetNames.size}`);
+                          }
+                          addedSheetNames.add(sheetTitle);
+
+                          const totalSum = details.reduce((sum, d) => sum + safeReconNumber(d.commission), 0);
+                          const detailRows: any[][] = [
+                            [`[ ${targetName} 수수료 지급 상세 명세서 - ${payoutMonthDisplay} 지급분 (${details.length}건) ]`],
+                            [],
+                            ['순번', '계약ID(렌탈번호)', '고객명', '본부명', '지사명', '사원명', '상품명', '제품명', '계약일자', '배송일자', '수수료지급일자', '수수료명', '지급금액']
+                          ];
+
+                          details.forEach((d, idx) => {
+                            detailRows.push([
+                              idx + 1,
+                              d.rentalNo,
+                              d.memName,
+                              d.hq,
+                              d.branch,
+                              d.empName,
+                              d.prodName,
+                              d.rentalProd,
+                              d.contractDate,
+                              d.deliveryDate,
+                              d.payDate,
+                              d.ruleName,
+                              { v: safeReconNumber(d.commission), t: 'n', z: '#,##0' }
+                            ]);
+                          });
+
+                          detailRows.push([
+                            '합계',
+                            `${details.length}건`,
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            { v: totalSum, t: 'n', z: '#,##0' }
+                          ]);
+
+                          const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+                          wsDetail['!cols'] = [
+                            { wch: 6 },  // 순번
+                            { wch: 16 }, // 계약ID
+                            { wch: 10 }, // 고객명
+                            { wch: 14 }, // 본부명
+                            { wch: 14 }, // 지사명
+                            { wch: 10 }, // 사원명
+                            { wch: 22 }, // 상품명
+                            { wch: 24 }, // 제품명
+                            { wch: 12 }, // 계약일자
+                            { wch: 12 }, // 배송일자
+                            { wch: 14 }, // 수수료지급일자
+                            { wch: 16 }, // 수수료명
+                            { wch: 16 }  // 지급금액
+                          ];
+
+                          applyDetailTableStyles(wsDetail);
+                          XLSX.utils.book_append_sheet(wb, wsDetail, sheetTitle);
+                        });
+
+                        // 2. 유지수수료 회차별 상세 명세 시트 생성
+                        if (targetMonthMaint && targetMonthMaint.length > 0) {
+                          let maintSheetTitle = '유지수수료_상세';
+                          if (addedSheetNames.has(maintSheetTitle)) {
+                            maintSheetTitle = sanitizeSheetName(`${maintSheetTitle}_${addedSheetNames.size}`);
+                          }
+                          addedSheetNames.add(maintSheetTitle);
+
+                          const maintTotalSum = targetMonthMaint.reduce((sum, m) => sum + safeReconNumber(m.amount), 0);
+                          const maintRows: any[][] = [
+                            [`[ 본부 유지수수료 지급 상세 명세서 - ${payoutMonthDisplay} 회차 (${targetMonthMaint.length}건) ]`],
+                            [],
+                            ['순번', '지급일자', '본부명', '지사명', '사원명', '고객명', '회원번호/계약ID', '상품명', '회차구간', '직전지급일자', '유지수수료금액']
+                          ];
+
+                          targetMonthMaint.forEach((m, idx) => {
+                            const roundStr = m.fromInstallment === m.toInstallment ? `${m.fromInstallment}회차` : `${m.fromInstallment}회차 ~ ${m.toInstallment}회차`;
+                            maintRows.push([
+                              idx + 1,
+                              m.payDate || `${targetPayoutMonth}-25`,
+                              m.hq || '-',
+                              m.branch || '-',
+                              m.empName || '-',
+                              m.customerName || '-',
+                              m.memNo || m.rentalNo || '-',
+                              m.productName || '-',
+                              roundStr,
+                              m.lastPayDate || '-',
+                              { v: safeReconNumber(m.amount), t: 'n', z: '#,##0' }
+                            ]);
+                          });
+
+                          maintRows.push([
+                            '합계',
+                            `${targetMonthMaint.length}건`,
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            { v: maintTotalSum, t: 'n', z: '#,##0' }
+                          ]);
+
+                          const wsMaint = XLSX.utils.aoa_to_sheet(maintRows);
+                          wsMaint['!cols'] = [
+                            { wch: 6 },  // 순번
+                            { wch: 14 }, // 지급일자
+                            { wch: 14 }, // 본부명
+                            { wch: 14 }, // 지사명
+                            { wch: 10 }, // 사원명
+                            { wch: 10 }, // 고객명
+                            { wch: 16 }, // 회원번호
+                            { wch: 22 }, // 상품명
+                            { wch: 14 }, // 회차구간
+                            { wch: 14 }, // 직전지급일자
+                            { wch: 16 }  // 유지수수료금액
+                          ];
+
+                          applyDetailTableStyles(wsMaint);
+                          XLSX.utils.book_append_sheet(wb, wsMaint, maintSheetTitle);
+                        }
+
                         const fileName = `유통사_대사내역_${targetDate || new Date().toISOString().slice(0, 10)}.xlsx`;
                         XLSX.writeFile(wb, fileName);
                       }}
