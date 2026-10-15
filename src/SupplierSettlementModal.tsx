@@ -542,16 +542,10 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         richDepositMonth = richInfo.expectedDepositMonth;
         isRichMatched = true;
       } else {
-        // 리치웰페어 시트에 미등록된 경우 ERP 원장 입금액 또는 단가 대조
-        const rawDep = (item as any).extDeposit || (item as any).rentalProdPrice;
-        if (rawDep) {
-          richDeposit = typeof rawDep === 'number' ? rawDep : parseFloat(String(rawDep).replace(/[^0-9.-]/g, '')) || 0;
-        }
-      }
-
-      // 세금계산서 작성일 익월 정보가 없는 경우 지급월이나 마감월 fallback
-      if (!richDepositMonth) {
-        richDepositMonth = pMonth || certMonth || '';
+        // 리치웰페어 시트에 미등록된 건은 입금액 0원 및 세금계산서 작성일 없음
+        richDeposit = 0;
+        richTaxDate = '';
+        richDepositMonth = '';
       }
 
       // [D] 건별 순수익 = [A] 리치웰페어 입금액 - [B] 공급 물품대금 - [C] 공급수수료
@@ -839,13 +833,13 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   // [A] 리치웰페어 총 입금액 - [B] 공급 물품대금 - [C] 공급수수료 = [D] 최종 실질 순이익
   // ==========================================
   const richwelfareProfitSummary = useMemo(() => {
-    // 해당 정산월(selectedMonth)의 정산 대상 아이템 집계:
-    // 핵심 규칙: W열 세금계산서 작성일 기준 다음달(익월) 입금월이 selectedMonth와 일치하는 건 우선 매칭
+    // 해당 정산월(selectedMonth)의 손익 결산 대상:
+    // 핵심 규칙: W열 세금계산서 작성일이 존재하고, 그 익월 입금월이 selectedMonth와 일치하며, I열 결합원가 입금액이 0보다 큰 건만 포함!
+    // (세금계산서 작성일이 없거나 입금액이 없는 미입금건은 손익 결산 대상에서 제외)
     const targetItems = allSettlementItems.filter(item => {
-      if (item.richwelfareDepositMonth) {
-        return item.richwelfareDepositMonth === selectedMonth;
-      }
-      return item.isSupplyPricePayable || (item.installCertMonth === selectedMonth);
+      return !!item.richwelfareTaxDate &&
+             item.richwelfareDepositMonth === selectedMonth &&
+             (item.richwelfareDeposit || 0) > 0;
     });
 
     let totalDeposit = 0;      // [A] 리치웰페어 총 입금액 (I열 결합원가 합계, W열 세금계산서 작성일 익월 입금)
@@ -948,12 +942,12 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         }
       }
 
-      // 리치웰페어 손익 결산 보고서 탭인 경우
+      // 리치웰페어 손익 결산 보고서 탭인 경우: 세금계산서 작성일이 있고 익월 입금월이 일치하며 입금액이 있는 건만 표시
       if (mainTab === 'PROFIT_REPORT') {
-        const isMatchedMonth = item.richwelfareDepositMonth
-          ? (item.richwelfareDepositMonth === selectedMonth)
-          : (item.isSupplyPricePayable || (item.installCertMonth === selectedMonth));
-        if (!isMatchedMonth) return false;
+        const isDepositConfirmed = !!item.richwelfareTaxDate &&
+                                  item.richwelfareDepositMonth === selectedMonth &&
+                                  (item.richwelfareDeposit || 0) > 0;
+        if (!isDepositConfirmed) return false;
       }
 
       if (!searchTerm) return true;
