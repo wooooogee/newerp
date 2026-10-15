@@ -99,6 +99,7 @@ interface SupplierSettlementItem {
   richwelfareDeposit: number;        // [A] 리치웰페어 입금액 (I열 결합원가, VAT포함)
   richwelfareTaxDate?: string;       // W열 세금계산서 작성일
   richwelfareDepositMonth?: string;  // W열 세금계산서 작성일 기준 익월(다음달) 입금월 (YYYY-MM)
+  isRichwelfareMatched?: boolean;    // 리치웰페어 시트에 등록된 계약번호 매칭 여부
   netProfit: number;                 // [D] 실질 순수익 = [A] - [B]물품대금 - [C]공급수수료
   marginRate: number;                // 순수익률(%)
 
@@ -306,18 +307,23 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     if (!richwelfareRows || richwelfareRows.length < 2) return map;
 
     const headerRow = (richwelfareRows[0] || []).map((h: any) => String(h || '').trim());
-    const findCol = (keywords: string[], defaultIdx: number) => {
-      const idx = headerRow.findIndex((h: string) => keywords.some(k => h === k || h.includes(k)));
+    const findExactOrIncludesCol = (exactKeywords: string[], includeKeywords: string[], defaultIdx: number) => {
+      // 1. 정확히 일치하는 열 우선 탐색
+      let idx = headerRow.findIndex((h: string) => exactKeywords.some(k => h === k));
+      if (idx !== -1) return idx;
+      // 2. 부분 일치 탐색
+      idx = headerRow.findIndex((h: string) => includeKeywords.some(k => h.includes(k)));
       return idx !== -1 ? idx : defaultIdx;
     };
 
-    const contractNoCol = findCol(['계약번호', '렌탈번호', '주문번호'], 0);
-    const combinedCostCol = findCol(['결합원가(VAT포함)', '결합원가'], 8); // I열: 입금 금액
-    const combinedRevCol = findCol(['결합매출액(VAT포함)', '결합매출액', '매출액'], 10);
-    const delDateCol = findCol(['배송일', '배송일자'], 14);
-    const certDateCol = findCol(['설치확인서등록일', '확인서등록일', '확인서일자'], 20);
-    const settlementCol = findCol(['정산(+)', '정산'], 21);
-    const taxInvoiceDateCol = findCol(['세금계산서 작성일', '세금계산서작성일', '세금계산서'], 22); // W열: 세금계산서 작성일
+    const contractNoCol = findExactOrIncludesCol(['계약번호'], ['계약번호', '렌탈번호', '주문번호'], 0);
+    // H열이 '결합원가(VAT제외)'(index 7), I열이 '결합원가(VAT포함)'(index 8)이므로 반드시 VAT포함이 우선 매칭되어야 함
+    const combinedCostCol = findExactOrIncludesCol(['결합원가(VAT포함)', '결합원가 (VAT포함)'], ['결합원가(VAT포함)', '결합원가 (VAT포함)'], 8); // I열: 입금 금액
+    const combinedRevCol = findExactOrIncludesCol(['결합매출액(VAT포함)', '결합매출액 (VAT포함)'], ['결합매출액(VAT포함)', '결합매출액 (VAT포함)'], 10); // K열
+    const delDateCol = findExactOrIncludesCol(['배송일'], ['배송일', '배송일자'], 14);
+    const certDateCol = findExactOrIncludesCol(['설치확인서등록일'], ['설치확인서등록일', '확인서등록일', '확인서일자'], 20);
+    const settlementCol = findExactOrIncludesCol(['정산(+)'], ['정산(+)', '정산'], 21);
+    const taxInvoiceDateCol = findExactOrIncludesCol(['세금계산서 작성일', '세금계산서작성일'], ['세금계산서 작성일', '세금계산서작성일', '세금계산서'], 22); // W열: 세금계산서 작성일
 
     richwelfareRows.slice(1).forEach((row) => {
       const cNo = String(row[contractNoCol] || '').trim();
@@ -526,6 +532,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       let richDeposit = 0;
       let richTaxDate = '';
       let richDepositMonth = '';
+      let isRichMatched = false;
 
       const cleanNo = cleanRentalNo || item.rentalNo || '';
       const richInfo = richwelfareMap.get(cleanNo) || (cleanNo.replace(/[^0-9]/g, '') ? richwelfareMap.get(cleanNo.replace(/[^0-9]/g, '')) : null);
@@ -533,6 +540,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         richDeposit = richInfo.depositAmount || richInfo.combinedCost; // I열 결합원가(VAT포함) 합계
         richTaxDate = richInfo.taxInvoiceDate;
         richDepositMonth = richInfo.expectedDepositMonth;
+        isRichMatched = true;
       } else {
         // 리치웰페어 시트에 미등록된 경우 ERP 원장 입금액 또는 단가 대조
         const rawDep = (item as any).extDeposit || (item as any).rentalProdPrice;
@@ -587,6 +595,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         richwelfareDeposit: richDeposit,
         richwelfareTaxDate: richTaxDate || undefined,
         richwelfareDepositMonth: richDepositMonth || undefined,
+        isRichwelfareMatched: isRichMatched,
         netProfit: itemNetProfit,
         marginRate: itemMarginRate,
         hq: item.hq || '-',
@@ -2741,7 +2750,11 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                             <td className="p-3 font-mono text-slate-500">{item.contractDate}</td>
                             <td className="p-3 font-mono font-bold text-slate-700">{item.deliveryDate}</td>
                             <td className="p-3 text-center font-mono text-slate-600">
-                              {item.richwelfareTaxDate || '-'}
+                              {item.richwelfareTaxDate ? (
+                                item.richwelfareTaxDate
+                              ) : (
+                                <span className="text-slate-400 text-[10px]">시트 미등록</span>
+                              )}
                             </td>
                             <td className="p-3 text-center font-mono font-bold text-indigo-700 bg-indigo-50/50">
                               {item.richwelfareDepositMonth || selectedMonth}
@@ -2758,7 +2771,12 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                               </span>
                             </td>
                             <td className="p-3 text-right font-mono font-bold text-emerald-700">
-                              {(item.richwelfareDeposit || 0).toLocaleString()}원
+                              <div>{(item.richwelfareDeposit || 0).toLocaleString()}원</div>
+                              {!item.isRichwelfareMatched && (
+                                <span className="inline-block text-[10px] text-amber-600 bg-amber-50 px-1 py-0.5 rounded border border-amber-200 font-normal mt-0.5">
+                                  시트 미등록
+                                </span>
+                              )}
                             </td>
                             <td className="p-3 text-right font-mono font-bold text-blue-700">
                               {item.totalSupplyPrice.toLocaleString()}원
