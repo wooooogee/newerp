@@ -96,9 +96,11 @@ interface SupplierSettlementItem {
   isManualOrderTarget?: boolean; // 수기발주/설치확인서 관리 대상 여부
 
   // 리치웰페어 입금 및 손익 결산 필드
-  richwelfareDeposit: number;     // [A] 리치웰페어 입금 수수료(결합매출액, VAT포함)
-  netProfit: number;              // [D] 실질 순수익 = [A] - [B]물품대금 - [C]공급수수료
-  marginRate: number;             // 순수익률(%)
+  richwelfareDeposit: number;        // [A] 리치웰페어 입금액 (I열 결합원가, VAT포함)
+  richwelfareTaxDate?: string;       // W열 세금계산서 작성일
+  richwelfareDepositMonth?: string;  // W열 세금계산서 작성일 기준 익월(다음달) 입금월 (YYYY-MM)
+  netProfit: number;                 // [D] 실질 순수익 = [A] - [B]물품대금 - [C]공급수수료
+  marginRate: number;                // 순수익률(%)
 
   hq: string;
   branch: string;
@@ -287,8 +289,20 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   }, [isOpen]);
 
   // 리치웰페어 구글 시트 데이터 기반 계약번호 매핑 맵
+  // 핵심 요구사항 반영:
+  // - I열(Col 8) 결합원가(VAT포함) 합계가 리치웰페어 입금 금액
+  // - W열(Col 22) 세금계산서 작성일 기준 다음달(익월)에 입금 적용
   const richwelfareMap = useMemo(() => {
-    const map = new Map<string, { combinedRev: number; combinedCost: number; settlementTerm: string; certDate: string; raw: any[] }>();
+    const map = new Map<string, {
+      depositAmount: number;
+      combinedCost: number;
+      combinedRev: number;
+      settlementTerm: string;
+      certDate: string;
+      taxInvoiceDate: string;
+      expectedDepositMonth: string;
+      raw: any[];
+    }>();
     if (!richwelfareRows || richwelfareRows.length < 2) return map;
 
     const headerRow = (richwelfareRows[0] || []).map((h: any) => String(h || '').trim());
@@ -298,28 +312,64 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     };
 
     const contractNoCol = findCol(['계약번호', '렌탈번호', '주문번호'], 0);
-    const combinedCostCol = findCol(['결합원가(VAT포함)', '결합원가'], 8);
-    const combinedRevCol = findCol(['결합매출액(VAT포함)', '결합매출액', '매출액', '입금액'], 10);
+    const combinedCostCol = findCol(['결합원가(VAT포함)', '결합원가'], 8); // I열: 입금 금액
+    const combinedRevCol = findCol(['결합매출액(VAT포함)', '결합매출액', '매출액'], 10);
     const delDateCol = findCol(['배송일', '배송일자'], 14);
     const certDateCol = findCol(['설치확인서등록일', '확인서등록일', '확인서일자'], 20);
     const settlementCol = findCol(['정산(+)', '정산'], 21);
+    const taxInvoiceDateCol = findCol(['세금계산서 작성일', '세금계산서작성일', '세금계산서'], 22); // W열: 세금계산서 작성일
 
     richwelfareRows.slice(1).forEach((row) => {
       const cNo = String(row[contractNoCol] || '').trim();
       if (!cNo) return;
 
-      const rawRev = String(row[combinedRevCol] || '').replace(/[^0-9.-]/g, '');
       const rawCost = String(row[combinedCostCol] || '').replace(/[^0-9.-]/g, '');
+      const rawRev = String(row[combinedRevCol] || '').replace(/[^0-9.-]/g, '');
+      const cost = parseFloat(rawCost) || 0; // I열 결합원가(VAT포함) = 더좋은라이프 입금 금액
       const rev = parseFloat(rawRev) || 0;
-      const cost = parseFloat(rawCost) || 0;
       const term = String(row[settlementCol] || '').trim();
       const certDate = String(row[certDateCol] || '').trim();
+      const taxInvoiceDate = String(row[taxInvoiceDateCol] || '').trim();
+
+      // W열 세금계산서 작성일 기준 다음달(익월) 입금월 산출 (예: 2026-09-30 -> 2026-10)
+      let expectedDepositMonth = '';
+      if (taxInvoiceDate) {
+        const match = taxInvoiceDate.match(/(\d{4})[-./](\d{1,2})/);
+        if (match) {
+          const y = match[1];
+          const m = match[2].padStart(2, '0');
+          expectedDepositMonth = getNextMonthStr(`${y}-${m}`);
+        }
+      }
+
+      // 세금계산서 작성일이 비어있는 경우 정산(+) 열(예: "2026년 09월 2차")의 익월을 fallback
+      if (!expectedDepositMonth && term) {
+        const match = term.match(/(\d{4})[^\d]+(\d{1,2})/);
+        if (match) {
+          const y = match[1];
+          const m = match[2].padStart(2, '0');
+          expectedDepositMonth = getNextMonthStr(`${y}-${m}`);
+        }
+      }
+
+      // 확인서 등록일의 익월 fallback
+      if (!expectedDepositMonth && certDate) {
+        const match = certDate.match(/(\d{4})[-./](\d{1,2})/);
+        if (match) {
+          const y = match[1];
+          const m = match[2].padStart(2, '0');
+          expectedDepositMonth = getNextMonthStr(`${y}-${m}`);
+        }
+      }
 
       const obj = {
-        combinedRev: rev,
+        depositAmount: cost, // I열 결합원가 = 입금 금액
         combinedCost: cost,
+        combinedRev: rev,
         settlementTerm: term,
         certDate,
+        taxInvoiceDate,
+        expectedDepositMonth,
         raw: row
       };
 
@@ -472,17 +522,28 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       const totalCommAmt = finalCommission * qty;
 
       // 9. 리치웰페어 입금 수수료 [A] 및 손익 [D] 계산
+      // 핵심: 리치웰페어 시트 I열 결합원가(VAT포함)가 입금 금액이며, W열 세금계산서 작성일 기준 다음달에 입금
       let richDeposit = 0;
+      let richTaxDate = '';
+      let richDepositMonth = '';
+
       const cleanNo = cleanRentalNo || item.rentalNo || '';
       const richInfo = richwelfareMap.get(cleanNo) || (cleanNo.replace(/[^0-9]/g, '') ? richwelfareMap.get(cleanNo.replace(/[^0-9]/g, '')) : null);
-      if (richInfo && richInfo.combinedRev > 0) {
-        richDeposit = richInfo.combinedRev;
+      if (richInfo && (richInfo.depositAmount > 0 || richInfo.combinedCost > 0)) {
+        richDeposit = richInfo.depositAmount || richInfo.combinedCost; // I열 결합원가(VAT포함) 합계
+        richTaxDate = richInfo.taxInvoiceDate;
+        richDepositMonth = richInfo.expectedDepositMonth;
       } else {
         // 리치웰페어 시트에 미등록된 경우 ERP 원장 입금액 또는 단가 대조
         const rawDep = (item as any).extDeposit || (item as any).rentalProdPrice;
         if (rawDep) {
           richDeposit = typeof rawDep === 'number' ? rawDep : parseFloat(String(rawDep).replace(/[^0-9.-]/g, '')) || 0;
         }
+      }
+
+      // 세금계산서 작성일 익월 정보가 없는 경우 지급월이나 마감월 fallback
+      if (!richDepositMonth) {
+        richDepositMonth = pMonth || certMonth || '';
       }
 
       // [D] 건별 순수익 = [A] 리치웰페어 입금액 - [B] 공급 물품대금 - [C] 공급수수료
@@ -524,6 +585,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         isSupplyPricePayable,
         isManualOrderTarget: isManualTarget,
         richwelfareDeposit: richDeposit,
+        richwelfareTaxDate: richTaxDate || undefined,
+        richwelfareDepositMonth: richDepositMonth || undefined,
         netProfit: itemNetProfit,
         marginRate: itemMarginRate,
         hq: item.hq || '-',
@@ -767,12 +830,16 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   // [A] 리치웰페어 총 입금액 - [B] 공급 물품대금 - [C] 공급수수료 = [D] 최종 실질 순이익
   // ==========================================
   const richwelfareProfitSummary = useMemo(() => {
-    // 해당 정산월(selectedMonth)의 정산 대상 아이템 집계
+    // 해당 정산월(selectedMonth)의 정산 대상 아이템 집계:
+    // 핵심 규칙: W열 세금계산서 작성일 기준 다음달(익월) 입금월이 selectedMonth와 일치하는 건 우선 매칭
     const targetItems = allSettlementItems.filter(item => {
-      return item.isSupplyPricePayable || item.isCommissionPayable || (item.installCertMonth === selectedMonth);
+      if (item.richwelfareDepositMonth) {
+        return item.richwelfareDepositMonth === selectedMonth;
+      }
+      return item.isSupplyPricePayable || (item.installCertMonth === selectedMonth);
     });
 
-    let totalDeposit = 0;      // [A] 리치웰페어 총 입금액 (결합매출액)
+    let totalDeposit = 0;      // [A] 리치웰페어 총 입금액 (I열 결합원가 합계, W열 세금계산서 작성일 익월 입금)
     let totalSupplyPrice = 0;  // [B] 공급 물품대금 합계
     let totalCommission = 0;   // [C] 공급 수수료 합계
     let totalNetProfit = 0;    // [D] 최종 순수익
@@ -874,8 +941,10 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
       // 리치웰페어 손익 결산 보고서 탭인 경우
       if (mainTab === 'PROFIT_REPORT') {
-        const isTarget = item.isSupplyPricePayable || item.isCommissionPayable || (item.installCertMonth === selectedMonth);
-        if (!isTarget) return false;
+        const isMatchedMonth = item.richwelfareDepositMonth
+          ? (item.richwelfareDepositMonth === selectedMonth)
+          : (item.isSupplyPricePayable || (item.installCertMonth === selectedMonth));
+        if (!isMatchedMonth) return false;
       }
 
       if (!searchTerm) return true;
@@ -1307,10 +1376,10 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     summaryRows.push(['구분', '항목명', '금액', '비율(%)', '산출 공식 / 세부 내역', '비고']);
     summaryRows.push([
       '[A] 총 입금액',
-      '리치웰페어 결합매출 총 입금액',
+      '리치웰페어 결합원가 총 입금액',
       { v: totDeposit, t: 'n', z: '#,##0' },
       '100.0%',
-      '리치웰페어 구글 시트 결합매출액(VAT포함) 기준',
+      '리치웰페어 구글 시트 I열 결합원가(VAT포함) 합계 (W열 세금계산서 작성일 익월 입금)',
       '수익 원천'
     ]);
     summaryRows.push([
@@ -1344,8 +1413,12 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     ];
     XLSX.utils.book_append_sheet(wb, wsSummary, '정산보고서');
 
-    // --- 시트 2: 대사보고 (13열 건별 상세) ---
-    const headers = ['계약일자', '배송일자', '정산일자', '계약ID', '고객명', '본부명', '상품명', '제품명', '구좌수', '거래처입금액', '공급물품대금', '공급수수료', '최종순수익', '비고'];
+    // --- 시트 2: 대사보고 (15열 건별 상세) ---
+    const headers = [
+      '계약일자', '배송일자', '세금계산서작성일(W열)', '입금월', '설치확인일자',
+      '계약ID', '고객명', '본부명', '상품명', '제품명',
+      '구좌수', '리치웰페어입금액(I열)', '공급물품대금', '공급수수료', '최종순수익', '비고'
+    ];
     const detailRows: any[][] = [headers];
 
     targetItems.forEach(item => {
@@ -1353,6 +1426,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       detailRows.push([
         item.contractDate || '-',
         item.deliveryDate || '-',
+        item.richwelfareTaxDate || '-',
+        item.richwelfareDepositMonth || selectedMonth,
         item.installCertDate || item.payoutDate || '-',
         item.rentalNo,
         item.memName,
@@ -1369,7 +1444,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     });
 
     detailRows.push([
-      '총계', '', '', `${targetItems.length}건`, '', '', '', '',
+      '총계', '', '', '', '', `${targetItems.length}건`, '', '', '', '',
       targetItems.reduce((acc, i) => acc + i.quantity, 0),
       { v: totDeposit, t: 'n', z: '#,##0' },
       { v: totSuppPrice, t: 'n', z: '#,##0' },
@@ -1380,8 +1455,9 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
     const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
     wsDetail['!cols'] = [
-      { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 12 },
-      { wch: 22 }, { wch: 35 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }
+      { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 12 },
+      { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 22 }, { wch: 35 },
+      { wch: 8 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }
     ];
     XLSX.utils.book_append_sheet(wb, wsDetail, '대사보고');
 
@@ -1904,7 +1980,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         ) : (
           /* [리치웰페어 손익 결산 전용 KPI 카드 - 4개 그리드] */
           <div className="px-6 py-3 bg-emerald-50/50 border-b border-emerald-100 grid grid-cols-4 gap-4 shrink-0 whitespace-nowrap">
-            {/* 카드 1: [A] 리치웰페어 총 입금액 (거래처 매출) */}
+            {/* 카드 1: [A] 리치웰페어 총 입금액 (I열 결합원가) */}
             <div className="bg-white p-3.5 rounded-xl border border-blue-200 shadow-2xs flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-1.5">
@@ -1914,7 +1990,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                 <h3 className="text-xl font-black text-blue-700 mt-0.5 font-mono">
                   {richwelfareProfitSummary.totalDeposit.toLocaleString()} <span className="text-xs font-bold text-blue-500">원</span>
                 </h3>
-                <p className="text-[10px] text-blue-500 mt-0.5 font-medium">리치웰페어 결합매출 기준 (VAT포함)</p>
+                <p className="text-[10px] text-blue-500 mt-0.5 font-medium">I열 결합원가 (세금계산서 익월 입금, VAT포함)</p>
               </div>
               <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
                 <DollarSign size={18} />
@@ -2458,12 +2534,12 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                       <tbody className="divide-y divide-slate-100">
                         <tr className="hover:bg-slate-50/80 transition-colors whitespace-nowrap">
                           <td className="p-3.5 pl-5 font-bold text-emerald-800">[A] 총 입금액</td>
-                          <td className="p-3.5 font-bold text-slate-800">리치웰페어 거래처 총 입금액 (결합매출액)</td>
+                          <td className="p-3.5 font-bold text-slate-800">리치웰페어 거래처 총 입금액 (I열 결합원가)</td>
                           <td className="p-3.5 text-right font-mono font-black text-emerald-700 text-sm">
                             {richwelfareProfitSummary.totalDeposit.toLocaleString()}원
                           </td>
                           <td className="p-3.5 text-center font-bold font-mono text-slate-600">100.0%</td>
-                          <td className="p-3.5 text-slate-600">구글 시트 '리치웰페어' 탭 결합매출액 합계</td>
+                          <td className="p-3.5 text-slate-600">구글 시트 '리치웰페어' 탭 I열 결합원가(VAT포함) 합계 (W열 세금계산서 작성일 익월 입금)</td>
                           <td className="p-3.5 pr-5 text-emerald-600 font-bold">수익 원천</td>
                         </tr>
                         <tr className="hover:bg-slate-50/80 transition-colors whitespace-nowrap">
@@ -2635,12 +2711,14 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                         <th className="p-3 pl-4 font-mono">렌탈계약번호</th>
                         <th className="p-3">계약일자</th>
                         <th className="p-3">배송완료일</th>
-                        <th className="p-3 text-center">정산마감월</th>
+                        <th className="p-3 text-center">세금계산서작성일(W열)</th>
+                        <th className="p-3 text-center">입금월(익월)</th>
+                        <th className="p-3 text-center">설치마감월</th>
                         <th className="p-3">공급사</th>
                         <th className="p-3">고객명</th>
                         <th className="p-3">매칭 제품명</th>
                         <th className="p-3 text-center">수량</th>
-                        <th className="p-3 text-right font-bold text-emerald-700">[A] 입금액</th>
+                        <th className="p-3 text-right font-bold text-emerald-700">[A] 입금액(I열 결합원가)</th>
                         <th className="p-3 text-right font-bold text-blue-700">[B] 물품대금</th>
                         <th className="p-3 text-right font-bold text-purple-700">[C] 공급수수료</th>
                         <th className="p-3 text-right font-black text-slate-900">[D] 건별 순수익</th>
@@ -2652,7 +2730,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                     <tbody className="divide-y divide-slate-100">
                       {filteredDetailItems.length === 0 ? (
                         <tr>
-                          <td colSpan={15} className="py-12 text-center text-slate-400 whitespace-nowrap">
+                          <td colSpan={17} className="py-12 text-center text-slate-400 whitespace-nowrap">
                             해당 조건에 부합하는 손익 정산 대상 건이 없습니다.
                           </td>
                         </tr>
@@ -2662,8 +2740,14 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                             <td className="p-3 pl-4 font-mono font-bold text-indigo-700">{item.rentalNo}</td>
                             <td className="p-3 font-mono text-slate-500">{item.contractDate}</td>
                             <td className="p-3 font-mono font-bold text-slate-700">{item.deliveryDate}</td>
+                            <td className="p-3 text-center font-mono text-slate-600">
+                              {item.richwelfareTaxDate || '-'}
+                            </td>
+                            <td className="p-3 text-center font-mono font-bold text-indigo-700 bg-indigo-50/50">
+                              {item.richwelfareDepositMonth || selectedMonth}
+                            </td>
                             <td className="p-3 text-center font-mono font-bold text-emerald-700">
-                              {item.installCertMonth || selectedMonth}
+                              {item.installCertMonth || '-'}
                             </td>
                             <td className="p-3 font-bold text-slate-800">{item.matchedSupplierName}</td>
                             <td className="p-3 font-bold text-slate-900">{item.memName}</td>
@@ -2703,7 +2787,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                     {filteredDetailItems.length > 0 && (
                       <tfoot>
                         <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300 whitespace-nowrap">
-                          <td className="p-3 pl-4" colSpan={7}>합계 ({filteredDetailItems.length}건)</td>
+                          <td className="p-3 pl-4" colSpan={9}>합계 ({filteredDetailItems.length}건)</td>
                           <td className="p-3 text-center font-mono">
                             {filteredDetailItems.reduce((acc, i) => acc + i.quantity, 0).toLocaleString()}개
                           </td>
