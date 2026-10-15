@@ -93,6 +93,7 @@ interface SupplierSettlementItem {
   
   // 물품대금 정산 해당 여부
   isSupplyPricePayable: boolean;
+  isManualOrderTarget?: boolean; // 수기발주/설치확인서 관리 대상 여부
 
   hq: string;
   branch: string;
@@ -330,6 +331,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         certMonth = certEligibility.certMonth;
       }
 
+      const isManualTarget = !!certEligibility?.isTargetOrder || isManualTargetProduct(item.prodName, item.rentalProd, manualOrderTargetProducts) || !!manualInfo;
       const isCertRegistered = (rawCertStatus === '등록' || !!certDate || !!certMonth) && !!certMonth;
       const finalCertStatus: '등록' | '미등록' = isCertRegistered ? '등록' : '미등록';
 
@@ -357,7 +359,20 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       const normalizedDelDate = effectiveDeliveryDate.replace(/[./]/g, '-');
       const delMonth = normalizedDelDate.substring(0, 7);
 
-      const isSupplyPricePayable = delMonth === selectedMonth;
+      // ⭐ 물품대금 정산 기준월:
+      // 수기발주/설치확인서 관리 대상 품목(바디프랜드 등)은 배송일이 아닌 '설치확인서 정산 마감월(certMonth)' 기준!
+      // 설치확인서 미등록 건은 물품대금 지급 보류
+      let isSupplyPricePayable = false;
+      if (isManualTarget) {
+        if (isCertRegistered && certMonth) {
+          isSupplyPricePayable = certMonth === selectedMonth;
+        } else {
+          isSupplyPricePayable = false; // 설치확인서 미등록 시 물품대금 지급 보류
+        }
+      } else {
+        // 일반 상품: 배송완료월 기준
+        isSupplyPricePayable = delMonth === selectedMonth;
+      }
 
       let isCommPayable = false;
       let isCertHold = false;
@@ -411,6 +426,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         isCertHold,
         commissionHoldReason: holdReason,
         isSupplyPricePayable,
+        isManualOrderTarget: isManualTarget,
         hq: item.hq || '-',
         branch: item.branch || '-',
         empName: item.empName || '-'
@@ -751,14 +767,19 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
     const detailRows = [
       [`공급 물품대금 상세 명세서 (${selectedMonth})`],
-      ['렌탈계약번호', '계약일자', '배송완료일', '공급사명', '고객명', '매칭 제품명', '상품개수', '공급단가 (VAT포함)', '공급 물품대금 (VAT포함)', '본부', '지사', '영업사원']
+      ['렌탈계약번호', '계약일자', '배송완료일', '설치확인서/마감월', '공급사명', '고객명', '매칭 제품명', '상품개수', '공급단가 (VAT포함)', '공급 물품대금 (VAT포함)', '본부', '지사', '영업사원']
     ];
 
     itemsToExport.forEach((item) => {
+      const certInfo = item.isManualOrderTarget
+        ? (item.installCertStatus === '등록' ? `등록완료 (${item.installCertMonth || '-'})` : '미등록 (보류)')
+        : '-';
+
       detailRows.push([
         item.rentalNo,
         item.contractDate,
         item.deliveryDate,
+        certInfo,
         item.matchedSupplierName,
         item.memName,
         item.matchedProductName,
@@ -1559,6 +1580,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                         <th className="p-3 pl-4 font-mono">렌탈계약번호</th>
                         <th className="p-3">계약일자</th>
                         <th className="p-3">배송완료일</th>
+                        <th className="p-3 text-center">설치확인서 / 마감월</th>
                         <th className="p-3">공급사</th>
                         <th className="p-3">고객명</th>
                         <th className="p-3">매칭 제품명</th>
@@ -1573,7 +1595,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                     <tbody className="divide-y divide-slate-100">
                       {filteredDetailItems.length === 0 ? (
                         <tr>
-                          <td colSpan={12} className="py-12 text-center text-slate-400 whitespace-nowrap">
+                          <td colSpan={13} className="py-12 text-center text-slate-400 whitespace-nowrap">
                             해당 조건에 부합하는 물품대금 정산 대상 건이 없습니다.
                           </td>
                         </tr>
@@ -1583,6 +1605,28 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                             <td className="p-3 pl-4 font-mono font-bold text-indigo-700">{item.rentalNo}</td>
                             <td className="p-3 font-mono text-slate-500">{item.contractDate}</td>
                             <td className="p-3 font-mono font-bold text-emerald-700">{item.deliveryDate}</td>
+                            <td className="p-3 text-center">
+                              {item.isManualOrderTarget ? (
+                                item.installCertStatus === '등록' ? (
+                                  <div className="inline-flex flex-col items-center">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
+                                      <CheckCircle size={10} />
+                                      <span>등록완료 ({item.installCertMonth || '마감'})</span>
+                                    </span>
+                                    {item.installCertDate && (
+                                      <span className="text-[10px] text-slate-400 font-mono mt-0.5">{item.installCertDate}</span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300 text-[11px] font-bold">
+                                    <AlertCircle size={10} />
+                                    <span>미등록 (보류)</span>
+                                  </span>
+                                )
+                              ) : (
+                                <span className="text-[11px] text-slate-400 font-medium">일반배송</span>
+                              )}
+                            </td>
                             <td className="p-3 font-bold text-slate-800">{item.matchedSupplierName}</td>
                             <td className="p-3 font-bold text-slate-900">{item.memName}</td>
                             <td className="p-3 font-medium text-slate-800">{item.matchedProductName}</td>
