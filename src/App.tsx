@@ -35,6 +35,7 @@ import { ExcelSyncModal } from './ExcelSyncModal';
 import { CmsRegistrationModal } from './CmsRegistrationModal';
 import { SangjoInquiryModal } from './SangjoInquiryModal';
 import { SangjoMobileView } from './SangjoMobileView';
+import { EnexProfitDetailModal, EnexDetailTarget } from './EnexProfitDetailModal';
 // @ts-ignore - XLSX를 CDN에서 로드 (xlsx-js-style의 Node.js 모듈 의존성 에러 회피)
 // window.XLSX는 index.html의 CDN 스크립트에서 로드됨
 const XLSX = (window as any).XLSX;
@@ -909,7 +910,8 @@ const ERP_Dashboard = () => {
   const [isReconciliationModalOpen, setIsReconciliationModalOpen] = useState(false);
   const [isReconCalendarModalOpen, setIsReconCalendarModalOpen] = useState(false);
   const [reconCalendarViewDate, setReconCalendarViewDate] = useState(new Date());
-  const [reconTab, setReconTab] = useState<'NEW' | 'HISTORY'>('NEW');
+  const [reconTab, setReconTab] = useState<'NEW' | 'HISTORY' | 'PROFIT_REPORT'>('NEW');
+  const [enexDetailModalTarget, setEnexDetailModalTarget] = useState<EnexDetailTarget | null>(null);
   const [reconMode, setReconMode] = useState<'PAY_DATE' | 'DELIVERY_DATE'>('PAY_DATE');
   const [reconDate, setReconDate] = useState('');
   const [reconDeliveryYearMonth, setReconDeliveryYearMonth] = useState(() => {
@@ -4316,6 +4318,482 @@ const ERP_Dashboard = () => {
 
     return { totalAmount, totalCount };
   }, [filteredData, data, calculateCommissionDetails]);
+
+  // 유통사(에넥스) 대사 실적 및 더좋은라이프 손익 결산 종합 요약 (화면 렌더링 및 엑셀 다운로드 공유)
+  const enexProfitSummary = useMemo(() => {
+    const rawBaseData = reconTab === 'HISTORY' 
+      ? historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate)
+      : (reconData.length > 0 ? reconData : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate));
+
+    const baseData = [...rawBaseData].sort((a, b) => {
+      const hqA = a['본부명'] || '';
+      const hqB = b['본부명'] || '';
+      const hqDiff = hqA.localeCompare(hqB, 'ko');
+      if (hqDiff !== 0) return hqDiff;
+      const custA = a['고객명'] || '';
+      const custB = b['고객명'] || '';
+      return custA.localeCompare(custB, 'ko');
+    });
+
+    const mappedData = baseData.map(d => {
+      const rentalId = String(d['계약ID(렌탈번호)'] || d['계약ID'] || '').trim();
+      const internalItem = data.find(item => item.rentalNo === rentalId);
+      const prodModel = d['제품명'] || internalItem?.rentalProd || internalItem?.modelName || internalItem?.productModel || '';
+      
+      const guzwa = safeReconNumber(d['구좌수']) || 1;
+      let internalPayable = safeReconNumber(d['내부지급액합계']);
+
+      // 언바운드컴퍼니 300건 이상 구간 수수료 적용: 540플러스 74만원, 540 75만원
+      const hqStr = String(d['본부명'] || '').replace(/\s+/g, '');
+      const prodStr = String(d['상품명'] || '').replace(/\s+/g, '');
+      if (hqStr.includes('언바운드')) {
+        if (prodStr.includes('540플러스') || prodStr.includes('540plus')) {
+          internalPayable = guzwa * 740000;
+        } else if (prodStr.includes('540')) {
+          internalPayable = guzwa * 750000;
+        }
+      }
+
+      const extDeposit = safeReconNumber(d['거래처입금액']);
+      const netProfit = extDeposit - internalPayable;
+
+      return {
+        '정산기준일': d['정산기준일'] || '',
+        '수수료지급일자': d['수수료지급일자'] || d['지급일자'] || '',
+        '계약ID': rentalId,
+        '고객명': d['고객명'] || '',
+        '본부명': d['본부명'] || '',
+        '상품명': d['상품명'] || '',
+        '제품명': prodModel,
+        '계약일자': d['계약일자'] || '',
+        '배송일자': d['내부 배송일자'] || d['배송일자'] || d['거래처 배송일'] || '',
+        '구좌수': guzwa,
+        '거래처입금액': extDeposit,
+        '내부지급액합계': internalPayable,
+        '최종순수익': netProfit,
+        '비고': d['비고'] || ''
+      };
+    });
+
+    const normalRows = mappedData.filter(d => d['비고'] === '정상');
+    const abnormalRows = mappedData.filter(d => d['비고'] !== '정상');
+
+    const normalCount = normalRows.length;
+    const normalGuzwa = normalRows.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+    const normalExt = normalRows.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+    const normalInt = normalRows.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+    const normalNet = normalRows.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
+
+    const abnormalCount = abnormalRows.length;
+    const abnormalGuzwa = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+    const abnormalExt = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+    const abnormalInt = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+    const abnormalNet = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
+
+    const totalGuzwa = mappedData.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+    const totalExt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+    const totalInt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+    const firstNetProfit = totalExt - totalInt;
+    const firstMarginRate = totalExt > 0 ? ((firstNetProfit / totalExt) * 100).toFixed(1) : '0.0';
+
+    // 지급월 및 실적월 산출
+    const targetDateStr = (reconTab === 'HISTORY' ? selectedHistoryDate : (reconDate || selectedHistoryDate)) || '';
+    let targetPayoutMonth = '';
+    let targetPerfMonth = '';
+
+    const isDeliveryMode = targetDateStr.includes('배송') || reconMode === 'DELIVERY_DATE';
+
+    if (isDeliveryMode) {
+      let y = 0;
+      let m = 0;
+      const match = targetDateStr.match(/(\d{4})[-./](\d{1,2})/);
+      if (match) {
+        y = parseInt(match[1]);
+        m = parseInt(match[2]);
+      } else if (reconDeliveryStartDate) {
+        const clean = reconDeliveryStartDate.replace(/[^0-9]/g, '');
+        if (clean.length >= 6) {
+          y = parseInt(clean.substring(0, 4));
+          m = parseInt(clean.substring(4, 6));
+        }
+      }
+
+      if (y > 0 && m > 0) {
+        targetPerfMonth = `${y}-${String(m).padStart(2, '0')}`;
+        let payY = y;
+        let payM = m + 1;
+        if (payM > 12) {
+          payM = 1;
+          payY += 1;
+        }
+        targetPayoutMonth = `${payY}-${String(payM).padStart(2, '0')}`;
+      }
+    } else {
+      const match = targetDateStr.match(/(\d{4})[-./](\d{1,2})/);
+      if (match) {
+        const y = parseInt(match[1]);
+        const m = parseInt(match[2]);
+        targetPayoutMonth = `${y}-${String(m).padStart(2, '0')}`;
+        let perfY = y;
+        let perfM = m - 1;
+        if (perfM < 1) {
+          perfM = 12;
+          perfY -= 1;
+        }
+        targetPerfMonth = `${perfY}-${String(perfM).padStart(2, '0')}`;
+      }
+    }
+
+    if (!targetPayoutMonth && mappedData.length > 0) {
+      const ymCounts: Record<string, number> = {};
+      mappedData.forEach(r => {
+        const p = String(r['수수료지급일자'] || '').trim();
+        const mat = p.match(/(\d{4})[-./](\d{1,2})/);
+        if (mat) {
+          const ym = `${mat[1]}-${mat[2].padStart(2, '0')}`;
+          ymCounts[ym] = (ymCounts[ym] || 0) + 1;
+        }
+      });
+      const best = Object.entries(ymCounts).sort((a, b) => b[1] - a[1])[0];
+      if (best && best[1] > 0) {
+        targetPayoutMonth = best[0];
+        const [y, m] = targetPayoutMonth.split('-').map(Number);
+        let perfY = y;
+        let perfM = m - 1;
+        if (perfM < 1) {
+          perfM = 12;
+          perfY -= 1;
+        }
+        targetPerfMonth = `${perfY}-${String(perfM).padStart(2, '0')}`;
+      }
+    }
+
+    if (!targetPayoutMonth) {
+      const now = new Date();
+      targetPayoutMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      targetPerfMonth = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
+    }
+
+    const targetPayoutClean = targetPayoutMonth.replace(/[^0-9]/g, '');
+    const targetYear = parseInt(targetPayoutMonth.substring(0, 4));
+    const targetMonth = parseInt(targetPayoutMonth.substring(5, 7));
+    const prevYearStr = targetPerfMonth.substring(0, 4);
+    const prevMonthStr = targetPerfMonth.substring(5, 7);
+
+    const payoutIncentivesSummary: Record<string, number> = {};
+    const payoutIncentivesCountSummary: Record<string, number> = {};
+    const payoutIncentivesDetailMap: Record<string, Array<{
+      rentalNo: string;
+      memName: string;
+      hq: string;
+      branch: string;
+      empName: string;
+      prodName: string;
+      rentalProd: string;
+      contractDate: string;
+      deliveryDate: string;
+      payDate: string;
+      commission: number;
+      ruleName: string;
+    }>> = {};
+
+    let manualOrderStores: Record<string, any> = {};
+    let manualOrderProducts: string[] = [];
+    try {
+      const savedStores = localStorage.getItem('erp_manual_orders_saved_store_v1');
+      if (savedStores) manualOrderStores = JSON.parse(savedStores);
+      const savedProd = localStorage.getItem('erp_manual_order_target_products_v1');
+      if (savedProd) manualOrderProducts = JSON.parse(savedProd);
+    } catch (e) {
+      console.error(e);
+    }
+
+    globalIncentiveRules.forEach(rule => {
+      let matchedCount = 0;
+      let commission = 0;
+      const isSelfHq = !rule.targetName || rule.targetName.trim() === '' || rule.targetName === 'SELF_HQ' || rule.targetName === '판매본부' || rule.targetName === '해당본부' || rule.targetName === '본부';
+      const processedRentalNos = new Set<string>();
+
+      data.forEach(item => {
+        if (item.status?.includes('취소') || item.status?.includes('해약')) return;
+        if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
+
+        if (isSelfHq) {
+          const rentalKey = item.rentalNo || item.resNo;
+          if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+            if (processedRentalNos.has(rentalKey)) return;
+          }
+        }
+
+        const isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
+        if (!isMatch) return;
+
+        if (rule.targetProducts && !rule.targetProducts.includes('ALL')) {
+          const normItemProd = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
+          if (!rule.targetProducts.some((p: string) => {
+            const normP = p.replace(/[\s()]/g, '').toLowerCase();
+            return normItemProd.includes(normP) || normP.includes(normItemProd);
+          })) return;
+        }
+
+        if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+          const isItemMatch = rule.targetItems.some((prod: string) => {
+            const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
+            const cleanRuleProd = prod.replace(/\s+/g, '');
+            return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
+          });
+          if (!isItemMatch) return;
+        }
+
+        const isSupplyRule = isSupplyCommissionRule(rule);
+        let certEligibility: ReturnType<typeof checkInstallCertEligibility> | null = null;
+        let effectiveBaseDate = '';
+
+        if (isSupplyRule) {
+          certEligibility = checkInstallCertEligibility(item, manualOrderStores, manualOrderProducts);
+          if (certEligibility.isTargetOrder) {
+            if (certEligibility.isHold) return;
+            if (certEligibility.certMonth) {
+              effectiveBaseDate = `${certEligibility.certMonth}-01`;
+            }
+          }
+        }
+
+        let dateStr = effectiveBaseDate;
+        if (!dateStr) {
+          if (rule.baseDateType === 'DELIVERY') {
+            dateStr = item.deliveryDate || '';
+            if (!dateStr) return;
+            if (item.deliveryStatus && !item.deliveryStatus.includes('완료') && item.deliveryStatus !== '-' && item.deliveryStatus.trim() !== '') return;
+          } else {
+            dateStr = item.contractDate || '';
+          }
+        }
+
+        let isMatchedDate = false;
+        const itemPayDateDisplay = item.payDate || getDisplayPayDate(item) || '';
+        const cleanDisplay = itemPayDateDisplay ? itemPayDateDisplay.replace(/[-./]/g, '') : '';
+        const normDisplayYM = cleanDisplay.length >= 6 ? (cleanDisplay.length === 6 ? '20' + cleanDisplay : cleanDisplay.substring(0, 6)) : '';
+
+        if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
+          isMatchedDate = certEligibility.expectedPayoutMonth === targetPayoutMonth;
+        } else if (rule.payDay && rule.payDay > 0) {
+          if (normDisplayYM && normDisplayYM === targetPayoutClean) {
+            isMatchedDate = true;
+          } else {
+            const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+            if (match) {
+              let y = match[1];
+              if (y.length === 2) y = '20' + y;
+              const m = match[2].padStart(2, '0');
+              if (y === prevYearStr && m === prevMonthStr) {
+                isMatchedDate = true;
+              }
+            }
+          }
+        } else {
+          if (normDisplayYM && normDisplayYM !== '지급일미지정' && normDisplayYM !== '-') {
+            isMatchedDate = normDisplayYM === targetPayoutClean;
+          } else {
+            const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+            if (match) {
+              let y = match[1];
+              if (y.length === 2) y = '20' + y;
+              const m = match[2].padStart(2, '0');
+              if (y === String(targetYear) && m === String(targetMonth).padStart(2, '0')) {
+                isMatchedDate = true;
+              }
+            }
+          }
+        }
+
+        if (isMatchedDate) {
+          const rentalKey = item.rentalNo || item.resNo;
+          if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+            processedRentalNos.add(rentalKey);
+          }
+          let itemComm = 0;
+          if (rule.useInstallments && rule.installments) {
+            const paidCount = item.hcPaidCount || 0;
+            const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
+            if (applicableInstallment) {
+              itemComm = applicableInstallment.amount;
+            }
+          } else {
+            itemComm = rule.commissionPerUnit;
+          }
+
+          if (itemComm > 0) {
+            const detailItem = {
+              rentalNo: item.rentalNo || item.resNo || '-',
+              memName: item.memName || '-',
+              hq: item.hq || '-',
+              branch: item.branch || '-',
+              empName: item.empName || '-',
+              prodName: item.prodName || '-',
+              rentalProd: item.rentalProd || item.modelName || item.productModel || '-',
+              contractDate: item.contractDate || '-',
+              deliveryDate: item.deliveryDate || '-',
+              payDate: item.payDate || getDisplayPayDate(item) || '-',
+              commission: itemComm,
+              ruleName: rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : rule.targetName === '조민경' ? '컨설팅비' : rule.targetName?.includes('신동우') ? '대표이사 수수료' : '특수수당')
+            };
+
+            if (isSelfHq) {
+              const hqName = item.hq;
+              if (hqName) {
+                payoutIncentivesSummary[hqName] = (payoutIncentivesSummary[hqName] || 0) + itemComm;
+                payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + 1;
+                if (!payoutIncentivesDetailMap[hqName]) payoutIncentivesDetailMap[hqName] = [];
+                payoutIncentivesDetailMap[hqName].push(detailItem);
+              }
+            } else {
+              matchedCount++;
+              commission += itemComm;
+              const tName = rule.targetName || '특수수당';
+              if (!payoutIncentivesDetailMap[tName]) payoutIncentivesDetailMap[tName] = [];
+              payoutIncentivesDetailMap[tName].push(detailItem);
+            }
+          }
+        }
+      });
+
+      if (!isSelfHq) {
+        const finalAmount = Math.max(commission, rule.minimumGuarantee);
+        if (finalAmount > 0) {
+          payoutIncentivesSummary[rule.targetName] = (payoutIncentivesSummary[rule.targetName] || 0) + finalAmount;
+          payoutIncentivesCountSummary[rule.targetName] = (payoutIncentivesCountSummary[rule.targetName] || 0) + matchedCount;
+        }
+      }
+    });
+
+    const extraDeductions: Array<{
+      category: string;
+      name: string;
+      detail: string;
+      count: number | string;
+      amount: number;
+      settlementType: string;
+      accountInfo: string;
+      remark: string;
+    }> = [];
+
+    Object.entries(payoutIncentivesSummary).forEach(([targetName, amt]) => {
+      const gross = safeReconNumber(amt);
+      if (gross <= 0) return;
+
+      const rule = globalIncentiveRules.find(r => r.targetName === targetName) ||
+        globalIncentiveRules.find(r => isHqMatchedForSpecialRule(r, targetName, divisionSettings));
+      
+      let detail = rule?.incentiveName || (
+        targetName === '조재윤' || targetName === '조재은' ? '모델비' :
+        targetName === '이종연' || targetName === '조민경' ? '컨설팅비' :
+        targetName.includes('신동우') ? '대표이사 수수료/인센티브' :
+        targetName.includes('홈페이지') || targetName.includes('권성훈') ? '홈페이지 유지보수비' : '특수수당'
+      );
+      if (targetName === '신동우' || targetName.includes('신동우')) {
+        detail = '대표이사 인센티브/수수료';
+      } else if (targetName.includes('홈페이지') || targetName.includes('권성훈')) {
+        detail = '홈페이지 유지보수비';
+      }
+
+      const count = payoutIncentivesCountSummary[targetName] || 1;
+      const setting = hqSettings.find(h => h.hqName === targetName);
+      const acctStr = (setting?.bankName && setting?.accountNumber) ? `${setting.bankName} ${setting.accountNumber} (${setting.accountHolder || targetName})` : '-';
+
+      extraDeductions.push({
+        category: detail.includes('모델') ? '모델비' : detail.includes('컨설팅') ? '컨설팅' : detail.includes('유지') || detail.includes('홈페이지') ? '유지보수' : '특수수당',
+        name: targetName,
+        detail,
+        count,
+        amount: gross,
+        settlementType: setting?.settlementType || (targetName.includes('신동우') ? '사업자' : '개인'),
+        accountInfo: acctStr,
+        remark: `${targetPayoutMonth.substring(5, 7)}월 지급 수수료`
+      });
+    });
+
+    // 고정비 항목 보완: 권성훈 홈페이지 유지보수비 (규칙에 미포함 시 월 150,000원 1건 고정 반영)
+    const existingNames = new Set(extraDeductions.map(e => e.name));
+    if (!existingNames.has('권성훈') && !existingNames.has('홈페이지유지비') && !extraDeductions.some(e => e.detail.includes('홈페이지'))) {
+      const setting = hqSettings.find(h => h.hqName === '권성훈');
+      const acctStr = (setting?.bankName && setting?.accountNumber) ? `${setting.bankName} ${setting.accountNumber} (${setting.accountHolder || '권성훈'})` : '신한 110-323-031541 (권성훈)';
+      extraDeductions.push({
+        category: '유지보수',
+        name: '권성훈',
+        detail: '홈페이지 유지',
+        count: 1,
+        amount: 150000,
+        settlementType: setting?.settlementType || '개인',
+        accountInfo: acctStr,
+        remark: '월 고정 시스템 유지보수비'
+      });
+    }
+
+    // 대상 지급월 유지수수료 계산
+    const targetMonthMaint = calculateMaintenancePayouts(data, targetPayoutMonth, true);
+    const maintSum = targetMonthMaint.reduce((sum: number, m: any) => sum + safeReconNumber(m.amount), 0);
+    if (maintSum > 0) {
+      extraDeductions.push({
+        category: '유지수수료',
+        name: '본부 유지수수료',
+        detail: '회차별 계약 유지 관리 수수료',
+        count: targetMonthMaint.length,
+        amount: maintSum,
+        settlementType: '사업자/개인',
+        accountInfo: '-',
+        remark: `${targetPayoutMonth.substring(5, 7)}월 회차 유지수수료`
+      });
+    }
+
+    const totalExtraExpenses = extraDeductions.reduce((sum, e) => sum + e.amount, 0);
+    const finalNetProfit = firstNetProfit - totalExtraExpenses;
+    const marginRate = totalExt > 0 ? ((finalNetProfit / totalExt) * 100).toFixed(1) : '0.0';
+    const payoutMonthDisplay = `${targetPayoutMonth.substring(0, 4)}년 ${targetPayoutMonth.substring(5, 7)}월`;
+
+    return {
+      mappedData,
+      normalRows,
+      abnormalRows,
+      normalCount,
+      normalGuzwa,
+      normalExt,
+      normalInt,
+      normalNet,
+      abnormalCount,
+      abnormalGuzwa,
+      abnormalExt,
+      abnormalInt,
+      abnormalNet,
+      totalGuzwa,
+      totalExt,
+      totalInt,
+      firstNetProfit,
+      firstMarginRate,
+      targetPayoutMonth,
+      targetPerfMonth,
+      payoutMonthDisplay,
+      extraDeductions,
+      totalExtraExpenses,
+      finalNetProfit,
+      marginRate,
+      payoutIncentivesDetailMap,
+      targetMonthMaint
+    };
+  }, [
+    reconTab,
+    reconData,
+    historyReconData,
+    selectedHistoryDate,
+    reconDate,
+    reconMode,
+    reconDeliveryStartDate,
+    data,
+    globalIncentiveRules,
+    divisionSettings,
+    hqSettings,
+    calculateMaintenancePayouts
+  ]);
 
   const monthlyStats = React.useMemo(() => {
     const monthlyMap: Record<string, {
@@ -14616,6 +15094,10 @@ const ERP_Dashboard = () => {
                         onClick={() => { setReconTab('HISTORY'); loadReconHistory(); }}
                         className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${reconTab === 'HISTORY' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                       >과거 내역 조회</button>
+                      <button
+                        onClick={() => setReconTab('PROFIT_REPORT')}
+                        className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${reconTab === 'PROFIT_REPORT' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                      >손익 결산 보고서</button>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -16160,7 +16642,7 @@ const ERP_Dashboard = () => {
                         </div>
                       )}
                     </div>
-                  ) : (
+                  ) : reconTab === 'HISTORY' ? (
                     <div className="flex flex-col gap-4 h-full">
                       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex gap-4 items-center">
                         <label className="text-sm font-bold text-slate-600">조회할 정산기준일</label>
@@ -16261,12 +16743,380 @@ const ERP_Dashboard = () => {
                         )}
                       </div>
                     </div>
+                  ) : (
+                    /* ======================================================== */
+                    /* [탭 3] 유통사(에넥스) 손익 결산 보고서 및 항목별 상세페이지 */
+                    /* ======================================================== */
+                    <div className="flex flex-col gap-6">
+                      {/* 1. 상단 정보 및 기준 선택 바 */}
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-orange-100 text-orange-600 rounded-lg">
+                            <TrendingUp size={18} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm font-black text-slate-800">
+                                유통사(에넥스) 대사 및 더좋은라이프 손익 결산 보고서
+                              </h3>
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-50 text-orange-700 border border-orange-200">
+                                {enexProfitSummary.payoutMonthDisplay} 지급분
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 font-medium">
+                              대사 기준: <span className="font-bold text-slate-700">{reconTab === 'HISTORY' ? selectedHistoryDate : (reconDate || selectedHistoryDate || '전체')}</span> · 에넥스 입금 수수료 [A] - 본부별 수수료 [B] - 본사 추가비용 [C] = 최종 순익 [D]
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* 과거 대사 기준일 전환 셀렉트 */}
+                        {reconHistoryDates.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-500">대사 기준 선택:</span>
+                            <select
+                              value={selectedHistoryDate}
+                              onChange={(e) => {
+                                setSelectedHistoryDate(e.target.value);
+                              }}
+                              className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold bg-white text-slate-800 shadow-2xs focus:outline-none focus:border-orange-500"
+                            >
+                              {reconDate && <option value={reconDate}>{reconDate} (현재 작업)</option>}
+                              {reconHistoryDates.map(date => (
+                                <option key={date} value={date}>{date}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 2. 핵심 4대 손익 KPI 카드 */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {/* KPI 1: [A] 총 입금액 */}
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                          <div className="flex items-center justify-between text-slate-500 text-xs font-bold mb-1">
+                            <span className="text-emerald-700 font-black">[A] 총 입금액 (에넥스)</span>
+                            <DollarSign size={16} className="text-emerald-600" />
+                          </div>
+                          <div className="text-xl font-black font-mono text-emerald-700 my-1">
+                            {enexProfitSummary.totalExt.toLocaleString()}원
+                          </div>
+                          <div className="text-[11px] text-slate-500 font-medium flex items-center justify-between">
+                            <span>에넥스 거래처 수납액</span>
+                            <span className="font-bold font-mono">{enexProfitSummary.mappedData.length}건 ({enexProfitSummary.totalGuzwa}구좌)</span>
+                          </div>
+                        </div>
+
+                        {/* KPI 2: [B] 본부별 지급 수수료 */}
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                          <div className="flex items-center justify-between text-slate-500 text-xs font-bold mb-1">
+                            <span className="text-blue-700 font-black">[B] 본부 영업수수료</span>
+                            <Building size={16} className="text-blue-600" />
+                          </div>
+                          <div className="text-xl font-black font-mono text-blue-700 my-1">
+                            {enexProfitSummary.totalInt.toLocaleString()}원
+                          </div>
+                          <div className="text-[11px] text-slate-500 font-medium flex items-center justify-between">
+                            <span>1차 영업마진: {enexProfitSummary.firstMarginRate}%</span>
+                            <span className="font-bold font-mono text-blue-600">
+                              {enexProfitSummary.firstNetProfit.toLocaleString()}원
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* KPI 3: [C] 본사 추가수수료 / 매월 지출 비용 */}
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                          <div className="flex items-center justify-between text-slate-500 text-xs font-bold mb-1">
+                            <span className="text-purple-700 font-black">[C] 본사 추가수수료/지출</span>
+                            <Calculator size={16} className="text-purple-600" />
+                          </div>
+                          <div className="text-xl font-black font-mono text-purple-700 my-1">
+                            {enexProfitSummary.totalExtraExpenses.toLocaleString()}원
+                          </div>
+                          <div className="text-[11px] text-slate-500 font-medium flex items-center justify-between">
+                            <span>신동우, 모델비, 유지비 등</span>
+                            <span className="font-bold text-purple-700">{enexProfitSummary.extraDeductions.length}개 항목 차감</span>
+                          </div>
+                        </div>
+
+                        {/* KPI 4: [D] 더좋은라이프 최종 실질 순이익 */}
+                        <div className="bg-gradient-to-br from-emerald-500 to-teal-700 text-white p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                          <div className="flex items-center justify-between text-emerald-100 text-xs font-bold mb-1">
+                            <span className="text-white font-black">[D] 최종 실질 순이익</span>
+                            <TrendingUp size={16} className="text-emerald-200" />
+                          </div>
+                          <div className="text-xl font-black font-mono text-white my-1">
+                            {enexProfitSummary.finalNetProfit.toLocaleString()}원
+                          </div>
+                          <div className="text-[11px] text-emerald-100 font-medium flex items-center justify-between">
+                            <span>최종 영업이익률</span>
+                            <span className="font-bold font-mono text-white bg-white/20 px-2 py-0.5 rounded-full">
+                              {enexProfitSummary.marginRate}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. 테이블 1: 유통사(에넥스) 대사 실적 및 1차 영업수익 요약 */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+                        <div className="p-3.5 px-4 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-blue-600" />
+                            <h4 className="text-xs font-bold text-slate-800">1. 유통사(에넥스) 대사 실적 및 1차 영업수익 요약</h4>
+                          </div>
+                          <span className="text-[11px] text-slate-400">대사 완료 {enexProfitSummary.mappedData.length}건</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-slate-100/70 text-slate-600 border-b border-slate-200 font-bold whitespace-nowrap">
+                                <th className="p-3 pl-4">구분</th>
+                                <th className="p-3 text-center">대사건수</th>
+                                <th className="p-3 text-center">총 구좌수</th>
+                                <th className="p-3 text-right">거래처입금액 (에넥스)</th>
+                                <th className="p-3 text-right">영업수수료 지급액 (본부합계)</th>
+                                <th className="p-3 text-right font-black text-blue-900">1차 영업순수익</th>
+                                <th className="p-3 pr-4">비고</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              <tr className="hover:bg-slate-50 transition-colors whitespace-nowrap">
+                                <td className="p-3 pl-4 font-bold text-emerald-800">정상 정산 건</td>
+                                <td className="p-3 text-center font-mono">{enexProfitSummary.normalCount.toLocaleString()}건</td>
+                                <td className="p-3 text-center font-mono">{enexProfitSummary.normalGuzwa.toLocaleString()}구좌</td>
+                                <td className="p-3 text-right font-mono text-emerald-700 font-bold">{enexProfitSummary.normalExt.toLocaleString()}원</td>
+                                <td className="p-3 text-right font-mono text-slate-700">{enexProfitSummary.normalInt.toLocaleString()}원</td>
+                                <td className="p-3 text-right font-mono text-blue-700 font-bold">{enexProfitSummary.normalNet.toLocaleString()}원</td>
+                                <td className="p-3 pr-4 text-emerald-600 font-medium">정상 대사 완료 건</td>
+                              </tr>
+                              {enexProfitSummary.abnormalCount > 0 && (
+                                <tr className="hover:bg-slate-50 transition-colors whitespace-nowrap bg-rose-50/30">
+                                  <td className="p-3 pl-4 font-bold text-rose-700">이상 / 선지급 건</td>
+                                  <td className="p-3 text-center font-mono">{enexProfitSummary.abnormalCount.toLocaleString()}건</td>
+                                  <td className="p-3 text-center font-mono">{enexProfitSummary.abnormalGuzwa.toLocaleString()}구좌</td>
+                                  <td className="p-3 text-right font-mono text-slate-600 font-bold">{enexProfitSummary.abnormalExt.toLocaleString()}원</td>
+                                  <td className="p-3 text-right font-mono text-slate-700">{enexProfitSummary.abnormalInt.toLocaleString()}원</td>
+                                  <td className="p-3 text-right font-mono text-rose-700 font-bold">{enexProfitSummary.abnormalNet.toLocaleString()}원</td>
+                                  <td className="p-3 pr-4 text-rose-600 font-medium">선지급 및 배송/지급일자 상이 건</td>
+                                </tr>
+                              )}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300 whitespace-nowrap">
+                                <td className="p-3 pl-4">유통사 대사 총계</td>
+                                <td className="p-3 text-center font-mono">{enexProfitSummary.mappedData.length.toLocaleString()}건</td>
+                                <td className="p-3 text-center font-mono">{enexProfitSummary.totalGuzwa.toLocaleString()}구좌</td>
+                                <td className="p-3 text-right font-mono text-emerald-800">{enexProfitSummary.totalExt.toLocaleString()}원</td>
+                                <td className="p-3 text-right font-mono text-slate-900">{enexProfitSummary.totalInt.toLocaleString()}원</td>
+                                <td className="p-3 text-right font-mono text-blue-900 text-sm">{enexProfitSummary.firstNetProfit.toLocaleString()}원</td>
+                                <td className="p-3 pr-4 text-blue-700 font-bold">1차 영업이익률: {enexProfitSummary.firstMarginRate}%</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* 4. 테이블 2: 더좋은라이프 추가 수수료 및 본사 지출 내역 (항목별 상세페이지 연동) */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+                        <div className="p-3.5 px-4 bg-purple-50/60 border-b border-purple-100 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-purple-600" />
+                            <h4 className="text-xs font-bold text-slate-800">
+                              2. 더좋은라이프 추가 수수료 및 본사 지출 내역 ({enexProfitSummary.payoutMonthDisplay} 지급 차감 항목)
+                            </h4>
+                          </div>
+                          <span className="text-[11px] text-purple-700 font-bold">
+                            총 {enexProfitSummary.extraDeductions.length}개 차감 항목 · 상세 명세서 지원
+                          </span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-slate-100/70 text-slate-600 border-b border-slate-200 font-bold whitespace-nowrap">
+                                <th className="p-3 pl-4">구분</th>
+                                <th className="p-3">대상자 / 항목명</th>
+                                <th className="p-3">세부내용</th>
+                                <th className="p-3 text-center">건수</th>
+                                <th className="p-3 text-right font-black text-purple-900">지출 금액</th>
+                                <th className="p-3 text-center">정산유형</th>
+                                <th className="p-3">지급계좌 / 비고</th>
+                                <th className="p-3 pr-4 text-center w-28">상세내역 명세</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {enexProfitSummary.extraDeductions.map((item, idx) => {
+                                const detailItems = item.category === '유지수수료' 
+                                  ? enexProfitSummary.targetMonthMaint 
+                                  : (enexProfitSummary.payoutIncentivesDetailMap[item.name] || []);
+                                const hasDetail = detailItems && detailItems.length > 0;
+
+                                return (
+                                  <tr key={idx} className="hover:bg-purple-50/30 transition-colors whitespace-nowrap">
+                                    <td className="p-3 pl-4">
+                                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700">
+                                        {item.category}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 font-bold text-slate-900">{item.name}</td>
+                                    <td className="p-3 text-slate-600">{item.detail}</td>
+                                    <td className="p-3 text-center font-mono font-bold text-slate-700">
+                                      {item.count !== '-' ? `${Number(item.count).toLocaleString()}건` : '-'}
+                                    </td>
+                                    <td className="p-3 text-right font-mono font-black text-purple-700 text-sm">
+                                      {item.amount.toLocaleString()}원
+                                    </td>
+                                    <td className="p-3 text-center text-slate-500 font-medium">{item.settlementType}</td>
+                                    <td className="p-3 text-slate-600 text-[11px] max-w-xs truncate" title={item.accountInfo !== '-' ? item.accountInfo : item.remark}>
+                                      {item.accountInfo !== '-' ? item.accountInfo : item.remark}
+                                    </td>
+                                    <td className="p-3 pr-4 text-center">
+                                      {hasDetail ? (
+                                        <button
+                                          onClick={() => {
+                                            setEnexDetailModalTarget({
+                                              title: item.detail,
+                                              targetName: item.name,
+                                              category: item.category,
+                                              count: item.count,
+                                              amount: item.amount,
+                                              type: item.category === '유지수수료' ? 'MAINTENANCE' : 'INCENTIVE',
+                                              items: detailItems
+                                            });
+                                          }}
+                                          className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-[11px] font-bold border border-purple-200 transition-colors cursor-pointer flex items-center gap-1 mx-auto shadow-2xs"
+                                          title={`${item.name} 상세 건별 내역 확인`}
+                                        >
+                                          <FileText size={11} className="text-purple-600" />
+                                          <span>상세보기</span>
+                                        </button>
+                                      ) : (
+                                        <span className="text-slate-400 text-[11px]">-</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-purple-50/70 font-black text-slate-900 border-t-2 border-purple-200 whitespace-nowrap">
+                                <td className="p-3 pl-4" colSpan={3}>본사 추가 지출 소계</td>
+                                <td className="p-3 text-center font-mono">
+                                  {enexProfitSummary.extraDeductions.length}개 항목
+                                </td>
+                                <td className="p-3 text-right font-mono text-purple-900 text-sm">
+                                  {enexProfitSummary.totalExtraExpenses.toLocaleString()}원
+                                </td>
+                                <td colSpan={3} className="p-3 pr-4 text-slate-500 text-xs font-medium">
+                                  ※ 더좋은라이프 본사 차감 추가 수수료 및 고정비 총합
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* 5. 테이블 3: 최종 손익 정산 결산 종합 */}
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+                        <div className="p-3.5 px-4 bg-emerald-50/70 border-b border-emerald-100 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                            <h4 className="text-xs font-bold text-slate-800">3. 최종 손익 정산 결산 종합 ([A] - [B] - [C] = [D])</h4>
+                          </div>
+                          <span className="text-[11px] text-emerald-700 font-bold">
+                            최종 영업이익률: {enexProfitSummary.marginRate}%
+                          </span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-slate-100/70 text-slate-600 border-b border-slate-200 font-bold whitespace-nowrap">
+                                <th className="p-3 pl-4">구분</th>
+                                <th className="p-3">항목명</th>
+                                <th className="p-3 text-right font-mono">금액</th>
+                                <th className="p-3 text-center">비율(%)</th>
+                                <th className="p-3">산출 공식 및 세부 내역</th>
+                                <th className="p-3 pr-4">비고</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-medium">
+                              <tr className="hover:bg-slate-50 transition-colors whitespace-nowrap">
+                                <td className="p-3 pl-4 font-bold text-emerald-800">[A] 총 입금액</td>
+                                <td className="p-3 font-bold text-slate-800">에넥스 거래처 총 입금액</td>
+                                <td className="p-3 text-right font-mono font-bold text-emerald-700 text-sm">
+                                  {enexProfitSummary.totalExt.toLocaleString()}원
+                                </td>
+                                <td className="p-3 text-center font-mono font-bold text-slate-600">100.0%</td>
+                                <td className="p-3 text-slate-600">에넥스 유통사로부터 수납된 총 거래처입금액</td>
+                                <td className="p-3 pr-4 text-emerald-600 font-bold">수익 원천</td>
+                              </tr>
+                              <tr className="hover:bg-slate-50 transition-colors whitespace-nowrap">
+                                <td className="p-3 pl-4 font-bold text-blue-800">[B] 영업 수수료</td>
+                                <td className="p-3 font-bold text-slate-800">본부 및 사원 지급액</td>
+                                <td className="p-3 text-right font-mono font-bold text-blue-700 text-sm">
+                                  {enexProfitSummary.totalInt.toLocaleString()}원
+                                </td>
+                                <td className="p-3 text-center font-mono font-bold text-slate-600">
+                                  {enexProfitSummary.totalExt > 0 ? ((enexProfitSummary.totalInt / enexProfitSummary.totalExt) * 100).toFixed(1) : 0}%
+                                </td>
+                                <td className="p-3 text-slate-600">각 본부별 실적 지급 수수료 합계 (내부지급액합계)</td>
+                                <td className="p-3 pr-4 text-blue-600 font-bold">1차 비용</td>
+                              </tr>
+                              <tr className="hover:bg-slate-50 transition-colors whitespace-nowrap bg-blue-50/20">
+                                <td className="p-3 pl-4 font-bold text-blue-900">[C] 1차 영업순익</td>
+                                <td className="p-3 font-bold text-blue-900">유통사 영업 마진</td>
+                                <td className="p-3 text-right font-mono font-black text-blue-900 text-sm">
+                                  {enexProfitSummary.firstNetProfit.toLocaleString()}원
+                                </td>
+                                <td className="p-3 text-center font-mono font-bold text-blue-700">
+                                  {enexProfitSummary.firstMarginRate}%
+                                </td>
+                                <td className="p-3 text-slate-600">[A] 거래처입금액 - [B] 영업수수료</td>
+                                <td className="p-3 pr-4 text-blue-700 font-bold">1차 순이익</td>
+                              </tr>
+                              <tr className="hover:bg-slate-50 transition-colors whitespace-nowrap">
+                                <td className="p-3 pl-4 font-bold text-purple-800">[D] 본사 추가수수료</td>
+                                <td className="p-3 font-bold text-slate-800">본사 고정/특수 수수료 ({enexProfitSummary.payoutMonthDisplay} 지급 차감)</td>
+                                <td className="p-3 text-right font-mono font-bold text-purple-700 text-sm">
+                                  {enexProfitSummary.totalExtraExpenses.toLocaleString()}원
+                                </td>
+                                <td className="p-3 text-center font-mono font-bold text-slate-600">
+                                  {enexProfitSummary.totalExt > 0 ? ((enexProfitSummary.totalExtraExpenses / enexProfitSummary.totalExt) * 100).toFixed(1) : 0}%
+                                </td>
+                                <td className="p-3 text-slate-600">홈페이지유지비, 모델비, 신동우 대표, 컨설팅비, 유지수수료 등</td>
+                                <td className="p-3 pr-4 text-purple-600 font-bold">본사 차감 비용</td>
+                              </tr>
+                              <tr className="bg-emerald-50/80 font-black text-slate-900 border-t-2 border-emerald-300 whitespace-nowrap">
+                                <td className="p-3.5 pl-4 font-black text-emerald-900 text-sm">[E] 최종 순이익</td>
+                                <td className="p-3.5 font-black text-emerald-950 text-sm">더좋은라이프 최종 실질 순이익</td>
+                                <td className="p-3.5 text-right font-mono font-black text-emerald-900 text-base">
+                                  {enexProfitSummary.finalNetProfit.toLocaleString()}원
+                                </td>
+                                <td className="p-3.5 text-center font-black font-mono text-emerald-900 text-sm">
+                                  {enexProfitSummary.marginRate}%
+                                </td>
+                                <td className="p-3.5 text-emerald-800 font-medium">
+                                  [C] 1차 영업순익 - [D] 본사 추가수수료 (최종 실현 순익)
+                                </td>
+                                <td className="p-3.5 pr-4 text-emerald-800 font-black">최종 정산 순익</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               </motion.div>
             </div>
           )}
         </AnimatePresence>
+
+        {/* 유통사 손익 결산 각 항목별 상세내역 조회 모달 */}
+        <EnexProfitDetailModal
+          isOpen={Boolean(enexDetailModalTarget)}
+          onClose={() => setEnexDetailModalTarget(null)}
+          target={enexDetailModalTarget}
+          payoutMonthDisplay={enexProfitSummary.payoutMonthDisplay}
+        />
 
         <AnimatePresence>
           {isReconCalendarModalOpen && (

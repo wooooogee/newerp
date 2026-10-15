@@ -2898,6 +2898,31 @@ app.get('/api/sheets/supplier-recon-data', async (req, res) => {
   }
 });
 
+// 리치웰페어 시트 데이터 로드 API
+app.get('/api/sheets/richwelfare-data', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '리치웰페어!A:ZZ',
+    });
+    const rows = response.data.values || [];
+    return res.json({ success: true, sheetTitle: '리치웰페어', rows });
+  } catch (error: any) {
+    console.error('[Richwelfare Sheet Load Error]', error?.message || error);
+    return res.json({ success: false, sheetTitle: '리치웰페어', rows: [] });
+  }
+});
+
 // 수수료 일괄/단건 변경 및 '수수료변경이력' 탭 기록 API
 app.post('/api/sheets/commission-log/batch-update', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);

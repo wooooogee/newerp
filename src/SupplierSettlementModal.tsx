@@ -3,7 +3,7 @@ import {
   X, Calculator, Building, Calendar, Download, RefreshCw, 
   Search, CheckCircle, Package, DollarSign, Filter, FileSpreadsheet, 
   ChevronRight, ExternalLink, AlertCircle, ArrowUpRight, CheckSquare, Square,
-  Tag, Info, Layers, Receipt, Coins, FileText
+  Tag, Info, Layers, Receipt, Coins, FileText, TrendingUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplierItem, SupplierProductSetting, loadSuppliersFromStorage } from './SupplierManagementModal';
@@ -95,6 +95,11 @@ interface SupplierSettlementItem {
   isSupplyPricePayable: boolean;
   isManualOrderTarget?: boolean; // 수기발주/설치확인서 관리 대상 여부
 
+  // 리치웰페어 입금 및 손익 결산 필드
+  richwelfareDeposit: number;     // [A] 리치웰페어 입금 수수료(결합매출액, VAT포함)
+  netProfit: number;              // [D] 실질 순수익 = [A] - [B]물품대금 - [C]공급수수료
+  marginRate: number;             // 순수익률(%)
+
   hq: string;
   branch: string;
   empName: string;
@@ -149,8 +154,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     return now.toISOString().substring(0, 7);
   });
 
-  // 메인 탭: 물품 대금 정산 vs 공급 수수료 정산 (완전 분리)
-  const [mainTab, setMainTab] = useState<'SUPPLY_PRICE' | 'COMMISSION'>('SUPPLY_PRICE');
+  // 메인 탭: 물품 대금 정산 vs 공급 수수료 정산 vs 리치웰페어 손익 결산 (완전 분리)
+  const [mainTab, setMainTab] = useState<'SUPPLY_PRICE' | 'COMMISSION' | 'PROFIT_REPORT'>('SUPPLY_PRICE');
 
   // 서브 뷰 탭: 총괄 요약표 vs 건별 상세 내역
   const [viewMode, setViewMode] = useState<'SUMMARY' | 'DETAIL'>('SUMMARY');
@@ -178,6 +183,31 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
   // 구글 시트 / 클라우드 설정에서 최신 수기발주 대장 및 설치확인서 정보 백그라운드 동기화
   const [cloudOrderStores, setCloudOrderStores] = useState<Record<string, ManualOrderInfo>>({});
+
+  // 리치웰페어 구글 시트 데이터 (결합매출액 / 거래처 수수료 입금액)
+  const [richwelfareRows, setRichwelfareRows] = useState<any[][]>([]);
+  const [loadingRichwelfare, setLoadingRichwelfare] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const fetchRichwelfare = async () => {
+      setLoadingRichwelfare(true);
+      try {
+        const res = await fetch('/api/sheets/richwelfare-data');
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json.rows) && json.rows.length > 0) {
+            setRichwelfareRows(json.rows);
+          }
+        }
+      } catch (e) {
+        console.warn('리치웰페어 시트 데이터 로드 실패:', e);
+      } finally {
+        setLoadingRichwelfare(false);
+      }
+    };
+    fetchRichwelfare();
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -256,6 +286,51 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     return [];
   }, [isOpen]);
 
+  // 리치웰페어 구글 시트 데이터 기반 계약번호 매핑 맵
+  const richwelfareMap = useMemo(() => {
+    const map = new Map<string, { combinedRev: number; combinedCost: number; settlementTerm: string; certDate: string; raw: any[] }>();
+    if (!richwelfareRows || richwelfareRows.length < 2) return map;
+
+    const headerRow = (richwelfareRows[0] || []).map((h: any) => String(h || '').trim());
+    const findCol = (keywords: string[], defaultIdx: number) => {
+      const idx = headerRow.findIndex((h: string) => keywords.some(k => h === k || h.includes(k)));
+      return idx !== -1 ? idx : defaultIdx;
+    };
+
+    const contractNoCol = findCol(['계약번호', '렌탈번호', '주문번호'], 0);
+    const combinedCostCol = findCol(['결합원가(VAT포함)', '결합원가'], 8);
+    const combinedRevCol = findCol(['결합매출액(VAT포함)', '결합매출액', '매출액', '입금액'], 10);
+    const delDateCol = findCol(['배송일', '배송일자'], 14);
+    const certDateCol = findCol(['설치확인서등록일', '확인서등록일', '확인서일자'], 20);
+    const settlementCol = findCol(['정산(+)', '정산'], 21);
+
+    richwelfareRows.slice(1).forEach((row) => {
+      const cNo = String(row[contractNoCol] || '').trim();
+      if (!cNo) return;
+
+      const rawRev = String(row[combinedRevCol] || '').replace(/[^0-9.-]/g, '');
+      const rawCost = String(row[combinedCostCol] || '').replace(/[^0-9.-]/g, '');
+      const rev = parseFloat(rawRev) || 0;
+      const cost = parseFloat(rawCost) || 0;
+      const term = String(row[settlementCol] || '').trim();
+      const certDate = String(row[certDateCol] || '').trim();
+
+      const obj = {
+        combinedRev: rev,
+        combinedCost: cost,
+        settlementTerm: term,
+        certDate,
+        raw: row
+      };
+
+      map.set(cNo, obj);
+      const digits = cNo.replace(/[^0-9]/g, '');
+      if (digits && digits !== cNo) map.set(digits, obj);
+    });
+
+    return map;
+  }, [richwelfareRows]);
+
   // 정산 대상 데이터 추출 및 공급사 매핑 엔진
   // 핵심 요구사항:
   // 1) 배송완료 상태
@@ -264,6 +339,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   //    - 설치확인서 등록완료 건: 마감월/지급월에 공급사 정산일자로 정상 지급 대상
   //    - 설치확인서 미등록 건: 지급 보류 (합계 제외, 보류 현황 별도 표시)
   // 4) 본부별 차등 공급수수료 우선 매칭 (미지정 본부는 0원 미지급)
+  // 5) 리치웰페어 입금액[A] - 공급사 물품대금[B] - 공급수수료[C] = 실질 순수익[D] 산출
   const allSettlementItems = useMemo<SupplierSettlementItem[]>(() => {
     if (!data || data.length === 0 || suppliers.length === 0) return [];
 
@@ -392,6 +468,26 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
       const qty = 1; // 렌탈계약번호 1건 = 상품개수 1개
       const sPrice = matchedProductSetting.supplyPrice || 0;
+      const totalSupplyAmt = sPrice * qty;
+      const totalCommAmt = finalCommission * qty;
+
+      // 9. 리치웰페어 입금 수수료 [A] 및 손익 [D] 계산
+      let richDeposit = 0;
+      const cleanNo = cleanRentalNo || item.rentalNo || '';
+      const richInfo = richwelfareMap.get(cleanNo) || (cleanNo.replace(/[^0-9]/g, '') ? richwelfareMap.get(cleanNo.replace(/[^0-9]/g, '')) : null);
+      if (richInfo && richInfo.combinedRev > 0) {
+        richDeposit = richInfo.combinedRev;
+      } else {
+        // 리치웰페어 시트에 미등록된 경우 ERP 원장 입금액 또는 단가 대조
+        const rawDep = (item as any).extDeposit || (item as any).rentalProdPrice;
+        if (rawDep) {
+          richDeposit = typeof rawDep === 'number' ? rawDep : parseFloat(String(rawDep).replace(/[^0-9.-]/g, '')) || 0;
+        }
+      }
+
+      // [D] 건별 순수익 = [A] 리치웰페어 입금액 - [B] 공급 물품대금 - [C] 공급수수료
+      const itemNetProfit = richDeposit - totalSupplyAmt - totalCommAmt;
+      const itemMarginRate = richDeposit > 0 ? (itemNetProfit / richDeposit) * 100 : 0;
 
       result.push({
         uniqueKey: cleanRentalNo || item.uniqueKey || `item-${Date.now()}-${Math.random()}`,
@@ -407,9 +503,9 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         matchedProductName: matchedProductSetting.productName || matchedProductSetting.productKeyword,
         quantity: qty,
         supplyPrice: sPrice,
-        totalSupplyPrice: sPrice * qty,
+        totalSupplyPrice: totalSupplyAmt,
         supplyCommission: finalCommission,
-        totalCommission: finalCommission * qty,
+        totalCommission: totalCommAmt,
         isHqDifferentiated: false,
         commissionRecipient: matchedProductSetting.commissionRecipient || matchedSupplier.name,
         recipientBank: matchedProductSetting.recipientBank || matchedSupplier.bankName,
@@ -427,6 +523,9 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         commissionHoldReason: holdReason,
         isSupplyPricePayable,
         isManualOrderTarget: isManualTarget,
+        richwelfareDeposit: richDeposit,
+        netProfit: itemNetProfit,
+        marginRate: itemMarginRate,
         hq: item.hq || '-',
         branch: item.branch || '-',
         empName: item.empName || '-'
@@ -434,7 +533,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     });
 
     return result;
-  }, [data, suppliers, selectedMonth, effectiveManualStores, manualOrderTargetProducts, payoutRuleMode]);
+  }, [data, suppliers, selectedMonth, effectiveManualStores, manualOrderTargetProducts, payoutRuleMode, richwelfareMap]);
 
   // ==========================================
   // [1] 물품 대금 집계 (공급사별) - 배송완료월 기준
@@ -663,6 +762,89 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     );
   };
 
+  // ==========================================
+  // [3] 리치웰페어 수기발주 손익 결산 종합 및 공급사별 요약
+  // [A] 리치웰페어 총 입금액 - [B] 공급 물품대금 - [C] 공급수수료 = [D] 최종 실질 순이익
+  // ==========================================
+  const richwelfareProfitSummary = useMemo(() => {
+    // 해당 정산월(selectedMonth)의 정산 대상 아이템 집계
+    const targetItems = allSettlementItems.filter(item => {
+      return item.isSupplyPricePayable || item.isCommissionPayable || (item.installCertMonth === selectedMonth);
+    });
+
+    let totalDeposit = 0;      // [A] 리치웰페어 총 입금액 (결합매출액)
+    let totalSupplyPrice = 0;  // [B] 공급 물품대금 합계
+    let totalCommission = 0;   // [C] 공급 수수료 합계
+    let totalNetProfit = 0;    // [D] 최종 순수익
+    const count = targetItems.length;
+
+    // 공급사별 손익 요약 맵
+    const supplierProfitMap = new Map<string, {
+      supplierId: string;
+      supplierName: string;
+      count: number;
+      productCount: number;
+      depositAmount: number;
+      supplyPriceAmount: number;
+      commissionAmount: number;
+      netProfitAmount: number;
+      marginRate: string;
+    }>();
+
+    targetItems.forEach(item => {
+      const dep = item.richwelfareDeposit || 0;
+      const supp = item.totalSupplyPrice || 0;
+      const comm = item.totalCommission || 0;
+      const net = dep - supp - comm;
+
+      totalDeposit += dep;
+      totalSupplyPrice += supp;
+      totalCommission += comm;
+      totalNetProfit += net;
+
+      let sp = supplierProfitMap.get(item.matchedSupplierId);
+      if (!sp) {
+        sp = {
+          supplierId: item.matchedSupplierId,
+          supplierName: item.matchedSupplierName,
+          count: 0,
+          productCount: 0,
+          depositAmount: 0,
+          supplyPriceAmount: 0,
+          commissionAmount: 0,
+          netProfitAmount: 0,
+          marginRate: '0.0'
+        };
+        supplierProfitMap.set(item.matchedSupplierId, sp);
+      }
+
+      sp.count += 1;
+      sp.productCount += item.quantity;
+      sp.depositAmount += dep;
+      sp.supplyPriceAmount += supp;
+      sp.commissionAmount += comm;
+      sp.netProfitAmount += net;
+    });
+
+    const supplierProfitList = Array.from(supplierProfitMap.values()).map(sp => {
+      const rate = sp.depositAmount > 0 ? ((sp.netProfitAmount / sp.depositAmount) * 100).toFixed(1) : '0.0';
+      return { ...sp, marginRate: rate };
+    });
+
+    const totalMarginRate = totalDeposit > 0 ? ((totalNetProfit / totalDeposit) * 100).toFixed(1) : '0.0';
+
+    return {
+      targetItems,
+      count,
+      totalDeposit,
+      totalSupplyPrice,
+      totalCommission,
+      totalNetProfit,
+      totalMarginRate,
+      supplierProfitList
+    };
+  }, [allSettlementItems, selectedMonth]);
+
   // 필터링된 상세 건별 목록 (검색, 공급사, 탭, 설치확인서 필터 연동)
   const filteredDetailItems = useMemo(() => {
     return allSettlementItems.filter((item) => {
@@ -688,6 +870,12 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
           const isRelevant = item.isCommissionPayable || item.isCertHold;
           if (!isRelevant) return false;
         }
+      }
+
+      // 리치웰페어 손익 결산 보고서 탭인 경우
+      if (mainTab === 'PROFIT_REPORT') {
+        const isTarget = item.isSupplyPricePayable || item.isCommissionPayable || (item.installCertMonth === selectedMonth);
+        if (!isTarget) return false;
       }
 
       if (!searchTerm) return true;
@@ -1031,6 +1219,241 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     XLSX.writeFile(wb, fileName);
   };
 
+  // ==========================================
+  // [엑셀 다운로드 3] 리치웰페어 손익 결산 보고서 전용 엑셀 다운로드
+  // 에넥스 유통사 대사 손익보고서와 100% 동일한 양식 및 시트 구조
+  // 시트 1: 정산보고서 (손익 결산 종합 및 공급사별 요약)
+  // 시트 2: 대사보고 (건별 전체 상세 명세서 - 13열)
+  // 시트 3~N: 공급사별 상세 명세 시트
+  // ==========================================
+  const handleExportRichwelfareProfitExcel = (targetSupplierId?: string) => {
+    if (!XLSX) {
+      alert('엑셀 라이브러리를 로드할 수 없습니다.');
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+
+    const targetItems = targetSupplierId && targetSupplierId !== 'ALL'
+      ? richwelfareProfitSummary.targetItems.filter(i => i.matchedSupplierId === targetSupplierId)
+      : richwelfareProfitSummary.targetItems;
+
+    let totDeposit = 0;
+    let totSuppPrice = 0;
+    let totComm = 0;
+    let totNet = 0;
+
+    targetItems.forEach(i => {
+      totDeposit += i.richwelfareDeposit || 0;
+      totSuppPrice += i.totalSupplyPrice || 0;
+      totComm += i.totalCommission || 0;
+      totNet += (i.richwelfareDeposit || 0) - (i.totalSupplyPrice || 0) - (i.totalCommission || 0);
+    });
+
+    const totMarginRate = totDeposit > 0 ? ((totNet / totDeposit) * 100).toFixed(1) : '0.0';
+
+    // --- 시트 1: 정산보고서 ---
+    const summaryRows: any[][] = [
+      ['[ 리치웰페어 수기발주 대사 및 더좋은라이프 손익 결산 보고서 ]'],
+      [`정산기준: ${selectedMonth} 기준 (설치확인 마감월 기준) | 출력일시: ${new Date().toLocaleDateString('ko-KR')}`],
+      [],
+      ['1. 리치웰페어 수기발주 실적 및 1차 영업수익 요약'],
+      ['구분', '정산건수', '상품개수', '리치웰페어 입금액 [A]', '공급 물품대금 [B]', '공급 수수료 [C]', '실질 순수익 [D]', '비고'],
+      [
+        '수기발주 정산 건',
+        targetItems.length,
+        targetItems.reduce((acc, i) => acc + i.quantity, 0),
+        { v: totDeposit, t: 'n', z: '#,##0' },
+        { v: totSuppPrice, t: 'n', z: '#,##0' },
+        { v: totComm, t: 'n', z: '#,##0' },
+        { v: totNet, t: 'n', z: '#,##0' },
+        `영업이익률: ${totMarginRate}%`
+      ],
+      [],
+      ['2. 공급사별 실적 및 손익 명세'],
+      ['공급사명', '정산건수', '상품개수', '리치웰페어 입금액 [A]', '공급 물품대금 [B]', '공급 수수료 [C]', '실질 순수익 [D]', '수익률(%)']
+    ];
+
+    const targetSupplierList = targetSupplierId && targetSupplierId !== 'ALL'
+      ? richwelfareProfitSummary.supplierProfitList.filter(s => s.supplierId === targetSupplierId)
+      : richwelfareProfitSummary.supplierProfitList;
+
+    targetSupplierList.forEach(sp => {
+      summaryRows.push([
+        sp.supplierName,
+        sp.count,
+        sp.productCount,
+        { v: sp.depositAmount, t: 'n', z: '#,##0' },
+        { v: sp.supplyPriceAmount, t: 'n', z: '#,##0' },
+        { v: sp.commissionAmount, t: 'n', z: '#,##0' },
+        { v: sp.netProfitAmount, t: 'n', z: '#,##0' },
+        `${sp.marginRate}%`
+      ]);
+    });
+
+    summaryRows.push([
+      '공급사 소계',
+      targetItems.length,
+      targetItems.reduce((acc, i) => acc + i.quantity, 0),
+      { v: totDeposit, t: 'n', z: '#,##0' },
+      { v: totSuppPrice, t: 'n', z: '#,##0' },
+      { v: totComm, t: 'n', z: '#,##0' },
+      { v: totNet, t: 'n', z: '#,##0' },
+      `${totMarginRate}%`
+    ]);
+
+    summaryRows.push([]);
+    summaryRows.push(['3. 최종 손익 정산 결산 종합']);
+    summaryRows.push(['구분', '항목명', '금액', '비율(%)', '산출 공식 / 세부 내역', '비고']);
+    summaryRows.push([
+      '[A] 총 입금액',
+      '리치웰페어 결합매출 총 입금액',
+      { v: totDeposit, t: 'n', z: '#,##0' },
+      '100.0%',
+      '리치웰페어 구글 시트 결합매출액(VAT포함) 기준',
+      '수익 원천'
+    ]);
+    summaryRows.push([
+      '[B] 물품 대금',
+      '공급사 지급 물품대금',
+      { v: totSuppPrice, t: 'n', z: '#,##0' },
+      totDeposit > 0 ? `${((totSuppPrice / totDeposit) * 100).toFixed(1)}%` : '0.0%',
+      '바디프랜드, 쿠쿠, 가스트로플러스 등 공급사 원가',
+      '1차 비용'
+    ]);
+    summaryRows.push([
+      '[C] 공급 수수료',
+      '본부 및 특수수당 지급액',
+      { v: totComm, t: 'n', z: '#,##0' },
+      totDeposit > 0 ? `${((totComm / totDeposit) * 100).toFixed(1)}%` : '0.0%',
+      '본부 및 지정 수령처 지급 공급수수료 합계',
+      '2차 비용'
+    ]);
+    summaryRows.push([
+      '[D] 최종 순이익',
+      '더좋은라이프 실질 순이익',
+      { v: totNet, t: 'n', z: '#,##0' },
+      `${totMarginRate}%`,
+      '[A] 총 입금액 - [B] 물품대금 - [C] 공급수수료',
+      '최종 실현 순익'
+    ]);
+
+    const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+    wsSummary['!cols'] = [
+      { wch: 18 }, { wch: 32 }, { wch: 16 }, { wch: 12 }, { wch: 45 }, { wch: 18 }, { wch: 18 }, { wch: 18 }
+    ];
+    XLSX.utils.book_append_sheet(wb, wsSummary, '정산보고서');
+
+    // --- 시트 2: 대사보고 (13열 건별 상세) ---
+    const headers = ['계약일자', '배송일자', '정산일자', '계약ID', '고객명', '본부명', '상품명', '제품명', '구좌수', '거래처입금액', '공급물품대금', '공급수수료', '최종순수익', '비고'];
+    const detailRows: any[][] = [headers];
+
+    targetItems.forEach(item => {
+      const net = (item.richwelfareDeposit || 0) - (item.totalSupplyPrice || 0) - (item.totalCommission || 0);
+      detailRows.push([
+        item.contractDate || '-',
+        item.deliveryDate || '-',
+        item.installCertDate || item.payoutDate || '-',
+        item.rentalNo,
+        item.memName,
+        item.hq || '-',
+        item.prodName || '-',
+        item.matchedProductName || item.rentalProdRaw || '-',
+        item.quantity,
+        { v: item.richwelfareDeposit || 0, t: 'n', z: '#,##0' },
+        { v: item.totalSupplyPrice || 0, t: 'n', z: '#,##0' },
+        { v: item.totalCommission || 0, t: 'n', z: '#,##0' },
+        { v: net, t: 'n', z: '#,##0' },
+        item.installCertStatus === '등록' ? `정상 (${item.installCertMonth || '마감'})` : '확인서 미등록'
+      ]);
+    });
+
+    detailRows.push([
+      '총계', '', '', `${targetItems.length}건`, '', '', '', '',
+      targetItems.reduce((acc, i) => acc + i.quantity, 0),
+      { v: totDeposit, t: 'n', z: '#,##0' },
+      { v: totSuppPrice, t: 'n', z: '#,##0' },
+      { v: totComm, t: 'n', z: '#,##0' },
+      { v: totNet, t: 'n', z: '#,##0' },
+      `영업이익률: ${totMarginRate}%`
+    ]);
+
+    const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
+    wsDetail['!cols'] = [
+      { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 12 },
+      { wch: 22 }, { wch: 35 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }
+    ];
+    XLSX.utils.book_append_sheet(wb, wsDetail, '대사보고');
+
+    // --- 시트 3~N: 공급사별 상세 명세 시트 ---
+    const suppGroups = new Map<string, SupplierSettlementItem[]>();
+    targetItems.forEach(i => {
+      const g = suppGroups.get(i.matchedSupplierName) || [];
+      g.push(i);
+      suppGroups.set(i.matchedSupplierName, g);
+    });
+
+    suppGroups.forEach((items, suppName) => {
+      const suppRows: any[][] = [
+        [`[ ${suppName} 공급 물품 및 수수료 정산 상세 명세서 - ${selectedMonth} ]`],
+        [`정산 건수: ${items.length}건  |  출력일시: ${new Date().toLocaleDateString('ko-KR')}`],
+        [],
+        ['순번', '계약번호', '계약일자', '배송일자', '설치확인서/마감월', '고객명', '제품명', '수량', '리치웰페어입금액', '물품공급가', '공급수수료', '건별순익', '본부', '사원명']
+      ];
+
+      let subDep = 0;
+      let subSupp = 0;
+      let subComm = 0;
+      let subNet = 0;
+
+      items.forEach((item, idx) => {
+        const net = (item.richwelfareDeposit || 0) - (item.totalSupplyPrice || 0) - (item.totalCommission || 0);
+        subDep += item.richwelfareDeposit || 0;
+        subSupp += item.totalSupplyPrice || 0;
+        subComm += item.totalCommission || 0;
+        subNet += net;
+
+        suppRows.push([
+          idx + 1,
+          item.rentalNo,
+          item.contractDate || '-',
+          item.deliveryDate || '-',
+          item.installCertStatus === '등록' ? `등록완료 (${item.installCertMonth || '-'})` : '미등록',
+          item.memName,
+          item.matchedProductName,
+          item.quantity,
+          { v: item.richwelfareDeposit || 0, t: 'n', z: '#,##0' },
+          { v: item.totalSupplyPrice || 0, t: 'n', z: '#,##0' },
+          { v: item.totalCommission || 0, t: 'n', z: '#,##0' },
+          { v: net, t: 'n', z: '#,##0' },
+          item.hq || '-',
+          item.empName || '-'
+        ]);
+      });
+
+      suppRows.push([
+        '합계', '', '', '', '', '', '',
+        items.reduce((acc, i) => acc + i.quantity, 0),
+        { v: subDep, t: 'n', z: '#,##0' },
+        { v: subSupp, t: 'n', z: '#,##0' },
+        { v: subComm, t: 'n', z: '#,##0' },
+        { v: subNet, t: 'n', z: '#,##0' },
+        '', ''
+      ]);
+
+      const wsSupp = XLSX.utils.aoa_to_sheet(suppRows);
+      wsSupp['!cols'] = [
+        { wch: 6 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 10 },
+        { wch: 32 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 10 }
+      ];
+      const safeTitle = `${suppName.slice(0, 20)}_상세`;
+      XLSX.utils.book_append_sheet(wb, wsSupp, safeTitle);
+    });
+
+    const fileName = `리치웰페어_수기발주_손익결산보고서_${selectedMonth}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -1090,7 +1513,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                 <FileSpreadsheet size={14} />
                 <span>물품대금 정산서 엑셀 다운로드</span>
               </button>
-            ) : (
+            ) : mainTab === 'COMMISSION' ? (
               <button
                 onClick={() => handleExportCommissionExcel(selectedSupplierId)}
                 className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer transition-all whitespace-nowrap"
@@ -1098,6 +1521,15 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
               >
                 <FileSpreadsheet size={14} />
                 <span>공급수수료 정산서 엑셀 다운로드</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => handleExportRichwelfareProfitExcel(selectedSupplierId)}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer transition-all whitespace-nowrap"
+                title="리치웰페어 수기발주 손익 결산 보고서 엑셀 다운로드 (정산보고서 + 대사보고 + 공급사별상세)"
+              >
+                <FileSpreadsheet size={14} />
+                <span>손익 결산 보고서 엑셀 다운로드</span>
               </button>
             )}
 
@@ -1110,7 +1542,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
           </div>
         </div>
 
-        {/* 메인 탭 네비게이션: 물품 대금 정산 vs 공급 수수료 정산 (완전 분리) */}
+        {/* 메인 탭 네비게이션: 물품 대금 정산 vs 공급 수수료 정산 vs 손익 결산 (완전 분리) */}
         <div className="px-6 py-2.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between shrink-0 whitespace-nowrap">
           <div className="flex items-center gap-3">
             <button
@@ -1146,6 +1578,24 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
               <span>[2] 공급 수수료(특수수당) 정산</span>
               <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/20 text-white font-mono">
                 {commissionTotalStats.productCount}개 상품
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                setMainTab('PROFIT_REPORT');
+                setViewMode('SUMMARY');
+              }}
+              className={`px-5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                mainTab === 'PROFIT_REPORT'
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/40'
+                  : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700/80'
+              }`}
+            >
+              <Calculator size={15} />
+              <span>[3] 리치웰페어 손익 결산 (통합)</span>
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/20 text-white font-mono font-bold">
+                순익 {richwelfareProfitSummary.totalNetProfit.toLocaleString()}원
               </span>
             </button>
           </div>
@@ -1260,7 +1710,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {mainTab === 'SUPPLY_PRICE' ? '공급사별 총괄' : '수령처별 총괄'}
+                {mainTab === 'SUPPLY_PRICE' ? '공급사별 총괄' : mainTab === 'COMMISSION' ? '수령처별 총괄' : '손익 종합 요약'}
               </button>
               <button
                 onClick={() => setViewMode('DETAIL')}
@@ -1388,7 +1838,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
               </div>
             </div>
           </div>
-        ) : (
+        ) : mainTab === 'COMMISSION' ? (
           /* [공급 수수료 전용 KPI 카드 - 3개 그리드로 개편] */
           <div className="px-6 py-3 bg-purple-50/50 border-b border-purple-100 grid grid-cols-3 gap-4 shrink-0 whitespace-nowrap">
             {/* 카드 1: 실제 지급 대상 상품개수 */}
@@ -1448,6 +1898,79 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
               </div>
               <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
                 <Receipt size={18} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* [리치웰페어 손익 결산 전용 KPI 카드 - 4개 그리드] */
+          <div className="px-6 py-3 bg-emerald-50/50 border-b border-emerald-100 grid grid-cols-4 gap-4 shrink-0 whitespace-nowrap">
+            {/* 카드 1: [A] 리치웰페어 총 입금액 (거래처 매출) */}
+            <div className="bg-white p-3.5 rounded-xl border border-blue-200 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  <p className="text-[11px] font-bold text-blue-800 uppercase">[A] 리치웰페어 총 입금액</p>
+                </div>
+                <h3 className="text-xl font-black text-blue-700 mt-0.5 font-mono">
+                  {richwelfareProfitSummary.totalDeposit.toLocaleString()} <span className="text-xs font-bold text-blue-500">원</span>
+                </h3>
+                <p className="text-[10px] text-blue-500 mt-0.5 font-medium">리치웰페어 결합매출 기준 (VAT포함)</p>
+              </div>
+              <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                <DollarSign size={18} />
+              </div>
+            </div>
+
+            {/* 카드 2: [B] 공급 물품대금 합계 (1차 원가) */}
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-slate-500" />
+                  <p className="text-[11px] font-bold text-slate-700 uppercase">[B] 공급 물품대금 합계</p>
+                </div>
+                <h3 className="text-xl font-black text-slate-800 mt-0.5 font-mono">
+                  {richwelfareProfitSummary.totalSupplyPrice.toLocaleString()} <span className="text-xs font-bold text-slate-500">원</span>
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-0.5 font-medium">공급사 지급 물품 원가 (VAT포함)</p>
+              </div>
+              <div className="p-2 bg-slate-100 text-slate-700 rounded-lg">
+                <Package size={18} />
+              </div>
+            </div>
+
+            {/* 카드 3: [C] 공급 수수료 합계 (2차 수당) */}
+            <div className="bg-white p-3.5 rounded-xl border border-purple-200 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-purple-500" />
+                  <p className="text-[11px] font-bold text-purple-800 uppercase">[C] 공급 수수료 합계</p>
+                </div>
+                <h3 className="text-xl font-black text-purple-700 mt-0.5 font-mono">
+                  {richwelfareProfitSummary.totalCommission.toLocaleString()} <span className="text-xs font-bold text-purple-500">원</span>
+                </h3>
+                <p className="text-[10px] text-purple-500 mt-0.5 font-medium">본부 및 특수수당 지급액 (VAT포함)</p>
+              </div>
+              <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
+                <Coins size={18} />
+              </div>
+            </div>
+
+            {/* 카드 4: [D] 더좋은라이프 실질 순이익 (최종 순익) */}
+            <div className="bg-linear-to-br from-emerald-600 to-teal-700 text-white p-3.5 rounded-xl shadow-xs flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-200" />
+                  <p className="text-[11px] font-bold text-emerald-100 uppercase">[D] 더좋은라이프 최종 순익</p>
+                </div>
+                <h3 className="text-xl font-black text-white mt-0.5 font-mono">
+                  {richwelfareProfitSummary.totalNetProfit.toLocaleString()} <span className="text-xs font-bold text-emerald-200">원</span>
+                </h3>
+                <p className="text-[10px] text-emerald-100 mt-0.5 font-medium">
+                  영업이익률: <strong>{richwelfareProfitSummary.totalMarginRate}%</strong> ([A] - [B] - [C])
+                </p>
+              </div>
+              <div className="p-2 bg-white/20 text-white rounded-lg">
+                <CheckCircle size={18} />
               </div>
             </div>
           </div>
@@ -1652,7 +2175,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                 </div>
               </div>
             )
-          ) : (
+          ) : mainTab === 'COMMISSION' ? (
             /* ======================================================== */
             /* [메인 탭 2] 공급 수수료(특수수당) 정산 영역             */
             /* ======================================================== */
@@ -1894,6 +2417,313 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                         ))
                       )}
                     </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          ) : (
+            /* ======================================================== */
+            /* [메인 탭 3] 리치웰페어 수기발주 손익 결산 (통합) 영역   */
+            /* ======================================================== */
+            viewMode === 'SUMMARY' ? (
+              <div className="space-y-6">
+                {/* 1. 리치웰페어 손익 정산 결산 종합 요약표 */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                  <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-emerald-50/50 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="text-emerald-600" size={16} />
+                      <h3 className="text-sm font-black text-slate-800">
+                        {selectedMonth} 리치웰페어 수기발주 손익 정산 결산 종합
+                      </h3>
+                      <span className="text-xs text-slate-500 font-medium">
+                        (리치웰페어 총 입금액 - 공급 물품대금 - 공급 수수료 = 최종 실질 순이익)
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-slate-500">
+                      총 {richwelfareProfitSummary.count}건 정산 대상
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100/80 text-slate-700 border-b border-slate-200 font-bold whitespace-nowrap">
+                          <th className="p-3.5 pl-5">구분</th>
+                          <th className="p-3.5">항목명</th>
+                          <th className="p-3.5 text-right">금액 (VAT포함)</th>
+                          <th className="p-3.5 text-center">비율(%)</th>
+                          <th className="p-3.5">산출 공식 및 세부 내역</th>
+                          <th className="p-3.5 pr-5">비고</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        <tr className="hover:bg-slate-50/80 transition-colors whitespace-nowrap">
+                          <td className="p-3.5 pl-5 font-bold text-emerald-800">[A] 총 입금액</td>
+                          <td className="p-3.5 font-bold text-slate-800">리치웰페어 거래처 총 입금액 (결합매출액)</td>
+                          <td className="p-3.5 text-right font-mono font-black text-emerald-700 text-sm">
+                            {richwelfareProfitSummary.totalDeposit.toLocaleString()}원
+                          </td>
+                          <td className="p-3.5 text-center font-bold font-mono text-slate-600">100.0%</td>
+                          <td className="p-3.5 text-slate-600">구글 시트 '리치웰페어' 탭 결합매출액 합계</td>
+                          <td className="p-3.5 pr-5 text-emerald-600 font-bold">수익 원천</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50/80 transition-colors whitespace-nowrap">
+                          <td className="p-3.5 pl-5 font-bold text-blue-800">[B] 물품대금 원가</td>
+                          <td className="p-3.5 font-bold text-slate-800">공급사별 지급 물품대금 원가</td>
+                          <td className="p-3.5 text-right font-mono font-black text-blue-700 text-sm">
+                            {richwelfareProfitSummary.totalSupplyPrice.toLocaleString()}원
+                          </td>
+                          <td className="p-3.5 text-center font-bold font-mono text-slate-600">
+                            {richwelfareProfitSummary.totalDeposit > 0
+                              ? ((richwelfareProfitSummary.totalSupplyPrice / richwelfareProfitSummary.totalDeposit) * 100).toFixed(1)
+                              : '0.0'}%
+                          </td>
+                          <td className="p-3.5 text-slate-600">바디프랜드 등 공급사에 지급할 물품대금 합계</td>
+                          <td className="p-3.5 pr-5 text-blue-600 font-bold">1차 제조/매입원가</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50/80 transition-colors whitespace-nowrap">
+                          <td className="p-3.5 pl-5 font-bold text-purple-800">[C] 공급 수수료</td>
+                          <td className="p-3.5 font-bold text-slate-800">본부 및 영업 특수수당 지급액</td>
+                          <td className="p-3.5 text-right font-mono font-black text-purple-700 text-sm">
+                            {richwelfareProfitSummary.totalCommission.toLocaleString()}원
+                          </td>
+                          <td className="p-3.5 text-center font-bold font-mono text-slate-600">
+                            {richwelfareProfitSummary.totalDeposit > 0
+                              ? ((richwelfareProfitSummary.totalCommission / richwelfareProfitSummary.totalDeposit) * 100).toFixed(1)
+                              : '0.0'}%
+                          </td>
+                          <td className="p-3.5 text-slate-600">본부 및 수령처별 공급 수수료(특수수당) 합계</td>
+                          <td className="p-3.5 pr-5 text-purple-600 font-bold">영업 비용</td>
+                        </tr>
+                        <tr className="bg-emerald-50/60 font-black text-slate-900 border-t-2 border-emerald-200 whitespace-nowrap">
+                          <td className="p-3.5 pl-5 font-black text-emerald-900 text-sm">[D] 최종 순이익</td>
+                          <td className="p-3.5 font-black text-emerald-950 text-sm">더좋은라이프 최종 실질 순이익</td>
+                          <td className="p-3.5 text-right font-mono font-black text-emerald-900 text-base">
+                            {richwelfareProfitSummary.totalNetProfit.toLocaleString()}원
+                          </td>
+                          <td className="p-3.5 text-center font-black font-mono text-emerald-900 text-sm">
+                            {richwelfareProfitSummary.totalMarginRate}%
+                          </td>
+                          <td className="p-3.5 text-emerald-800 font-medium">
+                            [A] 총 입금액 - [B] 물품대금 - [C] 공급수수료 (마진율 {richwelfareProfitSummary.totalMarginRate}%)
+                          </td>
+                          <td className="p-3.5 pr-5 text-emerald-800 font-black">최종 정산 순익</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 2. 공급사별 실적 및 손익 명세 요약표 */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                  <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <Layers className="text-slate-600" size={16} />
+                      <h3 className="text-sm font-black text-slate-800">
+                        공급사별 실적 및 손익 명세 현황
+                      </h3>
+                      <span className="text-xs text-slate-500 font-medium">
+                        (공급사별 입금액, 물품대금, 공급수수료, 순이익 및 마진율 비교)
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-slate-500">
+                      총 {richwelfareProfitSummary.supplierProfitList.length}개 공급사
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100/80 text-slate-700 border-b border-slate-200 font-bold whitespace-nowrap">
+                          <th className="p-3.5 pl-5">공급사명</th>
+                          <th className="p-3.5 text-center">건수</th>
+                          <th className="p-3.5 text-center">상품수량</th>
+                          <th className="p-3.5 text-right font-bold text-emerald-800">[A] 리치웰 입금액</th>
+                          <th className="p-3.5 text-right font-bold text-blue-800">[B] 공급 물품대금</th>
+                          <th className="p-3.5 text-right font-bold text-purple-800">[C] 공급 수수료</th>
+                          <th className="p-3.5 text-right font-black text-slate-900">[D] 실질 순이익</th>
+                          <th className="p-3.5 text-center font-bold text-emerald-700 pr-5">마진율(%)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {richwelfareProfitSummary.supplierProfitList.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="py-12 text-center text-slate-400 whitespace-nowrap">
+                              해당 정산월에 손익 정산 대상 건이 없습니다.
+                            </td>
+                          </tr>
+                        ) : (
+                          richwelfareProfitSummary.supplierProfitList.map(sp => (
+                            <tr key={sp.supplierId} className="hover:bg-slate-50/80 transition-colors whitespace-nowrap">
+                              <td className="p-3.5 pl-5 font-bold text-slate-900">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                                  <span>{sp.supplierName}</span>
+                                </div>
+                              </td>
+                              <td className="p-3.5 text-center font-mono font-bold text-slate-700">
+                                {sp.count.toLocaleString()}건
+                              </td>
+                              <td className="p-3.5 text-center font-mono font-bold text-slate-800">
+                                {sp.productCount.toLocaleString()}개
+                              </td>
+                              <td className="p-3.5 text-right font-mono font-bold text-emerald-700">
+                                {sp.depositAmount.toLocaleString()}원
+                              </td>
+                              <td className="p-3.5 text-right font-mono font-bold text-blue-700">
+                                {sp.supplyPriceAmount.toLocaleString()}원
+                              </td>
+                              <td className="p-3.5 text-right font-mono font-bold text-purple-700">
+                                {sp.commissionAmount.toLocaleString()}원
+                              </td>
+                              <td className={`p-3.5 text-right font-mono font-black text-sm ${
+                                sp.netProfitAmount >= 0 ? 'text-emerald-700' : 'text-rose-600'
+                              }`}>
+                                {sp.netProfitAmount.toLocaleString()}원
+                              </td>
+                              <td className="p-3.5 text-center font-mono font-bold text-slate-700 pr-5">
+                                <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                                  Number(sp.marginRate) >= 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                }`}>
+                                  {sp.marginRate}%
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                      {richwelfareProfitSummary.supplierProfitList.length > 0 && (
+                        <tfoot>
+                          <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300 whitespace-nowrap">
+                            <td className="p-3.5 pl-5">합계</td>
+                            <td className="p-3.5 text-center font-mono">{richwelfareProfitSummary.count.toLocaleString()}건</td>
+                            <td className="p-3.5 text-center font-mono">
+                              {richwelfareProfitSummary.supplierProfitList.reduce((acc, s) => acc + s.productCount, 0).toLocaleString()}개
+                            </td>
+                            <td className="p-3.5 text-right font-mono text-emerald-800">{richwelfareProfitSummary.totalDeposit.toLocaleString()}원</td>
+                            <td className="p-3.5 text-right font-mono text-blue-800">{richwelfareProfitSummary.totalSupplyPrice.toLocaleString()}원</td>
+                            <td className="p-3.5 text-right font-mono text-purple-800">{richwelfareProfitSummary.totalCommission.toLocaleString()}원</td>
+                            <td className="p-3.5 text-right font-mono text-slate-900 text-sm">{richwelfareProfitSummary.totalNetProfit.toLocaleString()}원</td>
+                            <td className="p-3.5 text-center font-mono text-emerald-800 pr-5">{richwelfareProfitSummary.totalMarginRate}%</td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* 건별 수기발주 손익 정산 상세 명세 */
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-emerald-50/40 whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="text-emerald-600" size={16} />
+                    <h3 className="text-sm font-black text-slate-800">
+                      건별 수기발주(리치웰페어) 손익 정산 상세 명세 ({filteredDetailItems.length}건)
+                    </h3>
+                    <span className="text-xs text-slate-500 font-medium">
+                      (리치웰페어 입금액 [A] - 물품대금 [B] - 공급수수료 [C] = 건별 순이익 [D])
+                    </span>
+                  </div>
+                  <div className="text-xs font-bold text-slate-500">
+                    전체 {filteredDetailItems.length}건 표시
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100/80 text-slate-700 border-b border-slate-200 font-bold whitespace-nowrap">
+                        <th className="p-3 pl-4 font-mono">렌탈계약번호</th>
+                        <th className="p-3">계약일자</th>
+                        <th className="p-3">배송완료일</th>
+                        <th className="p-3 text-center">정산마감월</th>
+                        <th className="p-3">공급사</th>
+                        <th className="p-3">고객명</th>
+                        <th className="p-3">매칭 제품명</th>
+                        <th className="p-3 text-center">수량</th>
+                        <th className="p-3 text-right font-bold text-emerald-700">[A] 입금액</th>
+                        <th className="p-3 text-right font-bold text-blue-700">[B] 물품대금</th>
+                        <th className="p-3 text-right font-bold text-purple-700">[C] 공급수수료</th>
+                        <th className="p-3 text-right font-black text-slate-900">[D] 건별 순수익</th>
+                        <th className="p-3 text-center font-bold text-slate-700">마진율</th>
+                        <th className="p-3">소속 본부</th>
+                        <th className="p-3 pr-4">영업사원</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredDetailItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={15} className="py-12 text-center text-slate-400 whitespace-nowrap">
+                            해당 조건에 부합하는 손익 정산 대상 건이 없습니다.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredDetailItems.map((item) => (
+                          <tr key={item.uniqueKey} className="hover:bg-slate-50/80 transition-colors whitespace-nowrap">
+                            <td className="p-3 pl-4 font-mono font-bold text-indigo-700">{item.rentalNo}</td>
+                            <td className="p-3 font-mono text-slate-500">{item.contractDate}</td>
+                            <td className="p-3 font-mono font-bold text-slate-700">{item.deliveryDate}</td>
+                            <td className="p-3 text-center font-mono font-bold text-emerald-700">
+                              {item.installCertMonth || selectedMonth}
+                            </td>
+                            <td className="p-3 font-bold text-slate-800">{item.matchedSupplierName}</td>
+                            <td className="p-3 font-bold text-slate-900">{item.memName}</td>
+                            <td className="p-3 font-medium text-slate-800">{item.matchedProductName}</td>
+                            <td className="p-3 text-center font-bold font-mono text-slate-900">
+                              <span className="px-2 py-0.5 bg-slate-100 rounded-md">
+                                {item.quantity}개
+                              </span>
+                            </td>
+                            <td className="p-3 text-right font-mono font-bold text-emerald-700">
+                              {(item.richwelfareDeposit || 0).toLocaleString()}원
+                            </td>
+                            <td className="p-3 text-right font-mono font-bold text-blue-700">
+                              {item.totalSupplyPrice.toLocaleString()}원
+                            </td>
+                            <td className="p-3 text-right font-mono font-bold text-purple-700">
+                              {item.totalCommission.toLocaleString()}원
+                            </td>
+                            <td className={`p-3 text-right font-mono font-black ${
+                              (item.netProfit || 0) >= 0 ? 'text-emerald-700' : 'text-rose-600'
+                            }`}>
+                              {(item.netProfit || 0).toLocaleString()}원
+                            </td>
+                            <td className="p-3 text-center font-mono font-bold text-slate-700">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                                Number(item.marginRate || 0) >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                              }`}>
+                                {item.marginRate || '0.0'}%
+                              </span>
+                            </td>
+                            <td className="p-3 text-slate-700 font-semibold">{item.hq}</td>
+                            <td className="p-3 pr-4 text-slate-600">{item.empName}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                    {filteredDetailItems.length > 0 && (
+                      <tfoot>
+                        <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300 whitespace-nowrap">
+                          <td className="p-3 pl-4" colSpan={7}>합계 ({filteredDetailItems.length}건)</td>
+                          <td className="p-3 text-center font-mono">
+                            {filteredDetailItems.reduce((acc, i) => acc + i.quantity, 0).toLocaleString()}개
+                          </td>
+                          <td className="p-3 text-right font-mono text-emerald-800">
+                            {filteredDetailItems.reduce((acc, i) => acc + (i.richwelfareDeposit || 0), 0).toLocaleString()}원
+                          </td>
+                          <td className="p-3 text-right font-mono text-blue-800">
+                            {filteredDetailItems.reduce((acc, i) => acc + i.totalSupplyPrice, 0).toLocaleString()}원
+                          </td>
+                          <td className="p-3 text-right font-mono text-purple-800">
+                            {filteredDetailItems.reduce((acc, i) => acc + i.totalCommission, 0).toLocaleString()}원
+                          </td>
+                          <td className="p-3 text-right font-mono text-slate-900 text-sm">
+                            {filteredDetailItems.reduce((acc, i) => acc + (i.netProfit || 0), 0).toLocaleString()}원
+                          </td>
+                          <td className="p-3 text-center font-mono text-emerald-800">-</td>
+                          <td colSpan={2}></td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               </div>
