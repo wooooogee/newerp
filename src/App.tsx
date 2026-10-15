@@ -366,9 +366,9 @@ const MASTER_HQ_DATA: Partial<HQSetting>[] = [
   },
   {
     hqName: '언바운드컴퍼니', bankName: '국민은행', accountNumber: '79400104179154', accountHolder: '주식회사 언바운드컴퍼니', productRules: [
-      { productName: '더좋은하이브리드698', totalAmount: 720000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-      { productName: '더좋은프리미엄540', totalAmount: 720000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
-      { productName: '더좋은프리미엄540플러스', totalAmount: 710000, salesAmount: 300000, tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은하이브리드698', totalAmount: 720000, salesAmount: 300000, tierCountBasis: 'all', tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은프리미엄540', totalAmount: 720000, salesAmount: 300000, tierCountBasis: 'all', tier1Count: 300, tier1Price: 750000, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
+      { productName: '더좋은프리미엄540플러스', totalAmount: 710000, salesAmount: 300000, tierCountBasis: 'all', tier1Count: 300, tier1Price: 740000, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0 },
     ]
   },
 ];
@@ -1949,6 +1949,16 @@ const ERP_Dashboard = () => {
     return datePattern.test(val);
   };
 
+  // 대사 및 정산용 안전한 숫자 파싱 함수 (NaN 원천 방지)
+  const safeReconNumber = (v: any): number => {
+    if (v === null || v === undefined || v === '') return 0;
+    if (typeof v === 'number') return isNaN(v) ? 0 : v;
+    const cleaned = String(v).replace(/[^0-9.-]/g, '').trim();
+    if (!cleaned || cleaned === '-') return 0;
+    const n = Number(cleaned);
+    return isNaN(n) ? 0 : n;
+  };
+
   // 구글 시트 데이터 로드
   const loadReconHistory = async () => {
     try {
@@ -1956,8 +1966,17 @@ const ERP_Dashboard = () => {
       const res = await fetch('/api/sheets/reconciliation/load');
       const json = await res.json();
       if (json.history) {
-        setHistoryReconData(json.history);
-        const dates = Array.from(new Set(json.history.map((h: any) => h['정산기준일']))).sort().reverse();
+        const enriched = (json.history || []).map((h: any) => {
+          const rentalId = String(h['계약ID(렌탈번호)'] || h['계약ID'] || '').trim();
+          const internalMatch = data.find(d => d.rentalNo === rentalId);
+          const prodModel = h['제품명'] || internalMatch?.rentalProd || internalMatch?.modelName || internalMatch?.productModel || '';
+          return {
+            ...h,
+            '제품명': prodModel
+          };
+        });
+        setHistoryReconData(enriched);
+        const dates = Array.from(new Set(enriched.map((h: any) => h['정산기준일']))).sort().reverse();
         setReconHistoryDates(dates as string[]);
         if (dates.length > 0 && !selectedHistoryDate) {
           setSelectedHistoryDate(dates[0] as string);
@@ -2030,12 +2049,7 @@ const ERP_Dashboard = () => {
       
       const excelData = json.data;
 
-      const localStatsMap = new Map<string, number>();
-      data.forEach(d => {
-        if (!d.hq || !d.prodName) return;
-        const k = `${d.hq}|${d.prodName}`;
-        localStatsMap.set(k, (localStatsMap.get(k) || 0) + 1);
-      });
+      const localStatsMap = buildHqCountMap(data);
 
       const newReconData = excelData.map((row: any) => {
         const rentalNo = String(row['계약ID'] || row['계약ID(렌탈번호)'] || '').trim();
@@ -2050,6 +2064,7 @@ const ERP_Dashboard = () => {
           const branchName = firstMatch.branch;
           const empName = firstMatch.empName;
           const prodName = firstMatch.prodName;
+          const prodModel = firstMatch.rentalProd || firstMatch.modelName || firstMatch.productModel || row['제품명'] || row['모델명'] || '';
           const custName = firstMatch.memName;
           const intContractDate = firstMatch.contractDate;
           const intDeliveryDate = firstMatch.deliveryDate;
@@ -2116,6 +2131,7 @@ const ERP_Dashboard = () => {
             '지사명': branchName,
             '사원명': empName,
             '상품명': prodName,
+            '제품명': prodModel,
             '계약일자': intContractDate,
             '거래처 배송일': extDeliveryDate,
             '내부 배송일자': intDeliveryDate,
@@ -2135,6 +2151,7 @@ const ERP_Dashboard = () => {
             '지사명': '',
             '사원명': '',
             '상품명': row['상품명'],
+            '제품명': row['제품명'] || row['모델명'] || '',
             '계약일자': '',
             '거래처 배송일': row['배송일'] || '',
             '내부 배송일자': '',
@@ -2189,6 +2206,7 @@ const ERP_Dashboard = () => {
             '지사명': firstMatch.branch,
             '사원명': firstMatch.empName,
             '상품명': firstMatch.prodName,
+            '제품명': firstMatch.rentalProd || firstMatch.modelName || firstMatch.productModel || '',
             '계약일자': firstMatch.contractDate,
             '거래처 배송일': '',
             '내부 배송일자': firstMatch.deliveryDate,
@@ -2218,7 +2236,7 @@ const ERP_Dashboard = () => {
       setReconLoading(true);
       const rows = reconData.map(d => [
         d['정산기준일'], d['수수료지급일자'] || '', d['계약ID(렌탈번호)'], d['고객명'], d['본부명'],
-        d['상품명'], d['계약일자'], d['내부 배송일자'] || d['배송일자'] || d['거래처 배송일'] || '',
+        d['상품명'], d['제품명'] || '', d['계약일자'], d['내부 배송일자'] || d['배송일자'] || d['거래처 배송일'] || '',
         d['구좌수'], d['거래처입금액'], d['내부지급액합계'], d['최종순수익'], d['비고']
       ]);
       const res = await fetch('/api/sheets/reconciliation/save', {
@@ -2774,6 +2792,25 @@ const ERP_Dashboard = () => {
       // 판매수수료는 항상 상품 설정상의 판매수수료(salesAmount)와 동일하게 유지하며,
       // 단가 변동에 따른 차액은 하단의 promoFee(판매촉진비) 계산 시 자동 흡수 및 반영됩니다.
       salesPart = pRule.salesAmount;
+    }
+
+    // [언바운드컴퍼니 300건 이상 구간별 수수료 특별 적용]
+    // 300건 이상 시: 더좋은프리미엄540플러스: 740,000원, 더좋은프리미엄540: 750,000원
+    const isUnboundHq = (item.hq || '').replace(/\s+/g, '').includes('언바운드');
+    if (isUnboundHq) {
+      const unboundAllCount = hqTotalCountMap.get(`${item.hq}|__ALL__|${month}`) ??
+        hqTotalCountMap.get(`${item.hq}|__ALL__`) ??
+        hqTotalCountMap.get('언바운드컴퍼니|__ALL__') ??
+        (data || []).filter(d => (d.hq || '').replace(/\s+/g, '').includes('언바운드') && (!d.status || (!d.status.includes('취소') && !d.status.includes('해약')) || d.payDate)).length;
+
+      const normItemProd = normalize(item.prodName || '');
+      if (unboundAllCount >= 300 || count >= 300) {
+        if (normItemProd.includes('540플러스') || normItemProd.includes('540plus')) {
+          unitPrice = 740000;
+        } else if (normItemProd.includes('540')) {
+          unitPrice = 750000;
+        }
+      }
     }
 
     let totalCommission = unitPrice;
@@ -14595,21 +14632,45 @@ const ERP_Dashboard = () => {
                           return custA.localeCompare(custB, 'ko');
                         });
                         
-                        const mappedData = baseData.map(d => ({
-                          '정산기준일': d['정산기준일'] || '',
-                          '수수료지급일자': d['수수료지급일자'] || d['지급일자'] || '',
-                          '계약ID': d['계약ID(렌탈번호)'] || d['계약ID'] || '',
-                          '고객명': d['고객명'] || '',
-                          '본부명': d['본부명'] || '',
-                          '상품명': d['상품명'] || '',
-                          '계약일자': d['계약일자'] || '',
-                          '배송일자': d['내부 배송일자'] || d['배송일자'] || '',
-                          '구좌수': d['구좌수'] || 0,
-                          '거래처입금액': d['거래처입금액'] || 0,
-                          '내부지급액합계': d['내부지급액합계'] || 0,
-                          '최종순수익': d['최종순수익'] || 0,
-                          '비고': d['비고'] || ''
-                        }));
+                        const mappedData = baseData.map(d => {
+                          const rentalId = String(d['계약ID(렌탈번호)'] || d['계약ID'] || '').trim();
+                          const internalItem = data.find(item => item.rentalNo === rentalId);
+                          const prodModel = d['제품명'] || internalItem?.rentalProd || internalItem?.modelName || internalItem?.productModel || '';
+                          
+                          const guzwa = safeReconNumber(d['구좌수']) || 1;
+                          let internalPayable = safeReconNumber(d['내부지급액합계']);
+
+                          // 언바운드컴퍼니 300건 이상 구간 수수료 적용: 540플러스 74만원, 540 75만원
+                          const hqStr = String(d['본부명'] || '').replace(/\s+/g, '');
+                          const prodStr = String(d['상품명'] || '').replace(/\s+/g, '');
+                          if (hqStr.includes('언바운드')) {
+                            if (prodStr.includes('540플러스') || prodStr.includes('540plus')) {
+                              internalPayable = guzwa * 740000;
+                            } else if (prodStr.includes('540')) {
+                              internalPayable = guzwa * 750000;
+                            }
+                          }
+
+                          const extDeposit = safeReconNumber(d['거래처입금액']);
+                          const netProfit = extDeposit - internalPayable;
+
+                          return {
+                            '정산기준일': d['정산기준일'] || '',
+                            '수수료지급일자': d['수수료지급일자'] || d['지급일자'] || '',
+                            '계약ID': rentalId,
+                            '고객명': d['고객명'] || '',
+                            '본부명': d['본부명'] || '',
+                            '상품명': d['상품명'] || '',
+                            '제품명': prodModel,
+                            '계약일자': d['계약일자'] || '',
+                            '배송일자': d['내부 배송일자'] || d['배송일자'] || d['거래처 배송일'] || '',
+                            '구좌수': guzwa,
+                            '거래처입금액': extDeposit,
+                            '내부지급액합계': internalPayable,
+                            '최종순수익': netProfit,
+                            '비고': d['비고'] || ''
+                          };
+                        });
 
                         const normalizeDateForSort = (dateStr: any): string => {
                           if (!dateStr) return '';
@@ -14662,10 +14723,10 @@ const ERP_Dashboard = () => {
                         const abnormalRows = sortRows(mappedData.filter(d => d['비고'] !== '정상'), true);
 
                         const normalCount = normalRows.length;
-                        const normalGuzwa = normalRows.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
-                        const normalExt = normalRows.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
-                        const normalInt = normalRows.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
-                        const normalNet = normalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+                        const normalGuzwa = normalRows.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+                        const normalExt = normalRows.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+                        const normalInt = normalRows.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+                        const normalNet = normalRows.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
 
                         const normalSubtotalRow = {
                           '계약일자': '',
@@ -14675,6 +14736,7 @@ const ERP_Dashboard = () => {
                           '고객명': `${normalCount}건`,
                           '본부명': '',
                           '상품명': '',
+                          '제품명': '',
                           '구좌수': normalGuzwa,
                           '거래처입금액': normalExt,
                           '내부지급액합계': normalInt,
@@ -14683,10 +14745,10 @@ const ERP_Dashboard = () => {
                         };
 
                         const abnormalCount = abnormalRows.length;
-                        const abnormalGuzwa = abnormalRows.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
-                        const abnormalExt = abnormalRows.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
-                        const abnormalInt = abnormalRows.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
-                        const abnormalNet = abnormalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+                        const abnormalGuzwa = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+                        const abnormalExt = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+                        const abnormalInt = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+                        const abnormalNet = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
 
                         const abnormalSubtotalRow = {
                           '계약일자': '',
@@ -14696,6 +14758,7 @@ const ERP_Dashboard = () => {
                           '고객명': `${abnormalCount}건`,
                           '본부명': '',
                           '상품명': '',
+                          '제품명': '',
                           '구좌수': abnormalGuzwa,
                           '거래처입금액': abnormalExt,
                           '내부지급액합계': abnormalInt,
@@ -14703,10 +14766,10 @@ const ERP_Dashboard = () => {
                           '비고': '이상 소계'
                         };
 
-                        const totalGuzwa = mappedData.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
-                        const totalExt = mappedData.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
-                        const totalInt = mappedData.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
-                        const totalNet = mappedData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+                        const totalGuzwa = mappedData.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+                        const totalExt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+                        const totalInt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+                        const totalNet = mappedData.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
 
                         const grandTotalRow = {
                           '계약일자': '',
@@ -14716,6 +14779,7 @@ const ERP_Dashboard = () => {
                           '고객명': `${mappedData.length}건`,
                           '본부명': '',
                           '상품명': '',
+                          '제품명': '',
                           '구좌수': totalGuzwa,
                           '거래처입금액': totalExt,
                           '내부지급액합계': totalInt,
@@ -14727,15 +14791,9 @@ const ERP_Dashboard = () => {
                           ? [...normalRows, normalSubtotalRow, ...abnormalRows, abnormalSubtotalRow, grandTotalRow]
                           : [...normalRows, normalSubtotalRow, grandTotalRow];
                         
-                        // 1행 컬럼 순서: 이미지 양식과 100% 동일
-                        const headers = ['계약일자', '배송일자', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
+                        // 1행 컬럼 순서: G열 상품명과 H열 구좌수 사이에 제품명 추가 (총 13열)
+                        const headers = ['계약일자', '배송일자', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '제품명', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
                         const aoaData = [headers];
-                        const parseReconNum = (v: any): number => {
-                          if (v === null || v === undefined || v === '') return 0;
-                          if (typeof v === 'number') return isNaN(v) ? 0 : v;
-                          const n = Number(String(v).replace(/,/g, '').trim());
-                          return isNaN(n) ? 0 : n;
-                        };
 
                         exportData.forEach(row => {
                            aoaData.push([
@@ -14746,39 +14804,420 @@ const ERP_Dashboard = () => {
                              row['고객명'] || '',
                              row['본부명'] || '',
                              row['상품명'] || '',
-                             { v: parseReconNum(row['구좌수']), t: 'n', z: '#,##0' },
-                             { v: parseReconNum(row['거래처입금액']), t: 'n', z: '#,##0' },
-                             { v: parseReconNum(row['내부지급액합계']), t: 'n', z: '#,##0' },
-                             { v: parseReconNum(row['최종순수익']), t: 'n', z: '#,##0' },
+                             row['제품명'] || '',
+                             { v: safeReconNumber(row['구좌수']), t: 'n', z: '#,##0' },
+                             { v: safeReconNumber(row['거래처입금액']), t: 'n', z: '#,##0' },
+                             { v: safeReconNumber(row['내부지급액합계']), t: 'n', z: '#,##0' },
+                             { v: safeReconNumber(row['최종순수익']), t: 'n', z: '#,##0' },
                              row['비고'] || ''
                            ]);
                         });
 
                         const targetDate = reconTab === 'NEW' ? reconDate : selectedHistoryDate;
-                        const ws = XLSX.utils.aoa_to_sheet(aoaData);
+                        const wsRecon = XLSX.utils.aoa_to_sheet(aoaData);
+                        
                         // 열 너비 설정
-                        ws['!cols'] = [
+                        wsRecon['!cols'] = [
                           { wch: 12 }, // 계약일자
                           { wch: 12 }, // 배송일자
                           { wch: 14 }, // 수수료지급일자
                           { wch: 12 }, // 계약ID
                           { wch: 10 }, // 고객명
                           { wch: 16 }, // 본부명
-                          { wch: 26 }, // 상품명
+                          { wch: 24 }, // 상품명
+                          { wch: 22 }, // 제품명
                           { wch: 8 },  // 구좌수
                           { wch: 16 }, // 거래처입금액
                           { wch: 16 }, // 내부지급액합계
                           { wch: 16 }, // 최종순수익
-                          { wch: 12 }  // 비고
+                          { wch: 14 }  // 비고
                         ];
+
+                        // 스타일 정의 (통합정산보고서의 대사보고 시트와 100% 동일한 서식 적용)
+                        const numberStyle = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "right" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }, numFmt: "#,##0" };
+                        const cellStyleAppend = { font: { sz: 9 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+                        const headerStyleAppend = { fill: { fgColor: { rgb: "2F5597" } }, font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+
+                        const subtotalNormalStyle = { fill: { fgColor: { rgb: "E2EFDA" } }, font: { bold: true, sz: 9, color: { rgb: "276749" } }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+                        const subtotalNormalNumberStyle = { fill: { fgColor: { rgb: "E2EFDA" } }, font: { bold: true, sz: 9, color: { rgb: "276749" } }, alignment: { vertical: "center", horizontal: "right" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }, numFmt: "#,##0" };
+
+                        const subtotalAbnormalStyle = { fill: { fgColor: { rgb: "FFC7CE" } }, font: { bold: true, sz: 9, color: { rgb: "9B2C2C" } }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+                        const subtotalAbnormalNumberStyle = { fill: { fgColor: { rgb: "FFC7CE" } }, font: { bold: true, sz: 9, color: { rgb: "9B2C2C" } }, alignment: { vertical: "center", horizontal: "right" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }, numFmt: "#,##0" };
+
+                        const grandTotalStyle = { fill: { fgColor: { rgb: "D9E1F2" } }, font: { bold: true, sz: 9, color: { rgb: "1E293B" } }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } };
+                        const grandTotalNumberStyle = { fill: { fgColor: { rgb: "D9E1F2" } }, font: { bold: true, sz: 9, color: { rgb: "1E293B" } }, alignment: { vertical: "center", horizontal: "right" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }, numFmt: "#,##0" };
+
+                        const rangeRecon = XLSX.utils.decode_range(wsRecon['!ref'] || 'A1:A1');
+                        for (let R = rangeRecon.s.r; R <= rangeRecon.e.r; ++R) {
+                          const noteAddr = XLSX.utils.encode_cell({ r: R, c: 12 }); // c: 12 is 비고 column
+                          const noteVal = wsRecon[noteAddr] ? String(wsRecon[noteAddr].v || '') : '';
+                          const isNormalSubtotal = noteVal === '정상 소계';
+                          const isAbnormalSubtotal = noteVal === '이상 소계';
+                          const isGrandTotal = noteVal === '총계';
+
+                          for (let C = rangeRecon.s.c; C <= rangeRecon.e.c; ++C) {
+                            const addr = XLSX.utils.encode_cell({ r: R, c: C });
+                            if (!wsRecon[addr]) continue;
+                            
+                            if (R === 0) {
+                              wsRecon[addr].s = headerStyleAppend;
+                              continue;
+                            }
+
+                            if (isNormalSubtotal) {
+                              if (wsRecon[addr].t === 'n' || (C >= 8 && C <= 11)) {
+                                wsRecon[addr].s = { ...subtotalNormalNumberStyle };
+                                wsRecon[addr].t = 'n';
+                                wsRecon[addr].v = safeReconNumber(wsRecon[addr].v);
+                                wsRecon[addr].z = '#,##0';
+                              } else {
+                                wsRecon[addr].s = { ...subtotalNormalStyle };
+                              }
+                              continue;
+                            }
+
+                            if (isAbnormalSubtotal) {
+                              if (wsRecon[addr].t === 'n' || (C >= 8 && C <= 11)) {
+                                wsRecon[addr].s = { ...subtotalAbnormalNumberStyle };
+                                wsRecon[addr].t = 'n';
+                                wsRecon[addr].v = safeReconNumber(wsRecon[addr].v);
+                                wsRecon[addr].z = '#,##0';
+                              } else {
+                                wsRecon[addr].s = { ...subtotalAbnormalStyle };
+                              }
+                              continue;
+                            }
+
+                            if (isGrandTotal) {
+                              if (wsRecon[addr].t === 'n' || (C >= 8 && C <= 11)) {
+                                wsRecon[addr].s = { ...grandTotalNumberStyle };
+                                wsRecon[addr].t = 'n';
+                                wsRecon[addr].v = safeReconNumber(wsRecon[addr].v);
+                                wsRecon[addr].z = '#,##0';
+                              } else {
+                                wsRecon[addr].s = { ...grandTotalStyle };
+                              }
+                              continue;
+                            }
+
+                            let fgColor = "FFFFFF";
+                            const val = String(wsRecon[addr].v || '');
+                            if (noteVal.startsWith('선지급')) {
+                              if (C === 12) fgColor = "FFF2CC"; // light amber for 선지급 remark cell
+                            } else if (noteVal && noteVal !== '정상' && noteVal !== '비고') {
+                              fgColor = "FFC7CE"; // light red for error rows
+                            } else if (C === 12 && val === '정상') {
+                              fgColor = "E2EFDA"; // light green for 정상 remark cell
+                            }
+
+                            wsRecon[addr].s = { 
+                              ...cellStyleAppend, 
+                              fill: { fgColor: { rgb: fgColor } }
+                            };
+
+                            if (wsRecon[addr].t === 'n' || (val && !isNaN(Number(val)) && C >= 8 && C <= 11)) {
+                              wsRecon[addr].s = { ...numberStyle, fill: { fgColor: { rgb: fgColor } } };
+                              wsRecon[addr].t = 'n';
+                              wsRecon[addr].v = safeReconNumber(val);
+                              wsRecon[addr].z = '#,##0';
+                            }
+                          }
+                        }
+
+                        // --- 두 번째 시트: 정산보고서 (에넥스 입금, 수수료, 순익 및 더좋은라이프 추가 수수료 차감 보고서) ---
+                        const extraDeductions: Array<{
+                          category: string;
+                          name: string;
+                          detail: string;
+                          count: number | string;
+                          amount: number;
+                          settlementType: string;
+                          accountInfo: string;
+                          remark: string;
+                        }> = [];
+
+                        const specialAdditions = settlementStats.globalIncentivesSummary || {};
+                        Object.entries(specialAdditions).forEach(([targetName, amt]) => {
+                          const gross = safeReconNumber(amt);
+                          if (gross <= 0) return;
+
+                          const rule = globalIncentiveRules.find(r => r.targetName === targetName) ||
+                            globalIncentiveRules.find(r => isHqMatchedForSpecialRule(r, targetName, divisionSettings));
+                          
+                          let detail = rule?.incentiveName || (
+                            targetName === '조재윤' || targetName === '조재은' ? '모델비' :
+                            targetName === '이종연' || targetName === '조민경' ? '컨설팅비' :
+                            targetName.includes('신동우') ? '대표이사 수수료/인센티브' :
+                            targetName.includes('홈페이지') ? '홈페이지 유지보수비' : '특수수당'
+                          );
+                          if (targetName === '신동우' || targetName.includes('신동우')) {
+                            detail = '대표이사 인센티브/수수료';
+                          } else if (targetName.includes('홈페이지')) {
+                            detail = '홈페이지 유지보수비';
+                          }
+
+                          const count = settlementStats.globalIncentivesCountSummary?.[targetName] || 1;
+                          const setting = hqSettings.find(h => h.hqName === targetName);
+                          const acctStr = (setting?.bankName && setting?.accountNumber) ? `${setting.bankName} ${setting.accountNumber} (${setting.accountHolder || targetName})` : '-';
+
+                          extraDeductions.push({
+                            category: detail.includes('모델') ? '모델비' : detail.includes('컨설팅') ? '컨설팅' : detail.includes('유지') ? '유지보수' : '특수수당',
+                            name: targetName,
+                            detail,
+                            count,
+                            amount: gross,
+                            settlementType: setting?.settlementType || '사업자',
+                            accountInfo: acctStr,
+                            remark: '본사 추가 지출 수수료'
+                          });
+                        });
+
+                        // 사용자가 언급한 대표 항목들(조재윤 모델비, 신동우 대표, 홈페이지유지비 등)이 없으면 기본 표시 행 추가
+                        const existingNames = new Set(extraDeductions.map(e => e.name));
+
+                        if (!existingNames.has('조재윤') && !extraDeductions.some(e => e.detail.includes('모델'))) {
+                          const setting = hqSettings.find(h => h.hqName === '조재윤');
+                          extraDeductions.push({
+                            category: '모델비',
+                            name: '조재윤',
+                            detail: '전속 모델비',
+                            count: 0,
+                            amount: 0,
+                            settlementType: setting?.settlementType || '개인',
+                            accountInfo: setting?.bankName ? `${setting.bankName} ${setting.accountNumber} (${setting.accountHolder || '조재윤'})` : '수협 206000673009 (조재윤)',
+                            remark: '전속 모델 수수료'
+                          });
+                        }
+
+                        if (!existingNames.has('신동우') && !existingNames.has('신동우 대표')) {
+                          const setting = hqSettings.find(h => h.hqName.includes('신동우'));
+                          extraDeductions.push({
+                            category: '임원/대표',
+                            name: '신동우 대표',
+                            detail: '대표이사 수수료/인센티브',
+                            count: 0,
+                            amount: 0,
+                            settlementType: setting?.settlementType || '개인',
+                            accountInfo: setting?.bankName ? `${setting.bankName} ${setting.accountNumber} (${setting.accountHolder || '신동우'})` : '-',
+                            remark: '대표이사 수수료'
+                          });
+                        }
+
+                        if (!existingNames.has('홈페이지유지비') && !extraDeductions.some(e => e.detail.includes('홈페이지'))) {
+                          extraDeductions.push({
+                            category: '운영비',
+                            name: '홈페이지유지비',
+                            detail: '웹사이트 및 시스템 서버 유지보수비',
+                            count: 1,
+                            amount: 0,
+                            settlementType: '사업자',
+                            accountInfo: '-',
+                            remark: '월 고정 시스템 유지보수비'
+                          });
+                        }
+
+                        const maintSum = maintenancePayouts.reduce((sum, m) => sum + safeReconNumber(m.amount), 0);
+                        if (maintSum > 0) {
+                          extraDeductions.push({
+                            category: '유지수수료',
+                            name: '본부 유지수수료',
+                            detail: '회차별 계약 유지 관리 수수료',
+                            count: maintenancePayouts.length,
+                            amount: maintSum,
+                            settlementType: '사업자/개인',
+                            accountInfo: '-',
+                            remark: '당월 회차 유지수수료 총액'
+                          });
+                        }
+
+                        const totalExtraExpenses = extraDeductions.reduce((sum, e) => sum + e.amount, 0);
+                        const firstNetProfit = totalExt - totalInt;
+                        const finalNetProfit = firstNetProfit - totalExtraExpenses;
+                        const marginRate = totalExt > 0 ? ((finalNetProfit / totalExt) * 100).toFixed(1) : '0.0';
+                        const firstMarginRate = totalExt > 0 ? ((firstNetProfit / totalExt) * 100).toFixed(1) : '0.0';
+
+                        const summaryRows: any[][] = [
+                          ['[ 유통사(에넥스) 대사 및 더좋은라이프 손익 결산 보고서 ]'],
+                          [`기준일자: ${targetDate || '전체'} | 출력일시: ${new Date().toLocaleDateString('ko-KR')}`],
+                          [],
+                          ['1. 유통사(에넥스) 대사 실적 및 1차 영업수익 요약'],
+                          ['구분', '대사건수', '총 구좌수', '거래처입금액 (에넥스)', '영업수수료 지급액 (본부합계)', '1차 영업순수익', '비고'],
+                          [
+                            '정상 정산 건',
+                            normalCount,
+                            normalGuzwa,
+                            { v: normalExt, t: 'n', z: '#,##0' },
+                            { v: normalInt, t: 'n', z: '#,##0' },
+                            { v: normalNet, t: 'n', z: '#,##0' },
+                            '정상 대사 완료 건'
+                          ]
+                        ];
+
+                        if (abnormalCount > 0) {
+                          summaryRows.push([
+                            '이상/선지급 건',
+                            abnormalCount,
+                            abnormalGuzwa,
+                            { v: abnormalExt, t: 'n', z: '#,##0' },
+                            { v: abnormalInt, t: 'n', z: '#,##0' },
+                            { v: abnormalNet, t: 'n', z: '#,##0' },
+                            '선지급 및 배송/지급일자 상이 건'
+                          ]);
+                        }
+
+                        summaryRows.push(
+                          [
+                            '유통사 대사 총계',
+                            mappedData.length,
+                            totalGuzwa,
+                            { v: totalExt, t: 'n', z: '#,##0' },
+                            { v: totalInt, t: 'n', z: '#,##0' },
+                            { v: firstNetProfit, t: 'n', z: '#,##0' },
+                            `1차 영업이익률: ${firstMarginRate}%`
+                          ],
+                          [],
+                          ['2. 더좋은라이프 추가 수수료 및 본사 지출 내역 (차감 항목)'],
+                          ['구분', '대상자 / 항목명', '세부내용', '건수', '지출 금액', '정산유형', '지급계좌 / 비고']
+                        );
+
+                        extraDeductions.forEach(item => {
+                          summaryRows.push([
+                            item.category,
+                            item.name,
+                            item.detail,
+                            item.count !== 0 ? item.count : '-',
+                            { v: item.amount, t: 'n', z: '#,##0' },
+                            item.settlementType,
+                            item.accountInfo !== '-' ? item.accountInfo : item.remark
+                          ]);
+                        });
+
+                        summaryRows.push(
+                          [
+                            '본사 추가 지출 소계',
+                            `${extraDeductions.length}개 항목`,
+                            '',
+                            '',
+                            { v: totalExtraExpenses, t: 'n', z: '#,##0' },
+                            '',
+                            '본사 추가 수수료 합계 차감액'
+                          ],
+                          [],
+                          ['3. 최종 손익 정산 결산 종합'],
+                          ['구분', '항목명', '금액', '비율(%)', '산출 공식 / 세부 내역', '비고'],
+                          [
+                            '[A] 총 입금액',
+                            '에넥스 거래처 총 입금액',
+                            { v: totalExt, t: 'n', z: '#,##0' },
+                            '100.0%',
+                            '에넥스 유통사로부터 수납된 총 거래처입금액',
+                            '수익 원천'
+                          ],
+                          [
+                            '[B] 영업 수수료',
+                            '본부 및 사원 지급액',
+                            { v: totalInt, t: 'n', z: '#,##0' },
+                            `${totalExt > 0 ? ((totalInt / totalExt) * 100).toFixed(1) : 0}%`,
+                            '각 본부별 실적 지급 수수료 합계 (내부지급액합계)',
+                            '1차 비용'
+                          ],
+                          [
+                            '[C] 1차 영업순익',
+                            '유통사 영업 마진',
+                            { v: firstNetProfit, t: 'n', z: '#,##0' },
+                            `${firstMarginRate}%`,
+                            '[A] 거래처입금액 - [B] 영업수수료',
+                            '1차 순이익'
+                          ],
+                          [
+                            '[D] 본사 추가수수료',
+                            '본사 고정/특수 수수료 (차감 항목)',
+                            { v: totalExtraExpenses, t: 'n', z: '#,##0' },
+                            `${totalExt > 0 ? ((totalExtraExpenses / totalExt) * 100).toFixed(1) : 0}%`,
+                            '홈페이지유지비, 모델비, 신동우 대표, 컨설팅비, 유지수수료 등',
+                            '본사 차감 비용'
+                          ],
+                          [
+                            '[E] 최종 순이익',
+                            '더좋은라이프 최종 실질 순이익',
+                            { v: finalNetProfit, t: 'n', z: '#,##0' },
+                            `${marginRate}%`,
+                            '[C] 1차 영업순익 - [D] 본사 추가수수료 (최종 실현 순익)',
+                            '최종 정산 순익'
+                          ]
+                        );
+
+                        const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
+                        wsSummary['!cols'] = [
+                          { wch: 18 }, // 구분
+                          { wch: 26 }, // 항목명 / 대상자
+                          { wch: 22 }, // 세부내용 / 금액
+                          { wch: 12 }, // 건수 / 비율
+                          { wch: 24 }, // 지출금액 / 산출공식
+                          { wch: 14 }, // 정산유형
+                          { wch: 32 }  // 비고 / 지급계좌
+                        ];
+
+                        // 시트 2 스타일 적용
+                        const rangeSummary = XLSX.utils.decode_range(wsSummary['!ref'] || 'A1:A1');
+                        for (let R = rangeSummary.s.r; R <= rangeSummary.e.r; ++R) {
+                          const firstCellAddr = XLSX.utils.encode_cell({ r: R, c: 0 });
+                          const firstCellVal = wsSummary[firstCellAddr] ? String(wsSummary[firstCellAddr].v || '') : '';
+                          const isSectionHeader = firstCellVal.includes('1.') || firstCellVal.includes('2.') || firstCellVal.includes('3.') || firstCellVal === '구분';
+                          const isSubtotalRow = firstCellVal.includes('소계') || firstCellVal.includes('총계');
+                          const isFinalProfitRow = firstCellVal.includes('[E]');
+
+                          for (let C = rangeSummary.s.c; C <= rangeSummary.e.c; ++C) {
+                            const addr = XLSX.utils.encode_cell({ r: R, c: C });
+                            if (!wsSummary[addr]) continue;
+
+                            if (R === 0) {
+                              wsSummary[addr].s = { font: { bold: true, sz: 14 }, alignment: { vertical: "center", horizontal: "center" } };
+                              continue;
+                            }
+
+                            if (isSectionHeader) {
+                              wsSummary[addr].s = { ...headerStyleAppend };
+                              continue;
+                            }
+
+                            if (isFinalProfitRow) {
+                              wsSummary[addr].s = {
+                                fill: { fgColor: { rgb: "D9E1F2" } },
+                                font: { bold: true, sz: 10, color: { rgb: "1E293B" } },
+                                alignment: { vertical: "center", horizontal: wsSummary[addr].t === 'n' ? "right" : "center" },
+                                border: { top: { style: "thin" }, bottom: { style: "double" }, left: { style: "thin" }, right: { style: "thin" } }
+                              };
+                              continue;
+                            }
+
+                            if (isSubtotalRow) {
+                              wsSummary[addr].s = {
+                                fill: { fgColor: { rgb: "E2EFDA" } },
+                                font: { bold: true, sz: 9, color: { rgb: "276749" } },
+                                alignment: { vertical: "center", horizontal: wsSummary[addr].t === 'n' ? "right" : "center" },
+                                border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+                              };
+                              continue;
+                            }
+
+                            wsSummary[addr].s = {
+                              font: { sz: 9 },
+                              alignment: { vertical: "center", horizontal: wsSummary[addr].t === 'n' ? "right" : "center" },
+                              border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+                            };
+                          }
+                        }
+
                         const wb = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(wb, ws, '대사보고');
+                        XLSX.utils.book_append_sheet(wb, wsRecon, '대사보고');
+                        XLSX.utils.book_append_sheet(wb, wsSummary, '정산보고서');
                         const fileName = `유통사_대사내역_${targetDate || new Date().toISOString().slice(0, 10)}.xlsx`;
                         XLSX.writeFile(wb, fileName);
                       }}
                       disabled={(reconTab === 'NEW' ? reconData.length : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).length) === 0}
                       className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-100 disabled:opacity-50"
-                      title="유통사 대사 모달의 104건 전체 상세 내역을 엑셀로 다운로드합니다."
+                      title="대사보고 시트와 손익 정산보고서 시트가 포함된 엑셀 보고서를 다운로드합니다."
                     >
                       <Download size={14} /> 대사 내역 엑셀
                     </button>
@@ -14795,21 +15234,45 @@ const ERP_Dashboard = () => {
                           return custA.localeCompare(custB, 'ko');
                         });
                         
-                        const mappedData = baseData.map(d => ({
-                          '정산기준일': d['정산기준일'] || '',
-                          '수수료지급일자': d['수수료지급일자'] || d['지급일자'] || '',
-                          '계약ID': d['계약ID(렌탈번호)'] || d['계약ID'] || '',
-                          '고객명': d['고객명'] || '',
-                          '본부명': d['본부명'] || '',
-                          '상품명': d['상품명'] || '',
-                          '계약일자': d['계약일자'] || '',
-                          '배송일자': d['내부 배송일자'] || d['배송일자'] || '',
-                          '구좌수': d['구좌수'] || 0,
-                          '거래처입금액': d['거래처입금액'] || 0,
-                          '내부지급액합계': d['내부지급액합계'] || 0,
-                          '최종순수익': d['최종순수익'] || 0,
-                          '비고': d['비고'] || ''
-                        }));
+                        const mappedData = baseData.map(d => {
+                          const rentalId = String(d['계약ID(렌탈번호)'] || d['계약ID'] || '').trim();
+                          const internalItem = data.find(item => item.rentalNo === rentalId);
+                          const prodModel = d['제품명'] || internalItem?.rentalProd || internalItem?.modelName || internalItem?.productModel || '';
+                          
+                          const guzwa = safeReconNumber(d['구좌수']) || 1;
+                          let internalPayable = safeReconNumber(d['내부지급액합계']);
+
+                          // 언바운드컴퍼니 300건 이상 구간 수수료 적용: 540플러스 74만원, 540 75만원
+                          const hqStr = String(d['본부명'] || '').replace(/\s+/g, '');
+                          const prodStr = String(d['상품명'] || '').replace(/\s+/g, '');
+                          if (hqStr.includes('언바운드')) {
+                            if (prodStr.includes('540플러스') || prodStr.includes('540plus')) {
+                              internalPayable = guzwa * 740000;
+                            } else if (prodStr.includes('540')) {
+                              internalPayable = guzwa * 750000;
+                            }
+                          }
+
+                          const extDeposit = safeReconNumber(d['거래처입금액']);
+                          const netProfit = extDeposit - internalPayable;
+
+                          return {
+                            '정산기준일': d['정산기준일'] || '',
+                            '수수료지급일자': d['수수료지급일자'] || d['지급일자'] || '',
+                            '계약ID': rentalId,
+                            '고객명': d['고객명'] || '',
+                            '본부명': d['본부명'] || '',
+                            '상품명': d['상품명'] || '',
+                            '제품명': prodModel,
+                            '계약일자': d['계약일자'] || '',
+                            '배송일자': d['내부 배송일자'] || d['배송일자'] || d['거래처 배송일'] || '',
+                            '구좌수': guzwa,
+                            '거래처입금액': extDeposit,
+                            '내부지급액합계': internalPayable,
+                            '최종순수익': netProfit,
+                            '비고': d['비고'] || ''
+                          };
+                        });
 
                         const normalizeDateForSort = (dateStr: any): string => {
                           if (!dateStr) return '';
@@ -14862,10 +15325,10 @@ const ERP_Dashboard = () => {
                         const abnormalRows = sortRows(mappedData.filter(d => d['비고'] !== '정상'), true);
 
                         const normalCount = normalRows.length;
-                        const normalGuzwa = normalRows.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
-                        const normalExt = normalRows.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
-                        const normalInt = normalRows.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
-                        const normalNet = normalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+                        const normalGuzwa = normalRows.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+                        const normalExt = normalRows.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+                        const normalInt = normalRows.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+                        const normalNet = normalRows.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
 
                         const normalSubtotalRow = {
                           '계약일자': '',
@@ -14875,6 +15338,7 @@ const ERP_Dashboard = () => {
                           '고객명': `${normalCount}건`,
                           '본부명': '',
                           '상품명': '',
+                          '제품명': '',
                           '구좌수': normalGuzwa,
                           '거래처입금액': normalExt,
                           '내부지급액합계': normalInt,
@@ -14883,10 +15347,10 @@ const ERP_Dashboard = () => {
                         };
 
                         const abnormalCount = abnormalRows.length;
-                        const abnormalGuzwa = abnormalRows.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
-                        const abnormalExt = abnormalRows.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
-                        const abnormalInt = abnormalRows.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
-                        const abnormalNet = abnormalRows.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+                        const abnormalGuzwa = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+                        const abnormalExt = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+                        const abnormalInt = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+                        const abnormalNet = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
 
                         const abnormalSubtotalRow = {
                           '계약일자': '',
@@ -14896,6 +15360,7 @@ const ERP_Dashboard = () => {
                           '고객명': `${abnormalCount}건`,
                           '본부명': '',
                           '상품명': '',
+                          '제품명': '',
                           '구좌수': abnormalGuzwa,
                           '거래처입금액': abnormalExt,
                           '내부지급액합계': abnormalInt,
@@ -14903,10 +15368,10 @@ const ERP_Dashboard = () => {
                           '비고': '이상 소계'
                         };
 
-                        const totalGuzwa = mappedData.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0);
-                        const totalExt = mappedData.reduce((acc, row) => acc + Number(row['거래처입금액'] || 0), 0);
-                        const totalInt = mappedData.reduce((acc, row) => acc + Number(row['내부지급액합계'] || 0), 0);
-                        const totalNet = mappedData.reduce((acc, row) => acc + Number(row['최종순수익'] || 0), 0);
+                        const totalGuzwa = mappedData.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+                        const totalExt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+                        const totalInt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+                        const totalNet = mappedData.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
 
                         const grandTotalRow = {
                           '계약일자': '',
@@ -14916,6 +15381,7 @@ const ERP_Dashboard = () => {
                           '고객명': `${mappedData.length}건`,
                           '본부명': '',
                           '상품명': '',
+                          '제품명': '',
                           '구좌수': totalGuzwa,
                           '거래처입금액': totalExt,
                           '내부지급액합계': totalInt,
@@ -14927,15 +15393,9 @@ const ERP_Dashboard = () => {
                           ? [...normalRows, normalSubtotalRow, ...abnormalRows, abnormalSubtotalRow, grandTotalRow]
                           : [...normalRows, normalSubtotalRow, grandTotalRow];
                         
-                        // 1행 컬럼 순서: 이미지 양식과 100% 동일
-                        const headers = ['계약일자', '배송일자', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
+                        // 1행 컬럼 순서: G열 상품명과 H열 구좌수 사이에 제품명 추가 (총 13열)
+                        const headers = ['계약일자', '배송일자', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '제품명', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고'];
                         const aoaData = [headers];
-                        const parseReconNum = (v: any): number => {
-                          if (v === null || v === undefined || v === '') return 0;
-                          if (typeof v === 'number') return isNaN(v) ? 0 : v;
-                          const n = Number(String(v).replace(/,/g, '').trim());
-                          return isNaN(n) ? 0 : n;
-                        };
 
                         exportData.forEach(row => {
                            aoaData.push([
@@ -14946,10 +15406,11 @@ const ERP_Dashboard = () => {
                              row['고객명'] || '',
                              row['본부명'] || '',
                              row['상품명'] || '',
-                             { v: parseReconNum(row['구좌수']), t: 'n', z: '#,##0' },
-                             { v: parseReconNum(row['거래처입금액']), t: 'n', z: '#,##0' },
-                             { v: parseReconNum(row['내부지급액합계']), t: 'n', z: '#,##0' },
-                             { v: parseReconNum(row['최종순수익']), t: 'n', z: '#,##0' },
+                             row['제품명'] || '',
+                             { v: safeReconNumber(row['구좌수']), t: 'n', z: '#,##0' },
+                             { v: safeReconNumber(row['거래처입금액']), t: 'n', z: '#,##0' },
+                             { v: safeReconNumber(row['내부지급액합계']), t: 'n', z: '#,##0' },
+                             { v: safeReconNumber(row['최종순수익']), t: 'n', z: '#,##0' },
                              row['비고'] || ''
                            ]);
                         });
@@ -15192,6 +15653,7 @@ const ERP_Dashboard = () => {
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">고객명</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">본부명</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">상품명</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">제품명</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-center">구좌수</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">거래처입금액</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">내부지급액합계</th>
@@ -15211,10 +15673,11 @@ const ERP_Dashboard = () => {
                                     <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명'] || '-'}</td>
                                     <td className="py-2 px-4 text-slate-600">{row['본부명'] || '-'}</td>
                                     <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['상품명']}>{row['상품명'] || '-'}</td>
+                                    <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['제품명'] || row['rentalProd']}>{row['제품명'] || row['rentalProd'] || '-'}</td>
                                     <td className="py-2 px-4 text-center font-bold text-blue-600">{row['구좌수']}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(String(row['거래처입금액'] || 0).replace(/,/g, '')).toLocaleString()}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(String(row['내부지급액합계'] || 0).replace(/,/g, '')).toLocaleString()}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{Number(String(row['최종순수익'] || 0).replace(/,/g, '')).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{safeReconNumber(row['거래처입금액']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{safeReconNumber(row['내부지급액합계']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{safeReconNumber(row['최종순수익']).toLocaleString()}</td>
                                     <td className="py-2 px-4 text-center">
                                       {isNormal ? (
                                         <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">정상</span>
@@ -15230,11 +15693,11 @@ const ERP_Dashboard = () => {
                               </tbody>
                               <tfoot className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200">
                                 <tr>
-                                  <td colSpan={7} className="py-3 px-4 text-center">총계</td>
-                                  <td className="py-3 px-4 text-center text-blue-600">{reconData.reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-slate-800">{reconData.reduce((acc, row) => acc + Number(String(row['거래처입금액'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-indigo-600">{reconData.reduce((acc, row) => acc + Number(String(row['내부지급액합계'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-emerald-600">{reconData.reduce((acc, row) => acc + Number(String(row['최종순수익'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
+                                  <td colSpan={8} className="py-3 px-4 text-center">총계</td>
+                                  <td className="py-3 px-4 text-center text-blue-600">{reconData.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-slate-800">{reconData.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-indigo-600">{reconData.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-emerald-600">{reconData.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0).toLocaleString()}</td>
                                   <td></td>
                                 </tr>
                               </tfoot>
@@ -15269,7 +15732,7 @@ const ERP_Dashboard = () => {
                         <div className="ml-auto text-sm bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
                           총 거래처입금액:{' '}
                           <span className="font-bold text-indigo-600 text-lg">
-                            {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, cur) => acc + Number(String(cur['거래처입금액'] || 0).replace(/,/g, '')), 0).toLocaleString()}원
+                            {historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, cur) => acc + safeReconNumber(cur['거래처입금액']), 0).toLocaleString()}원
                           </span>
                         </div>
                       </div>
@@ -15291,6 +15754,7 @@ const ERP_Dashboard = () => {
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">고객명</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">본부명</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200">상품명</th>
+                                  <th className="py-3 px-4 font-bold border-b border-slate-200">제품명</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-center">구좌수</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">거래처입금액</th>
                                   <th className="py-3 px-4 font-bold border-b border-slate-200 text-right">내부지급액합계</th>
@@ -15310,10 +15774,11 @@ const ERP_Dashboard = () => {
                                     <td className="py-2 px-4 text-slate-800 font-bold">{row['고객명'] || '-'}</td>
                                     <td className="py-2 px-4 text-slate-600">{row['본부명'] || '-'}</td>
                                     <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['상품명']}>{row['상품명'] || '-'}</td>
+                                    <td className="py-2 px-4 text-slate-600 truncate max-w-[150px]" title={row['제품명'] || row['rentalProd']}>{row['제품명'] || row['rentalProd'] || '-'}</td>
                                     <td className="py-2 px-4 text-center font-bold text-blue-600">{row['구좌수']}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{Number(String(row['거래처입금액'] || 0).replace(/,/g, '')).toLocaleString()}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{Number(String(row['내부지급액합계'] || 0).replace(/,/g, '')).toLocaleString()}</td>
-                                    <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{Number(String(row['최종순수익'] || 0).replace(/,/g, '')).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-slate-800">{safeReconNumber(row['거래처입금액']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-indigo-600">{safeReconNumber(row['내부지급액합계']).toLocaleString()}</td>
+                                    <td className="py-2 px-4 text-right font-mono font-bold text-emerald-600">{safeReconNumber(row['최종순수익']).toLocaleString()}</td>
                                     <td className="py-2 px-4 text-center">
                                       {isNormal ? (
                                         <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">정상</span>
@@ -15329,11 +15794,11 @@ const ERP_Dashboard = () => {
                               </tbody>
                               <tfoot className="bg-slate-50 font-bold text-slate-800 border-t-2 border-slate-200">
                                 <tr>
-                                  <td colSpan={7} className="py-3 px-4 text-center">총계</td>
-                                  <td className="py-3 px-4 text-center text-blue-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(row['구좌수'] || 0), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-slate-800">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(String(row['거래처입금액'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-indigo-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(String(row['내부지급액합계'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-emerald-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + Number(String(row['최종순수익'] || 0).replace(/,/g, '')), 0).toLocaleString()}</td>
+                                  <td colSpan={8} className="py-3 px-4 text-center">총계</td>
+                                  <td className="py-3 px-4 text-center text-blue-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-slate-800">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-indigo-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0).toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-emerald-600">{historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate).reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0).toLocaleString()}</td>
                                   <td></td>
                                 </tr>
                               </tfoot>

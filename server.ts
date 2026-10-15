@@ -5554,10 +5554,11 @@ app.get('/api/sheets/reconciliation/load', async (req, res) => {
 
     const firstRowHeaders = (rows[0] || []).map((h: any) => (String(h) || '').trim());
     const hasPayDateHeader = firstRowHeaders.includes('수수료지급일자');
+    const hasProdModelHeader = firstRowHeaders.includes('제품명');
 
-    // 1행 헤더에 수수료지급일자가 없다면 구글 시트 1행 헤더 마이그레이션
-    if (!hasPayDateHeader) {
-      const targetHeaders = [['정산기준일', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고']];
+    // 1행 헤더에 수수료지급일자나 제품명이 없다면 구글 시트 1행 헤더 마이그레이션 (14개 신규 컬럼)
+    if (!hasPayDateHeader || !hasProdModelHeader) {
+      const targetHeaders = [['정산기준일', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '제품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고']];
       sheets.spreadsheets.values.update({
         spreadsheetId: sheetId,
         range: '유통사대사내역!A1',
@@ -5566,48 +5567,47 @@ app.get('/api/sheets/reconciliation/load', async (req, res) => {
       }).catch(err => console.error("[Sheet Header Migration Error]", err));
     }
 
+    const colIndex = (keywords: string[], fallbackIdx: number) => {
+      const idx = firstRowHeaders.findIndex((h: string) => keywords.some(k => h === k || h.includes(k)));
+      return idx !== -1 ? idx : fallbackIdx;
+    };
+
+    const cTargetDate = colIndex(['정산기준일'], 0);
+    const cPayDate = colIndex(['수수료지급일자'], hasPayDateHeader ? 1 : -1);
+    const cContractId = colIndex(['계약ID', '계약ID(렌탈번호)', '렌탈번호'], hasPayDateHeader ? 2 : 1);
+    const cCustName = colIndex(['고객명', '회원명'], hasPayDateHeader ? 3 : 2);
+    const cHqName = colIndex(['본부명', '본부'], hasPayDateHeader ? 4 : 3);
+    const cProdName = colIndex(['상품명'], hasPayDateHeader ? 5 : 4);
+    const cProdModel = colIndex(['제품명', '모델명'], hasProdModelHeader ? firstRowHeaders.indexOf('제품명') : -1);
+    const cContractDate = colIndex(['계약일자'], hasProdModelHeader ? 7 : (hasPayDateHeader ? 6 : 5));
+    const cDeliveryDate = colIndex(['배송일자', '내부 배송일자', '내부배송일자'], hasProdModelHeader ? 8 : (hasPayDateHeader ? 7 : 6));
+    const cGuzwa = colIndex(['구좌수'], hasProdModelHeader ? 9 : (hasPayDateHeader ? 8 : 7));
+    const cExtDeposit = colIndex(['거래처입금액'], hasProdModelHeader ? 10 : (hasPayDateHeader ? 9 : 8));
+    const cIntPayable = colIndex(['내부지급액합계'], hasProdModelHeader ? 11 : (hasPayDateHeader ? 10 : 9));
+    const cNetProfit = colIndex(['최종순수익'], hasProdModelHeader ? 12 : (hasPayDateHeader ? 11 : 10));
+    const cRemark = colIndex(['비고'], hasProdModelHeader ? 13 : (hasPayDateHeader ? 12 : 11));
+
     const history = rows.slice(1).map((row: string[]) => {
-      // 행 데이터 개수가 13개 이상이거나, 신규 13개 헤더 기반으로 저장된 행 처리
-      if (row.length >= 13 || (hasPayDateHeader && row.length >= 12)) {
-        return {
-          '정산기준일': row[0] || '',
-          '수수료지급일자': row[1] || '',
-          '지급일자': row[1] || '',
-          '계약ID': row[2] || '',
-          '계약ID(렌탈번호)': row[2] || '',
-          '고객명': row[3] || '',
-          '본부명': row[4] || '',
-          '상품명': row[5] || '',
-          '계약일자': row[6] || '',
-          '배송일자': row[7] || '',
-          '내부 배송일자': row[7] || '',
-          '구좌수': row[8] || '1',
-          '거래처입금액': row[9] || '0',
-          '내부지급액합계': row[10] || '0',
-          '최종순수익': row[11] || '0',
-          '비고': row[12] || ''
-        };
-      } else {
-        // 예전 12개 컬럼 구조: [정산기준일, 계약ID, 고객명, 본부명, 상품명, 계약일자, 배송일자, 구좌수, 거래처입금액, 내부지급액합계, 최종순수익, 비고]
-        return {
-          '정산기준일': row[0] || '',
-          '수수료지급일자': '',
-          '지급일자': '',
-          '계약ID': row[1] || '',
-          '계약ID(렌탈번호)': row[1] || '',
-          '고객명': row[2] || '',
-          '본부명': row[3] || '',
-          '상품명': row[4] || '',
-          '계약일자': row[5] || '',
-          '배송일자': row[6] || '',
-          '내부 배송일자': row[6] || '',
-          '구좌수': row[7] || '1',
-          '거래처입금액': row[8] || '0',
-          '내부지급액합계': row[9] || '0',
-          '최종순수익': row[10] || '0',
-          '비고': row[11] || ''
-        };
-      }
+      const contractId = (cContractId !== -1 ? row[cContractId] : '') || row[2] || row[1] || '';
+      return {
+        '정산기준일': (cTargetDate !== -1 ? row[cTargetDate] : '') || row[0] || '',
+        '수수료지급일자': (cPayDate !== -1 ? row[cPayDate] : '') || '',
+        '지급일자': (cPayDate !== -1 ? row[cPayDate] : '') || '',
+        '계약ID': contractId,
+        '계약ID(렌탈번호)': contractId,
+        '고객명': (cCustName !== -1 ? row[cCustName] : '') || '',
+        '본부명': (cHqName !== -1 ? row[cHqName] : '') || '',
+        '상품명': (cProdName !== -1 ? row[cProdName] : '') || '',
+        '제품명': (cProdModel !== -1 ? row[cProdModel] : '') || '',
+        '계약일자': (cContractDate !== -1 ? row[cContractDate] : '') || '',
+        '배송일자': (cDeliveryDate !== -1 ? row[cDeliveryDate] : '') || '',
+        '내부 배송일자': (cDeliveryDate !== -1 ? row[cDeliveryDate] : '') || '',
+        '구좌수': (cGuzwa !== -1 ? row[cGuzwa] : '') || '1',
+        '거래처입금액': (cExtDeposit !== -1 ? row[cExtDeposit] : '') || '0',
+        '내부지급액합계': (cIntPayable !== -1 ? row[cIntPayable] : '') || '0',
+        '최종순수익': (cNetProfit !== -1 ? row[cNetProfit] : '') || '0',
+        '비고': (cRemark !== -1 ? row[cRemark] : '') || ''
+      };
     }).filter((h: any) => h['계약ID'] || h['계약ID(렌탈번호)']);
 
     res.json({ history });
@@ -5688,11 +5688,11 @@ app.post('/api/sheets/reconciliation/save', async (req, res) => {
       try {
         const headerRes = await sheets.spreadsheets.values.get({
           spreadsheetId: sheetId,
-          range: '유통사대사내역!A1:M1'
+          range: '유통사대사내역!A1:N1'
         });
         const firstHeaders = headerRes.data.values?.[0] || [];
-        if (!firstHeaders.includes('수수료지급일자')) {
-          const targetHeaders = [['정산기준일', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고']];
+        if (!firstHeaders.includes('수수료지급일자') || !firstHeaders.includes('제품명')) {
+          const targetHeaders = [['정산기준일', '수수료지급일자', '계약ID', '고객명', '본부명', '상품명', '제품명', '계약일자', '배송일자', '구좌수', '거래처입금액', '내부지급액합계', '최종순수익', '비고']];
           await sheets.spreadsheets.values.update({
             spreadsheetId: sheetId,
             range: '유통사대사내역!A1',
