@@ -14925,6 +14925,249 @@ const ERP_Dashboard = () => {
                         }
 
                         // --- 두 번째 시트: 정산보고서 (에넥스 입금, 수수료, 순익 및 더좋은라이프 추가 수수료 차감 보고서) ---
+                        // 배송일자 기준 조회 시 익월(다음 달) 지급 내역으로만 본사 추가 수수료 및 지출 차감
+                        const targetDateStr = (reconTab === 'NEW' ? reconDate : selectedHistoryDate) || '';
+                        let targetPayoutMonth = '';
+                        let targetPerfMonth = '';
+
+                        const isDeliveryMode = targetDateStr.includes('배송') || reconMode === 'DELIVERY';
+
+                        if (isDeliveryMode) {
+                          // 배송일자 기준 조회 (예: 9월 배송 -> 10월 지급)
+                          let y = 0;
+                          let m = 0;
+                          const match = targetDateStr.match(/(\d{4})[-./](\d{1,2})/);
+                          if (match) {
+                            y = parseInt(match[1]);
+                            m = parseInt(match[2]);
+                          } else if (reconDeliveryStartDate) {
+                            const clean = reconDeliveryStartDate.replace(/[^0-9]/g, '');
+                            if (clean.length >= 6) {
+                              y = parseInt(clean.substring(0, 4));
+                              m = parseInt(clean.substring(4, 6));
+                            }
+                          }
+
+                          if (y > 0 && m > 0) {
+                            targetPerfMonth = `${y}-${String(m).padStart(2, '0')}`;
+                            let payY = y;
+                            let payM = m + 1;
+                            if (payM > 12) {
+                              payM = 1;
+                              payY += 1;
+                            }
+                            targetPayoutMonth = `${payY}-${String(payM).padStart(2, '0')}`;
+                          }
+                        } else {
+                          // 정산기준일(지급일) 기준 조회
+                          const match = targetDateStr.match(/(\d{4})[-./](\d{1,2})/);
+                          if (match) {
+                            const y = parseInt(match[1]);
+                            const m = parseInt(match[2]);
+                            targetPayoutMonth = `${y}-${String(m).padStart(2, '0')}`;
+                            let perfY = y;
+                            let perfM = m - 1;
+                            if (perfM < 1) {
+                              perfM = 12;
+                              perfY -= 1;
+                            }
+                            targetPerfMonth = `${perfY}-${String(perfM).padStart(2, '0')}`;
+                          }
+                        }
+
+                        // 날짜 미파싱 시 mappedData 내 수수료지급일자 최빈값으로 산출
+                        if (!targetPayoutMonth && mappedData.length > 0) {
+                          const ymCounts: Record<string, number> = {};
+                          mappedData.forEach(r => {
+                            const p = String(r['수수료지급일자'] || '').trim();
+                            const mat = p.match(/(\d{4})[-./](\d{1,2})/);
+                            if (mat) {
+                              const ym = `${mat[1]}-${mat[2].padStart(2, '0')}`;
+                              ymCounts[ym] = (ymCounts[ym] || 0) + 1;
+                            }
+                          });
+                          const best = Object.entries(ymCounts).sort((a, b) => b[1] - a[1])[0];
+                          if (best && best[1] > 0) {
+                            targetPayoutMonth = best[0];
+                            const [y, m] = targetPayoutMonth.split('-').map(Number);
+                            let perfY = y;
+                            let perfM = m - 1;
+                            if (perfM < 1) {
+                              perfM = 12;
+                              perfY -= 1;
+                            }
+                            targetPerfMonth = `${perfY}-${String(perfM).padStart(2, '0')}`;
+                          }
+                        }
+
+                        if (!targetPayoutMonth) {
+                          const now = new Date();
+                          targetPayoutMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                          targetPerfMonth = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
+                        }
+
+                        // 대상 지급월(targetPayoutMonth, 예: '2026-10') 기준 특수수당/글로벌인센티브 독립 계산
+                        const targetPayoutClean = targetPayoutMonth.replace(/[^0-9]/g, '');
+                        const targetYear = parseInt(targetPayoutMonth.substring(0, 4));
+                        const targetMonth = parseInt(targetPayoutMonth.substring(5, 7));
+                        const prevYearStr = targetPerfMonth.substring(0, 4);
+                        const prevMonthStr = targetPerfMonth.substring(5, 7);
+
+                        const payoutIncentivesSummary: Record<string, number> = {};
+                        const payoutIncentivesCountSummary: Record<string, number> = {};
+
+                        let manualOrderStores: Record<string, any> = {};
+                        let manualOrderProducts: string[] = [];
+                        try {
+                          const savedStores = localStorage.getItem('erp_manual_orders_saved_store_v1');
+                          if (savedStores) manualOrderStores = JSON.parse(savedStores);
+                          const savedProd = localStorage.getItem('erp_manual_order_target_products_v1');
+                          if (savedProd) manualOrderProducts = JSON.parse(savedProd);
+                        } catch (e) {
+                          console.error(e);
+                        }
+
+                        globalIncentiveRules.forEach(rule => {
+                          let matchedCount = 0;
+                          let commission = 0;
+                          const isSelfHq = !rule.targetName || rule.targetName.trim() === '' || rule.targetName === 'SELF_HQ' || rule.targetName === '판매본부' || rule.targetName === '해당본부' || rule.targetName === '본부';
+                          const processedRentalNos = new Set<string>();
+
+                          data.forEach(item => {
+                            if (item.status?.includes('취소') || item.status?.includes('해약')) return;
+                            if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
+
+                            if (isSelfHq) {
+                              const rentalKey = item.rentalNo || item.resNo;
+                              if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+                                if (processedRentalNos.has(rentalKey)) return;
+                              }
+                            }
+
+                            const isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
+                            if (!isMatch) return;
+
+                            if (rule.targetProducts && !rule.targetProducts.includes('ALL')) {
+                              const normItemProd = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
+                              if (!rule.targetProducts.some((p: string) => {
+                                const normP = p.replace(/[\s()]/g, '').toLowerCase();
+                                return normItemProd.includes(normP) || normP.includes(normItemProd);
+                              })) return;
+                            }
+
+                            if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+                              const isItemMatch = rule.targetItems.some((prod: string) => {
+                                const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
+                                const cleanRuleProd = prod.replace(/\s+/g, '');
+                                return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
+                              });
+                              if (!isItemMatch) return;
+                            }
+
+                            const isSupplyRule = isSupplyCommissionRule(rule);
+                            let certEligibility: ReturnType<typeof checkInstallCertEligibility> | null = null;
+                            let effectiveBaseDate = '';
+
+                            if (isSupplyRule) {
+                              certEligibility = checkInstallCertEligibility(item, manualOrderStores, manualOrderProducts);
+                              if (certEligibility.isTargetOrder) {
+                                if (certEligibility.isHold) return;
+                                if (certEligibility.certMonth) {
+                                  effectiveBaseDate = `${certEligibility.certMonth}-01`;
+                                }
+                              }
+                            }
+
+                            let dateStr = effectiveBaseDate;
+                            if (!dateStr) {
+                              if (rule.baseDateType === 'DELIVERY') {
+                                dateStr = item.deliveryDate || '';
+                                if (!dateStr) return;
+                                if (item.deliveryStatus && !item.deliveryStatus.includes('완료') && item.deliveryStatus !== '-' && item.deliveryStatus.trim() !== '') return;
+                              } else {
+                                dateStr = item.contractDate || '';
+                              }
+                            }
+
+                            let isMatchedDate = false;
+                            const itemPayDateDisplay = item.payDate || getDisplayPayDate(item) || '';
+                            const cleanDisplay = itemPayDateDisplay ? itemPayDateDisplay.replace(/[-./]/g, '') : '';
+                            const normDisplayYM = cleanDisplay.length >= 6 ? (cleanDisplay.length === 6 ? '20' + cleanDisplay : cleanDisplay.substring(0, 6)) : '';
+
+                            if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
+                              isMatchedDate = certEligibility.expectedPayoutMonth === targetPayoutMonth;
+                            } else if (rule.payDay && rule.payDay > 0) {
+                              // 지정일 지급 (예: 25일): 실적기준일(배송일자/계약일자)이 전월(prevMonthStr, 9월)인 건 매칭
+                              if (normDisplayYM && normDisplayYM === targetPayoutClean) {
+                                isMatchedDate = true;
+                              } else {
+                                const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+                                if (match) {
+                                  let y = match[1];
+                                  if (y.length === 2) y = '20' + y;
+                                  const m = match[2].padStart(2, '0');
+                                  if (y === prevYearStr && m === prevMonthStr) {
+                                    isMatchedDate = true;
+                                  }
+                                }
+                              }
+                            } else {
+                              // 원래 지급일 연동: 건별 지급일이 대상 지급월(10월)과 일치
+                              if (normDisplayYM && normDisplayYM !== '지급일미지정' && normDisplayYM !== '-') {
+                                isMatchedDate = normDisplayYM === targetPayoutClean;
+                              } else {
+                                const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+                                if (match) {
+                                  let y = match[1];
+                                  if (y.length === 2) y = '20' + y;
+                                  const m = match[2].padStart(2, '0');
+                                  if (y === String(targetYear) && m === String(targetMonth).padStart(2, '0')) {
+                                    isMatchedDate = true;
+                                  }
+                                }
+                              }
+                            }
+
+                            if (isMatchedDate) {
+                              const rentalKey = item.rentalNo || item.resNo;
+                              if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+                                processedRentalNos.add(rentalKey);
+                              }
+                              let itemComm = 0;
+                              if (rule.useInstallments && rule.installments) {
+                                const paidCount = item.hcPaidCount || 0;
+                                const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
+                                if (applicableInstallment) {
+                                  itemComm = applicableInstallment.amount;
+                                }
+                              } else {
+                                itemComm = rule.commissionPerUnit;
+                              }
+
+                              if (isSelfHq) {
+                                const hqName = item.hq;
+                                if (hqName && itemComm > 0) {
+                                  payoutIncentivesSummary[hqName] = (payoutIncentivesSummary[hqName] || 0) + itemComm;
+                                  payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + 1;
+                                }
+                              } else {
+                                if (itemComm > 0) {
+                                  matchedCount++;
+                                  commission += itemComm;
+                                }
+                              }
+                            }
+                          });
+
+                          if (!isSelfHq) {
+                            const finalAmount = Math.max(commission, rule.minimumGuarantee);
+                            if (finalAmount > 0) {
+                              payoutIncentivesSummary[rule.targetName] = (payoutIncentivesSummary[rule.targetName] || 0) + finalAmount;
+                              payoutIncentivesCountSummary[rule.targetName] = (payoutIncentivesCountSummary[rule.targetName] || 0) + matchedCount;
+                            }
+                          }
+                        });
+
                         const extraDeductions: Array<{
                           category: string;
                           name: string;
@@ -14936,8 +15179,7 @@ const ERP_Dashboard = () => {
                           remark: string;
                         }> = [];
 
-                        const specialAdditions = settlementStats.globalIncentivesSummary || {};
-                        Object.entries(specialAdditions).forEach(([targetName, amt]) => {
+                        Object.entries(payoutIncentivesSummary).forEach(([targetName, amt]) => {
                           const gross = safeReconNumber(amt);
                           if (gross <= 0) return;
 
@@ -14948,85 +15190,61 @@ const ERP_Dashboard = () => {
                             targetName === '조재윤' || targetName === '조재은' ? '모델비' :
                             targetName === '이종연' || targetName === '조민경' ? '컨설팅비' :
                             targetName.includes('신동우') ? '대표이사 수수료/인센티브' :
-                            targetName.includes('홈페이지') ? '홈페이지 유지보수비' : '특수수당'
+                            targetName.includes('홈페이지') || targetName.includes('권성훈') ? '홈페이지 유지보수비' : '특수수당'
                           );
                           if (targetName === '신동우' || targetName.includes('신동우')) {
                             detail = '대표이사 인센티브/수수료';
-                          } else if (targetName.includes('홈페이지')) {
+                          } else if (targetName.includes('홈페이지') || targetName.includes('권성훈')) {
                             detail = '홈페이지 유지보수비';
                           }
 
-                          const count = settlementStats.globalIncentivesCountSummary?.[targetName] || 1;
+                          const count = payoutIncentivesCountSummary[targetName] || 1;
                           const setting = hqSettings.find(h => h.hqName === targetName);
                           const acctStr = (setting?.bankName && setting?.accountNumber) ? `${setting.bankName} ${setting.accountNumber} (${setting.accountHolder || targetName})` : '-';
 
                           extraDeductions.push({
-                            category: detail.includes('모델') ? '모델비' : detail.includes('컨설팅') ? '컨설팅' : detail.includes('유지') ? '유지보수' : '특수수당',
+                            category: detail.includes('모델') ? '모델비' : detail.includes('컨설팅') ? '컨설팅' : detail.includes('유지') || detail.includes('홈페이지') ? '유지보수' : '특수수당',
                             name: targetName,
                             detail,
                             count,
                             amount: gross,
-                            settlementType: setting?.settlementType || '사업자',
+                            settlementType: setting?.settlementType || (targetName.includes('신동우') ? '사업자' : '개인'),
                             accountInfo: acctStr,
-                            remark: '본사 추가 지출 수수료'
+                            remark: `${targetPayoutMonth.substring(5, 7)}월 지급 수수료`
                           });
                         });
 
-                        // 사용자가 언급한 대표 항목들(조재윤 모델비, 신동우 대표, 홈페이지유지비 등)이 없으면 기본 표시 행 추가
+                        // 고정비 항목 보완: 권성훈 홈페이지 유지보수비 (규칙에 미포함 시 월 150,000원 1건 고정 반영)
                         const existingNames = new Set(extraDeductions.map(e => e.name));
 
-                        if (!existingNames.has('조재윤') && !extraDeductions.some(e => e.detail.includes('모델'))) {
-                          const setting = hqSettings.find(h => h.hqName === '조재윤');
+                        if (!existingNames.has('권성훈') && !existingNames.has('홈페이지유지비') && !extraDeductions.some(e => e.detail.includes('홈페이지'))) {
+                          const setting = hqSettings.find(h => h.hqName === '권성훈');
+                          const acctStr = (setting?.bankName && setting?.accountNumber) ? `${setting.bankName} ${setting.accountNumber} (${setting.accountHolder || '권성훈'})` : '신한 110-323-031541 (권성훈)';
                           extraDeductions.push({
-                            category: '모델비',
-                            name: '조재윤',
-                            detail: '전속 모델비',
-                            count: 0,
-                            amount: 0,
-                            settlementType: setting?.settlementType || '개인',
-                            accountInfo: setting?.bankName ? `${setting.bankName} ${setting.accountNumber} (${setting.accountHolder || '조재윤'})` : '수협 206000673009 (조재윤)',
-                            remark: '전속 모델 수수료'
-                          });
-                        }
-
-                        if (!existingNames.has('신동우') && !existingNames.has('신동우 대표')) {
-                          const setting = hqSettings.find(h => h.hqName.includes('신동우'));
-                          extraDeductions.push({
-                            category: '임원/대표',
-                            name: '신동우 대표',
-                            detail: '대표이사 수수료/인센티브',
-                            count: 0,
-                            amount: 0,
-                            settlementType: setting?.settlementType || '개인',
-                            accountInfo: setting?.bankName ? `${setting.bankName} ${setting.accountNumber} (${setting.accountHolder || '신동우'})` : '-',
-                            remark: '대표이사 수수료'
-                          });
-                        }
-
-                        if (!existingNames.has('홈페이지유지비') && !extraDeductions.some(e => e.detail.includes('홈페이지'))) {
-                          extraDeductions.push({
-                            category: '운영비',
-                            name: '홈페이지유지비',
-                            detail: '웹사이트 및 시스템 서버 유지보수비',
+                            category: '유지보수',
+                            name: '권성훈',
+                            detail: '홈페이지 유지',
                             count: 1,
-                            amount: 0,
-                            settlementType: '사업자',
-                            accountInfo: '-',
+                            amount: 150000,
+                            settlementType: setting?.settlementType || '개인',
+                            accountInfo: acctStr,
                             remark: '월 고정 시스템 유지보수비'
                           });
                         }
 
-                        const maintSum = maintenancePayouts.reduce((sum, m) => sum + safeReconNumber(m.amount), 0);
+                        // 대상 지급월(10월) 유지수수료 계산
+                        const targetMonthMaint = calculateMaintenancePayouts(data, targetPayoutMonth, true);
+                        const maintSum = targetMonthMaint.reduce((sum, m) => sum + safeReconNumber(m.amount), 0);
                         if (maintSum > 0) {
                           extraDeductions.push({
                             category: '유지수수료',
                             name: '본부 유지수수료',
                             detail: '회차별 계약 유지 관리 수수료',
-                            count: maintenancePayouts.length,
+                            count: targetMonthMaint.length,
                             amount: maintSum,
                             settlementType: '사업자/개인',
                             accountInfo: '-',
-                            remark: '당월 회차 유지수수료 총액'
+                            remark: `${targetPayoutMonth.substring(5, 7)}월 회차 유지수수료`
                           });
                         }
 
@@ -15036,9 +15254,11 @@ const ERP_Dashboard = () => {
                         const marginRate = totalExt > 0 ? ((finalNetProfit / totalExt) * 100).toFixed(1) : '0.0';
                         const firstMarginRate = totalExt > 0 ? ((firstNetProfit / totalExt) * 100).toFixed(1) : '0.0';
 
+                        const payoutMonthDisplay = `${targetPayoutMonth.substring(0, 4)}년 ${targetPayoutMonth.substring(5, 7)}월`;
+
                         const summaryRows: any[][] = [
                           ['[ 유통사(에넥스) 대사 및 더좋은라이프 손익 결산 보고서 ]'],
-                          [`기준일자: ${targetDate || '전체'} | 출력일시: ${new Date().toLocaleDateString('ko-KR')}`],
+                          [`대사기준: ${targetDate || '전체'} | 본사지출 지급월: ${payoutMonthDisplay} 지급분 | 출력일시: ${new Date().toLocaleDateString('ko-KR')}`],
                           [],
                           ['1. 유통사(에넥스) 대사 실적 및 1차 영업수익 요약'],
                           ['구분', '대사건수', '총 구좌수', '거래처입금액 (에넥스)', '영업수수료 지급액 (본부합계)', '1차 영업순수익', '비고'],
@@ -15076,7 +15296,7 @@ const ERP_Dashboard = () => {
                             `1차 영업이익률: ${firstMarginRate}%`
                           ],
                           [],
-                          ['2. 더좋은라이프 추가 수수료 및 본사 지출 내역 (차감 항목)'],
+                          [`2. 더좋은라이프 추가 수수료 및 본사 지출 내역 (${payoutMonthDisplay} 지급 차감 항목)`],
                           ['구분', '대상자 / 항목명', '세부내용', '건수', '지출 금액', '정산유형', '지급계좌 / 비고']
                         );
 
@@ -15131,7 +15351,7 @@ const ERP_Dashboard = () => {
                           ],
                           [
                             '[D] 본사 추가수수료',
-                            '본사 고정/특수 수수료 (차감 항목)',
+                            `본사 고정/특수 수수료 (${payoutMonthDisplay} 지급 차감 항목)`,
                             { v: totalExtraExpenses, t: 'n', z: '#,##0' },
                             `${totalExt > 0 ? ((totalExtraExpenses / totalExt) * 100).toFixed(1) : 0}%`,
                             '홈페이지유지비, 모델비, 신동우 대표, 컨설팅비, 유지수수료 등',
