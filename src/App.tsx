@@ -4515,7 +4515,7 @@ const ERP_Dashboard = () => {
       const processedRentalNos = new Set<string>();
 
       data.forEach(item => {
-        if (item.status?.includes('취소') || item.status?.includes('해약')) return;
+        if ((item.status?.includes('취소') || item.status?.includes('해약')) && !item.payDate?.trim()) return;
         if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
 
         if (isSelfHq) {
@@ -4570,37 +4570,43 @@ const ERP_Dashboard = () => {
           }
         }
 
+        // MonthlySettlementModal과 100% 동일한 날짜 매칭 로직 적용
         let isMatchedDate = false;
-        const itemPayDateDisplay = item.payDate || getDisplayPayDate(item) || '';
-        const cleanDisplay = itemPayDateDisplay ? itemPayDateDisplay.replace(/[-./]/g, '') : '';
-        const normDisplayYM = cleanDisplay.length >= 6 ? (cleanDisplay.length === 6 ? '20' + cleanDisplay : cleanDisplay.substring(0, 6)) : '';
+        const pDate = item.payDate || '';
+        const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
+        const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
 
+        // 설치확인서 마감월이 존재하는 수기발주 대상 건인 경우: 마감월의 익월(targetPayoutMonth) 지급 규칙 최우선 적용
         if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
           isMatchedDate = certEligibility.expectedPayoutMonth === targetPayoutMonth;
         } else if (rule.payDay && rule.payDay > 0) {
-          if (normDisplayYM && normDisplayYM === targetPayoutClean) {
+          // 지정일 수당 (다음달 N일 지급: 예: 25일)
+          if (itemPayMonth === targetPayoutMonth) {
             isMatchedDate = true;
           } else {
-            const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-            if (match) {
-              let y = match[1];
+            // 실적기준일이 전월(targetPerfMonth)인 건
+            const dMatch = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+            if (dMatch) {
+              let y = dMatch[1];
               if (y.length === 2) y = '20' + y;
-              const m = match[2].padStart(2, '0');
-              if (y === prevYearStr && m === prevMonthStr) {
+              const m = dMatch[2].padStart(2, '0');
+              if (`${y}-${m}` === targetPerfMonth) {
                 isMatchedDate = true;
               }
             }
           }
         } else {
-          if (normDisplayYM && normDisplayYM !== '지급일미지정' && normDisplayYM !== '-') {
-            isMatchedDate = normDisplayYM === targetPayoutClean;
-          } else {
-            const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-            if (match) {
-              let y = match[1];
+          // 기존 정산 지급일과 동일 (연동)
+          if (itemPayMonth === targetPayoutMonth) {
+            isMatchedDate = true;
+          } else if (!itemPayMonth) {
+            // 지급일 미지정 시 당월 실적기준일 건 매칭
+            const dMatch = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+            if (dMatch) {
+              let y = dMatch[1];
               if (y.length === 2) y = '20' + y;
-              const m = match[2].padStart(2, '0');
-              if (y === String(targetYear) && m === String(targetMonth).padStart(2, '0')) {
+              const m = dMatch[2].padStart(2, '0');
+              if (`${y}-${m}` === targetPayoutMonth) {
                 isMatchedDate = true;
               }
             }
@@ -15530,7 +15536,7 @@ const ERP_Dashboard = () => {
                           const processedRentalNos = new Set<string>();
 
                           data.forEach(item => {
-                            if (item.status?.includes('취소') || item.status?.includes('해약')) return;
+                            if ((item.status?.includes('취소') || item.status?.includes('해약')) && !item.payDate?.trim()) return;
                             if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
 
                             if (isSelfHq) {
@@ -15585,39 +15591,38 @@ const ERP_Dashboard = () => {
                               }
                             }
 
+                            // MonthlySettlementModal과 100% 동일한 날짜 매칭 로직 적용
                             let isMatchedDate = false;
-                            const itemPayDateDisplay = item.payDate || getDisplayPayDate(item) || '';
-                            const cleanDisplay = itemPayDateDisplay ? itemPayDateDisplay.replace(/[-./]/g, '') : '';
-                            const normDisplayYM = cleanDisplay.length >= 6 ? (cleanDisplay.length === 6 ? '20' + cleanDisplay : cleanDisplay.substring(0, 6)) : '';
+                            const pDate = item.payDate || '';
+                            const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
+                            const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
 
                             if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
                               isMatchedDate = certEligibility.expectedPayoutMonth === targetPayoutMonth;
                             } else if (rule.payDay && rule.payDay > 0) {
-                              // 지정일 지급 (예: 25일): 실적기준일(배송일자/계약일자)이 전월(prevMonthStr, 9월)인 건 매칭
-                              if (normDisplayYM && normDisplayYM === targetPayoutClean) {
+                              if (itemPayMonth === targetPayoutMonth) {
                                 isMatchedDate = true;
                               } else {
-                                const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-                                if (match) {
-                                  let y = match[1];
+                                const dMatch = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+                                if (dMatch) {
+                                  let y = dMatch[1];
                                   if (y.length === 2) y = '20' + y;
-                                  const m = match[2].padStart(2, '0');
-                                  if (y === prevYearStr && m === prevMonthStr) {
+                                  const m = dMatch[2].padStart(2, '0');
+                                  if (`${y}-${m}` === targetPerfMonth) {
                                     isMatchedDate = true;
                                   }
                                 }
                               }
                             } else {
-                              // 원래 지급일 연동: 건별 지급일이 대상 지급월(10월)과 일치
-                              if (normDisplayYM && normDisplayYM !== '지급일미지정' && normDisplayYM !== '-') {
-                                isMatchedDate = normDisplayYM === targetPayoutClean;
-                              } else {
-                                const match = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-                                if (match) {
-                                  let y = match[1];
+                              if (itemPayMonth === targetPayoutMonth) {
+                                isMatchedDate = true;
+                              } else if (!itemPayMonth) {
+                                const dMatch = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
+                                if (dMatch) {
+                                  let y = dMatch[1];
                                   if (y.length === 2) y = '20' + y;
-                                  const m = match[2].padStart(2, '0');
-                                  if (y === String(targetYear) && m === String(targetMonth).padStart(2, '0')) {
+                                  const m = dMatch[2].padStart(2, '0');
+                                  if (`${y}-${m}` === targetPayoutMonth) {
                                     isMatchedDate = true;
                                   }
                                 }
