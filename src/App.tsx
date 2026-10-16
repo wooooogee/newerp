@@ -208,12 +208,28 @@ export const isHqMatchedForSpecialRule = (
         if (!td) return false;
         if (td === div.id || td === div.name) return true;
         if (td === 'div-goodlife' && (div.id === 'div-goodlife' || ((div.name || '').includes('신동우') && !(div.name || '').includes('꿈잇다')))) return true;
+        if ((td.includes('신동우') || td.includes('굿라이프')) && ((div.name || '').includes('신동우') || (div.name || '').includes('굿라이프'))) return true;
         return false;
       });
       if (!isTargetDiv) return false;
       return (div.hqNames || []).some(h => normalizeHq(h) === cleanHq);
     });
     if (isDivMatch) return true;
+
+    // 만약 굿라이프 또는 신동우 관련 사업단이 타겟인 경우, 굿라이프 산하 본부 전체(다보다, 더굿, 최강, 노반, 무한, 이음, 꿈잇다 등) 포괄 매칭
+    const isGoodlifeTarget = targetDivisions.some(td => 
+      td === 'div-goodlife' || (td || '').includes('신동우') || (td || '').includes('굿라이프')
+    ) || (rule.targetName && (rule.targetName.includes('신동우')));
+
+    if (isGoodlifeTarget) {
+      const knownGoodlifeHqs = [
+        '다보다', '더굿', '최강', '노반AI', '더굿라이프', '가치온', '1본부', '새빛', '온누리', 
+        '명품', '무한', '꿈잇다', '서울중앙', '스마일', '이음', '챔피언', '아우라', '두드림', '조이', 'LS'
+      ];
+      if (knownGoodlifeHqs.some(gh => cleanHq.includes(normalizeHq(gh)) || normalizeHq(gh).includes(cleanHq))) {
+        return true;
+      }
+    }
   }
 
   // 3. 개별 본부 매칭 확인
@@ -6832,7 +6848,7 @@ const ERP_Dashboard = () => {
       }
 
       const specialCount = specialSum > 0 
-        ? (settlementStats.globalIncentivesCountSummary?.[hqName] ?? (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === hqName || sp.targetName === hqName).length)
+        ? (precalculatedDetail?.specialItems ? precalculatedDetail.specialItems.length : (settlementStats.globalIncentivesCountSummary?.[hqName] ?? (settlementStats.specialPayouts || []).filter((sp: any) => sp.hq === hqName || sp.targetName === hqName).length))
         : 0;
 
       if (specialSum > 0) {
