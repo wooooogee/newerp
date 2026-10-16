@@ -11,6 +11,35 @@ import { loadSuppliersFromStorage, SupplierItem } from './SupplierManagementModa
 import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo, mergeManualOrderStores, isSupplyCommissionRule } from './manualOrderUtils';
 import { isHqMatchedForSpecialRule } from './App';
 
+interface SettlementClosureItem {
+  month: string;
+  closedAt: string;
+  closedBy: string;
+  status: 'CLOSED';
+  totalCount: number;
+  totalNet: number;
+}
+
+interface HqMonthlyStat {
+  hqName: string;
+  count: number;
+  salesSum: number;
+  promoSum: number;
+  generalSum: number;
+  maintenanceSum: number;
+  specialSum: number;
+  grossTotal: number;
+  tax: number;
+  netTotal: number;
+  settlementType: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+  items?: any[];
+  specialItems?: any[];
+  maintenanceItems?: any[];
+}
+
 interface CeoDashboardMobileViewProps {
   currentUser: {
     username: string;
@@ -23,6 +52,8 @@ interface CeoDashboardMobileViewProps {
   globalIncentiveRules: any[];
   divisionSettings: any[];
   calculateCommissionDetails: (item: any, countMap: Map<string, number>) => any;
+  maintenancePayouts?: any[];
+  calculateMaintenancePayouts?: (items: any[], monthStr?: string, ignoreDay?: boolean) => any[];
   loading: boolean;
   onRefresh: () => void;
   onLogout: () => void;
@@ -77,6 +108,8 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
   globalIncentiveRules = [],
   divisionSettings = [],
   calculateCommissionDetails,
+  maintenancePayouts = [],
+  calculateMaintenancePayouts,
   loading,
   onRefresh,
   onLogout
@@ -92,8 +125,8 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
     return `${y}-${m}`;
   });
 
-  // Top 10 서브탭 상태: 'product' | 'hq' | 'branch' | 'salesperson'
-  const [rankingCategory, setRankingCategory] = useState<'product' | 'hq' | 'branch' | 'salesperson'>('product');
+  // Top 10 서브탭 상태: 'prodName' (상품명별) | 'rentalProd' (제품별) | 'hq' (본부별) | 'branch' (지사별) | 'salesperson' (사원별)
+  const [rankingCategory, setRankingCategory] = useState<'prodName' | 'rentalProd' | 'hq' | 'branch' | 'salesperson'>('prodName');
 
   // 정산 뷰 서브탭: 'hq_commission' (본부별 수수료) | 'supplier_price' (공급사 물품대금) | 'supply_comm' (공급수수료)
   const [settlementSubTab, setSettlementSubTab] = useState<'hq_commission' | 'supplier_price' | 'supply_comm'>('hq_commission');
@@ -103,6 +136,53 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
 
   // 공급사 목록 로드 (로컬스토리지)
   const [suppliers, setSuppliers] = useState<SupplierItem[]>(() => loadSuppliersFromStorage());
+
+  // 마감 관리 상태 (월별 본부 정산서 동기화)
+  const [closureList, setClosureList] = useState<SettlementClosureItem[]>([]);
+  const [closedDetailMap, setClosedDetailMap] = useState<Record<string, { stats: HqMonthlyStat[]; closedAt: string; closedBy: string }>>({});
+  const [isLoadingClosure, setIsLoadingClosure] = useState<boolean>(false);
+
+  // 마감 목록 조회
+  const fetchClosureList = async () => {
+    try {
+      const res = await fetch('/api/sheets/settlement-closure/list');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setClosureList(json.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch closure list:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchClosureList();
+  }, [activeTab]);
+
+  const currentClosure = useMemo(() => {
+    return closureList.find(c => c.month === selectedMonth);
+  }, [closureList, selectedMonth]);
+
+  const isCurrentMonthClosed = Boolean(currentClosure);
+
+  // 마감된 월의 확정 스냅샷 데이터 로드
+  useEffect(() => {
+    if (isCurrentMonthClosed && selectedMonth && !closedDetailMap[selectedMonth]) {
+      setIsLoadingClosure(true);
+      fetch(`/api/sheets/settlement-closure/detail?month=${encodeURIComponent(selectedMonth)}`)
+        .then(res => res.json())
+        .then(json => {
+          if (json.success && json.data) {
+            setClosedDetailMap(prev => ({
+              ...prev,
+              [selectedMonth]: json.data
+            }));
+          }
+        })
+        .catch(err => console.error('Failed to load closure detail:', err))
+        .finally(() => setIsLoadingClosure(false));
+    }
+  }, [isCurrentMonthClosed, selectedMonth, closedDetailMap]);
 
   // 수기발주 설정 로드
   const [manualOrderStores, setManualOrderStores] = useState<Record<string, ManualOrderInfo>>(() => {
@@ -249,6 +329,43 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
   }, [data]);
 
   // -------------------------------------------------------------
+  // [1-3] 전체 데이터 통계 맵 (월별 실적 및 본부전체/그룹/해당상품 구간 판정 완벽 지원)
+  // -------------------------------------------------------------
+  const globalStatsMap = useMemo(() => {
+    const map = new Map<string, number>();
+    (data || []).forEach(item => {
+      const isCancelled = item.status && (item.status.includes('취소') || item.status.includes('해약') || item.status.includes('철회') || item.status.includes('반품'));
+      if (isCancelled && !item.payDate?.trim()) return;
+      if (!item.hq) return;
+
+      const pDate = item.payDate || '';
+      const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+      const month = m ? `${m[1]}-${m[2].padStart(2, '0')}` : 'ALL';
+      const prod = item.prodName || '';
+
+      // 1) 본부 + 상품 + 월
+      const kProdMonth = `${item.hq}|${prod}|${month}`;
+      map.set(kProdMonth, (map.get(kProdMonth) || 0) + 1);
+
+      // 2) 본부 + 전체상품(__ALL__) + 월
+      const kAllMonth = `${item.hq}|__ALL__|${month}`;
+      map.set(kAllMonth, (map.get(kAllMonth) || 0) + 1);
+
+      // 3) 전체 누적 fallback (월 무관)
+      const kProd = `${item.hq}|${prod}`;
+      map.set(kProd, (map.get(kProd) || 0) + 1);
+
+      const kAll = `${item.hq}|__ALL__`;
+      map.set(kAll, (map.get(kAll) || 0) + 1);
+
+      // 4) 기존 언더스코어 호환용 키
+      const kLegacy = `${item.hq}_${prod}_${pDate}`;
+      map.set(kLegacy, (map.get(kLegacy) || 0) + 1);
+    });
+    return map;
+  }, [data]);
+
+  // -------------------------------------------------------------
   // [2] 시트 2: 순위 분석 (Top 10)
   // -------------------------------------------------------------
   const top10Rankings = useMemo(() => {
@@ -257,6 +374,8 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
       const st = String(item.status || '').trim();
       return !st.includes('취소') && !st.includes('해약');
     });
+
+    const totalValid = validItems.length || 1;
 
     const calcRankList = (keyExtractor: (item: any) => string) => {
       const map = new Map<string, { name: string; accounts: number; contractNos: Set<string> }>();
@@ -273,7 +392,6 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
         .sort((a, b) => b.accounts - a.accounts)
         .slice(0, 10);
 
-      const totalValid = validItems.length || 1;
       return list.map(item => ({
         ...item,
         contractCount: item.contractNos.size || item.accounts,
@@ -281,21 +399,337 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
       }));
     };
 
+    // 사원별 집계: 본부(hq)와 소속 지사(branch) 정보 보존
+    const salesMap = new Map<string, { name: string; hq: string; branch: string; accounts: number; contractNos: Set<string> }>();
+    validItems.forEach(item => {
+      const name = item.empName?.trim() || '미지정';
+      if (!name || name === '-') return;
+      const entry = salesMap.get(name) || {
+        name,
+        hq: item.hq || '',
+        branch: item.branch || '',
+        accounts: 0,
+        contractNos: new Set<string>()
+      };
+      entry.accounts += 1;
+      if (item.rentalNo) entry.contractNos.add(String(item.rentalNo).trim());
+      if (!entry.hq && item.hq) entry.hq = item.hq;
+      if (!entry.branch && item.branch) entry.branch = item.branch;
+      salesMap.set(name, entry);
+    });
+
+    const salesList = Array.from(salesMap.values())
+      .sort((a, b) => b.accounts - a.accounts)
+      .slice(0, 10)
+      .map(item => ({
+        ...item,
+        contractCount: item.contractNos.size || item.accounts,
+        share: Math.round((item.accounts / totalValid) * 100)
+      }));
+
     return {
-      products: calcRankList(item => item.rentalProd || item.prodName || '기타상품'),
+      prodNames: calcRankList(item => item.prodName || '기타상품'),
+      rentalProds: calcRankList(item => item.rentalProd || item.modelName || '기타제품'),
       hqs: calcRankList(item => item.hq || '기타본부'),
       branches: calcRankList(item => item.branch || '기타지사'),
-      salespersons: calcRankList(item => item.empName || '기타사원'),
+      salespersons: salesList,
       totalValidAccounts: validItems.length
     };
   }, [overviewStats.monthContracts]);
 
   // -------------------------------------------------------------
-  // [3] 시트 3: 수수료 및 정산 내역 집계
-  // 기준: 10월이면 전월(9월 1일 ~ 말일 배송완료) 기준으로 10월 25일 지급 대상
+  // [3] 시트 3: 수수료 및 정산 내역 집계 (월별 본부 정산서와 100% 동일한 로직)
   // -------------------------------------------------------------
   const settlementData = useMemo(() => {
-    // 1) 전월(perfMonth) 배송완료 건 추출 (취소/해약 제외)
+    // 1) 마감된 월의 확정 스냅샷이 있는 경우 우선 채택
+    let rawHqStats: HqMonthlyStat[] = [];
+    if (isCurrentMonthClosed && closedDetailMap[selectedMonth]?.stats) {
+      rawHqStats = closedDetailMap[selectedMonth].stats;
+    } else {
+      // 실시간 정산서 계산 (MonthlySettlementModal 동일)
+      const statsMap = new Map<string, HqMonthlyStat>();
+
+      // (1) 해당 월(selectedMonth)의 계약 건 필터링 및 본부별 수수료 집계
+      (data || []).forEach(item => {
+        if ((item.status?.includes('취소') || item.status?.includes('해약')) && !item.payDate?.trim()) return;
+
+        const pDate = item.payDate || '';
+        const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+        const itemMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+
+        if (itemMonth !== selectedMonth) return;
+
+        const hq = item.hq || '미지정';
+        if (!statsMap.has(hq)) {
+          const setting = (hqSettings || []).find(s => s.hqName === hq);
+          const isIndiv = setting?.settlementType?.includes('개인') || hq === '글로씨';
+          statsMap.set(hq, {
+            hqName: hq,
+            count: 0,
+            salesSum: 0,
+            promoSum: 0,
+            generalSum: 0,
+            maintenanceSum: 0,
+            specialSum: 0,
+            grossTotal: 0,
+            tax: 0,
+            netTotal: 0,
+            settlementType: setting?.settlementType || (isIndiv ? '개인' : '사업자'),
+            bankName: setting?.bankName || '-',
+            accountNumber: setting?.accountNumber || '-',
+            accountHolder: setting?.accountHolder || '-'
+          });
+        }
+
+        const stat = statsMap.get(hq)!;
+        let totalCommission = 0;
+        let salesComm = 0;
+        if (calculateCommissionDetails) {
+          const res = calculateCommissionDetails(item, globalStatsMap);
+          totalCommission = res.totalCommission || 0;
+          salesComm = res.salesComm || 0;
+        }
+        const promo = totalCommission - salesComm;
+
+        stat.count += 1;
+        stat.salesSum += salesComm;
+        stat.promoSum += promo;
+        stat.generalSum += totalCommission;
+      });
+
+      // (2) 유지수수료 집계
+      const currentMaintList = calculateMaintenancePayouts
+        ? calculateMaintenancePayouts(data, selectedMonth, true)
+        : (maintenancePayouts || []);
+
+      currentMaintList.forEach(mItem => {
+        const m = (mItem.month || mItem.payDate || '').match(/(\d{4})[-./](\d{1,2})/);
+        const mMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+
+        if (mMonth !== selectedMonth) return;
+
+        const hq = mItem.hq || '미지정';
+        if (!statsMap.has(hq)) {
+          const setting = (hqSettings || []).find(s => s.hqName === hq);
+          const isIndiv = setting?.settlementType?.includes('개인') || hq === '글로씨';
+          statsMap.set(hq, {
+            hqName: hq,
+            count: 0,
+            salesSum: 0,
+            promoSum: 0,
+            generalSum: 0,
+            maintenanceSum: 0,
+            specialSum: 0,
+            grossTotal: 0,
+            tax: 0,
+            netTotal: 0,
+            settlementType: setting?.settlementType || (isIndiv ? '개인' : '사업자'),
+            bankName: setting?.bankName || '-',
+            accountNumber: setting?.accountNumber || '-',
+            accountHolder: setting?.accountHolder || '-'
+          });
+        }
+
+        const stat = statsMap.get(hq)!;
+        stat.maintenanceSum += (mItem.amount || 0);
+      });
+
+      // (3) 특수수당 (글로벌 인센티브 규칙) 집계
+      if (globalIncentiveRules && globalIncentiveRules.length > 0) {
+        let manualStores: Record<string, any> = {};
+        let manualProducts: string[] = [];
+        try {
+          const s1 = localStorage.getItem('erp_manual_orders_saved_store_v1');
+          if (s1) manualStores = JSON.parse(s1);
+          const s2 = localStorage.getItem('erp_manual_order_target_products_v1');
+          if (s2) manualProducts = JSON.parse(s2);
+        } catch (e) {}
+
+        globalIncentiveRules.forEach(rule => {
+          if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
+
+          const isSelfHq = !rule.targetName || rule.targetName.trim() === '' || rule.targetName === 'SELF_HQ' || rule.targetName === '판매본부' || rule.targetName === '해당본부' || rule.targetName === '본부';
+
+          const processedRentalNos = new Set<string>();
+          let matchedCount = 0;
+          let commission = 0;
+
+          (data || []).forEach(item => {
+            if (item.status?.includes('취소') || item.status?.includes('해약')) return;
+
+            const isDelivered = (item.deliveryStatus && item.deliveryStatus.includes('완료')) || 
+                                (item.deliveryDate && item.deliveryDate !== '-' && item.deliveryDate.trim() !== '');
+            if (!isDelivered) return;
+
+            const isSupplyRule = isSupplyCommissionRule(rule);
+            const isItemBasedRule = isSelfHq || 
+              isSupplyRule || 
+              (rule.incentiveName && rule.incentiveName.includes('공급')) ||
+              (rule.targetItems && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL'));
+
+            if (isItemBasedRule) {
+              const rentalKey = item.rentalNo || item.resNo;
+              if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+                if (processedRentalNos.has(rentalKey)) return;
+              }
+            }
+
+            const isMatch = isHqMatchedForSpecialRule(rule, item.hq, divisionSettings);
+            if (!isMatch) return;
+
+            if (rule.targetProducts && !rule.targetProducts.includes('ALL')) {
+              const normItemProd = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
+              if (!rule.targetProducts.some((p: string) => {
+                const normP = p.replace(/[\s()]/g, '').toLowerCase();
+                return normItemProd.includes(normP) || normP.includes(normItemProd);
+              })) return;
+            }
+
+            if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+              const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
+              const isItemMatch = rule.targetItems.some((prod: string) => {
+                const cleanRuleProd = prod.replace(/\s+/g, '');
+                return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
+              });
+              if (!isItemMatch) return;
+            }
+
+            let certEligibility: ReturnType<typeof checkInstallCertEligibility> | null = null;
+            if (isSupplyRule) {
+              certEligibility = checkInstallCertEligibility(item, manualStores, manualProducts);
+              if (certEligibility.isTargetOrder) {
+                if (certEligibility.isHold) return;
+              }
+            }
+
+            let isMatchedDate = false;
+            const pDate = String(item.payDate || '').trim();
+
+            if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
+              isMatchedDate = certEligibility.expectedPayoutMonth === selectedMonth;
+            } else {
+              if (pDate && pDate !== '-' && !pDate.includes('미지정') && !pDate.includes('미입금')) {
+                const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
+                const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
+                isMatchedDate = (itemPayMonth === selectedMonth);
+              }
+            }
+
+            if (!isMatchedDate) return;
+
+            const rentalKey = item.rentalNo || item.resNo;
+            if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+              processedRentalNos.add(rentalKey);
+            }
+
+            let itemComm = 0;
+            if (rule.useInstallments && rule.installments) {
+              const paidCount = item.hcPaidCount || 0;
+              const applicableInstallment = rule.installments.find((ins: any) => paidCount >= ins.startRound && paidCount <= ins.endRound);
+              if (applicableInstallment) {
+                itemComm = applicableInstallment.amount;
+              }
+            } else {
+              itemComm = rule.commissionPerUnit || 0;
+            }
+
+            if (isSelfHq) {
+              const hqName = item.hq;
+              if (hqName && itemComm > 0) {
+                if (!statsMap.has(hqName)) {
+                  const setting = (hqSettings || []).find(s => s.hqName === hqName);
+                  const isIndiv = setting?.settlementType?.includes('개인') || hqName === '글로씨';
+                  statsMap.set(hqName, {
+                    hqName,
+                    count: 0,
+                    salesSum: 0,
+                    promoSum: 0,
+                    generalSum: 0,
+                    maintenanceSum: 0,
+                    specialSum: 0,
+                    grossTotal: 0,
+                    tax: 0,
+                    netTotal: 0,
+                    settlementType: setting?.settlementType || (isIndiv ? '개인' : '사업자'),
+                    bankName: setting?.bankName || '-',
+                    accountNumber: setting?.accountNumber || '-',
+                    accountHolder: setting?.accountHolder || '-'
+                  });
+                }
+                const stat = statsMap.get(hqName)!;
+                stat.specialSum += itemComm;
+              }
+            } else {
+              matchedCount++;
+              commission += itemComm;
+            }
+          });
+
+          // 타겟 지정형 수당 (예: 신동우 대표, 모델비, 컨설팅비 등)
+          if (!isSelfHq && rule.targetName) {
+            const finalAmount = Math.max(commission, rule.minimumGuarantee || 0);
+            if (finalAmount > 0) {
+              const targetName = rule.targetName;
+              if (!statsMap.has(targetName)) {
+                const setting = (hqSettings || []).find(s => s.hqName === targetName);
+                const isIndiv = setting?.settlementType?.includes('개인') || targetName === '글로씨';
+                statsMap.set(targetName, {
+                  hqName: targetName,
+                  count: 0,
+                  salesSum: 0,
+                  promoSum: 0,
+                  generalSum: 0,
+                  maintenanceSum: 0,
+                  specialSum: 0,
+                  grossTotal: 0,
+                  tax: 0,
+                  netTotal: 0,
+                  settlementType: setting?.settlementType || (isIndiv ? '개인' : '사업자'),
+                  bankName: setting?.bankName || '-',
+                  accountNumber: setting?.accountNumber || '-',
+                  accountHolder: setting?.accountHolder || '-'
+                });
+              }
+              const stat = statsMap.get(targetName)!;
+              stat.specialSum += finalAmount;
+              stat.count = (stat.count || 0) + matchedCount;
+            }
+          }
+        });
+      }
+
+      // (4) 세금 및 실지급액 계산
+      statsMap.forEach(stat => {
+        stat.grossTotal = stat.generalSum + stat.maintenanceSum + stat.specialSum;
+        const isPersonal = stat.settlementType.includes('개인');
+        stat.tax = isPersonal ? Math.floor(stat.grossTotal * 0.033) : 0;
+        stat.netTotal = stat.grossTotal - stat.tax;
+      });
+
+      rawHqStats = Array.from(statsMap.values());
+    }
+
+    // 본부별 리스트 정제 및 정렬 (실지급액 내림차순)
+    const hqList = rawHqStats
+      .filter(h => (h.count > 0 || (h.netTotal || 0) > 0 || (h.grossTotal || 0) > 0))
+      .sort((a, b) => (b.netTotal || 0) - (a.netTotal || 0))
+      .map(h => ({
+        ...h,
+        accounts: h.count,
+        salesComm: h.salesSum || h.generalSum || 0,
+        specialComm: h.specialSum || 0,
+        totalPayable: h.netTotal || 0
+      }));
+
+    const totalHqNetTotal = hqList.reduce((sum, h) => sum + (h.netTotal || 0), 0);
+    const totalHqGrossTotal = hqList.reduce((sum, h) => sum + (h.grossTotal || 0), 0);
+    const totalHqAccounts = hqList.reduce((sum, h) => sum + (h.count || 0), 0);
+    const totalGeneralSum = hqList.reduce((sum, h) => sum + (h.generalSum || 0), 0);
+    const totalMaintenanceSum = hqList.reduce((sum, h) => sum + (h.maintenanceSum || 0), 0);
+    const totalSpecialSum = hqList.reduce((sum, h) => sum + (h.specialSum || 0), 0);
+    const totalTax = hqList.reduce((sum, h) => sum + (h.tax || 0), 0);
+
+    // 2) 공급사 정산 집계 (전월 배송완료 기준)
     const deliveredItems = data.filter(item => {
       const st = String(item.status || '').trim();
       if (st.includes('취소') || st.includes('해약')) return false;
@@ -307,192 +741,6 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
       return delYm === perfMonth;
     });
 
-    // 본부별 카운트 맵 구축 (calculateCommissionDetails 지원용)
-    const hqCountMap = new Map<string, number>();
-    deliveredItems.forEach(item => {
-      const hq = item.hq || '';
-      hqCountMap.set(`${hq}|__ALL__|${selectedMonth}`, (hqCountMap.get(`${hq}|__ALL__|${selectedMonth}`) || 0) + 1);
-      hqCountMap.set(`${hq}|${item.prodName}|${selectedMonth}`, (hqCountMap.get(`${hq}|${item.prodName}|${selectedMonth}`) || 0) + 1);
-    });
-
-    // 2) 본부별 수수료 집계
-    const hqMap = new Map<string, {
-      hqName: string;
-      accounts: number;
-      salesComm: number;
-      specialComm: number;
-      totalPayable: number;
-      bankName: string;
-      accountNumber: string;
-      accountHolder: string;
-    }>();
-
-    // 본부 설정 초기화
-    hqSettings.forEach(s => {
-      if (!s.hqName) return;
-      hqMap.set(s.hqName, {
-        hqName: s.hqName,
-        accounts: 0,
-        salesComm: 0,
-        specialComm: 0,
-        totalPayable: 0,
-        bankName: s.bankName || '-',
-        accountNumber: s.accountNumber || '-',
-        accountHolder: s.accountHolder || '-'
-      });
-    });
-
-    // 판매 수수료 계산
-    deliveredItems.forEach(item => {
-      const hq = item.hq || '기타본부';
-      let entry = hqMap.get(hq);
-      if (!entry) {
-        entry = {
-          hqName: hq,
-          accounts: 0,
-          salesComm: 0,
-          specialComm: 0,
-          totalPayable: 0,
-          bankName: '-',
-          accountNumber: '-',
-          accountHolder: '-'
-        };
-        hqMap.set(hq, entry);
-      }
-
-      entry.accounts += 1;
-      let comm = 0;
-      if (calculateCommissionDetails) {
-        const res = calculateCommissionDetails(item, hqCountMap);
-        comm = res.finalPayable || res.totalCommission || 0;
-      }
-      entry.salesComm += comm;
-      entry.totalPayable += comm;
-    });
-
-    // 3) 본부 귀속 공급수수료(특수수당) 가산
-    // 규칙: globalIncentiveRules 중 본부 몫 (targetName === 'SELF_HQ' 등) 매칭
-    const specialRules = globalIncentiveRules.filter(r => {
-      return !r.targetName || r.targetName === 'SELF_HQ' || r.targetName === '판매본부' || r.targetName === '해당본부' || r.targetName === '본부';
-    });
-
-    specialRules.forEach(rule => {
-      deliveredItems.forEach(item => {
-        const hq = item.hq;
-        if (!hq || !hqMap.has(hq)) return;
-
-        // 상품 일치 검사
-        if (rule.targetProducts && !rule.targetProducts.includes('ALL')) {
-          const normP = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
-          if (!rule.targetProducts.some((tp: string) => normP.includes(tp.replace(/[\s()]/g, '').toLowerCase()))) return;
-        }
-
-        const unitComm = rule.commissionPerUnit || 0;
-        if (unitComm > 0) {
-          const entry = hqMap.get(hq)!;
-          entry.specialComm += unitComm;
-          entry.totalPayable += unitComm;
-        }
-      });
-    });
-
-    // 3-1) 타겟 지정형 특수수당 가산 (신동우 대표, 모델비, 컨설팅비 등)
-    const targetRules = globalIncentiveRules.filter(r => {
-      return r.targetName && r.targetName !== 'SELF_HQ' && r.targetName !== '판매본부' && r.targetName !== '해당본부' && r.targetName !== '본부';
-    });
-
-    targetRules.forEach(rule => {
-      let matchedCount = 0;
-      let commission = 0;
-      const processedRentalNos = new Set<string>();
-      const isSupplyRule = isSupplyCommissionRule(rule);
-      const isItemBasedRule = isSupplyRule || 
-        (rule.incentiveName && rule.incentiveName.includes('공급')) ||
-        (rule.targetItems && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL'));
-
-      data.forEach(item => {
-        const st = String(item.status || '').trim();
-        if (st.includes('취소') || st.includes('해약')) return;
-
-        const isDel = String(item.deliveryStatus || '').includes('완료') || (item.deliveryDate && item.deliveryDate !== '-' && item.deliveryDate.trim() !== '');
-        if (!isDel) return;
-
-        if (isItemBasedRule) {
-          const rentalKey = item.rentalNo || item.resNo;
-          if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
-            if (processedRentalNos.has(rentalKey)) return;
-          }
-        }
-
-        if (!isHqMatchedForSpecialRule(rule, item.hq, divisionSettings)) return;
-
-        if (rule.targetProducts && !rule.targetProducts.includes('ALL')) {
-          const normP = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
-          if (!rule.targetProducts.some((tp: string) => normP.includes(tp.replace(/[\s()]/g, '').toLowerCase()))) return;
-        }
-
-        if (rule.targetItems && !rule.targetItems.includes('ALL')) {
-          const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
-          const isItemMatch = rule.targetItems.some((prod: string) => {
-            const cleanRuleProd = prod.replace(/\s+/g, '');
-            return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
-          });
-          if (!isItemMatch) return;
-        }
-
-        const pDate = String(item.payDate || '').trim();
-        let isDateMatched = false;
-        if (pDate && pDate !== '-' && !pDate.includes('미지정') && !pDate.includes('미입금')) {
-          const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
-          const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
-          isDateMatched = (itemPayMonth === selectedMonth);
-        }
-        if (!isDateMatched) return;
-
-        const rentalKey = item.rentalNo || item.resNo;
-        if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
-          processedRentalNos.add(rentalKey);
-        }
-
-        const unitComm = rule.commissionPerUnit || 0;
-        if (unitComm > 0) {
-          matchedCount++;
-          commission += unitComm;
-        }
-      });
-
-      const finalAmount = Math.max(commission, rule.minimumGuarantee || 0);
-      if (finalAmount > 0) {
-        const targetName = rule.targetName;
-        let entry = hqMap.get(targetName);
-        if (!entry) {
-          const setting = hqSettings.find(s => s.hqName === targetName);
-          entry = {
-            hqName: targetName,
-            accounts: 0,
-            salesComm: 0,
-            specialComm: 0,
-            totalPayable: 0,
-            bankName: setting?.bankName || '-',
-            accountNumber: setting?.accountNumber || '-',
-            accountHolder: setting?.accountHolder || '-'
-          };
-          hqMap.set(targetName, entry);
-        }
-        entry.accounts += matchedCount;
-        entry.specialComm += finalAmount;
-        entry.totalPayable += finalAmount;
-      }
-    });
-
-    const hqList = Array.from(hqMap.values())
-      .filter(h => h.accounts > 0 || h.totalPayable > 0)
-      .sort((a, b) => b.totalPayable - a.totalPayable);
-
-    const totalHqPayout = hqList.reduce((sum, h) => sum + h.totalPayable, 0);
-    const totalHqAccounts = hqList.reduce((sum, h) => sum + h.accounts, 0);
-
-    // 4) 공급사별 물품대금 및 공급수수료 집계
     const supplierMap = new Map<string, {
       supplierId: string;
       supplierName: string;
@@ -500,12 +748,8 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
       totalSupplyPrice: number;
       totalCommission: number;
       settlementDay: number;
-      bankName: string;
-      accountNumber: string;
-      accountHolder: string;
     }>();
 
-    // 공급사 초기화
     suppliers.forEach(s => {
       supplierMap.set(s.id, {
         supplierId: s.id,
@@ -513,10 +757,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
         accounts: 0,
         totalSupplyPrice: 0,
         totalCommission: 0,
-        settlementDay: s.settlementDay || 31,
-        bankName: s.bankName || '-',
-        accountNumber: s.accountNumber || '-',
-        accountHolder: s.accountHolder || '-'
+        settlementDay: s.settlementDay || 31
       });
     });
 
@@ -551,14 +792,25 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
       perfMonth,
       deliveredItemsCount: deliveredItems.length,
       hqList,
-      totalHqPayout,
+      totalHqPayout: totalHqNetTotal,
+      totalHqNetTotal,
+      totalHqGrossTotal,
       totalHqAccounts,
+      totalGeneralSum,
+      totalMaintenanceSum,
+      totalSpecialSum,
+      totalTax,
+      isClosed: isCurrentMonthClosed,
       supplierList,
       totalSupplierPrice,
       totalSupplierCommission,
       totalSupplierAccounts
     };
-  }, [data, selectedMonth, perfMonth, hqSettings, globalIncentiveRules, suppliers, calculateCommissionDetails]);
+  }, [
+    data, selectedMonth, perfMonth, hqSettings, globalIncentiveRules, suppliers,
+    calculateCommissionDetails, maintenancePayouts, calculateMaintenancePayouts,
+    divisionSettings, globalStatsMap, isCurrentMonthClosed, closedDetailMap
+  ]);
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-900 text-slate-100 font-sans pb-24 selection:bg-blue-600 selection:text-white">
@@ -688,21 +940,24 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                     </div>
                     <span className="text-xs font-bold text-slate-300">배송완료 계약건수 (구좌수)</span>
                   </div>
+                  <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800">
+                    실제 배송완료
+                  </span>
                 </div>
                 <div className="flex items-baseline justify-between mt-1">
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-3xl font-black text-white tracking-tight">
-                      {formatWon(overviewStats.deliveredAccounts)}
+                      {formatWon(overviewStats.actualDeliveryAccounts)}
                     </span>
                     <span className="text-sm font-bold text-emerald-300">구좌</span>
                   </div>
                   <span className="text-xs font-bold text-slate-400">
-                    고유 {overviewStats.deliveredContractNos}건
+                    당월 배송 기준
                   </span>
                 </div>
                 <div className="mt-3 pt-2.5 border-t border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400">
-                  <span>당월 실배송 완료 구좌</span>
-                  <span className="font-extrabold text-emerald-300">{formatWon(overviewStats.actualDeliveryAccounts)} 구좌</span>
+                  <span>당월 접수 중 배송완료</span>
+                  <span className="font-extrabold text-emerald-300">{formatWon(overviewStats.deliveredAccounts)} 구좌 (고유 {overviewStats.deliveredContractNos}건)</span>
                 </div>
               </div>
 
@@ -812,10 +1067,11 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
         {/* ======================================================== */}
         {activeTab === 'ranking' && (
           <div className="space-y-4 animate-in fade-in duration-300">
-            {/* Top 10 서브탭 선택 버튼 */}
-            <div className="grid grid-cols-4 gap-1.5 bg-slate-800/90 p-1 rounded-2xl border border-slate-700">
+            {/* Top 10 서브탭 선택 버튼 (5개 탭) */}
+            <div className="grid grid-cols-5 gap-1 bg-slate-800/90 p-1 rounded-2xl border border-slate-700">
               {[
-                { id: 'product', label: '상품별' },
+                { id: 'prodName', label: '상품명별' },
+                { id: 'rentalProd', label: '제품별' },
                 { id: 'hq', label: '본부별' },
                 { id: 'branch', label: '지사별' },
                 { id: 'salesperson', label: '사원별' },
@@ -823,7 +1079,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                 <button
                   key={tab.id}
                   onClick={() => setRankingCategory(tab.id as any)}
-                  className={`py-2 text-xs font-black rounded-xl transition ${
+                  className={`py-2 text-[11px] font-black rounded-xl transition ${
                     rankingCategory === tab.id
                       ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
                       : 'text-slate-400 hover:text-white'
@@ -839,7 +1095,12 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
               <div className="flex items-center gap-2">
                 <Award size={16} className="text-amber-400" />
                 <span className="text-xs font-black text-white">
-                  {selectedMonth} {rankingCategory === 'product' ? '상품' : rankingCategory === 'hq' ? '본부' : rankingCategory === 'branch' ? '지사' : '영업사원'} 실적 Top 10
+                  {selectedMonth} {
+                    rankingCategory === 'prodName' ? '상품명' :
+                    rankingCategory === 'rentalProd' ? '제품' :
+                    rankingCategory === 'hq' ? '본부' :
+                    rankingCategory === 'branch' ? '지사' : '영업사원'
+                  } 실적 Top 10
                 </span>
               </div>
               <span className="text-[11px] text-slate-400 font-bold">
@@ -851,7 +1112,8 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
             <div className="space-y-2">
               {(() => {
                 const currentList = 
-                  rankingCategory === 'product' ? top10Rankings.products :
+                  rankingCategory === 'prodName' ? top10Rankings.prodNames :
+                  rankingCategory === 'rentalProd' ? top10Rankings.rentalProds :
                   rankingCategory === 'hq' ? top10Rankings.hqs :
                   rankingCategory === 'branch' ? top10Rankings.branches :
                   top10Rankings.salespersons;
@@ -884,14 +1146,23 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                     >
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <span className={`w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center border ${rankBadgeColor}`}>
+                          <span className={`w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center border shrink-0 ${rankBadgeColor}`}>
                             {rank}
                           </span>
-                          <span className="text-xs font-bold text-white truncate max-w-[170px]">
-                            {item.name}
-                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-bold text-white truncate max-w-[130px]">
+                                {item.name}
+                              </span>
+                              {rankingCategory === 'salesperson' && (
+                                <span className="text-[10px] text-slate-400 font-medium">
+                                  ({(item as any).hq || '-'}{(item as any).branch ? ` / ${(item as any).branch}` : ''})
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right shrink-0">
                           <div className="flex items-baseline gap-1 justify-end">
                             <span className="text-sm font-black text-white">{item.accounts}</span>
                             <span className="text-[10px] text-slate-400 font-bold">구좌</span>
@@ -923,7 +1194,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
         )}
 
         {/* ======================================================== */}
-        {/* 시트 3: 수수료 및 정산 내역 (본부별 수수료 & 공급사 정산) */}
+        {/* 시트 3: 수수료 및 정산 내역 (월별 본부 정산서 연동) */}
         {/* ======================================================== */}
         {activeTab === 'settlement' && (
           <div className="space-y-4 animate-in fade-in duration-300">
@@ -934,12 +1205,18 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                 <span className="font-black text-white">
                   {selectedMonth.split('-')[1]}월 정산 지급 명세
                 </span>
-                <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded font-extrabold border border-blue-500/30">
-                  실적: {settlementData.perfMonth}월 배송완료 건
-                </span>
+                {settlementData.isClosed ? (
+                  <span className="text-[10px] bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded font-black border border-rose-500/30">
+                    마감 확정
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded font-extrabold border border-blue-500/30">
+                    월별 본부 정산서 연동
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-300 leading-relaxed">
-                전월({settlementData.perfMonth}월) 배송완료된 <b>{settlementData.deliveredItemsCount}구좌</b>에 대해 당월({selectedMonth.split('-')[1]}월 25일/말일) 지급할 정산 내역입니다.
+                당월({selectedMonth.split('-')[1]}월) 실제 지급 대상 본부 정산서(특수수당/유지수수료 포함) 및 공급사 정산 내역입니다.
               </p>
             </div>
 
@@ -977,42 +1254,57 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
               </button>
             </div>
 
-            {/* 3-1. 본부별 수수료 화면 */}
+            {/* 3-1. 본부별 수수료 화면 (월별 본부 정산서 데이터) */}
             {settlementSubTab === 'hq_commission' && (
               <div className="space-y-3">
                 {/* 본부 수수료 총합 카드 */}
                 <div className="bg-slate-850 p-4 rounded-2xl border border-blue-500/30 shadow-md">
                   <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                    <span>본부 총 지급 수수료</span>
-                    <span className="font-bold text-blue-400">{settlementData.totalHqAccounts} 구좌 대상</span>
+                    <span>본부 총 실지급액 (세후)</span>
+                    <span className="font-bold text-blue-400">{settlementData.totalHqAccounts}건 대상</span>
                   </div>
                   <div className="text-2xl font-black text-white">
-                    ₩ {formatWon(settlementData.totalHqPayout)}
+                    ₩ {formatWon(settlementData.totalHqNetTotal)}
                   </div>
                   <div className="mt-2 pt-2 border-t border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400">
-                    <span>지급 예정일</span>
-                    <span className="font-bold text-blue-300">{selectedMonth}-25 (익월 25일)</span>
+                    <span>기본: ₩{formatWon(settlementData.totalGeneralSum)} | 유지: ₩{formatWon(settlementData.totalMaintenanceSum)}</span>
+                    <span className="font-bold text-indigo-300">특수: ₩{formatWon(settlementData.totalSpecialSum)}</span>
                   </div>
+                  {settlementData.totalTax > 0 && (
+                    <div className="mt-1 flex items-center justify-between text-[10px] text-slate-500">
+                      <span>세전 합계: ₩{formatWon(settlementData.totalHqGrossTotal)}</span>
+                      <span>원천징수세(3.3%): ₩{formatWon(settlementData.totalTax)}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* 본부별 리스트 */}
                 <div className="space-y-2">
                   {settlementData.hqList.length === 0 ? (
                     <div className="py-10 text-center text-slate-500 text-xs font-bold">
-                      해당 월 배송완료 실적이 있는 본부가 없습니다.
+                      해당 월 지급 대상 정산 내역이 없습니다.
                     </div>
                   ) : (
                     settlementData.hqList.map((hq, idx) => (
                       <div key={idx} className="bg-slate-850/80 p-3 rounded-2xl border border-slate-800 space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-black text-white">{hq.hqName}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-white">{hq.hqName}</span>
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold border ${
+                              hq.settlementType?.includes('개인')
+                                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                            }`}>
+                              {hq.settlementType || '사업자'}
+                            </span>
+                          </div>
                           <span className="text-xs font-black text-blue-400">
-                            ₩ {formatWon(hq.totalPayable)}
+                            ₩ {formatWon(hq.netTotal)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-[11px] text-slate-400">
-                          <span>배송 실적: {hq.accounts}구좌</span>
-                          <span>기본: ₩{formatWon(hq.salesComm)} | 공급수당: ₩{formatWon(hq.specialComm)}</span>
+                          <span>실적: {hq.count}건</span>
+                          <span>기본: ₩{formatWon(hq.generalSum)} | 유지: ₩{formatWon(hq.maintenanceSum)} | 특수: ₩{formatWon(hq.specialComm)}</span>
                         </div>
                       </div>
                     ))

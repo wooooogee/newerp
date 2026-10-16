@@ -4067,9 +4067,10 @@ const ERP_Dashboard = () => {
                 isMatchedDate = normDisplay.startsWith(normFilter);
               } else if (normFilter.length >= 8) {
                 if (rule.payDay && rule.payDay > 0) {
-                  isMatchedDate = normDisplay.startsWith(normFilter.substring(0, 6));
+                  const filterDay = parseInt(normFilter.substring(6, 8));
+                  isMatchedDate = (filterDay === rule.payDay) && normDisplay.startsWith(normFilter.substring(0, 6));
                 } else {
-                  isMatchedDate = normDisplay === normFilter || normDisplay.startsWith(normFilter.substring(0, 6));
+                  isMatchedDate = (normDisplay === normFilter);
                 }
               } else {
                 isMatchedDate = normDisplay === normFilter;
@@ -7720,6 +7721,8 @@ const ERP_Dashboard = () => {
           globalIncentiveRules={globalIncentiveRules}
           divisionSettings={divisionSettings}
           calculateCommissionDetails={calculateCommissionDetails}
+          maintenancePayouts={maintenancePayouts}
+          calculateMaintenancePayouts={calculateMaintenancePayouts}
           loading={loading}
           onRefresh={loadData}
           onLogout={async () => {
