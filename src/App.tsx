@@ -216,19 +216,28 @@ export const isHqMatchedForSpecialRule = (
     });
     if (isDivMatch) return true;
 
-    // 만약 굿라이프 또는 신동우 관련 사업단이 타겟인 경우, 굿라이프 산하 본부 전체(다보다, 더굿, 최강, 노반, 무한, 이음, 꿈잇다 등) 포괄 매칭
-    const isGoodlifeTarget = targetDivisions.some(td => 
-      td === 'div-goodlife' || (td || '').includes('신동우') || (td || '').includes('굿라이프')
+    // 만약 굿라이프 또는 신동우 관련 사업단이 타겟인 경우:
+    // 굿라이프(신동우) 6개 본부(최강본부, 다보다, 더굿, 노반AI, 더굿라이프, LS지사)만 포함!
+    // '꿈잇다' 사업단 산하 본부(꿈잇다, 무한, 이음, 명품, 가치온, 아우라, 서울중앙, 스마일, 조이, 새빛, 온누리, 1본부, 챔피언, 두드림 등)는 수수료 지급 대상에서 절대 제외!
+    const isGoodlifeShinTarget = targetDivisions.some(td => 
+      td === 'div-goodlife' || ((td || '').includes('신동우') && !(td || '').includes('꿈잇다'))
     ) || (rule.targetName && (rule.targetName.includes('신동우')));
 
-    if (isGoodlifeTarget) {
-      const knownGoodlifeHqs = [
-        '다보다', '더굿', '최강', '노반AI', '더굿라이프', '가치온', '1본부', '새빛', '온누리', 
-        '명품', '무한', '꿈잇다', '서울중앙', '스마일', '이음', '챔피언', '아우라', '두드림', '조이', 'LS'
+    if (isGoodlifeShinTarget) {
+      // 1. 꿈잇다 계열 본부는 절대 제외
+      const ggumitdaHqs = [
+        '꿈잇다', '무한', '이음', '명품', '가치온', '아우라', '서울중앙', '스마일', '조이', '새빛', '온누리', '1본부', '챔피언', '두드림'
       ];
-      if (knownGoodlifeHqs.some(gh => cleanHq.includes(normalizeHq(gh)) || normalizeHq(gh).includes(cleanHq))) {
+      if (ggumitdaHqs.some(gh => cleanHq.includes(normalizeHq(gh)) || normalizeHq(gh).includes(cleanHq))) {
+        return false;
+      }
+
+      // 2. 신동우 대표 6개 본부만 매칭 인정
+      const goodlifeShinHqs = ['다보다', '더굿', '최강', '노반AI', '더굿라이프', 'LS'];
+      if (goodlifeShinHqs.some(gh => cleanHq.includes(normalizeHq(gh)) || normalizeHq(gh).includes(cleanHq))) {
         return true;
       }
+      return false;
     }
   }
 
@@ -7028,7 +7037,7 @@ const ERP_Dashboard = () => {
 
         rows.push([]);
         rows.push([`[${specialIncentiveName} 상세 내역]`]);
-        rows.push(['No', '지사명', '계약일자', '지급일자', '본부명', '사원명', '고객명', '렌탈계약번호', '배송일자', '수당 종류', '제품명(렌탈상품명)', '수수료']);
+        rows.push(['No', '계약일자', '지급일자', '본부명', '지사명', '사원명', '고객명', '렌탈계약번호', '배송일자', '수당 종류', '제품명(렌탈상품명)', '수수료']);
 
         if (hqSpecialPayouts.length > 0) {
           let totalSpecialAccounts = 0;
@@ -7040,12 +7049,16 @@ const ERP_Dashboard = () => {
             const accounts = qMatch ? parseInt(qMatch[1], 10) : (sp.accountCount || 1);
             totalSpecialAccounts += accounts;
 
+            const originHqName = sp.originHq && sp.originHq !== '-' && !sp.originHq.includes('신동우')
+              ? sp.originHq 
+              : (originContract?.hq && !originContract.hq.includes('신동우') ? originContract.hq : (sp.hq && !sp.hq.includes('신동우') ? sp.hq : (originContract?.hq || '-')));
+
             rows.push([
               idx + 1,
-              branch,
               sp.contractDate && sp.contractDate !== '-' ? sp.contractDate : (originContract ? originContract.contractDate : '-'),
               sp.payDate && sp.payDate !== '-' ? sp.payDate : (originContract ? (originContract.payDate || payDateDisplay) : payDateDisplay),
-              sp.hq || hqName,
+              originHqName,
+              branch,
               sp.empName && sp.empName !== '-' ? sp.empName : (originContract ? originContract.empName : '-'),
               sp.memName && sp.memName !== '-' ? sp.memName : (originContract ? originContract.memName : '-'),
               sp.rentalNo || '-',
