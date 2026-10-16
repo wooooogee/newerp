@@ -23,6 +23,7 @@ interface SettlementClosureItem {
 interface HqMonthlyStat {
   hqName: string;
   count: number;
+  accountCount?: number;
   salesSum: number;
   promoSum: number;
   generalSum: number;
@@ -73,6 +74,18 @@ const getYearMonth = (dateStr: any): string => {
     return `${m[1]}-${m[2].padStart(2, '0')}`;
   }
   return '';
+};
+
+// 구좌수 파싱 헬퍼
+const getAccountCountFromItem = (item: any): number => {
+  if (!item) return 1;
+  const prodText = `${item.rentalProd || ''} ${item.prodName || ''} ${item.productModel || ''} ${item['제품명'] || ''} ${item['상품명'] || ''}`;
+  const m = prodText.match(/(\d+)구좌/);
+  if (m) {
+    const q = parseInt(m[1], 10);
+    if (!isNaN(q) && q > 0) return q;
+  }
+  return 1;
 };
 
 // 전월 YYYY-MM 구하기
@@ -492,6 +505,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
         const promo = totalCommission - salesComm;
 
         stat.count += 1;
+        stat.accountCount = (stat.accountCount || 0) + getAccountCountFromItem(item);
         stat.salesSum += salesComm;
         stat.promoSum += promo;
         stat.generalSum += totalCommission;
@@ -552,6 +566,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
 
           const processedRentalNos = new Set<string>();
           let matchedCount = 0;
+          let matchedAccountCount = 0;
           let commission = 0;
 
           (data || []).forEach(item => {
@@ -661,6 +676,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
               }
             } else {
               matchedCount++;
+              matchedAccountCount += getAccountCountFromItem(item);
               commission += itemComm;
             }
           });
@@ -676,6 +692,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                 statsMap.set(targetName, {
                   hqName: targetName,
                   count: 0,
+                  accountCount: 0,
                   salesSum: 0,
                   promoSum: 0,
                   generalSum: 0,
@@ -693,6 +710,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
               const stat = statsMap.get(targetName)!;
               stat.specialSum += finalAmount;
               stat.count = (stat.count || 0) + matchedCount;
+              stat.accountCount = (stat.accountCount || 0) + matchedAccountCount;
             }
           }
         });
@@ -724,6 +742,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
     const totalHqNetTotal = hqList.reduce((sum, h) => sum + (h.netTotal || 0), 0);
     const totalHqGrossTotal = hqList.reduce((sum, h) => sum + (h.grossTotal || 0), 0);
     const totalHqAccounts = hqList.reduce((sum, h) => sum + (h.count || 0), 0);
+    const totalHqTotalAccounts = hqList.reduce((sum, h) => sum + (h.accountCount || h.count || 0), 0);
     const totalGeneralSum = hqList.reduce((sum, h) => sum + (h.generalSum || 0), 0);
     const totalMaintenanceSum = hqList.reduce((sum, h) => sum + (h.maintenanceSum || 0), 0);
     const totalSpecialSum = hqList.reduce((sum, h) => sum + (h.specialSum || 0), 0);
@@ -796,6 +815,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
       totalHqNetTotal,
       totalHqGrossTotal,
       totalHqAccounts,
+      totalHqTotalAccounts,
       totalGeneralSum,
       totalMaintenanceSum,
       totalSpecialSum,
@@ -1261,7 +1281,9 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                 <div className="bg-slate-850 p-4 rounded-2xl border border-blue-500/30 shadow-md">
                   <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                     <span>본부 총 실지급액 (세후)</span>
-                    <span className="font-bold text-blue-400">{settlementData.totalHqAccounts}건 대상</span>
+                    <span className="font-bold text-blue-400">
+                      {settlementData.totalHqAccounts}건{settlementData.totalHqTotalAccounts !== settlementData.totalHqAccounts ? ` (${settlementData.totalHqTotalAccounts}구좌)` : ''} 대상
+                    </span>
                   </div>
                   <div className="text-2xl font-black text-white">
                     ₩ {formatWon(settlementData.totalHqNetTotal)}
@@ -1303,7 +1325,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-[11px] text-slate-400">
-                          <span>실적: {hq.count}건</span>
+                          <span>실적: {hq.count}건{hq.accountCount && hq.accountCount !== hq.count ? ` (${hq.accountCount}구좌)` : ''}</span>
                           <span>기본: ₩{formatWon(hq.generalSum)} | 유지: ₩{formatWon(hq.maintenanceSum)} | 특수: ₩{formatWon(hq.specialComm)}</span>
                         </div>
                       </div>

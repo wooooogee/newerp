@@ -6394,7 +6394,7 @@ const ERP_Dashboard = () => {
     }
   }, [pendingExportDate, payDateFilter, settlementStats, originalPayDateFilter]);
 
-  const exportProfessionalSettlement = async (hqName: string, targetMonthStr?: string) => {
+  const exportProfessionalSettlement = async (hqName: string, targetMonthStr?: string, precalculatedDetail?: any) => {
     try {
       let items = settlementStats.hqGroups[hqName] || [];
       let hqMaintenancePayouts = maintenancePayouts.filter(m => m.hq === hqName);
@@ -6412,15 +6412,33 @@ const ERP_Dashboard = () => {
         hqMaintenancePayouts = currentMonthMaint.filter(m => m.hq === hqName);
       }
 
-      let hqSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => {
-        if (sp.hq !== hqName) return false;
-        if (payDateFilter && payDateFilter !== 'ALL' && sp.payDate && sp.payDate !== '-' && sp.payDate !== '지급일 미지정') {
-          return sp.payDate.replace(/[-./]/g, '') === payDateFilter.replace(/[-./]/g, '');
-        }
-        return true;
-      });
+      let hqSpecialPayouts: any[] = [];
+      let specialSum = 0;
+
+      if (precalculatedDetail && precalculatedDetail.specialItems && precalculatedDetail.specialItems.length > 0) {
+        // MonthlySettlementModal 등에서 이미 집계된 해당 월의 특수수당 아이템 직접 사용
+        hqSpecialPayouts = [...precalculatedDetail.specialItems];
+        specialSum = precalculatedDetail.specialSum || hqSpecialPayouts.reduce((sum: number, sp: any) => sum + Number(sp.amount || 0), 0);
+      } else {
+        hqSpecialPayouts = (settlementStats.specialPayouts || []).filter((sp: any) => {
+          if (sp.hq !== hqName && sp.targetName !== hqName) return false;
+          if (targetMonthStr) {
+            const pDate = sp.payDate || '';
+            const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+            const spMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+            return spMonth === targetMonthStr;
+          }
+          if (payDateFilter && payDateFilter !== 'ALL' && sp.payDate && sp.payDate !== '-' && sp.payDate !== '지급일 미지정') {
+            return sp.payDate.replace(/[-./]/g, '') === payDateFilter.replace(/[-./]/g, '');
+          }
+          return true;
+        });
+        specialSum = targetMonthStr
+          ? hqSpecialPayouts.reduce((sum: number, sp: any) => sum + Number(sp.amount || 0), 0)
+          : ((settlementStats.globalIncentivesSummary || {})[hqName] || 0);
+      }
+
       const maintenanceSum = hqMaintenancePayouts.reduce((sum, m) => sum + m.amount, 0);
-      const specialSum = (settlementStats.globalIncentivesSummary || {})[hqName] || 0;
 
       const matchedRule = globalIncentiveRules.find(r => 
         (r.targetName === 'SELF_HQ' || r.targetName === '판매본부' || r.targetName === '해당본부' || !r.targetName) &&
@@ -6947,9 +6965,15 @@ const ERP_Dashboard = () => {
         rows.push(['No', '지사명', '계약일자', '지급일자', '본부명', '사원명', '고객명', '렌탈계약번호', '배송일자', '수당 종류', '제품명(렌탈상품명)', '수수료']);
 
         if (hqSpecialPayouts.length > 0) {
+          let totalSpecialAccounts = 0;
           hqSpecialPayouts.forEach((sp: any, idx: number) => {
             const originContract = filteredData.find(d => d.rentalNo === sp.rentalNo || d.resNo === sp.rentalNo);
             const branch = sp.branch || (originContract ? originContract.branch : hqName);
+            const prodText = sp.rentalProd || sp.prodName || (originContract ? (originContract.rentalProd || originContract.prodName) : '-');
+            const qMatch = prodText.match(/(\d+)구좌/);
+            const accounts = qMatch ? parseInt(qMatch[1], 10) : (sp.accountCount || 1);
+            totalSpecialAccounts += accounts;
+
             rows.push([
               idx + 1,
               branch,
@@ -6961,10 +6985,14 @@ const ERP_Dashboard = () => {
               sp.rentalNo || '-',
               sp.deliveryDate && sp.deliveryDate !== '-' ? sp.deliveryDate : (originContract ? originContract.deliveryDate : '-'),
               sp.incentiveName || specialIncentiveName,
-              sp.rentalProd || sp.prodName || (originContract ? (originContract.rentalProd || originContract.prodName) : '-'),
+              prodText,
               { v: Math.floor(sp.amount), t: 'n', z: '#,##0' }
             ]);
           });
+
+          const subtotalCountLabel = totalSpecialAccounts !== hqSpecialPayouts.length
+            ? `${hqSpecialPayouts.length}건 (${totalSpecialAccounts}구좌)`
+            : `${hqSpecialPayouts.length}건`;
 
           rows.push([
             '특수수당 소계',
@@ -6972,7 +7000,7 @@ const ERP_Dashboard = () => {
             '',
             '',
             '',
-            `${hqSpecialPayouts.length}건`,
+            subtotalCountLabel,
             '',
             '',
             '',

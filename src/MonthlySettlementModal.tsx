@@ -15,7 +15,7 @@ export interface MonthlySettlementModalProps {
   maintenancePayouts: any[];
   globalIncentiveRules: any[];
   calculateCommissionDetails: (item: any, countMap: Map<string, number>) => any;
-  onExportHqSettlement?: (hqName: string, monthStr?: string) => Promise<void>;
+  onExportHqSettlement?: (hqName: string, monthStr?: string, precalculatedDetail?: any) => Promise<void>;
   calculateMaintenancePayouts?: (items: any[], monthStr?: string, ignoreDay?: boolean) => any[];
 }
 
@@ -31,6 +31,7 @@ interface SettlementClosureItem {
 interface HqMonthlyStat {
   hqName: string;
   count: number;
+  accountCount?: number;
   salesSum: number;
   promoSum: number;
   generalSum: number;
@@ -47,6 +48,18 @@ interface HqMonthlyStat {
   specialItems: any[];
   maintenanceItems: any[];
 }
+
+// 구좌수 파싱 헬퍼 함수
+const getAccountCountFromItem = (item: any): number => {
+  if (!item) return 1;
+  const prodText = `${item.rentalProd || ''} ${item.prodName || ''} ${item.productModel || ''} ${item['제품명'] || ''} ${item['상품명'] || ''}`;
+  const m = prodText.match(/(\d+)구좌/);
+  if (m) {
+    const q = parseInt(m[1], 10);
+    if (!isNaN(q) && q > 0) return q;
+  }
+  return 1;
+};
 
 // 특수수당 본부/사업단 매칭 헬퍼 함수
 const isHqMatchedForSpecialRule = (
@@ -283,6 +296,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       const promo = totalCommission - salesComm;
 
       stat.count += 1;
+      stat.accountCount = (stat.accountCount || 0) + getAccountCountFromItem(item);
       stat.salesSum += salesComm;
       stat.promoSum += promo;
       stat.generalSum += totalCommission;
@@ -307,6 +321,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         statsMap.set(hq, {
           hqName: hq,
           count: 0,
+          accountCount: 0,
           salesSum: 0,
           promoSum: 0,
           generalSum: 0,
@@ -459,15 +474,25 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             itemComm = rule.commissionPerUnit;
           }
 
+          const itemAccounts = getAccountCountFromItem(item);
           const specialItemInfo = {
             id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
-            incentiveName: rule.incentiveName || '특수수당',
+            hq: isSelfHq ? item.hq : (rule.targetName || item.hq || '-'),
+            branch: item.branch || '-',
+            rentalNo: item.rentalNo || item.resNo || '-',
+            empName: item.empName || '-',
             memName: item.memName || '-',
             prodName: item.prodName || '-',
+            rentalProd: item.rentalProd || '-',
+            incentiveName: rule.incentiveName || (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당')),
             amount: itemComm,
+            accountCount: itemAccounts,
             contractDate: item.contractDate || '-',
             deliveryDate: item.deliveryDate || '-',
             payDate: item.payDate || '-',
+            taxType: rule.taxType || 'DEFAULT',
+            taxBusinessName: rule.taxBusinessName,
+            taxBusinessNo: rule.taxBusinessNo,
             installCertStatus: certEligibility?.certMonth ? '등록' : undefined,
             installCertMonth: certEligibility?.certMonth
           };
@@ -481,6 +506,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                 statsMap.set(hqName, {
                   hqName,
                   count: 0,
+                  accountCount: 0,
                   salesSum: 0,
                   promoSum: 0,
                   generalSum: 0,
@@ -509,7 +535,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           }
         });
 
-        // 타겟 지정형 수당 (예: 모델비, 컨설팅비 등)
+        // 타겟 지정형 수당 (예: 모델비, 컨설팅비, 신동우 대표 등)
         if (!isSelfHq && rule.targetName) {
           const finalAmount = Math.max(commission, rule.minimumGuarantee || 0);
           if (finalAmount > 0) {
@@ -520,6 +546,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               statsMap.set(targetName, {
                 hqName: targetName,
                 count: 0,
+                accountCount: 0,
                 salesSum: 0,
                 promoSum: 0,
                 generalSum: 0,
@@ -541,6 +568,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             stat.specialSum += finalAmount;
             stat.specialItems.push(...matchedItems);
             stat.count = (stat.items?.length || 0) + stat.specialItems.length;
+            const specialAccounts = matchedItems.reduce((acc, sp) => acc + (sp.accountCount || 1), 0);
+            stat.accountCount = (stat.accountCount || 0) + specialAccounts;
           }
         }
       });
@@ -1562,7 +1591,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       className="px-3 py-3 text-right cursor-pointer hover:bg-slate-100 transition-colors border-r border-slate-200"
                     >
                       <div className="flex items-center justify-end gap-1">
-                        <span>실적건수</span>
+                        <span>실적건수(구좌수)</span>
                         <ArrowUpDown size={12} className="text-slate-400" />
                       </div>
                     </th>
@@ -1626,7 +1655,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-800 border-r border-slate-100">
-                          {stat.count.toLocaleString()}건
+                          {stat.accountCount && stat.accountCount !== stat.count ? (
+                            <span title={`고유 계약 ${stat.count}건 / 총 실적 ${stat.accountCount}구좌`}>
+                              {stat.count.toLocaleString()}건 <span className="text-blue-600 font-semibold text-[11px]">({stat.accountCount.toLocaleString()}구좌)</span>
+                            </span>
+                          ) : (
+                            `${stat.count.toLocaleString()}건`
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-right font-mono text-slate-600 border-r border-slate-100">
                           {stat.salesSum.toLocaleString()}
@@ -1737,14 +1772,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       <h3 className="text-base font-bold text-slate-900">
                         [{selectedHqDetail.hqName}] {selectedMonth} 정산 상세 명세
                       </h3>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">
+                      <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">
                         {selectedHqDetail.count}건
+                        {selectedHqDetail.accountCount && selectedHqDetail.accountCount !== selectedHqDetail.count && (
+                          <span className="ml-1 text-blue-800">({selectedHqDetail.accountCount}구좌)</span>
+                        )}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
                       {onExportHqSettlement && (
                         <button
-                          onClick={() => onExportHqSettlement(selectedHqDetail.hqName, selectedMonth)}
+                          onClick={() => onExportHqSettlement(selectedHqDetail.hqName, selectedMonth, selectedHqDetail)}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
                         >
                           <Download size={13} />
@@ -1853,12 +1891,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                     {/* 특수수당 상세 목록 */}
                     {selectedHqDetail.specialItems && selectedHqDetail.specialItems.length > 0 && (
                       <div className="pt-2 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-purple-600" />
-                            특수수당 내역 ({selectedHqDetail.specialItems.length}건, 총 {selectedHqDetail.specialSum.toLocaleString()}원)
-                          </h4>
-                        </div>
+                        {(() => {
+                          const totalSpAccounts = selectedHqDetail.specialItems.reduce((acc, sp) => acc + (sp.accountCount || getAccountCountFromItem(sp)), 0);
+                          return (
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-purple-600" />
+                                특수수당 내역 ({selectedHqDetail.specialItems.length}건{totalSpAccounts !== selectedHqDetail.specialItems.length ? ` / ${totalSpAccounts}구좌` : ''}, 총 {selectedHqDetail.specialSum.toLocaleString()}원)
+                              </h4>
+                            </div>
+                          );
+                        })()}
                         <table className="w-full text-xs text-left border border-purple-200 rounded-lg overflow-hidden bg-purple-50/10">
                           <thead className="bg-purple-100/60 text-purple-900 font-bold border-b border-purple-200">
                             <tr>
