@@ -8,7 +8,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { loadSuppliersFromStorage, SupplierItem } from './SupplierManagementModal';
-import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo, mergeManualOrderStores } from './manualOrderUtils';
+import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo, mergeManualOrderStores, isSupplyCommissionRule } from './manualOrderUtils';
 import { isHqMatchedForSpecialRule } from './App';
 
 interface CeoDashboardMobileViewProps {
@@ -404,6 +404,11 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
     targetRules.forEach(rule => {
       let matchedCount = 0;
       let commission = 0;
+      const processedRentalNos = new Set<string>();
+      const isSupplyRule = isSupplyCommissionRule(rule);
+      const isItemBasedRule = isSupplyRule || 
+        (rule.incentiveName && rule.incentiveName.includes('공급')) ||
+        (rule.targetItems && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL'));
 
       data.forEach(item => {
         const st = String(item.status || '').trim();
@@ -411,6 +416,13 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
 
         const isDel = String(item.deliveryStatus || '').includes('완료') || (item.deliveryDate && item.deliveryDate !== '-' && item.deliveryDate.trim() !== '');
         if (!isDel) return;
+
+        if (isItemBasedRule) {
+          const rentalKey = item.rentalNo || item.resNo;
+          if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+            if (processedRentalNos.has(rentalKey)) return;
+          }
+        }
 
         if (!isHqMatchedForSpecialRule(rule, item.hq, divisionSettings)) return;
 
@@ -436,6 +448,11 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
           isDateMatched = (itemPayMonth === selectedMonth);
         }
         if (!isDateMatched) return;
+
+        const rentalKey = item.rentalNo || item.resNo;
+        if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+          processedRentalNos.add(rentalKey);
+        }
 
         const unitComm = rule.commissionPerUnit || 0;
         if (unitComm > 0) {

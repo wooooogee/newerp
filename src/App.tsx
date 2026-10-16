@@ -3993,8 +3993,16 @@ const ERP_Dashboard = () => {
 
           if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
 
-          // 렌탈계약번호 기준 중복제거 (본부 공급수수료 isSelfHq인 경우에만 1회 지급 중복제거, 개인 지정 수당은 구좌대로 계산)
-          if (isSelfHq) {
+          // 공급수수료 판별
+          const isSupplyRule = isSupplyCommissionRule(rule);
+
+          // 렌탈계약번호 기준 중복제거: 상품 기준 수수료(공급수수료, 대상제품 지정 수당, 본부 공급수수료)는 동일 렌탈계약번호당 1회만 지급
+          const isItemBasedRule = isSelfHq || 
+            isSupplyRule || 
+            (rule.incentiveName && rule.incentiveName.includes('공급')) ||
+            (rule.targetItems && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL'));
+
+          if (isItemBasedRule) {
             const rentalKey = item.rentalNo || item.resNo;
             if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
               if (processedRentalNos.has(rentalKey)) return;
@@ -4022,7 +4030,6 @@ const ERP_Dashboard = () => {
           }
 
           // 공급수수료 / 특수수당인 경우 수기발주 설치확인서 등록 및 마감월 연동 검사
-          const isSupplyRule = isSupplyCommissionRule(rule);
           let certEligibility: ReturnType<typeof checkInstallCertEligibility> | null = null;
           let effectiveBaseDate = '';
 
@@ -4476,7 +4483,16 @@ const ERP_Dashboard = () => {
                             (item.deliveryDate && item.deliveryDate !== '-' && item.deliveryDate.trim() !== '');
         if (!isDelivered) return;
 
-        if (isSelfHq) {
+        // 공급수수료 판별
+        const isSupplyRule = isSupplyCommissionRule(rule);
+
+        // 렌탈계약번호 기준 중복제거: 상품 기준 수수료(공급수수료, 대상제품 지정 수당, 본부 공급수수료)는 동일 렌탈계약번호당 1회만 지급
+        const isItemBasedRule = isSelfHq || 
+          isSupplyRule || 
+          (rule.incentiveName && rule.incentiveName.includes('공급')) ||
+          (rule.targetItems && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL'));
+
+        if (isItemBasedRule) {
           const rentalKey = item.rentalNo || item.resNo;
           if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
             if (processedRentalNos.has(rentalKey)) return;
@@ -4503,7 +4519,6 @@ const ERP_Dashboard = () => {
           if (!isItemMatch) return;
         }
 
-        const isSupplyRule = isSupplyCommissionRule(rule);
         let certEligibility: ReturnType<typeof checkInstallCertEligibility> | null = null;
         let effectiveBaseDate = '';
 
@@ -15512,7 +15527,16 @@ const ERP_Dashboard = () => {
 
                             if (!rule.useInstallments && rule.commissionPerUnit === 0 && rule.minimumGuarantee === 0) return;
 
-                            if (isSelfHq) {
+                            // 공급수수료 판별
+                            const isSupplyRule = isSupplyCommissionRule(rule);
+
+                            // 렌탈계약번호 기준 중복제거: 상품 기준 수수료(공급수수료, 대상제품 지정 수당, 본부 공급수수료)는 동일 렌탈계약번호당 1회만 지급
+                            const isItemBasedRule = isSelfHq || 
+                              isSupplyRule || 
+                              (rule.incentiveName && rule.incentiveName.includes('공급')) ||
+                              (rule.targetItems && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL'));
+
+                            if (isItemBasedRule) {
                               const rentalKey = item.rentalNo || item.resNo;
                               if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
                                 if (processedRentalNos.has(rentalKey)) return;
@@ -15539,7 +15563,6 @@ const ERP_Dashboard = () => {
                               if (!isItemMatch) return;
                             }
 
-                            const isSupplyRule = isSupplyCommissionRule(rule);
                             let certEligibility: ReturnType<typeof checkInstallCertEligibility> | null = null;
                             let effectiveBaseDate = '';
 
