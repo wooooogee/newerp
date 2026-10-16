@@ -577,10 +577,21 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
             if (!isDelivered) return;
 
             const isSupplyRule = isSupplyCommissionRule(rule);
-            const isItemBasedRule = isSelfHq || 
-              isSupplyRule || 
-              (rule.incentiveName && rule.incentiveName.includes('공급')) ||
-              (rule.targetItems && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL'));
+
+            // [규칙 판정 - 사용자 요청]
+            // 대상제품(렌탈상품명)이 설정되어 있으면 제품별 (동일 렌탈계약번호당 1회만 지급)
+            // 대상상품(카테고리)이 선택되어 있으면 구좌수별 (각 행마다 1구좌씩 지급, 중복제거 안 함)
+            const hasTargetItems = Array.isArray(rule.targetItems) && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL');
+            const hasTargetProducts = Array.isArray(rule.targetProducts) && rule.targetProducts.length > 0 && !rule.targetProducts.includes('ALL');
+
+            let isItemBasedRule = false;
+            if (hasTargetItems) {
+              isItemBasedRule = true; // 대상제품 설정 -> 제품별
+            } else if (hasTargetProducts) {
+              isItemBasedRule = false; // 대상상품 선택 -> 구좌수별
+            } else {
+              isItemBasedRule = isSelfHq || (rule.incentiveName && rule.incentiveName.includes('공급'));
+            }
 
             if (isItemBasedRule) {
               const rentalKey = item.rentalNo || item.resNo;
@@ -636,9 +647,11 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
 
             if (!isMatchedDate) return;
 
-            const rentalKey = item.rentalNo || item.resNo;
-            if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
-              processedRentalNos.add(rentalKey);
+            if (isItemBasedRule) {
+              const rentalKey = item.rentalNo || item.resNo;
+              if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
+                processedRentalNos.add(rentalKey);
+              }
             }
 
             let itemComm = 0;
