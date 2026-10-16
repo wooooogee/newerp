@@ -2728,7 +2728,7 @@ const ERP_Dashboard = () => {
       const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
       const month = m ? `${m[1]}-${m[2].padStart(2, '0')}` : 'ALL';
       const prod = item.prodName || '';
-      const q = 1; // ERP 데이터의 각 행 자체가 이미 1구좌 단위이므로 행당 1구좌 누적
+      const q = getAccountCountFromItem(item);
 
       // 1) 본부 + 상품 + 월
       const kProdMonth = `${item.hq}|${prod}|${month}`;
@@ -2839,9 +2839,10 @@ const ERP_Dashboard = () => {
       }
     }
 
-    // ERP 데이터 각 행은 1구좌 단위이므로 단가 그대로 지급 (2구좌는 2행, 3구좌는 3행으로 자동 지급됨)
-    let totalCommission = unitPrice;
-    let salesComm = salesPart;
+    // 영업수수료는 구좌수 기준으로 지급 (1구좌=1배, 2구좌=2배, 3구좌=3배...)
+    const accounts = getAccountCountFromItem(item);
+    let totalCommission = unitPrice * accounts;
+    let salesComm = salesPart * accounts;
     const promoFee = Math.max(0, totalCommission - salesComm);
 
     // 지급일자 산출 (글로벌 인센티브 및 조재윤, 조민경용)
@@ -2873,7 +2874,7 @@ const ERP_Dashboard = () => {
       salesComm,
       promoFee,
       unitPrice,
-      accountCount: 1,
+      accountCount: accounts,
       displayPayDate,
       setting,
       settlementType,

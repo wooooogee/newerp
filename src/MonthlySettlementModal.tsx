@@ -1817,6 +1817,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                           <th className="px-3 py-2">회원명</th>
                           <th className="px-3 py-2">계약일자</th>
                           <th className="px-3 py-2">상품명</th>
+                          <th className="px-3 py-2 text-center">구좌</th>
                           <th className="px-3 py-2">지사</th>
                           <th className="px-3 py-2">영업사원</th>
                           <th className="px-3 py-2 text-right">판매수수료</th>
@@ -1828,12 +1829,23 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       <tbody className="divide-y divide-slate-100">
                         {selectedHqDetail.items.map((item, i) => {
                           const { totalCommission, salesComm } = calculateCommissionDetails(item, globalStatsMap);
+                          const accounts = getAccountCountFromItem(item);
                           return (
                             <tr key={i} className="hover:bg-slate-50">
                               <td className="px-3 py-2 text-center text-slate-400">{i + 1}</td>
                               <td className="px-3 py-2 font-bold text-slate-800">{item.memName}</td>
                               <td className="px-3 py-2 text-slate-600">{item.contractDate}</td>
-                              <td className="px-3 py-2 text-slate-800">{item.prodName}</td>
+                              <td className="px-3 py-2 text-slate-800">
+                                {item.prodName}
+                                {item.rentalProd && item.rentalProd !== '-' && item.rentalProd !== item.prodName && (
+                                  <span className="block text-[11px] text-slate-400">{item.rentalProd}</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${accounts > 1 ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                                  {accounts}구좌
+                                </span>
+                              </td>
                               <td className="px-3 py-2 text-slate-600">{item.branch || '-'}</td>
                               <td className="px-3 py-2 text-slate-600">{item.empName || '-'}</td>
                               <td className="px-3 py-2 text-right font-mono">{salesComm.toLocaleString()}</td>
