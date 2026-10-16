@@ -2873,7 +2873,7 @@ const ERP_Dashboard = () => {
       salesComm,
       promoFee,
       unitPrice,
-      accountCount: accounts,
+      accountCount: 1,
       displayPayDate,
       setting,
       settlementType,
@@ -4173,7 +4173,7 @@ const ERP_Dashboard = () => {
                     prodName: item.prodName || '-',
                     rentalProd: item.rentalProd || '-',
                     amount: itemComm,
-                    accountCount: accounts,
+                    accountCount: 1,
                     contractDate: item.contractDate || '-',
                     deliveryDate: item.deliveryDate || '-',
                     payDate: (payDateFilter && payDateFilter !== 'ALL') ? payDateFilter : (item.payDate || getDisplayPayDate(item) || '-')
