@@ -4342,68 +4342,7 @@ const ERP_Dashboard = () => {
       return custA.localeCompare(custB, 'ko');
     });
 
-    const mappedData = baseData.map(d => {
-      const rentalId = String(d['계약ID(렌탈번호)'] || d['계약ID'] || '').trim();
-      const internalItem = data.find(item => item.rentalNo === rentalId);
-      const prodModel = d['제품명'] || internalItem?.rentalProd || internalItem?.modelName || internalItem?.productModel || '';
-      
-      const guzwa = safeReconNumber(d['구좌수']) || 1;
-      let internalPayable = safeReconNumber(d['내부지급액합계']);
-
-      // 언바운드컴퍼니 300건 이상 구간 수수료 적용: 540플러스 74만원, 540 75만원
-      const hqStr = String(d['본부명'] || '').replace(/\s+/g, '');
-      const prodStr = String(d['상품명'] || '').replace(/\s+/g, '');
-      if (hqStr.includes('언바운드')) {
-        if (prodStr.includes('540플러스') || prodStr.includes('540plus')) {
-          internalPayable = guzwa * 740000;
-        } else if (prodStr.includes('540')) {
-          internalPayable = guzwa * 750000;
-        }
-      }
-
-      const extDeposit = safeReconNumber(d['거래처입금액']);
-      const netProfit = extDeposit - internalPayable;
-
-      return {
-        '정산기준일': d['정산기준일'] || '',
-        '수수료지급일자': d['수수료지급일자'] || d['지급일자'] || '',
-        '계약ID': rentalId,
-        '고객명': d['고객명'] || '',
-        '본부명': d['본부명'] || '',
-        '상품명': d['상품명'] || '',
-        '제품명': prodModel,
-        '계약일자': d['계약일자'] || '',
-        '배송일자': d['내부 배송일자'] || d['배송일자'] || d['거래처 배송일'] || '',
-        '구좌수': guzwa,
-        '거래처입금액': extDeposit,
-        '내부지급액합계': internalPayable,
-        '최종순수익': netProfit,
-        '비고': d['비고'] || ''
-      };
-    });
-
-    const normalRows = mappedData.filter(d => d['비고'] === '정상');
-    const abnormalRows = mappedData.filter(d => d['비고'] !== '정상');
-
-    const normalCount = normalRows.length;
-    const normalGuzwa = normalRows.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
-    const normalExt = normalRows.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
-    const normalInt = normalRows.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
-    const normalNet = normalRows.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
-
-    const abnormalCount = abnormalRows.length;
-    const abnormalGuzwa = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
-    const abnormalExt = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
-    const abnormalInt = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
-    const abnormalNet = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
-
-    const totalGuzwa = mappedData.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
-    const totalExt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
-    const totalInt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
-    const firstNetProfit = totalExt - totalInt;
-    const firstMarginRate = totalExt > 0 ? ((firstNetProfit / totalExt) * 100).toFixed(1) : '0.0';
-
-    // 지급월 및 실적월 산출
+    // 지급월 및 실적월 산출 (mappedData 비고 판정에서 활용하기 위해 상단 배치)
     const targetDateStr = (reconTab === 'HISTORY' ? selectedHistoryDate : (reconDate || selectedHistoryDate)) || '';
     let targetPayoutMonth = '';
     let targetPerfMonth = '';
@@ -4451,10 +4390,10 @@ const ERP_Dashboard = () => {
       }
     }
 
-    if (!targetPayoutMonth && mappedData.length > 0) {
+    if (!targetPayoutMonth && baseData.length > 0) {
       const ymCounts: Record<string, number> = {};
-      mappedData.forEach(r => {
-        const p = String(r['수수료지급일자'] || '').trim();
+      baseData.forEach(r => {
+        const p = String(r['수수료지급일자'] || r['지급일자'] || '').trim();
         const mat = p.match(/(\d{4})[-./](\d{1,2})/);
         if (mat) {
           const ym = `${mat[1]}-${mat[2].padStart(2, '0')}`;
@@ -4480,6 +4419,88 @@ const ERP_Dashboard = () => {
       targetPayoutMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       targetPerfMonth = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
     }
+
+    const mappedData = baseData.map(d => {
+      const rentalId = String(d['계약ID(렌탈번호)'] || d['계약ID'] || '').trim();
+      const internalItem = data.find(item => item.rentalNo === rentalId);
+      const prodModel = d['제품명'] || internalItem?.rentalProd || internalItem?.modelName || internalItem?.productModel || '';
+      
+      const guzwa = safeReconNumber(d['구좌수']) || 1;
+      let internalPayable = safeReconNumber(d['내부지급액합계']);
+
+      // 언바운드컴퍼니 300건 이상 구간 수수료 적용: 540플러스 74만원, 540 75만원
+      const hqStr = String(d['본부명'] || '').replace(/\s+/g, '');
+      const prodStr = String(d['상품명'] || '').replace(/\s+/g, '');
+      if (hqStr.includes('언바운드')) {
+        if (prodStr.includes('540플러스') || prodStr.includes('540plus')) {
+          internalPayable = guzwa * 740000;
+        } else if (prodStr.includes('540')) {
+          internalPayable = guzwa * 750000;
+        }
+      }
+
+      // 비고 판정 보강: 취소/해약건이거나 과거 지급완료(선지급) 또는 지급일자 미지정 건
+      let remark = String(d['비고'] || '').trim();
+      const pDate = String(d['수수료지급일자'] || d['지급일자'] || internalItem?.payDate || '').trim();
+      if (!remark || remark === '정상') {
+        if (internalItem && (internalItem.status?.includes('취소') || internalItem.status?.includes('해약'))) {
+          remark = '취소/해약건';
+        } else if (!pDate || pDate === '-') {
+          remark = '이상 (지급일자 미지정)';
+        } else if (pDate) {
+          const pMat = pDate.match(/(\d{4})[-./](\d{1,2})/);
+          if (pMat) {
+            const pYm = `${pMat[1]}-${pMat[2].padStart(2, '0')}`;
+            if (targetPayoutMonth && pYm < targetPayoutMonth) {
+              remark = `선지급 (${pDate})`;
+            }
+          }
+        }
+      }
+
+      const extDeposit = safeReconNumber(d['거래처입금액']);
+      const netProfit = extDeposit - internalPayable;
+
+      return {
+        '정산기준일': d['정산기준일'] || '',
+        '수수료지급일자': pDate,
+        '계약ID': rentalId,
+        '고객명': d['고객명'] || '',
+        '본부명': d['본부명'] || '',
+        '상품명': d['상품명'] || '',
+        '제품명': prodModel,
+        '계약일자': d['계약일자'] || '',
+        '배송일자': d['내부 배송일자'] || d['배송일자'] || d['거래처 배송일'] || '',
+        '구좌수': guzwa,
+        '거래처입금액': extDeposit,
+        '내부지급액합계': internalPayable,
+        '최종순수익': netProfit,
+        '비고': remark
+      };
+    });
+
+    const normalRows = mappedData.filter(d => d['비고'] === '정상');
+    const abnormalRows = mappedData.filter(d => d['비고'] !== '정상');
+
+    const normalCount = normalRows.length;
+    const normalGuzwa = normalRows.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+    const normalExt = normalRows.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+    const normalInt = normalRows.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+    const normalNet = normalRows.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
+
+    const abnormalCount = abnormalRows.length;
+    const abnormalGuzwa = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+    const abnormalExt = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+    const abnormalInt = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
+    const abnormalNet = abnormalRows.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
+
+    const totalGuzwa = mappedData.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
+    const totalExt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
+    // [사용자 지시: 실제 10월 각 본부에 영업수수료로 나갈 금액만 차감]
+    // 선지급(과거 지급완료)이나 취소건 등 이상건은 당월 영업수수료 지출이 아니므로 normalInt를 [B] 영업수수료로 적용
+    const totalInt = normalInt;
+    const firstNetProfit = totalExt - totalInt;
+    const firstMarginRate = totalExt > 0 ? ((firstNetProfit / totalExt) * 100).toFixed(1) : '0.0';
 
     const targetPayoutClean = targetPayoutMonth.replace(/[^0-9]/g, '');
     const targetYear = parseInt(targetPayoutMonth.substring(0, 4));
@@ -15209,6 +15230,84 @@ const ERP_Dashboard = () => {
                           const custB = b['고객명'] || '';
                           return custA.localeCompare(custB, 'ko');
                         });
+
+                        // 지급월 및 실적월 산출 (mappedData 비고 판정에서 활용하기 위해 상단 배치)
+                        const targetDateStr = (reconTab === 'NEW' ? reconDate : selectedHistoryDate) || '';
+                        let targetPayoutMonth = '';
+                        let targetPerfMonth = '';
+
+                        const isDeliveryMode = targetDateStr.includes('배송') || reconMode === 'DELIVERY';
+
+                        if (isDeliveryMode) {
+                          let y = 0;
+                          let m = 0;
+                          const match = targetDateStr.match(/(\d{4})[-./](\d{1,2})/);
+                          if (match) {
+                            y = parseInt(match[1]);
+                            m = parseInt(match[2]);
+                          } else if (reconDeliveryStartDate) {
+                            const clean = reconDeliveryStartDate.replace(/[^0-9]/g, '');
+                            if (clean.length >= 6) {
+                              y = parseInt(clean.substring(0, 4));
+                              m = parseInt(clean.substring(4, 6));
+                            }
+                          }
+
+                          if (y > 0 && m > 0) {
+                            targetPerfMonth = `${y}-${String(m).padStart(2, '0')}`;
+                            let payY = y;
+                            let payM = m + 1;
+                            if (payM > 12) {
+                              payM = 1;
+                              payY += 1;
+                            }
+                            targetPayoutMonth = `${payY}-${String(payM).padStart(2, '0')}`;
+                          }
+                        } else {
+                          const match = targetDateStr.match(/(\d{4})[-./](\d{1,2})/);
+                          if (match) {
+                            const y = parseInt(match[1]);
+                            const m = parseInt(match[2]);
+                            targetPayoutMonth = `${y}-${String(m).padStart(2, '0')}`;
+                            let perfY = y;
+                            let perfM = m - 1;
+                            if (perfM < 1) {
+                              perfM = 12;
+                              perfY -= 1;
+                            }
+                            targetPerfMonth = `${perfY}-${String(perfM).padStart(2, '0')}`;
+                          }
+                        }
+
+                        if (!targetPayoutMonth && baseData.length > 0) {
+                          const ymCounts: Record<string, number> = {};
+                          baseData.forEach(r => {
+                            const p = String(r['수수료지급일자'] || r['지급일자'] || '').trim();
+                            const mat = p.match(/(\d{4})[-./](\d{1,2})/);
+                            if (mat) {
+                              const ym = `${mat[1]}-${mat[2].padStart(2, '0')}`;
+                              ymCounts[ym] = (ymCounts[ym] || 0) + 1;
+                            }
+                          });
+                          const best = Object.entries(ymCounts).sort((a, b) => b[1] - a[1])[0];
+                          if (best && best[1] > 0) {
+                            targetPayoutMonth = best[0];
+                            const [y, m] = targetPayoutMonth.split('-').map(Number);
+                            let perfY = y;
+                            let perfM = m - 1;
+                            if (perfM < 1) {
+                              perfM = 12;
+                              perfY -= 1;
+                            }
+                            targetPerfMonth = `${perfY}-${String(perfM).padStart(2, '0')}`;
+                          }
+                        }
+
+                        if (!targetPayoutMonth) {
+                          const now = new Date();
+                          targetPayoutMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                          targetPerfMonth = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
+                        }
                         
                         const mappedData = baseData.map(d => {
                           const rentalId = String(d['계약ID(렌탈번호)'] || d['계약ID'] || '').trim();
@@ -15229,12 +15328,31 @@ const ERP_Dashboard = () => {
                             }
                           }
 
+                          // 비고 판정 보강: 취소/해약건이거나 과거 지급완료(선지급) 또는 지급일자 미지정 건
+                          let remark = String(d['비고'] || '').trim();
+                          const pDate = String(d['수수료지급일자'] || d['지급일자'] || internalItem?.payDate || '').trim();
+                          if (!remark || remark === '정상') {
+                            if (internalItem && (internalItem.status?.includes('취소') || internalItem.status?.includes('해약'))) {
+                              remark = '취소/해약건';
+                            } else if (!pDate || pDate === '-') {
+                              remark = '이상 (지급일자 미지정)';
+                            } else if (pDate) {
+                              const pMat = pDate.match(/(\d{4})[-./](\d{1,2})/);
+                              if (pMat) {
+                                const pYm = `${pMat[1]}-${pMat[2].padStart(2, '0')}`;
+                                if (targetPayoutMonth && pYm < targetPayoutMonth) {
+                                  remark = `선지급 (${pDate})`;
+                                }
+                              }
+                            }
+                          }
+
                           const extDeposit = safeReconNumber(d['거래처입금액']);
                           const netProfit = extDeposit - internalPayable;
 
                           return {
                             '정산기준일': d['정산기준일'] || '',
-                            '수수료지급일자': d['수수료지급일자'] || d['지급일자'] || '',
+                            '수수료지급일자': pDate,
                             '계약ID': rentalId,
                             '고객명': d['고객명'] || '',
                             '본부명': d['본부명'] || '',
@@ -15246,7 +15364,7 @@ const ERP_Dashboard = () => {
                             '거래처입금액': extDeposit,
                             '내부지급액합계': internalPayable,
                             '최종순수익': netProfit,
-                            '비고': d['비고'] || ''
+                            '비고': remark
                           };
                         });
 
@@ -15346,8 +15464,9 @@ const ERP_Dashboard = () => {
 
                         const totalGuzwa = mappedData.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
                         const totalExt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
-                        const totalInt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
-                        const totalNet = mappedData.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
+                        // [사용자 지시: 실제 10월 각 본부에 영업수수료로 나갈 금액만 차감]
+                        const totalInt = normalInt;
+                        const totalNet = totalExt - totalInt;
 
                         const grandTotalRow = {
                           '계약일자': '',
@@ -15503,86 +15622,7 @@ const ERP_Dashboard = () => {
                         }
 
                         // --- 두 번째 시트: 정산보고서 (에넥스 입금, 수수료, 순익 및 더좋은라이프 추가 수수료 차감 보고서) ---
-                        // 배송일자 기준 조회 시 익월(다음 달) 지급 내역으로만 본사 추가 수수료 및 지출 차감
-                        const targetDateStr = (reconTab === 'NEW' ? reconDate : selectedHistoryDate) || '';
-                        let targetPayoutMonth = '';
-                        let targetPerfMonth = '';
 
-                        const isDeliveryMode = targetDateStr.includes('배송') || reconMode === 'DELIVERY';
-
-                        if (isDeliveryMode) {
-                          // 배송일자 기준 조회 (예: 9월 배송 -> 10월 지급)
-                          let y = 0;
-                          let m = 0;
-                          const match = targetDateStr.match(/(\d{4})[-./](\d{1,2})/);
-                          if (match) {
-                            y = parseInt(match[1]);
-                            m = parseInt(match[2]);
-                          } else if (reconDeliveryStartDate) {
-                            const clean = reconDeliveryStartDate.replace(/[^0-9]/g, '');
-                            if (clean.length >= 6) {
-                              y = parseInt(clean.substring(0, 4));
-                              m = parseInt(clean.substring(4, 6));
-                            }
-                          }
-
-                          if (y > 0 && m > 0) {
-                            targetPerfMonth = `${y}-${String(m).padStart(2, '0')}`;
-                            let payY = y;
-                            let payM = m + 1;
-                            if (payM > 12) {
-                              payM = 1;
-                              payY += 1;
-                            }
-                            targetPayoutMonth = `${payY}-${String(payM).padStart(2, '0')}`;
-                          }
-                        } else {
-                          // 정산기준일(지급일) 기준 조회
-                          const match = targetDateStr.match(/(\d{4})[-./](\d{1,2})/);
-                          if (match) {
-                            const y = parseInt(match[1]);
-                            const m = parseInt(match[2]);
-                            targetPayoutMonth = `${y}-${String(m).padStart(2, '0')}`;
-                            let perfY = y;
-                            let perfM = m - 1;
-                            if (perfM < 1) {
-                              perfM = 12;
-                              perfY -= 1;
-                            }
-                            targetPerfMonth = `${perfY}-${String(perfM).padStart(2, '0')}`;
-                          }
-                        }
-
-                        // 날짜 미파싱 시 mappedData 내 수수료지급일자 최빈값으로 산출
-                        if (!targetPayoutMonth && mappedData.length > 0) {
-                          const ymCounts: Record<string, number> = {};
-                          mappedData.forEach(r => {
-                            const p = String(r['수수료지급일자'] || '').trim();
-                            const mat = p.match(/(\d{4})[-./](\d{1,2})/);
-                            if (mat) {
-                              const ym = `${mat[1]}-${mat[2].padStart(2, '0')}`;
-                              ymCounts[ym] = (ymCounts[ym] || 0) + 1;
-                            }
-                          });
-                          const best = Object.entries(ymCounts).sort((a, b) => b[1] - a[1])[0];
-                          if (best && best[1] > 0) {
-                            targetPayoutMonth = best[0];
-                            const [y, m] = targetPayoutMonth.split('-').map(Number);
-                            let perfY = y;
-                            let perfM = m - 1;
-                            if (perfM < 1) {
-                              perfM = 12;
-                              perfY -= 1;
-                            }
-                            targetPerfMonth = `${perfY}-${String(perfM).padStart(2, '0')}`;
-                          }
-                        }
-
-                        if (!targetPayoutMonth) {
-                          const now = new Date();
-                          targetPayoutMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-                          targetPerfMonth = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
-                        }
 
                         // 대상 지급월(targetPayoutMonth, 예: '2026-10') 기준 특수수당/글로벌인센티브 독립 계산
                         const targetPayoutClean = targetPayoutMonth.replace(/[^0-9]/g, '');
@@ -16259,6 +16299,84 @@ const ERP_Dashboard = () => {
                           const custB = b['고객명'] || '';
                           return custA.localeCompare(custB, 'ko');
                         });
+
+                        // 지급월 및 실적월 산출 (mappedData 비고 판정에서 활용하기 위해 상단 배치)
+                        const targetDateStr = (reconTab === 'NEW' ? reconDate : selectedHistoryDate) || '';
+                        let targetPayoutMonth = '';
+                        let targetPerfMonth = '';
+
+                        const isDeliveryMode = targetDateStr.includes('배송') || reconMode === 'DELIVERY';
+
+                        if (isDeliveryMode) {
+                          let y = 0;
+                          let m = 0;
+                          const match = targetDateStr.match(/(\d{4})[-./](\d{1,2})/);
+                          if (match) {
+                            y = parseInt(match[1]);
+                            m = parseInt(match[2]);
+                          } else if (reconDeliveryStartDate) {
+                            const clean = reconDeliveryStartDate.replace(/[^0-9]/g, '');
+                            if (clean.length >= 6) {
+                              y = parseInt(clean.substring(0, 4));
+                              m = parseInt(clean.substring(4, 6));
+                            }
+                          }
+
+                          if (y > 0 && m > 0) {
+                            targetPerfMonth = `${y}-${String(m).padStart(2, '0')}`;
+                            let payY = y;
+                            let payM = m + 1;
+                            if (payM > 12) {
+                              payM = 1;
+                              payY += 1;
+                            }
+                            targetPayoutMonth = `${payY}-${String(payM).padStart(2, '0')}`;
+                          }
+                        } else {
+                          const match = targetDateStr.match(/(\d{4})[-./](\d{1,2})/);
+                          if (match) {
+                            const y = parseInt(match[1]);
+                            const m = parseInt(match[2]);
+                            targetPayoutMonth = `${y}-${String(m).padStart(2, '0')}`;
+                            let perfY = y;
+                            let perfM = m - 1;
+                            if (perfM < 1) {
+                              perfM = 12;
+                              perfY -= 1;
+                            }
+                            targetPerfMonth = `${perfY}-${String(perfM).padStart(2, '0')}`;
+                          }
+                        }
+
+                        if (!targetPayoutMonth && baseData.length > 0) {
+                          const ymCounts: Record<string, number> = {};
+                          baseData.forEach(r => {
+                            const p = String(r['수수료지급일자'] || r['지급일자'] || '').trim();
+                            const mat = p.match(/(\d{4})[-./](\d{1,2})/);
+                            if (mat) {
+                              const ym = `${mat[1]}-${mat[2].padStart(2, '0')}`;
+                              ymCounts[ym] = (ymCounts[ym] || 0) + 1;
+                            }
+                          });
+                          const best = Object.entries(ymCounts).sort((a, b) => b[1] - a[1])[0];
+                          if (best && best[1] > 0) {
+                            targetPayoutMonth = best[0];
+                            const [y, m] = targetPayoutMonth.split('-').map(Number);
+                            let perfY = y;
+                            let perfM = m - 1;
+                            if (perfM < 1) {
+                              perfM = 12;
+                              perfY -= 1;
+                            }
+                            targetPerfMonth = `${perfY}-${String(perfM).padStart(2, '0')}`;
+                          }
+                        }
+
+                        if (!targetPayoutMonth) {
+                          const now = new Date();
+                          targetPayoutMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                          targetPerfMonth = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
+                        }
                         
                         const mappedData = baseData.map(d => {
                           const rentalId = String(d['계약ID(렌탈번호)'] || d['계약ID'] || '').trim();
@@ -16279,12 +16397,31 @@ const ERP_Dashboard = () => {
                             }
                           }
 
+                          // 비고 판정 보강: 취소/해약건이거나 과거 지급완료(선지급) 또는 지급일자 미지정 건
+                          let remark = String(d['비고'] || '').trim();
+                          const pDate = String(d['수수료지급일자'] || d['지급일자'] || internalItem?.payDate || '').trim();
+                          if (!remark || remark === '정상') {
+                            if (internalItem && (internalItem.status?.includes('취소') || internalItem.status?.includes('해약'))) {
+                              remark = '취소/해약건';
+                            } else if (!pDate || pDate === '-') {
+                              remark = '이상 (지급일자 미지정)';
+                            } else if (pDate) {
+                              const pMat = pDate.match(/(\d{4})[-./](\d{1,2})/);
+                              if (pMat) {
+                                const pYm = `${pMat[1]}-${pMat[2].padStart(2, '0')}`;
+                                if (targetPayoutMonth && pYm < targetPayoutMonth) {
+                                  remark = `선지급 (${pDate})`;
+                                }
+                              }
+                            }
+                          }
+
                           const extDeposit = safeReconNumber(d['거래처입금액']);
                           const netProfit = extDeposit - internalPayable;
 
                           return {
                             '정산기준일': d['정산기준일'] || '',
-                            '수수료지급일자': d['수수료지급일자'] || d['지급일자'] || '',
+                            '수수료지급일자': pDate,
                             '계약ID': rentalId,
                             '고객명': d['고객명'] || '',
                             '본부명': d['본부명'] || '',
@@ -16296,7 +16433,7 @@ const ERP_Dashboard = () => {
                             '거래처입금액': extDeposit,
                             '내부지급액합계': internalPayable,
                             '최종순수익': netProfit,
-                            '비고': d['비고'] || ''
+                            '비고': remark
                           };
                         });
 
@@ -16396,8 +16533,9 @@ const ERP_Dashboard = () => {
 
                         const totalGuzwa = mappedData.reduce((acc, row) => acc + safeReconNumber(row['구좌수']), 0);
                         const totalExt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['거래처입금액']), 0);
-                        const totalInt = mappedData.reduce((acc, row) => acc + safeReconNumber(row['내부지급액합계']), 0);
-                        const totalNet = mappedData.reduce((acc, row) => acc + safeReconNumber(row['최종순수익']), 0);
+                        // [사용자 지시: 실제 10월 각 본부에 영업수수료로 나갈 금액만 차감]
+                        const totalInt = normalInt;
+                        const totalNet = totalExt - totalInt;
 
                         const grandTotalRow = {
                           '계약일자': '',
