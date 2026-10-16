@@ -357,7 +357,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         const matchedItems: any[] = [];
 
         (data || []).forEach(item => {
-          if ((item.status?.includes('취소') || item.status?.includes('해약')) && !item.payDate?.trim()) return;
+          // 1) 취소 및 해약 건은 특수수당 지급 대상 제외
+          if (item.status?.includes('취소') || item.status?.includes('해약')) return;
+
+          // 2) 배송완료 확인: 배송일자가 없거나 '-'이거나 배송완료 상태가 아니면 수당 지급 제외
+          const isDelivered = (item.deliveryStatus && item.deliveryStatus.includes('완료')) || 
+                              (item.deliveryDate && item.deliveryDate !== '-' && item.deliveryDate.trim() !== '');
+          if (!isDelivered) return;
 
           // 렌탈계약번호 기준 중복제거 (본부 공급수수료 isSelfHq인 경우에만 1회 지급 중복제거)
           if (isSelfHq) {
@@ -406,58 +412,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             }
           }
 
-          // 실적 기준일 (DELIVERY: 배송일자 vs CONTRACT: 계약일자)
-          let dateStr = effectiveBaseDate;
-          if (!dateStr) {
-            if (rule.baseDateType === 'DELIVERY') {
-              dateStr = item.deliveryDate || '';
-              if (!dateStr) return;
-              if (item.deliveryStatus && !item.deliveryStatus.includes('완료') && item.deliveryStatus !== '-' && item.deliveryStatus.trim() !== '') return;
-            } else {
-              dateStr = item.contractDate || '';
-            }
-          }
-
-          // 해당 월(selectedMonth) 정산 대상 매칭
+          // 3) 핵심: 수수료 실제 지급일자 기준 매칭
+          // 수수료가 실제로 지급된 건에 대해서만 특수수당/컨설팅비가 발생해야 함 (미지급 건은 제외)
           let isMatchedDate = false;
-          const pDate = item.payDate || '';
-          const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
-          const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
+          const pDate = String(item.payDate || '').trim();
 
-          // 설치확인서 마감월이 존재하는 수기발주 대상 건인 경우: 마감월의 익월(selectedMonth) 지급 규칙 최우선 적용
           if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
+            // 설치확인서 마감월이 존재하는 수기발주 대상 건: 마감월의 익월(selectedMonth) 지급 규칙
             isMatchedDate = certEligibility.expectedPayoutMonth === selectedMonth;
-          } else if (rule.payDay && rule.payDay > 0) {
-            // 지정일 수당 (다음달 N일 지급: 예: 25일)
-            if (itemPayMonth === selectedMonth) {
-              isMatchedDate = true;
-            } else {
-              // 실적기준일이 전월(prevMonthKey)인 건
-              const dMatch = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-              if (dMatch) {
-                let y = dMatch[1];
-                if (y.length === 2) y = '20' + y;
-                const m = dMatch[2].padStart(2, '0');
-                if (`${y}-${m}` === prevMonthKey) {
-                  isMatchedDate = true;
-                }
-              }
-            }
           } else {
-            // 기존 정산 지급일과 동일 (연동)
-            if (itemPayMonth === selectedMonth) {
-              isMatchedDate = true;
-            } else if (!itemPayMonth) {
-              // 지급일 미지정 시 당월 실적기준일 건 매칭
-              const dMatch = dateStr.match(/(\d{2,4})[^0-9]+(\d{1,2})/);
-              if (dMatch) {
-                let y = dMatch[1];
-                if (y.length === 2) y = '20' + y;
-                const m = dMatch[2].padStart(2, '0');
-                if (`${y}-${m}` === selectedMonth) {
-                  isMatchedDate = true;
-                }
-              }
+            // 일반 건: 실제 수수료지급일자가 유효하고, 수수료지급월이 선택된 정산월(selectedMonth)과 일치해야만 인정
+            if (pDate && pDate !== '-' && !pDate.includes('미지정') && !pDate.includes('미입금')) {
+              const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
+              const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
+              isMatchedDate = (itemPayMonth === selectedMonth);
             }
           }
 
