@@ -88,38 +88,26 @@ const isHqMatchedForSpecialRule = (
       const isTargetDiv = targetDivisions.some((td: string) => {
         if (!td) return false;
         if (td === div.id || td === div.name) return true;
-        if (td === 'div-goodlife' && (div.id === 'div-goodlife' || ((div.name || '').includes('신동우') && !(div.name || '').includes('꿈잇다')))) return true;
-        if ((td.includes('신동우') || td.includes('굿라이프')) && ((div.name || '').includes('신동우') || (div.name || '').includes('굿라이프'))) return true;
+        // td가 ID이거나 사업단 이름일 수 있으므로 정규화 비교
+        const divCleanName = (div.name || '').replace(/\s+/g, '');
+        const tdClean = (td || '').replace(/\s+/g, '');
+        if (divCleanName && tdClean) {
+          // '꿈잇다'와 '신동우'가 서로 교차 오매칭되지 않도록 방지
+          if (tdClean.includes('꿈잇다') && !divCleanName.includes('꿈잇다')) return false;
+          if (tdClean.includes('신동우') && !divCleanName.includes('신동우')) return false;
+          if (divCleanName === tdClean || divCleanName.includes(tdClean) || tdClean.includes(divCleanName)) return true;
+        }
         return false;
       });
       if (!isTargetDiv) return false;
-      return (div.hqNames || []).some((h: string) => normalizeHq(h) === cleanHq);
+
+      // 해당 사업단에 등록된 소속 본부 목록(hqNames)과 계약의 본부명 일치 여부 확인
+      return (div.hqNames || []).some((h: string) => {
+        const normH = normalizeHq(h);
+        return normH === cleanHq || normH.includes(cleanHq) || cleanHq.includes(normH);
+      });
     });
     if (isDivMatch) return true;
-
-    // 만약 굿라이프 또는 신동우 관련 사업단이 타겟인 경우:
-    // 굿라이프(신동우) 6개 본부(최강본부, 다보다, 더굿, 노반AI, 더굿라이프, LS지사)만 포함!
-    // '꿈잇다' 사업단 산하 본부(꿈잇다, 무한, 이음, 명품, 가치온, 아우라, 서울중앙, 스마일, 조이, 새빛, 온누리, 1본부, 챔피언, 두드림 등)는 수수료 지급 대상에서 절대 제외!
-    const isGoodlifeShinTarget = targetDivisions.some((td: string) => 
-      td === 'div-goodlife' || ((td || '').includes('신동우') && !(td || '').includes('꿈잇다'))
-    ) || (rule.targetName && (rule.targetName.includes('신동우')));
-
-    if (isGoodlifeShinTarget) {
-      // 1. 꿈잇다 계열 본부는 절대 제외
-      const ggumitdaHqs = [
-        '꿈잇다', '무한', '이음', '명품', '가치온', '아우라', '서울중앙', '스마일', '조이', '새빛', '온누리', '1본부', '챔피언', '두드림'
-      ];
-      if (ggumitdaHqs.some(gh => cleanHq.includes(normalizeHq(gh)) || normalizeHq(gh).includes(cleanHq))) {
-        return false;
-      }
-
-      // 2. 신동우 대표 6개 본부만 매칭 인정
-      const goodlifeShinHqs = ['다보다', '더굿', '최강', '노반AI', '더굿라이프', 'LS'];
-      if (goodlifeShinHqs.some(gh => cleanHq.includes(normalizeHq(gh)) || normalizeHq(gh).includes(cleanHq))) {
-        return true;
-      }
-      return false;
-    }
   }
 
   // 3. 개별 본부 매칭 확인
