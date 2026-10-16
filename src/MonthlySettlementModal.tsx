@@ -296,7 +296,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       const promo = totalCommission - salesComm;
 
       stat.count += 1;
-      stat.accountCount = (stat.accountCount || 0) + getAccountCountFromItem(item);
+      stat.accountCount = (stat.accountCount || 0) + 1; // ERP 각 행이 1구좌이므로 1구좌씩 누적
       stat.salesSum += salesComm;
       stat.promoSum += promo;
       stat.generalSum += totalCommission;
@@ -1833,7 +1833,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       <tbody className="divide-y divide-slate-100">
                         {selectedHqDetail.items.map((item, i) => {
                           const { totalCommission, salesComm } = calculateCommissionDetails(item, globalStatsMap);
-                          const accounts = getAccountCountFromItem(item);
+                          const accounts = 1; // ERP 데이터의 각 행은 이미 1구좌 단위
                           return (
                             <tr key={i} className="hover:bg-slate-50">
                               <td className="px-3 py-2 text-center text-slate-400">{i + 1}</td>
@@ -1846,8 +1846,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                                 )}
                               </td>
                               <td className="px-3 py-2 text-center">
-                                <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${accounts > 1 ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
-                                  {accounts}구좌
+                                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">
+                                  1구좌
                                 </span>
                               </td>
                               <td className="px-3 py-2 text-slate-600">{item.branch || '-'}</td>

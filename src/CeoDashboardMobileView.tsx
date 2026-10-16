@@ -505,7 +505,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
         const promo = totalCommission - salesComm;
 
         stat.count += 1;
-        stat.accountCount = (stat.accountCount || 0) + getAccountCountFromItem(item);
+        stat.accountCount = (stat.accountCount || 0) + 1; // ERP 각 행이 1구좌이므로 1구좌씩 누적
         stat.salesSum += salesComm;
         stat.promoSum += promo;
         stat.generalSum += totalCommission;
