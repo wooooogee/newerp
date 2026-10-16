@@ -637,15 +637,18 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
               processedRentalNos.add(rentalKey);
             }
 
+            // 영업수수료는 구좌수 기준, 상품 공급수수료는 상품수(1개) 기준
+            const accounts = isItemBasedRule ? 1 : getAccountCountFromItem(item);
+
             let itemComm = 0;
             if (rule.useInstallments && rule.installments) {
               const paidCount = item.hcPaidCount || 0;
               const applicableInstallment = rule.installments.find((ins: any) => paidCount >= ins.startRound && paidCount <= ins.endRound);
               if (applicableInstallment) {
-                itemComm = applicableInstallment.amount;
+                itemComm = applicableInstallment.amount * accounts;
               }
             } else {
-              itemComm = rule.commissionPerUnit || 0;
+              itemComm = (rule.commissionPerUnit || 0) * accounts;
             }
 
             if (isSelfHq) {
@@ -657,6 +660,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                   statsMap.set(hqName, {
                     hqName,
                     count: 0,
+                    accountCount: 0,
                     salesSum: 0,
                     promoSum: 0,
                     generalSum: 0,
@@ -673,10 +677,11 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                 }
                 const stat = statsMap.get(hqName)!;
                 stat.specialSum += itemComm;
+                stat.accountCount = (stat.accountCount || 0) + accounts;
               }
             } else {
               matchedCount++;
-              matchedAccountCount += getAccountCountFromItem(item);
+              matchedAccountCount += accounts;
               commission += itemComm;
             }
           });

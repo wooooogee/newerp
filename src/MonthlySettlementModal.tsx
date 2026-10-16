@@ -463,18 +463,21 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             processedRentalNos.add(rentalKey);
           }
 
+          // 영업수수료는 구좌수 기준, 상품 공급수수료는 상품수(1개) 기준
+          const itemAccounts = getAccountCountFromItem(item);
+          const effectiveAccounts = isItemBasedRule ? 1 : itemAccounts;
+
           let itemComm = 0;
           if (rule.useInstallments && rule.installments) {
             const paidCount = item.hcPaidCount || 0;
             const applicableInstallment = rule.installments.find((ins: any) => paidCount >= ins.startRound && paidCount <= ins.endRound);
             if (applicableInstallment) {
-              itemComm = applicableInstallment.amount;
+              itemComm = applicableInstallment.amount * effectiveAccounts;
             }
           } else {
-            itemComm = rule.commissionPerUnit;
+            itemComm = (rule.commissionPerUnit || 0) * effectiveAccounts;
           }
 
-          const itemAccounts = getAccountCountFromItem(item);
           const specialItemInfo = {
             id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
             hq: isSelfHq ? item.hq : (rule.targetName || item.hq || '-'),
@@ -487,6 +490,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             incentiveName: rule.incentiveName || (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당')),
             amount: itemComm,
             accountCount: itemAccounts,
+            effectiveAccounts: effectiveAccounts,
             contractDate: item.contractDate || '-',
             deliveryDate: item.deliveryDate || '-',
             payDate: item.payDate || '-',
@@ -527,9 +531,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               const stat = statsMap.get(hqName)!;
               stat.specialSum += itemComm;
               stat.specialItems.push(specialItemInfo);
+              stat.accountCount = (stat.accountCount || 0) + effectiveAccounts;
             }
           } else {
-            matchedCount++;
+            matchedCount += effectiveAccounts;
             commission += itemComm;
             matchedItems.push(specialItemInfo);
           }
@@ -568,7 +573,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             stat.specialSum += finalAmount;
             stat.specialItems.push(...matchedItems);
             stat.count = (stat.items?.length || 0) + stat.specialItems.length;
-            const specialAccounts = matchedItems.reduce((acc, sp) => acc + (sp.accountCount || 1), 0);
+            const specialAccounts = matchedItems.reduce((acc, sp) => acc + (sp.effectiveAccounts ?? sp.accountCount ?? 1), 0);
             stat.accountCount = (stat.accountCount || 0) + specialAccounts;
           }
         }

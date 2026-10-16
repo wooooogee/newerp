@@ -225,6 +225,18 @@ export const isHqMatchedForSpecialRule = (
   return false;
 };
 
+// 구좌수 파싱 공통 헬퍼 함수
+export const getAccountCountFromItem = (item: any): number => {
+  if (!item) return 1;
+  const prodText = `${item.rentalProd || ''} ${item.prodName || ''} ${item.productModel || ''} ${item['제품명'] || ''} ${item['상품명'] || ''}`;
+  const m = prodText.match(/(\d+)구좌/);
+  if (m) {
+    const q = parseInt(m[1], 10);
+    if (!isNaN(q) && q > 0) return q;
+  }
+  return 1;
+};
+
 export interface MaintenanceTier {
   startMonth: number;
   endMonth: number;
@@ -2703,7 +2715,7 @@ const ERP_Dashboard = () => {
     }
   };
 
-  // 본부별/월별 실적 건수 집계 맵 생성 헬퍼
+  // 본부별/월별 실적 구좌수 집계 맵 생성 헬퍼 (영업수수료 및 구간 판정 구좌수 기준)
   const buildHqCountMap = useCallback((dataList: ERPDataItem[]) => {
     const map = new Map<string, number>();
 
@@ -2716,25 +2728,26 @@ const ERP_Dashboard = () => {
       const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
       const month = m ? `${m[1]}-${m[2].padStart(2, '0')}` : 'ALL';
       const prod = item.prodName || '';
+      const q = getAccountCountFromItem(item);
 
       // 1) 본부 + 상품 + 월
       const kProdMonth = `${item.hq}|${prod}|${month}`;
-      map.set(kProdMonth, (map.get(kProdMonth) || 0) + 1);
+      map.set(kProdMonth, (map.get(kProdMonth) || 0) + q);
 
       // 2) 본부 + 전체상품(__ALL__) + 월
       const kAllMonth = `${item.hq}|__ALL__|${month}`;
-      map.set(kAllMonth, (map.get(kAllMonth) || 0) + 1);
+      map.set(kAllMonth, (map.get(kAllMonth) || 0) + q);
 
       // 3) 전체 누적 fallback (월 무관)
       const kProd = `${item.hq}|${prod}`;
-      map.set(kProd, (map.get(kProd) || 0) + 1);
+      map.set(kProd, (map.get(kProd) || 0) + q);
 
       const kAll = `${item.hq}|__ALL__`;
-      map.set(kAll, (map.get(kAll) || 0) + 1);
+      map.set(kAll, (map.get(kAll) || 0) + q);
 
       // 4) 기존 언더스코어 호환용 키
       const kLegacy = `${item.hq}_${prod}_${getDisplayPayDate(item)}`;
-      map.set(kLegacy, (map.get(kLegacy) || 0) + 1);
+      map.set(kLegacy, (map.get(kLegacy) || 0) + q);
     });
 
     return map;
@@ -2826,8 +2839,10 @@ const ERP_Dashboard = () => {
       }
     }
 
-    let totalCommission = unitPrice;
-    let salesComm = salesPart;
+    // 영업수수료는 구좌수 기준으로 지급 (1구좌=1배, 2구좌=2배, 3구좌=3배...)
+    const accounts = getAccountCountFromItem(item);
+    let totalCommission = unitPrice * accounts;
+    let salesComm = salesPart * accounts;
     const promoFee = Math.max(0, totalCommission - salesComm);
 
     // 지급일자 산출 (글로벌 인센티브 및 조재윤, 조민경용)
@@ -2859,6 +2874,7 @@ const ERP_Dashboard = () => {
       salesComm,
       promoFee,
       unitPrice,
+      accountCount: accounts,
       displayPayDate,
       setting,
       settlementType,
@@ -4085,22 +4101,29 @@ const ERP_Dashboard = () => {
               if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
                 processedRentalNos.add(rentalKey);
               }
+              const isSupplyRule = isSupplyCommissionRule(rule) || 
+                (rule.incentiveName && rule.incentiveName.includes('공급')) ||
+                (rule.targetItems && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL'));
+
+              // 영업수수료는 구좌수 기준, 상품 공급수수료는 상품수(1개) 기준
+              const accounts = isSupplyRule ? 1 : getAccountCountFromItem(item);
+
               let itemComm = 0;
               if (rule.useInstallments && rule.installments) {
                 const paidCount = item.hcPaidCount || 0;
                 const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
                 if (applicableInstallment) {
-                  itemComm = applicableInstallment.amount;
+                  itemComm = applicableInstallment.amount * accounts;
                 }
               } else {
-                itemComm = rule.commissionPerUnit;
+                itemComm = (rule.commissionPerUnit || 0) * accounts;
               }
 
               if (isSelfHq) {
                 const hqName = item.hq;
                 if (hqName && itemComm > 0) {
                   globalIncentivesSummary[hqName] = (globalIncentivesSummary[hqName] || 0) + itemComm;
-                  globalIncentivesCountSummary[hqName] = (globalIncentivesCountSummary[hqName] || 0) + 1;
+                  globalIncentivesCountSummary[hqName] = (globalIncentivesCountSummary[hqName] || 0) + accounts;
                   
                   if (!hqSummary[hqName]) hqSummary[hqName] = { count: 0, amount: 0 };
                   hqSummary[hqName].amount += itemComm;
@@ -4109,7 +4132,7 @@ const ERP_Dashboard = () => {
                   const specialName = `[${detail}] ${hqName}`;
                   if (!summary[specialName]) summary[specialName] = { count: 0, amount: 0 };
                   summary[specialName].amount += itemComm;
-                  summary[specialName].count += 1;
+                  summary[specialName].count += accounts;
                   
                   specialPayouts.push({
                     id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
@@ -4125,6 +4148,7 @@ const ERP_Dashboard = () => {
                     prodName: item.prodName || '-',
                     rentalProd: item.rentalProd || '-',
                     amount: itemComm,
+                    accountCount: accounts,
                     contractDate: item.contractDate || '-',
                     deliveryDate: item.deliveryDate || '-',
                     payDate: (payDateFilter && payDateFilter !== 'ALL') ? payDateFilter : (item.payDate || getDisplayPayDate(item) || '-'),
@@ -4138,7 +4162,7 @@ const ERP_Dashboard = () => {
                 }
               } else {
                 if (itemComm > 0) {
-                  matchedCount++;
+                  matchedCount += accounts;
                   commission += itemComm;
 
                   const detail = rule.incentiveName || (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '특수수당'));
@@ -4156,6 +4180,7 @@ const ERP_Dashboard = () => {
                     prodName: item.prodName || '-',
                     rentalProd: item.rentalProd || '-',
                     amount: itemComm,
+                    accountCount: accounts,
                     contractDate: item.contractDate || '-',
                     deliveryDate: item.deliveryDate || '-',
                     payDate: (payDateFilter && payDateFilter !== 'ALL') ? payDateFilter : (item.payDate || getDisplayPayDate(item) || '-')
@@ -4552,15 +4577,19 @@ const ERP_Dashboard = () => {
           if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
             processedRentalNos.add(rentalKey);
           }
+
+          // 영업수수료는 구좌수 기준, 상품 공급수수료는 상품수(1개) 기준
+          const accounts = isItemBasedRule ? 1 : getAccountCountFromItem(item);
+
           let itemComm = 0;
           if (rule.useInstallments && rule.installments) {
             const paidCount = item.hcPaidCount || 0;
             const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
             if (applicableInstallment) {
-              itemComm = applicableInstallment.amount;
+              itemComm = applicableInstallment.amount * accounts;
             }
           } else {
-            itemComm = rule.commissionPerUnit;
+            itemComm = (rule.commissionPerUnit || 0) * accounts;
           }
 
           const detailItem = {
@@ -4575,6 +4604,7 @@ const ERP_Dashboard = () => {
             deliveryDate: item.deliveryDate || '-',
             payDate: item.payDate || getDisplayPayDate(item) || '-',
             commission: itemComm,
+            accountCount: accounts,
             ruleName: rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : rule.targetName === '조민경' ? '컨설팅비' : rule.targetName?.includes('신동우') ? '대표이사 수수료' : '특수수당')
           };
 
@@ -4582,12 +4612,12 @@ const ERP_Dashboard = () => {
             const hqName = item.hq;
             if (hqName && itemComm > 0) {
               payoutIncentivesSummary[hqName] = (payoutIncentivesSummary[hqName] || 0) + itemComm;
-              payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + 1;
+              payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + accounts;
               if (!payoutIncentivesDetailMap[hqName]) payoutIncentivesDetailMap[hqName] = [];
               payoutIncentivesDetailMap[hqName].push(detailItem);
             }
           } else {
-            matchedCount++;
+            matchedCount += accounts;
             commission += itemComm;
             const tName = rule.targetName || '특수수당';
             if (!payoutIncentivesDetailMap[tName]) payoutIncentivesDetailMap[tName] = [];
@@ -15624,15 +15654,19 @@ const ERP_Dashboard = () => {
                               if (rentalKey && rentalKey !== '-' && rentalKey.trim() !== '') {
                                 processedRentalNos.add(rentalKey);
                               }
+
+                              // 영업수수료는 구좌수 기준, 상품 공급수수료는 상품수(1개) 기준
+                              const accounts = isItemBasedRule ? 1 : getAccountCountFromItem(item);
+
                               let itemComm = 0;
                               if (rule.useInstallments && rule.installments) {
                                 const paidCount = item.hcPaidCount || 0;
                                 const applicableInstallment = rule.installments.find(ins => paidCount >= ins.startRound && paidCount <= ins.endRound);
                                 if (applicableInstallment) {
-                                  itemComm = applicableInstallment.amount;
+                                  itemComm = applicableInstallment.amount * accounts;
                                 }
                               } else {
-                                itemComm = rule.commissionPerUnit;
+                                itemComm = (rule.commissionPerUnit || 0) * accounts;
                               }
 
                               const detailItem = {
@@ -15647,6 +15681,7 @@ const ERP_Dashboard = () => {
                                 deliveryDate: item.deliveryDate || '-',
                                 payDate: item.payDate || getDisplayPayDate(item) || '-',
                                 commission: itemComm,
+                                accountCount: accounts,
                                 ruleName: rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : rule.targetName === '조민경' ? '컨설팅비' : rule.targetName?.includes('신동우') ? '대표이사 수수료' : '특수수당')
                               };
 
@@ -15654,12 +15689,12 @@ const ERP_Dashboard = () => {
                                 const hqName = item.hq;
                                 if (hqName && itemComm > 0) {
                                   payoutIncentivesSummary[hqName] = (payoutIncentivesSummary[hqName] || 0) + itemComm;
-                                  payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + 1;
+                                  payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + accounts;
                                   if (!payoutIncentivesDetailMap[hqName]) payoutIncentivesDetailMap[hqName] = [];
                                   payoutIncentivesDetailMap[hqName].push(detailItem);
                                 }
                               } else {
-                                matchedCount++;
+                                matchedCount += accounts;
                                 commission += itemComm;
                                 const tName = rule.targetName || '특수수당';
                                 if (!payoutIncentivesDetailMap[tName]) payoutIncentivesDetailMap[tName] = [];
