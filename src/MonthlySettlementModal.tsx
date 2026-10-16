@@ -72,7 +72,12 @@ const isHqMatchedForSpecialRule = (
   // 2. 사업단 매칭 확인 (소속 본부 일괄 적용)
   if (hasDivisions) {
     const isDivMatch = (divisionList || []).some((div: any) => {
-      const isTargetDiv = targetDivisions.includes(div.id) || targetDivisions.includes(div.name);
+      const isTargetDiv = targetDivisions.some((td: string) => {
+        if (!td) return false;
+        if (td === div.id || td === div.name) return true;
+        if (td === 'div-goodlife' && (div.id === 'div-goodlife' || ((div.name || '').includes('신동우') && !(div.name || '').includes('꿈잇다')))) return true;
+        return false;
+      });
       if (!isTargetDiv) return false;
       return (div.hqNames || []).some((h: string) => normalizeHq(h) === cleanHq);
     });
@@ -507,7 +512,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               const isIndiv = setting?.settlementType?.includes('개인') || targetName === '글로씨';
               statsMap.set(targetName, {
                 hqName: targetName,
-                count: matchedCount,
+                count: 0,
                 salesSum: 0,
                 promoSum: 0,
                 generalSum: 0,
@@ -528,7 +533,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             const stat = statsMap.get(targetName)!;
             stat.specialSum += finalAmount;
             stat.specialItems.push(...matchedItems);
-            if (stat.count === 0) stat.count = matchedCount;
+            stat.count = (stat.items?.length || 0) + stat.specialItems.length;
           }
         }
       });

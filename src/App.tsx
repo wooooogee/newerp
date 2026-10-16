@@ -207,7 +207,7 @@ export const isHqMatchedForSpecialRule = (
       const isTargetDiv = targetDivisions.some(td => {
         if (!td) return false;
         if (td === div.id || td === div.name) return true;
-        if ((td === 'div-goodlife' || td.includes('goodlife') || td === '굿라이프') && (div.name || '').includes('굿라이프')) return true;
+        if (td === 'div-goodlife' && (div.id === 'div-goodlife' || ((div.name || '').includes('신동우') && !(div.name || '').includes('꿈잇다')))) return true;
         return false;
       });
       if (!isTargetDiv) return false;

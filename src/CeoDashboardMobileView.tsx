@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { loadSuppliersFromStorage, SupplierItem } from './SupplierManagementModal';
 import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo, mergeManualOrderStores } from './manualOrderUtils';
+import { isHqMatchedForSpecialRule } from './App';
 
 interface CeoDashboardMobileViewProps {
   currentUser: {
@@ -395,6 +396,78 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
       });
     });
 
+    // 3-1) 타겟 지정형 특수수당 가산 (신동우 대표, 모델비, 컨설팅비 등)
+    const targetRules = globalIncentiveRules.filter(r => {
+      return r.targetName && r.targetName !== 'SELF_HQ' && r.targetName !== '판매본부' && r.targetName !== '해당본부' && r.targetName !== '본부';
+    });
+
+    targetRules.forEach(rule => {
+      let matchedCount = 0;
+      let commission = 0;
+
+      data.forEach(item => {
+        const st = String(item.status || '').trim();
+        if (st.includes('취소') || st.includes('해약')) return;
+
+        const isDel = String(item.deliveryStatus || '').includes('완료') || (item.deliveryDate && item.deliveryDate !== '-' && item.deliveryDate.trim() !== '');
+        if (!isDel) return;
+
+        if (!isHqMatchedForSpecialRule(rule, item.hq, divisionSettings)) return;
+
+        if (rule.targetProducts && !rule.targetProducts.includes('ALL')) {
+          const normP = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
+          if (!rule.targetProducts.some((tp: string) => normP.includes(tp.replace(/[\s()]/g, '').toLowerCase()))) return;
+        }
+
+        if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+          const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
+          const isItemMatch = rule.targetItems.some((prod: string) => {
+            const cleanRuleProd = prod.replace(/\s+/g, '');
+            return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
+          });
+          if (!isItemMatch) return;
+        }
+
+        const pDate = String(item.payDate || '').trim();
+        let isDateMatched = false;
+        if (pDate && pDate !== '-' && !pDate.includes('미지정') && !pDate.includes('미입금')) {
+          const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
+          const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
+          isDateMatched = (itemPayMonth === selectedMonth);
+        }
+        if (!isDateMatched) return;
+
+        const unitComm = rule.commissionPerUnit || 0;
+        if (unitComm > 0) {
+          matchedCount++;
+          commission += unitComm;
+        }
+      });
+
+      const finalAmount = Math.max(commission, rule.minimumGuarantee || 0);
+      if (finalAmount > 0) {
+        const targetName = rule.targetName;
+        let entry = hqMap.get(targetName);
+        if (!entry) {
+          const setting = hqSettings.find(s => s.hqName === targetName);
+          entry = {
+            hqName: targetName,
+            accounts: 0,
+            salesComm: 0,
+            specialComm: 0,
+            totalPayable: 0,
+            bankName: setting?.bankName || '-',
+            accountNumber: setting?.accountNumber || '-',
+            accountHolder: setting?.accountHolder || '-'
+          };
+          hqMap.set(targetName, entry);
+        }
+        entry.accounts += matchedCount;
+        entry.specialComm += finalAmount;
+        entry.totalPayable += finalAmount;
+      }
+    });
+
     const hqList = Array.from(hqMap.values())
       .filter(h => h.accounts > 0 || h.totalPayable > 0)
       .sort((a, b) => b.totalPayable - a.totalPayable);
@@ -598,9 +671,6 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                     </div>
                     <span className="text-xs font-bold text-slate-300">배송완료 계약건수 (구좌수)</span>
                   </div>
-                  <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800">
-                    완료율 {overviewStats.deliveryRate}%
-                  </span>
                 </div>
                 <div className="flex items-baseline justify-between mt-1">
                   <div className="flex items-baseline gap-1.5">
@@ -927,12 +997,6 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                           <span>배송 실적: {hq.accounts}구좌</span>
                           <span>기본: ₩{formatWon(hq.salesComm)} | 공급수당: ₩{formatWon(hq.specialComm)}</span>
                         </div>
-                        {hq.bankName !== '-' && (
-                          <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-800 flex items-center justify-between">
-                            <span>계좌: {hq.bankName} {hq.accountNumber}</span>
-                            <span>({hq.accountHolder})</span>
-                          </div>
-                        )}
                       </div>
                     ))
                   )}
@@ -977,12 +1041,6 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
                           <span>정산 수량: {supp.accounts}구좌</span>
                           <span>정산일: 매월 {supp.settlementDay}일</span>
                         </div>
-                        {supp.bankName !== '-' && (
-                          <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-800 flex items-center justify-between">
-                            <span>계좌: {supp.bankName} {supp.accountNumber}</span>
-                            <span>({supp.accountHolder})</span>
-                          </div>
-                        )}
                       </div>
                     ))
                   )}
