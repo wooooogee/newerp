@@ -4563,37 +4563,35 @@ const ERP_Dashboard = () => {
             itemComm = rule.commissionPerUnit;
           }
 
-          if (itemComm > 0) {
-            const detailItem = {
-              rentalNo: item.rentalNo || item.resNo || '-',
-              memName: item.memName || '-',
-              hq: item.hq || '-',
-              branch: item.branch || '-',
-              empName: item.empName || '-',
-              prodName: item.prodName || '-',
-              rentalProd: item.rentalProd || item.modelName || item.productModel || '-',
-              contractDate: item.contractDate || '-',
-              deliveryDate: item.deliveryDate || '-',
-              payDate: item.payDate || getDisplayPayDate(item) || '-',
-              commission: itemComm,
-              ruleName: rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : rule.targetName === '조민경' ? '컨설팅비' : rule.targetName?.includes('신동우') ? '대표이사 수수료' : '특수수당')
-            };
+          const detailItem = {
+            rentalNo: item.rentalNo || item.resNo || '-',
+            memName: item.memName || '-',
+            hq: item.hq || '-',
+            branch: item.branch || '-',
+            empName: item.empName || '-',
+            prodName: item.prodName || '-',
+            rentalProd: item.rentalProd || item.modelName || item.productModel || '-',
+            contractDate: item.contractDate || '-',
+            deliveryDate: item.deliveryDate || '-',
+            payDate: item.payDate || getDisplayPayDate(item) || '-',
+            commission: itemComm,
+            ruleName: rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : rule.targetName === '조민경' ? '컨설팅비' : rule.targetName?.includes('신동우') ? '대표이사 수수료' : '특수수당')
+          };
 
-            if (isSelfHq) {
-              const hqName = item.hq;
-              if (hqName) {
-                payoutIncentivesSummary[hqName] = (payoutIncentivesSummary[hqName] || 0) + itemComm;
-                payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + 1;
-                if (!payoutIncentivesDetailMap[hqName]) payoutIncentivesDetailMap[hqName] = [];
-                payoutIncentivesDetailMap[hqName].push(detailItem);
-              }
-            } else {
-              matchedCount++;
-              commission += itemComm;
-              const tName = rule.targetName || '특수수당';
-              if (!payoutIncentivesDetailMap[tName]) payoutIncentivesDetailMap[tName] = [];
-              payoutIncentivesDetailMap[tName].push(detailItem);
+          if (isSelfHq) {
+            const hqName = item.hq;
+            if (hqName && itemComm > 0) {
+              payoutIncentivesSummary[hqName] = (payoutIncentivesSummary[hqName] || 0) + itemComm;
+              payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + 1;
+              if (!payoutIncentivesDetailMap[hqName]) payoutIncentivesDetailMap[hqName] = [];
+              payoutIncentivesDetailMap[hqName].push(detailItem);
             }
+          } else {
+            matchedCount++;
+            commission += itemComm;
+            const tName = rule.targetName || '특수수당';
+            if (!payoutIncentivesDetailMap[tName]) payoutIncentivesDetailMap[tName] = [];
+            payoutIncentivesDetailMap[tName].push(detailItem);
           }
         }
       });
@@ -15609,37 +15607,35 @@ const ERP_Dashboard = () => {
                                 itemComm = rule.commissionPerUnit;
                               }
 
-                              if (itemComm > 0) {
-                                const detailItem = {
-                                  rentalNo: item.rentalNo || item.resNo || '-',
-                                  memName: item.memName || '-',
-                                  hq: item.hq || '-',
-                                  branch: item.branch || '-',
-                                  empName: item.empName || '-',
-                                  prodName: item.prodName || '-',
-                                  rentalProd: item.rentalProd || item.modelName || item.productModel || '-',
-                                  contractDate: item.contractDate || '-',
-                                  deliveryDate: item.deliveryDate || '-',
-                                  payDate: item.payDate || getDisplayPayDate(item) || '-',
-                                  commission: itemComm,
-                                  ruleName: rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : rule.targetName === '조민경' ? '컨설팅비' : rule.targetName?.includes('신동우') ? '대표이사 수수료' : '특수수당')
-                                };
+                              const detailItem = {
+                                rentalNo: item.rentalNo || item.resNo || '-',
+                                memName: item.memName || '-',
+                                hq: item.hq || '-',
+                                branch: item.branch || '-',
+                                empName: item.empName || '-',
+                                prodName: item.prodName || '-',
+                                rentalProd: item.rentalProd || item.modelName || item.productModel || '-',
+                                contractDate: item.contractDate || '-',
+                                deliveryDate: item.deliveryDate || '-',
+                                payDate: item.payDate || getDisplayPayDate(item) || '-',
+                                commission: itemComm,
+                                ruleName: rule.incentiveName || (rule.targetName === '조재윤' ? '모델비' : rule.targetName === '조민경' ? '컨설팅비' : rule.targetName?.includes('신동우') ? '대표이사 수수료' : '특수수당')
+                              };
 
-                                if (isSelfHq) {
-                                  const hqName = item.hq;
-                                  if (hqName) {
-                                    payoutIncentivesSummary[hqName] = (payoutIncentivesSummary[hqName] || 0) + itemComm;
-                                    payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + 1;
-                                    if (!payoutIncentivesDetailMap[hqName]) payoutIncentivesDetailMap[hqName] = [];
-                                    payoutIncentivesDetailMap[hqName].push(detailItem);
-                                  }
-                                } else {
-                                  matchedCount++;
-                                  commission += itemComm;
-                                  const tName = rule.targetName || '특수수당';
-                                  if (!payoutIncentivesDetailMap[tName]) payoutIncentivesDetailMap[tName] = [];
-                                  payoutIncentivesDetailMap[tName].push(detailItem);
+                              if (isSelfHq) {
+                                const hqName = item.hq;
+                                if (hqName && itemComm > 0) {
+                                  payoutIncentivesSummary[hqName] = (payoutIncentivesSummary[hqName] || 0) + itemComm;
+                                  payoutIncentivesCountSummary[hqName] = (payoutIncentivesCountSummary[hqName] || 0) + 1;
+                                  if (!payoutIncentivesDetailMap[hqName]) payoutIncentivesDetailMap[hqName] = [];
+                                  payoutIncentivesDetailMap[hqName].push(detailItem);
                                 }
+                              } else {
+                                matchedCount++;
+                                commission += itemComm;
+                                const tName = rule.targetName || '특수수당';
+                                if (!payoutIncentivesDetailMap[tName]) payoutIncentivesDetailMap[tName] = [];
+                                payoutIncentivesDetailMap[tName].push(detailItem);
                               }
                             }
                           });
