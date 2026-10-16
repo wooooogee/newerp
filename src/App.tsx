@@ -4037,10 +4037,14 @@ const ERP_Dashboard = () => {
           }
 
           if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+            const rawItemProd = item.rentalProd || item.modelName || item.productModel || '';
+            const cleanItemProd = rawItemProd.replace(/[\s()_-]/g, '').toLowerCase();
+            if (!cleanItemProd || cleanItemProd === '-') return;
+
             const isItemMatch = rule.targetItems.some((prod: string) => {
-              const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
-              const cleanRuleProd = prod.replace(/\s+/g, '');
-              return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
+              const cleanRuleProd = prod.replace(/[\s()_-]/g, '').toLowerCase();
+              if (!cleanRuleProd) return false;
+              return cleanItemProd.includes(cleanRuleProd) || (cleanItemProd.length >= 3 && cleanRuleProd.includes(cleanItemProd));
             });
             if (!isItemMatch) return;
           }
@@ -4531,10 +4535,14 @@ const ERP_Dashboard = () => {
         }
 
         if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+          const rawItemProd = item.rentalProd || item.modelName || item.productModel || '';
+          const cleanItemProd = rawItemProd.replace(/[\s()_-]/g, '').toLowerCase();
+          if (!cleanItemProd || cleanItemProd === '-') return;
+
           const isItemMatch = rule.targetItems.some((prod: string) => {
-            const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
-            const cleanRuleProd = prod.replace(/\s+/g, '');
-            return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
+            const cleanRuleProd = prod.replace(/[\s()_-]/g, '').toLowerCase();
+            if (!cleanRuleProd) return false;
+            return cleanItemProd.includes(cleanRuleProd) || (cleanItemProd.length >= 3 && cleanRuleProd.includes(cleanItemProd));
           });
           if (!isItemMatch) return;
         }
@@ -15605,10 +15613,14 @@ const ERP_Dashboard = () => {
                             }
 
                             if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+                              const rawItemProd = item.rentalProd || item.modelName || item.productModel || '';
+                              const cleanItemProd = rawItemProd.replace(/[\s()_-]/g, '').toLowerCase();
+                              if (!cleanItemProd || cleanItemProd === '-') return;
+
                               const isItemMatch = rule.targetItems.some((prod: string) => {
-                                const cleanItemProd = (item.rentalProd || '').replace(/\s+/g, '');
-                                const cleanRuleProd = prod.replace(/\s+/g, '');
-                                return cleanItemProd.includes(cleanRuleProd) || cleanRuleProd.includes(cleanItemProd);
+                                const cleanRuleProd = prod.replace(/[\s()_-]/g, '').toLowerCase();
+                                if (!cleanRuleProd) return false;
+                                return cleanItemProd.includes(cleanRuleProd) || (cleanItemProd.length >= 3 && cleanRuleProd.includes(cleanItemProd));
                               });
                               if (!isItemMatch) return;
                             }
