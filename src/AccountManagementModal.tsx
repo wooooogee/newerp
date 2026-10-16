@@ -41,6 +41,7 @@ interface AccountManagementModalProps {
 
 const PRESET_ROLES = [
   { value: '관리자', label: '관리자 (전체 권한)', desc: '시스템 및 전체 본부/지사 관리' },
+  { value: '대표모바일', label: '대표모바일 (대표이사 모바일 대시보드 전용)', desc: '전사 계약현황, 5일 트렌드, 순위 Top10, 본부별 수수료 및 공급사 정산' },
   { value: '총무', label: '총무 (관리자급 열람/수정)', desc: '정산 및 계약 전반 관리' },
   { value: '본부', label: '본부 (본부장/관리자)', desc: '소속 본부 및 산하 지사 데이터 관리' },
   { value: '지사', label: '지사 (지사장/지사관리)', desc: '소속 지사 데이터 관리' },
@@ -1027,6 +1028,9 @@ export function AccountManagementModal({
                     } else if (role === '관리자' || role === '총무') {
                       setNewOrgType('custom');
                       setCustomOrgInput('본사/전체');
+                    } else if (role === '대표모바일' || role === '대표') {
+                      setNewOrgType('custom');
+                      setCustomOrgInput('대표이사');
                     } else if (role === '의전') {
                       setNewOrgType('custom');
                       setCustomOrgInput('의전팀');

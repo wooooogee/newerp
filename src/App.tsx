@@ -21,6 +21,7 @@ import { CustomDialog } from './CustomDialog';
 import { PresidentReportModal } from './PresidentReportModal';
 import { BranchNoteModal } from './BranchNoteModal';
 import { IndividualSalesMobileView } from './IndividualSalesMobileView';
+import { CeoDashboardMobileView } from './CeoDashboardMobileView';
 import { AdvancedSearchModal } from './AdvancedSearchModal';
 import { CommissionNotesModal } from './CommissionNotesModal';
 import { ChangePasswordModal } from './ChangePasswordModal';
@@ -613,6 +614,16 @@ const ERP_Dashboard = () => {
                     currentUser?.role === '관리자모바일';
   const isAdmin = isManager || currentUser?.role === '총무';
   const showCommissionInfo = isSuperAdmin || currentUser?.role === '총무';
+
+  // '대표' / '대표모바일' 권한 판별 (대표이사 전용 모바일 대시보드 대상)
+  const isCeo = React.useMemo(() => {
+    if (!currentUser) return false;
+    const checkCeo = (r?: string) =>
+      r === '대표' || r === '대표모바일' || r === 'CEO' || r === 'ceo';
+    if (checkCeo(currentUser.role)) return true;
+    if (currentUser.orgs && currentUser.orgs.some(item => checkCeo(item.role))) return true;
+    return false;
+  }, [currentUser]);
   const isHQStaff = !isManager && (
     currentUser?.role === '총무' || 
     currentUser?.role === '본부' ||
@@ -2299,7 +2310,7 @@ const ERP_Dashboard = () => {
         ];
         
         let finalData = initialData;
-        if (currentUser && !isManager) {
+        if (currentUser && !isManager && !isCeo) {
           const usernameClean = currentUser.username.trim().toUpperCase();
           const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
           const normName = (s: string) => (s || '').replace(/\s/g, '').toLowerCase();
@@ -2463,7 +2474,7 @@ const ERP_Dashboard = () => {
 
       // 로그인 권한 필터링 추가
       let finalData = formatted;
-      if (currentUser && !isManager) {
+      if (currentUser && !isManager && !isCeo) {
         const usernameClean = currentUser.username.trim().toUpperCase();
         const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
         const normName = (s: string) => (s || '').replace(/\s/g, '').toLowerCase();
@@ -7650,6 +7661,54 @@ const ERP_Dashboard = () => {
               ? await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')
               : window.confirm('로그아웃 하시겠습니까?');
             if (confirmed) {
+              try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                sessionStorage.removeItem('erp_logged_in');
+                resetFilters();
+                setData([]);
+                setCurrentUser(null);
+              } catch (err) {
+                console.error('Logout error:', err);
+              }
+            }
+          }}
+        />
+        <AnimatePresence>
+          <CustomDialog
+            isOpen={dialogState.isOpen}
+            type={dialogState.type}
+            title={dialogState.title}
+            message={dialogState.message}
+            defaultValue={dialogState.defaultValue}
+            placeholder={dialogState.placeholder}
+            onConfirm={(val) => {
+              if (dialogState.resolve) dialogState.resolve(val !== undefined ? val : true);
+              setDialogState(prev => ({ ...prev, isOpen: false }));
+            }}
+            onCancel={() => {
+              if (dialogState.resolve) dialogState.resolve(dialogState.type === 'prompt' ? null : false);
+              setDialogState(prev => ({ ...prev, isOpen: false }));
+            }}
+          />
+        </AnimatePresence>
+      </>
+    );
+  }
+
+  if (isCeo) {
+    return (
+      <>
+        <CeoDashboardMobileView
+          currentUser={currentUser}
+          data={data}
+          hqSettings={hqSettings}
+          globalIncentiveRules={globalIncentiveRules}
+          divisionSettings={divisionSettings}
+          calculateCommissionDetails={calculateCommissionDetails}
+          loading={loading}
+          onRefresh={loadData}
+          onLogout={async () => {
+            if (await (window as any).customConfirm('로그아웃 하시겠습니까?', '로그아웃')) {
               try {
                 await fetch('/api/auth/logout', { method: 'POST' });
                 sessionStorage.removeItem('erp_logged_in');

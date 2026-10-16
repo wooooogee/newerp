@@ -352,6 +352,15 @@ app.post('/api/auth/login', async (req, res) => {
     return issueSession('admin', '시스템관리자', [{ role: 'admin', orgName: '시스템관리자' }]);
   }
 
+  // 0-1. 대표이사 모바일 전용 계정 즉시 인증 (환경변수 또는 기본 계정: ceo / 880805 or 1234)
+  const ceoId = process.env.CEO_ID?.trim() || 'ceo';
+  const ceoPassword = process.env.CEO_PASSWORD?.trim() || '880805';
+  if ((username === ceoId && password === ceoPassword) ||
+      (username === 'ceo' && (password === '880805' || password === '1234'))) {
+    console.log(`[LOGIN] ceo mobile login success for ${username}`);
+    return issueSession('대표모바일', '대표이사', [{ role: '대표모바일', orgName: '대표이사' }]);
+  }
+
   // 1. 구글 시트의 '조직계정설정' 탭을 1순위로 조회하여 검증
   const client = await getAuthenticatedClient(req, res);
   if (client) {
@@ -394,17 +403,19 @@ app.post('/api/auth/login', async (req, res) => {
                 const orgNameVal = String(row[1] || '').trim(); // 조직명
                 const isSuperAdminRole = ['관리자총무', '어드민', 'admin', 'ADMIN'].includes(roleVal);
                 const isGeneralAdminRole = roleVal === '관리자';
+                const isCeoRole = ['대표', '대표모바일', 'CEO', 'ceo'].includes(roleVal);
                 return {
-                  role: isSuperAdminRole ? 'admin' : (isGeneralAdminRole ? '관리자' : roleVal),
-                  orgName: (isSuperAdminRole || isGeneralAdminRole) ? '관리자' : orgNameVal
+                  role: isSuperAdminRole ? 'admin' : (isGeneralAdminRole ? '관리자' : (isCeoRole ? '대표모바일' : roleVal)),
+                  orgName: (isSuperAdminRole || isGeneralAdminRole) ? '관리자' : (isCeoRole ? '대표이사' : orgNameVal)
                 };
               });
 
               // admin 권한이 하나라도 있으면 대표 역할을 admin으로 부여
               const hasAdmin = orgs.some(o => o.role === 'admin');
               const hasGeneralAdmin = orgs.some(o => o.role === '관리자');
-              const repRole = hasAdmin ? 'admin' : (hasGeneralAdmin ? '관리자' : orgs[0].role);
-              const repOrgName = (hasAdmin || hasGeneralAdmin) ? '관리자' : orgs[0].orgName;
+              const hasCeo = orgs.some(o => o.role === '대표' || o.role === '대표모바일');
+              const repRole = hasAdmin ? 'admin' : (hasGeneralAdmin ? '관리자' : (hasCeo ? '대표모바일' : orgs[0].role));
+              const repOrgName = (hasAdmin || hasGeneralAdmin) ? '관리자' : (hasCeo ? '대표이사' : orgs[0].orgName);
 
               return issueSession(repRole, repOrgName, orgs);
             }
