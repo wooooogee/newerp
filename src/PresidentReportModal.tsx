@@ -1291,9 +1291,44 @@ export function PresidentReportModal({
   };
 
   // ----------------------------------------------------
-  // [엑셀 다운로드] 월말보고서 5대 정산표 전체를 .xlsx 로 내보내기
+  // [엑셀 다운로드] 스타일(배경색, 글자색, 콤마서식) 적용된 월말보고서 .xlsx 내보내기
   // ----------------------------------------------------
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
+    const filename = `더좋은라이프_월말보고서_${selectedMonth}.xlsx`;
+
+    try {
+      // 1. 서버의 XlsxPopulate 스타일 엑셀 생성 API 호출 (배경색, 폰트색, 콤마서식 완벽 적용)
+      const response = await fetch('/api/report/export-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selectedMonth,
+          metrics,
+          hqProductSalesList,
+          specialExpenseList,
+          supplierSummaryList,
+          supplierProductDetailList,
+          monthEndMemo
+        })
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        return;
+      }
+    } catch (apiErr) {
+      console.warn('[서버 엑셀 생성 실패, 클라이언트 fallback 실행]', apiErr);
+    }
+
+    // 2. Fallback: 클라이언트 SheetJS 라이브러리로 다운로드 (2행 제거, 세부설명 제거, 콤마서식 적용)
     try {
       if (!XLSX || !XLSX.utils) {
         alert('엑셀 변환 라이브러리를 불러오지 못했습니다.');
@@ -1302,147 +1337,149 @@ export function PresidentReportModal({
 
       const wb = XLSX.utils.book_new();
 
-      // 통계 합계 계산
       const totalHqCount = hqProductSalesList.reduce((acc, h) => acc + h.count, 0);
       const totalHqComm = hqProductSalesList.reduce((acc, h) => acc + h.totalCommission, 0);
       const totalSpecialAmount = specialExpenseList.reduce((acc, s) => acc + s.amount, 0);
-      const totalSuppCount = supplierSummaryList.reduce((acc, s) => acc + s.count, 0);
-      const totalSuppDeposit = supplierSummaryList.reduce((acc, s) => acc + s.depositPrice, 0);
-      const totalSuppPrice = supplierSummaryList.reduce((acc, s) => acc + s.supplyPrice, 0);
-      const totalSuppComm = supplierSummaryList.reduce((acc, s) => acc + s.supplyCommission, 0);
-      const totalSuppMargin = supplierSummaryList.reduce((acc, s) => acc + s.unitMargin, 0);
-      const totalProdCount = supplierProductDetailList.reduce((acc, p) => acc + p.count, 0);
-      const totalProdSupplyPrice = supplierProductDetailList.reduce((acc, p) => acc + p.totalSupplyPrice, 0);
-      const totalProdSupplyComm = supplierProductDetailList.reduce((acc, p) => acc + p.totalSupplyCommission, 0);
-      const totalProdMargin = supplierProductDetailList.reduce((acc, p) => acc + p.totalMargin, 0);
+
+      const validSuppliers = supplierSummaryList.filter(s => s.count > 0);
+      const totalSuppCount = validSuppliers.reduce((acc, s) => acc + s.count, 0);
+      const totalSuppPrice = validSuppliers.reduce((acc, s) => acc + s.supplyPrice, 0);
+      const enexDeposit = metrics.e_richwelfareDeposit;
+      const diffAfterSupply = enexDeposit > 0 ? (enexDeposit - totalSuppPrice) : 0;
+
+      const validProducts = supplierProductDetailList.filter(p => p.count > 0);
+      const totalProdCount = validProducts.reduce((acc, p) => acc + p.count, 0);
+      const totalProdSupplyPrice = validProducts.reduce((acc, p) => acc + p.totalSupplyPrice, 0);
+      const totalProdSupplyComm = validProducts.reduce((acc, p) => acc + p.totalSupplyCommission, 0);
+      const totalProdMargin = validProducts.reduce((acc, p) => acc + p.totalMargin, 0);
 
       // [Sheet 1: 월말보고서_종합]
       const summaryAoa: any[][] = [
         [`더좋은라이프 월말 종합 결산보고서 (${selectedMonth})`],
-        [`보고서 생성일시: ${new Date().toLocaleDateString('ko-KR')} | 기본값 저장 상태: ${hasCustomSavedData ? '저장된 기본값 적용 중' : 'ERP 원본 자동산출'}`],
         [],
-        ['========================================================================================'],
         ['1. 당월 핵심 손익 요약'],
-        ['========================================================================================'],
-        ['구분', '항목', '금액(원)', '산출공식 및 세부설명'],
-        ['렌탈 영업부문', '에넥스 총 입금액 [A]', metrics.a_enexDeposit, '에넥스 본사 총 입금 승인액'],
-        ['렌탈 영업부문', '영업본부 수수료 지급액 [B]', metrics.b_salesCommission, '영업본부·사업단 지급 수수료 총액 (2번 표 총합)'],
-        ['렌탈 영업부문', '특수수당 및 본사지출 [C]', metrics.c_specialAndMaintenance, '직급/직책수당 및 본사 유지비용 (3번 표 총합)'],
-        ['렌탈 영업부문', '영업 순이익 [D = A - B - C]', metrics.d_operatingProfit, '에넥스 입금액 - 본부수수료 - 특수수당'],
-        ['공급사 정산부문', '에넥스 공급가 입금액 [E]', metrics.e_richwelfareDeposit, '에넥스 입금 공급가 총액 (4번 표 총합)'],
-        ['공급사 정산부문', '공급사 지급 공급가액 [F]', metrics.f_richwelfareSupplyPrice, '가스트로플러스/바디프랜드 등 공급가 (4번 표 총합)'],
-        ['공급사 정산부문', '공급수수료 [G]', metrics.g_supplyCommission, '공급사 지급 수수료 총액 (4번 표 총합)'],
-        ['공급사 정산부문', '공급가 마진 순익 [H = E - F - G]', metrics.h_supplyProfit, '에넥스 공급가 입금액 - 공급가액 - 공급수수료'],
-        ['최종 결산', '당월 최종 순이익 [I = D + H]', metrics.i_finalNetProfit, '렌탈 영업 순익(D) + 공급가 마진 순익(H)'],
+        ['구분', '항목', '금액'],
+        ['렌탈 영업부문', '에넥스 총 입금액 [A]', metrics.a_enexDeposit],
+        ['렌탈 영업부문', '영업본부 수수료 지급액 [B]', metrics.b_salesCommission],
+        ['렌탈 영업부문', '특수수당 및 본사지출 [C]', metrics.c_specialAndMaintenance],
+        ['렌탈 영업부문', '영업 순이익 [D = A - B - C]', metrics.d_operatingProfit],
+        ['공급사 정산부문', '에넥스 공급가 입금액 [E]', metrics.e_richwelfareDeposit],
+        ['공급사 정산부문', '공급사 지급 공급가액 [F]', metrics.f_richwelfareSupplyPrice],
+        ['공급사 정산부문', '공급수수료 [G]', metrics.g_supplyCommission],
+        ['공급사 정산부문', '공급가 마진 순익 [H = E - F - G]', metrics.h_supplyProfit],
+        ['최종 결산', '당월 최종 순이익 [I = D + H]', metrics.i_finalNetProfit],
         [],
-        ['========================================================================================'],
-        ['2. 본부·사업단별/상품별 영업실적 및 수수료 지급현황'],
-        ['========================================================================================'],
-        ['영업본부/사업단', '취급 상품명', '건수', '건당 수수료(원)', '총 지급 수수료(원)', '정산 비고'],
+        ['2. 본부·사업단별 / 상품별 영업실적 및 수수료 지급현황'],
+        ['영업본부/사업단', '취급 상품명', '건수', '건당 수수료', '총 지급 수수료', '정산 비고'],
         ...hqProductSalesList.map(h => [h.hqName, h.prodName, h.count, h.unitCommission, h.totalCommission, h.note]),
-        ['합계', '-', totalHqCount, '-', totalHqComm, '전체 본부 수수료 합계 [B]'],
+        ['전체 본부 수수료 합계 ([B])', '-', totalHqCount, '-', totalHqComm, '본부 수수료 총합'],
         [],
-        ['========================================================================================'],
         ['3. 특수수당 및 본사 지출 내역 요약'],
-        ['========================================================================================'],
-        ['지출 구분', '항목명 / 대상자', '수량 / 인원', '총 지출액(원)', '비고 및 산출기준'],
+        ['지출 구분', '지출 항목명 / 대상', '수량/인원', '총 지출액', '비고'],
         ...specialExpenseList.map(s => [s.category, s.name, s.count, s.amount, s.note]),
-        ['합계', '-', '-', totalSpecialAmount, '본사 특수수당/지출 총합 [C]'],
+        ['본사 추가 지출 소계 ([C])', '-', specialExpenseList.length, totalSpecialAmount, '특수수당 총합'],
         [],
-        ['========================================================================================'],
-        ['4. 공급사 정산 총괄 (총 입금액 & 지급 공급가액)'],
-        ['========================================================================================'],
-        ['공급사명', '총 발주건수', '에넥스 총 입금액(원)', '지급 공급가액(원)', '공급수수료(원)', '공급 순마진(원)', '정산조건 / 비고'],
-        ...supplierSummaryList.map(s => [s.supplierName, s.count, s.depositPrice, s.supplyPrice, s.supplyCommission, s.unitMargin, s.settlementCondition]),
-        ['합계', totalSuppCount, totalSuppDeposit, totalSuppPrice, totalSuppComm, totalSuppMargin, '공급사 정산 총괄 합계 [E, F, G, H]'],
+        ['4. 공급사 정산관리 총괄 요약'],
+        ['구분 / 공급사명', '정산 건수', '공급가액 / 금액', '정산조건 / 비고'],
+        ['[E] 에넥스 총 입금액', '입금 총액', enexDeposit, '에넥스 본사 총 입금 승인액'],
+        ...validSuppliers.map(s => [s.supplierName, s.count, s.supplyPrice, s.settlementCondition || '-']),
+        ['공급사 지급 합계', totalSuppCount, totalSuppPrice, '-'],
+        ['에넥스 입금 차감 잔액 ([E] - 공급사 지급 합계)', '-', diffAfterSupply, '에넥스 총 입금액 - 공급사 지급 합계'],
         [],
-        ['========================================================================================'],
-        ['5. 공급사 제품별 세부 정산 내역 (입금단가 & 공급단가)'],
-        ['========================================================================================'],
-        ['공급사', '제품명', '건수', '에넥스 입금단가(원)', '공급단가(원)', '건당 공급수수료(원)', '총 공급가액(원)', '총 공급수수료(원)', '총 공급마진(원)', '비고'],
-        ...supplierProductDetailList.map(p => [p.supplierName, p.prodName, p.count, p.unitDeposit, p.unitSupplyPrice, p.unitCommission, p.totalSupplyPrice, p.totalSupplyCommission, p.totalMargin, p.note]),
-        ['합계', '-', totalProdCount, '-', '-', '-', totalProdSupplyPrice, totalProdSupplyComm, totalProdMargin, '제품별 정산 총합'],
+        ['5. 공급사 제품별 세부 정산 내역'],
+        ['공급사', '제품명', '건수', '에넥스 입금단가', '공급단가', '건당 공급수수료', '총 공급가액', '총 공급수수료', '총 공급마진', '비고'],
+        ...validProducts.map(p => [p.supplierName, p.prodName, p.count, p.unitDeposit, p.unitSupplyPrice, p.unitCommission, p.totalSupplyPrice, p.totalSupplyCommission, p.totalMargin, p.note]),
+        ['제품별 정산 총합', '-', totalProdCount, '-', '-', '-', totalProdSupplyPrice, totalProdSupplyComm, totalProdMargin, '전체 합계'],
         [],
-        ['========================================================================================'],
         ['6. 대표님 보고 종합 의견'],
-        ['========================================================================================'],
         [monthEndMemo]
       ];
 
       const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
+      Object.keys(wsSummary).forEach(cellKey => {
+        if (cellKey.startsWith('!')) return;
+        const cell = wsSummary[cellKey];
+        if (cell && typeof cell.v === 'number') {
+          cell.t = 'n';
+          cell.z = '#,##0';
+        }
+      });
       wsSummary['!cols'] = [
-        { wch: 18 },
-        { wch: 32 },
-        { wch: 16 },
-        { wch: 18 },
-        { wch: 20 },
-        { wch: 22 },
-        { wch: 20 },
-        { wch: 20 },
-        { wch: 20 },
-        { wch: 20 }
+        { wch: 22 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 20 },
+        { wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 22 }
       ];
       XLSX.utils.book_append_sheet(wb, wsSummary, '월말보고서_종합');
 
-      // [Sheet 2: 1_핵심손익지표]
+      const formatSheetNumbers = (sheet: any) => {
+        Object.keys(sheet).forEach(cellKey => {
+          if (cellKey.startsWith('!')) return;
+          const cell = sheet[cellKey];
+          if (cell && typeof cell.v === 'number') {
+            cell.t = 'n';
+            cell.z = '#,##0';
+          }
+        });
+      };
+
       const sheet1Aoa = [
-        ['구분', '항목', '금액(원)', '세부 설명'],
-        ['렌탈 영업부문', '에넥스 총 입금액 [A]', metrics.a_enexDeposit, '에넥스 본사 총 입금 승인액'],
-        ['렌탈 영업부문', '영업본부 수수료 지급액 [B]', metrics.b_salesCommission, '영업본부·사업단 지급 수수료 총액 (2번 표 총합)'],
-        ['렌탈 영업부문', '특수수당 및 본사지출 [C]', metrics.c_specialAndMaintenance, '직급/직책수당 및 본사 유지비용 (3번 표 총합)'],
-        ['렌탈 영업부문', '영업 순이익 [D = A - B - C]', metrics.d_operatingProfit, '에넥스 입금액 - 본부수수료 - 특수수당'],
-        ['공급사 정산부문', '에넥스 공급가 입금액 [E]', metrics.e_richwelfareDeposit, '에넥스 입금 공급가 총액 (4번 표 총합)'],
-        ['공급사 정산부문', '공급사 지급 공급가액 [F]', metrics.f_richwelfareSupplyPrice, '가스트로플러스/바디프랜드 등 공급가 (4번 표 총합)'],
-        ['공급사 정산부문', '공급수수료 [G]', metrics.g_supplyCommission, '공급사 지급 수수료 총액 (4번 표 총합)'],
-        ['공급사 정산부문', '공급가 마진 순익 [H = E - F - G]', metrics.h_supplyProfit, '에넥스 공급가 입금액 - 공급가액 - 공급수수료'],
-        ['최종 결산', '당월 최종 순이익 [I = D + H]', metrics.i_finalNetProfit, '렌탈 영업 순익(D) + 공급가 마진 순익(H)']
+        ['구분', '항목명', '금액'],
+        ['렌탈 영업부문', '에넥스 총 입금액 [A]', metrics.a_enexDeposit],
+        ['렌탈 영업부문', '영업본부 수수료 지급액 [B]', metrics.b_salesCommission],
+        ['렌탈 영업부문', '특수수당 및 본사지출 [C]', metrics.c_specialAndMaintenance],
+        ['렌탈 영업부문', '영업 순이익 [D = A - B - C]', metrics.d_operatingProfit],
+        ['공급사 정산부문', '에넥스 공급가 입금액 [E]', metrics.e_richwelfareDeposit],
+        ['공급사 정산부문', '공급사 지급 공급가액 [F]', metrics.f_richwelfareSupplyPrice],
+        ['공급사 정산부문', '공급수수료 [G]', metrics.g_supplyCommission],
+        ['공급사 정산부문', '공급가 마진 순익 [H = E - F - G]', metrics.h_supplyProfit],
+        ['최종 결산', '당월 최종 순이익 [I = D + H]', metrics.i_finalNetProfit]
       ];
       const ws1 = XLSX.utils.aoa_to_sheet(sheet1Aoa);
-      ws1['!cols'] = [{ wch: 18 }, { wch: 32 }, { wch: 18 }, { wch: 45 }];
+      formatSheetNumbers(ws1);
+      ws1['!cols'] = [{ wch: 20 }, { wch: 35 }, { wch: 22 }];
       XLSX.utils.book_append_sheet(wb, ws1, '1_핵심손익지표');
 
-      // [Sheet 3: 2_영업실적및수수료]
       const sheet2Aoa = [
-        ['영업본부/사업단', '취급 상품명', '건수', '건당 수수료(원)', '총 지급 수수료(원)', '정산 비고'],
+        ['영업본부/사업단', '취급 상품명', '건수', '건당 수수료', '총 지급 수수료', '정산 비고'],
         ...hqProductSalesList.map(h => [h.hqName, h.prodName, h.count, h.unitCommission, h.totalCommission, h.note]),
-        ['합계', '-', totalHqCount, '-', totalHqComm, '전체 본부 수수료 합계 [B]']
+        ['전체 본부 수수료 합계 ([B])', '-', totalHqCount, '-', totalHqComm, '본부 수수료 총합']
       ];
       const ws2 = XLSX.utils.aoa_to_sheet(sheet2Aoa);
-      ws2['!cols'] = [{ wch: 20 }, { wch: 28 }, { wch: 10 }, { wch: 16 }, { wch: 20 }, { wch: 30 }];
+      formatSheetNumbers(ws2);
+      ws2['!cols'] = [{ wch: 22 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 22 }, { wch: 30 }];
       XLSX.utils.book_append_sheet(wb, ws2, '2_영업실적및수수료');
 
-      // [Sheet 4: 3_특수수당및본사지출]
       const sheet3Aoa = [
-        ['지출 구분', '항목명 / 대상자', '수량 / 인원', '총 지출액(원)', '비고 및 산출기준'],
+        ['지출 구분', '지출 항목명 / 대상', '수량/인원', '총 지출액', '비고'],
         ...specialExpenseList.map(s => [s.category, s.name, s.count, s.amount, s.note]),
-        ['합계', '-', '-', totalSpecialAmount, '본사 특수수당/지출 총합 [C]']
+        ['본사 추가 지출 소계 ([C])', '-', specialExpenseList.length, totalSpecialAmount, '특수수당 총합']
       ];
       const ws3 = XLSX.utils.aoa_to_sheet(sheet3Aoa);
-      ws3['!cols'] = [{ wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 18 }, { wch: 35 }];
+      formatSheetNumbers(ws3);
+      ws3['!cols'] = [{ wch: 20 }, { wch: 28 }, { wch: 14 }, { wch: 22 }, { wch: 35 }];
       XLSX.utils.book_append_sheet(wb, ws3, '3_특수수당및본사지출');
 
-      // [Sheet 5: 4_공급사정산총괄]
       const sheet4Aoa = [
-        ['공급사명', '총 발주건수', '에넥스 총 입금액(원)', '지급 공급가액(원)', '공급수수료(원)', '공급 순마진(원)', '정산조건 / 비고'],
-        ...supplierSummaryList.map(s => [s.supplierName, s.count, s.depositPrice, s.supplyPrice, s.supplyCommission, s.unitMargin, s.settlementCondition]),
-        ['합계', totalSuppCount, totalSuppDeposit, totalSuppPrice, totalSuppComm, totalSuppMargin, '공급사 정산 총괄 합계 [E, F, G, H]']
+        ['구분 / 공급사명', '정산 건수', '공급가액 / 금액', '정산조건 / 비고'],
+        ['[E] 에넥스 총 입금액', '입금 총액', enexDeposit, '에넥스 본사 총 입금 승인액'],
+        ...validSuppliers.map(s => [s.supplierName, s.count, s.supplyPrice, s.settlementCondition || '-']),
+        ['공급사 지급 합계', totalSuppCount, totalSuppPrice, '-'],
+        ['에넥스 입금 차감 잔액 ([E] - 공급사 지급 합계)', '-', diffAfterSupply, '에넥스 총 입금액 - 공급사 지급 합계']
       ];
       const ws4 = XLSX.utils.aoa_to_sheet(sheet4Aoa);
-      ws4['!cols'] = [{ wch: 20 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 35 }];
+      formatSheetNumbers(ws4);
+      ws4['!cols'] = [{ wch: 25 }, { wch: 16 }, { wch: 22 }, { wch: 35 }];
       XLSX.utils.book_append_sheet(wb, ws4, '4_공급사정산총괄');
 
-      // [Sheet 6: 5_제품별세부정산]
       const sheet5Aoa = [
-        ['공급사', '제품명', '건수', '에넥스 입금단가(원)', '공급단가(원)', '건당 공급수수료(원)', '총 공급가액(원)', '총 공급수수료(원)', '총 공급마진(원)', '비고'],
-        ...supplierProductDetailList.map(p => [p.supplierName, p.prodName, p.count, p.unitDeposit, p.unitSupplyPrice, p.unitCommission, p.totalSupplyPrice, p.totalSupplyCommission, p.totalMargin, p.note]),
-        ['합계', '-', totalProdCount, '-', '-', '-', totalProdSupplyPrice, totalProdSupplyComm, totalProdMargin, '제품별 정산 총합']
+        ['공급사', '제품명', '건수', '에넥스 입금단가', '공급단가', '건당 공급수수료', '총 공급가액', '총 공급수수료', '총 공급마진', '비고'],
+        ...validProducts.map(p => [p.supplierName, p.prodName, p.count, p.unitDeposit, p.unitSupplyPrice, p.unitCommission, p.totalSupplyPrice, p.totalSupplyCommission, p.totalMargin, p.note]),
+        ['제품별 정산 총합', '-', totalProdCount, '-', '-', '-', totalProdSupplyPrice, totalProdSupplyComm, totalProdMargin, '전체 합계']
       ];
       const ws5 = XLSX.utils.aoa_to_sheet(sheet5Aoa);
-      ws5['!cols'] = [{ wch: 18 }, { wch: 30 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 25 }];
+      formatSheetNumbers(ws5);
+      ws5['!cols'] = [{ wch: 18 }, { wch: 32 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 25 }];
       XLSX.utils.book_append_sheet(wb, ws5, '5_제품별세부정산');
 
-      // 파일 다운로드
-      const filename = `더좋은라이프_월말보고서_${selectedMonth}.xlsx`;
       XLSX.writeFile(wb, filename);
     } catch (e) {
       console.error('[엑셀 다운로드 오류]', e);
@@ -2434,6 +2471,29 @@ export function PresidentReportModal({
                         </tr>
                       </thead>
                       <tbody>
+                        {/* 1) [E] 에넥스 총 입금액 (공급사 위 최상단 입력) */}
+                        <tr className="bg-emerald-50/90 border-b-2 border-emerald-300">
+                          <td className="border border-slate-400 py-1.5 px-2 text-left font-black text-emerald-950 whitespace-nowrap">
+                            [E] 에넥스 총 입금액
+                          </td>
+                          <td className="border border-slate-400 py-1.5 px-1 text-center font-bold text-emerald-800 text-[11px] whitespace-nowrap">
+                            입금 총액
+                          </td>
+                          <td className="border border-slate-400 py-1.5 px-2 text-right text-emerald-800 font-black whitespace-nowrap tracking-tight">
+                            <EditableNumber
+                              value={metrics.e_richwelfareDeposit}
+                              onChange={handleUpdateE}
+                              showZeroAsBlank={true}
+                              placeholder="직접 입력"
+                              className="font-black text-emerald-700"
+                            />
+                          </td>
+                          <td className="border border-slate-400 py-1.5 px-2 text-slate-500 text-[11px] leading-tight" colSpan={2}>
+                            에넥스 본사 총 입금 승인액 (직접 입력)
+                          </td>
+                        </tr>
+
+                        {/* 2) 각 공급사 목록 */}
                         {supplierSummaryList.filter(row => row.count > 0).map(row => (
                           <tr key={row.id} className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors group">
                             <td className="border border-slate-300 py-1.5 px-2 font-bold text-slate-900 whitespace-nowrap">
@@ -2476,18 +2536,17 @@ export function PresidentReportModal({
                           </tr>
                         ))}
 
-                        {/* 합계 및 단일 에넥스 입금액 차감 정산 블록 */}
+                        {/* 3) 합계 및 차감 잔액 블록 */}
                         {(() => {
                           const validSummaries = supplierSummaryList.filter(row => row.count > 0);
                           const totalSupCount = validSummaries.reduce((s, r) => s + r.count, 0);
                           const totalSupPrice = validSummaries.reduce((s, r) => s + r.supplyPrice, 0);
                           const enexDeposit = metrics.e_richwelfareDeposit;
-                          const totalComm = metrics.g_supplyCommission;
-                          const netSupplyMargin = enexDeposit > 0 ? (enexDeposit - totalSupPrice - totalComm) : 0;
+                          const diffAfterSupply = enexDeposit > 0 ? (enexDeposit - totalSupPrice) : 0;
 
                           return (
                             <>
-                              {/* 1) 공급사 지급 합계 소계 */}
+                              {/* 공급사 지급 합계 소계 */}
                               <tr className="bg-slate-100 font-extrabold border-t-2 border-slate-400 text-slate-900">
                                 <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap">공급사 지급 합계</td>
                                 <td className="border border-slate-400 py-1.5 px-1 text-center whitespace-nowrap">{totalSupCount.toLocaleString()} 건</td>
@@ -2499,35 +2558,16 @@ export function PresidentReportModal({
                                 </td>
                               </tr>
 
-                              {/* 2) 에넥스 총 입금액 (한번만 입력) */}
-                              <tr className="bg-emerald-50/70 border-t border-slate-300">
-                                <td className="border border-slate-400 py-1.5 px-2 text-left font-black text-emerald-900 whitespace-nowrap" colSpan={2}>
-                                  [E] 에넥스 총 입금액
-                                </td>
-                                <td className="border border-slate-400 py-1.5 px-2 text-right text-emerald-800 font-black whitespace-nowrap tracking-tight">
-                                  <EditableNumber
-                                    value={metrics.e_richwelfareDeposit}
-                                    onChange={handleUpdateE}
-                                    showZeroAsBlank={true}
-                                    placeholder="직접 입력"
-                                    className="font-black text-emerald-700"
-                                  />
-                                </td>
-                                <td className="border border-slate-400 py-1.5 px-2 text-slate-400 text-[11px] text-center" colSpan={2}>
-                                  -
-                                </td>
-                              </tr>
-
-                              {/* 3) 공급가 차감 순익 결과 행 */}
+                              {/* 에넥스 총입금액 차감 잔액 ([E] - 공급사 지급 합계) */}
                               <tr className="bg-amber-100/90 font-black border-t-2 border-slate-400 text-amber-950">
                                 <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap" colSpan={2}>
-                                  [H] 공급가 정산 순익
+                                  에넥스 입금 차감 잔액 ([E] - 공급사 지급 합계)
                                 </td>
                                 <td className="border border-slate-400 py-1.5 px-2 text-right text-amber-950 font-black whitespace-nowrap text-sm tracking-tight">
-                                  {netSupplyMargin.toLocaleString()}
+                                  {diffAfterSupply.toLocaleString()}
                                 </td>
-                                <td className="border border-slate-400 py-1.5 px-2 text-slate-400 text-[11px] text-center" colSpan={2}>
-                                  -
+                                <td className="border border-slate-400 py-1.5 px-2 text-slate-500 text-[11px] text-center" colSpan={2}>
+                                  에넥스 총 입금액 - 공급사 지급 합계
                                 </td>
                               </tr>
                             </>

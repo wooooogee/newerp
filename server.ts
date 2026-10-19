@@ -6475,6 +6475,555 @@ app.post('/api/sheets/suppliers/save', async (req, res) => {
   }
 });
 
+// ====================================================
+// 월말보고서 스타일 엑셀 내보내기 API (배경색, 폰트색, 콤마서식 완벽 반영)
+// ====================================================
+app.post('/api/report/export-excel', async (req, res) => {
+  try {
+    const {
+      selectedMonth = '',
+      metrics = {},
+      hqProductSalesList = [],
+      specialExpenseList = [],
+      supplierSummaryList = [],
+      supplierProductDetailList = [],
+      monthEndMemo = ''
+    } = req.body;
+
+    // @ts-ignore
+    const workbook = await XlsxPopulate.fromBlankAsync();
+
+    // 스타일 헬퍼
+    const applyBorder = (cell: any) => {
+      cell.style({
+        topBorder: true,
+        bottomBorder: true,
+        leftBorder: true,
+        rightBorder: true
+      });
+    };
+
+    const styleSectionHeader = (cell: any, text: string) => {
+      cell.value(text);
+      cell.style({
+        fill: '334155',
+        fontColor: 'FFFFFF',
+        bold: true,
+        fontSize: 10.5,
+        horizontalAlignment: 'left',
+        verticalAlignment: 'center'
+      });
+      applyBorder(cell);
+    };
+
+    const styleTableHeader = (cell: any, text: string) => {
+      cell.value(text);
+      cell.style({
+        fill: 'E2E8F0',
+        fontColor: '0F172A',
+        bold: true,
+        fontSize: 9.5,
+        horizontalAlignment: 'center',
+        verticalAlignment: 'center'
+      });
+      applyBorder(cell);
+    };
+
+    const styleDataCell = (cell: any, val: any, isNumber = false, isBold = false, bg?: string, fontColor?: string, align?: string) => {
+      cell.value(val);
+      cell.style({
+        fontSize: 9.5,
+        bold: isBold,
+        verticalAlignment: 'center',
+        horizontalAlignment: align || (isNumber ? 'right' : 'left')
+      });
+      applyBorder(cell);
+      if (isNumber) {
+        cell.style('numberFormat', '#,##0');
+      }
+      if (bg) cell.style('fill', bg);
+      if (fontColor) cell.style('fontColor', fontColor);
+    };
+
+    // 통계 계산
+    const totalHqCount = hqProductSalesList.reduce((acc: number, h: any) => acc + (Number(h.count) || 0), 0);
+    const totalHqComm = hqProductSalesList.reduce((acc: number, h: any) => acc + (Number(h.totalCommission) || 0), 0);
+    const totalSpecialAmount = specialExpenseList.reduce((acc: number, s: any) => acc + (Number(s.amount) || 0), 0);
+
+    const validSuppliers = supplierSummaryList.filter((s: any) => (Number(s.count) || 0) > 0);
+    const totalSuppCount = validSuppliers.reduce((acc: number, s: any) => acc + (Number(s.count) || 0), 0);
+    const totalSuppPrice = validSuppliers.reduce((acc: number, s: any) => acc + (Number(s.supplyPrice) || 0), 0);
+    const enexDeposit = Number(metrics.e_richwelfareDeposit) || 0;
+    const diffAfterSupply = enexDeposit > 0 ? (enexDeposit - totalSuppPrice) : 0;
+
+    const validProducts = supplierProductDetailList.filter((p: any) => (Number(p.count) || 0) > 0);
+    const totalProdCount = validProducts.reduce((acc: number, p: any) => acc + (Number(p.count) || 0), 0);
+    const totalProdSupplyPrice = validProducts.reduce((acc: number, p: any) => acc + (Number(p.totalSupplyPrice) || 0), 0);
+    const totalProdSupplyComm = validProducts.reduce((acc: number, p: any) => acc + (Number(p.totalSupplyCommission) || 0), 0);
+    const totalProdMargin = validProducts.reduce((acc: number, p: any) => acc + (Number(p.totalMargin) || 0), 0);
+
+    // =========================================================
+    // [Sheet 1: 월말보고서_종합]
+    // =========================================================
+    const summarySheet = workbook.sheet(0).name('월말보고서_종합');
+    let r = 1;
+
+    // 대제목 (A1:F1 병합)
+    summarySheet.range(`A${r}:F${r}`).merged(true);
+    const mainTitleCell = summarySheet.cell(`A${r}`);
+    mainTitleCell.value(`더좋은라이프 월말 종합 결산보고서 (${selectedMonth})`);
+    mainTitleCell.style({
+      fill: '1E293B',
+      fontColor: 'FFFFFF',
+      bold: true,
+      fontSize: 13,
+      horizontalAlignment: 'center',
+      verticalAlignment: 'center'
+    });
+    summarySheet.row(r).height(28);
+    r += 2; // (2행 기본값 내용 완전 삭제)
+
+    // 1. 핵심 손익 요약
+    summarySheet.range(`A${r}:C${r}`).merged(true);
+    styleSectionHeader(summarySheet.cell(`A${r}`), '1. 당월 핵심 손익 요약');
+    summarySheet.row(r).height(22);
+    r++;
+
+    styleTableHeader(summarySheet.cell(`A${r}`), '구분');
+    styleTableHeader(summarySheet.cell(`B${r}`), '항목명');
+    styleTableHeader(summarySheet.cell(`C${r}`), '금액');
+    summarySheet.row(r).height(20);
+    r++;
+
+    const pnlRows = [
+      { cat: '렌탈 영업부문', label: '에넥스 총 입금액 [A]', val: Number(metrics.a_enexDeposit) || 0, isBold: true, bg: 'ECFDF5', fc: '065F46' },
+      { cat: '렌탈 영업부문', label: '영업본부 수수료 지급액 [B]', val: Number(metrics.b_salesCommission) || 0, isBold: false },
+      { cat: '렌탈 영업부문', label: '특수수당 및 본사지출 [C]', val: Number(metrics.c_specialAndMaintenance) || 0, isBold: false },
+      { cat: '렌탈 영업부문', label: '영업 순이익 [D = A - B - C]', val: Number(metrics.d_operatingProfit) || 0, isBold: true, bg: 'EFF6FF', fc: '1E3A8A' },
+      { cat: '공급사 정산부문', label: '에넥스 공급가 입금액 [E]', val: Number(metrics.e_richwelfareDeposit) || 0, isBold: true, bg: 'ECFDF5', fc: '065F46' },
+      { cat: '공급사 정산부문', label: '공급사 지급 공급가액 [F]', val: Number(metrics.f_richwelfareSupplyPrice) || 0, isBold: false },
+      { cat: '공급사 정산부문', label: '공급수수료 [G]', val: Number(metrics.g_supplyCommission) || 0, isBold: false },
+      { cat: '공급사 정산부문', label: '공급가 마진 순익 [H = E - F - G]', val: Number(metrics.h_supplyProfit) || 0, isBold: true, bg: 'EFF6FF', fc: '1E3A8A' },
+      { cat: '최종 결산', label: '당월 최종 순이익 [I = D + H]', val: Number(metrics.i_finalNetProfit) || 0, isBold: true, bg: 'DCFCE7', fc: '14532D' }
+    ];
+
+    pnlRows.forEach(item => {
+      styleDataCell(summarySheet.cell(`A${r}`), item.cat, false, false, item.bg, undefined, 'center');
+      styleDataCell(summarySheet.cell(`B${r}`), item.label, false, item.isBold, item.bg, item.fc);
+      styleDataCell(summarySheet.cell(`C${r}`), item.val, true, item.isBold, item.bg, item.fc);
+      summarySheet.row(r).height(19);
+      r++;
+    });
+    r += 1;
+
+    // 2. 본부 실적 및 수수료
+    summarySheet.range(`A${r}:F${r}`).merged(true);
+    styleSectionHeader(summarySheet.cell(`A${r}`), '2. 본부·사업단별 / 상품별 영업실적 및 수수료 지급현황');
+    summarySheet.row(r).height(22);
+    r++;
+
+    const hqHeaders = ['영업본부/사업단', '취급 상품명', '건수', '건당 수수료', '총 지급 수수료', '정산 비고'];
+    hqHeaders.forEach((h, idx) => {
+      const colLetter = String.fromCharCode(65 + idx);
+      styleTableHeader(summarySheet.cell(`${colLetter}${r}`), h);
+    });
+    summarySheet.row(r).height(20);
+    r++;
+
+    hqProductSalesList.forEach((row: any) => {
+      styleDataCell(summarySheet.cell(`A${r}`), row.hqName || '', false, true);
+      styleDataCell(summarySheet.cell(`B${r}`), row.prodName || '', false, false);
+      styleDataCell(summarySheet.cell(`C${r}`), Number(row.count) || 0, true, false, undefined, undefined, 'center');
+      styleDataCell(summarySheet.cell(`D${r}`), Number(row.unitCommission) || 0, true, false);
+      styleDataCell(summarySheet.cell(`E${r}`), Number(row.totalCommission) || 0, true, true, undefined, '1E3A8A');
+      styleDataCell(summarySheet.cell(`F${r}`), row.note || '', false, false);
+      summarySheet.row(r).height(19);
+      r++;
+    });
+
+    // 2번 합계 행
+    styleDataCell(summarySheet.cell(`A${r}`), '전체 본부 수수료 합계 ([B])', false, true, 'F1F5F9', '0F172A', 'left');
+    styleDataCell(summarySheet.cell(`B${r}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(summarySheet.cell(`C${r}`), totalHqCount, true, true, 'F1F5F9', '0F172A', 'center');
+    styleDataCell(summarySheet.cell(`D${r}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(summarySheet.cell(`E${r}`), totalHqComm, true, true, 'EFF6FF', '1E3A8A');
+    styleDataCell(summarySheet.cell(`F${r}`), '본부 수수료 총합', false, false, 'F1F5F9');
+    summarySheet.row(r).height(20);
+    r += 2;
+
+    // 3. 특수수당 및 본사지출
+    summarySheet.range(`A${r}:E${r}`).merged(true);
+    styleSectionHeader(summarySheet.cell(`A${r}`), '3. 특수수당 및 본사 지출 내역 요약');
+    summarySheet.row(r).height(22);
+    r++;
+
+    const spHeaders = ['지출 구분', '지출 항목명 / 대상', '수량/인원', '총 지출액', '비고'];
+    spHeaders.forEach((h, idx) => {
+      const colLetter = String.fromCharCode(65 + idx);
+      styleTableHeader(summarySheet.cell(`${colLetter}${r}`), h);
+    });
+    summarySheet.row(r).height(20);
+    r++;
+
+    specialExpenseList.forEach((row: any) => {
+      styleDataCell(summarySheet.cell(`A${r}`), row.category || '', false, true);
+      styleDataCell(summarySheet.cell(`B${r}`), row.name || '', false, false);
+      styleDataCell(summarySheet.cell(`C${r}`), String(row.count ?? ''), false, false, undefined, undefined, 'center');
+      styleDataCell(summarySheet.cell(`D${r}`), Number(row.amount) || 0, true, true, undefined, '581C87');
+      styleDataCell(summarySheet.cell(`E${r}`), row.note || '', false, false);
+      summarySheet.row(r).height(19);
+      r++;
+    });
+
+    // 3번 합계 행
+    styleDataCell(summarySheet.cell(`A${r}`), '본사 추가 지출 소계 ([C])', false, true, 'F1F5F9', '0F172A', 'left');
+    styleDataCell(summarySheet.cell(`B${r}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(summarySheet.cell(`C${r}`), specialExpenseList.length, false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(summarySheet.cell(`D${r}`), totalSpecialAmount, true, true, 'F3E8FF', '581C87');
+    styleDataCell(summarySheet.cell(`E${r}`), '특수수당 총합', false, false, 'F1F5F9');
+    summarySheet.row(r).height(20);
+    r += 2;
+
+    // 4. 공급사 정산 총괄
+    summarySheet.range(`A${r}:D${r}`).merged(true);
+    styleSectionHeader(summarySheet.cell(`A${r}`), '4. 공급사 정산관리 총괄 요약');
+    summarySheet.row(r).height(22);
+    r++;
+
+    const suppSumHeaders = ['구분 / 공급사명', '정산 건수', '공급가액 / 금액', '정산조건 / 비고'];
+    suppSumHeaders.forEach((h, idx) => {
+      const colLetter = String.fromCharCode(65 + idx);
+      styleTableHeader(summarySheet.cell(`${colLetter}${r}`), h);
+    });
+    summarySheet.row(r).height(20);
+    r++;
+
+    // [E] 에넥스 총 입금액 (공급사 위 최상단)
+    styleDataCell(summarySheet.cell(`A${r}`), '[E] 에넥스 총 입금액', false, true, 'ECFDF5', '065F46');
+    styleDataCell(summarySheet.cell(`B${r}`), '입금 총액', false, false, 'ECFDF5', '065F46', 'center');
+    styleDataCell(summarySheet.cell(`C${r}`), enexDeposit, true, true, 'ECFDF5', '065F46');
+    styleDataCell(summarySheet.cell(`D${r}`), '에넥스 본사 총 입금 승인액', false, false, 'ECFDF5', '065F46');
+    summarySheet.row(r).height(20);
+    r++;
+
+    // 각 공급사 행
+    validSuppliers.forEach((row: any) => {
+      styleDataCell(summarySheet.cell(`A${r}`), row.supplierName || '', false, true);
+      styleDataCell(summarySheet.cell(`B${r}`), Number(row.count) || 0, true, false, undefined, undefined, 'center');
+      styleDataCell(summarySheet.cell(`C${r}`), Number(row.supplyPrice) || 0, true, true);
+      styleDataCell(summarySheet.cell(`D${r}`), row.settlementCondition || '-', false, false);
+      summarySheet.row(r).height(19);
+      r++;
+    });
+
+    // 공급사 지급 합계 행
+    styleDataCell(summarySheet.cell(`A${r}`), '공급사 지급 합계', false, true, 'F1F5F9', '0F172A');
+    styleDataCell(summarySheet.cell(`B${r}`), totalSuppCount, true, true, 'F1F5F9', '0F172A', 'center');
+    styleDataCell(summarySheet.cell(`C${r}`), totalSuppPrice, true, true, 'F1F5F9', '0F172A');
+    styleDataCell(summarySheet.cell(`D${r}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    summarySheet.row(r).height(20);
+    r++;
+
+    // 에넥스 총입금액 차감 잔액 ([E] - 공급사 지급 합계)
+    styleDataCell(summarySheet.cell(`A${r}`), '에넥스 입금 차감 잔액 ([E] - 공급사 지급 합계)', false, true, 'FEF9C3', '78350F');
+    styleDataCell(summarySheet.cell(`B${r}`), '-', false, false, 'FEF9C3', '78350F', 'center');
+    styleDataCell(summarySheet.cell(`C${r}`), diffAfterSupply, true, true, 'FEF9C3', '78350F');
+    styleDataCell(summarySheet.cell(`D${r}`), '에넥스 총 입금액 - 공급사 지급 합계', false, false, 'FEF9C3', '78350F');
+    summarySheet.row(r).height(21);
+    r += 2;
+
+    // 5. 공급사 제품별 세부 정산 내역
+    summarySheet.range(`A${r}:J${r}`).merged(true);
+    styleSectionHeader(summarySheet.cell(`A${r}`), '5. 공급사 제품별 세부 정산 내역');
+    summarySheet.row(r).height(22);
+    r++;
+
+    const prodDetailHeaders = ['공급사', '제품명', '건수', '에넥스 입금단가', '공급단가', '건당 공급수수료', '총 공급가액', '총 공급수수료', '총 공급마진', '비고'];
+    prodDetailHeaders.forEach((h, idx) => {
+      const colLetter = String.fromCharCode(65 + idx);
+      styleTableHeader(summarySheet.cell(`${colLetter}${r}`), h);
+    });
+    summarySheet.row(r).height(20);
+    r++;
+
+    validProducts.forEach((row: any) => {
+      styleDataCell(summarySheet.cell(`A${r}`), row.supplierName || '', false, true);
+      styleDataCell(summarySheet.cell(`B${r}`), row.prodName || '', false, false);
+      styleDataCell(summarySheet.cell(`C${r}`), Number(row.count) || 0, true, false, undefined, undefined, 'center');
+      styleDataCell(summarySheet.cell(`D${r}`), Number(row.unitDeposit) || 0, true, false);
+      styleDataCell(summarySheet.cell(`E${r}`), Number(row.unitSupplyPrice) || 0, true, false);
+      styleDataCell(summarySheet.cell(`F${r}`), Number(row.unitCommission) || 0, true, false);
+      styleDataCell(summarySheet.cell(`G${r}`), Number(row.totalSupplyPrice) || 0, true, true);
+      styleDataCell(summarySheet.cell(`H${r}`), Number(row.totalSupplyCommission) || 0, true, true, undefined, '9F1239');
+      styleDataCell(summarySheet.cell(`I${r}`), Number(row.totalMargin) || 0, true, true, undefined, '92400E');
+      styleDataCell(summarySheet.cell(`J${r}`), row.note || '', false, false);
+      summarySheet.row(r).height(19);
+      r++;
+    });
+
+    // 5번 합계 행
+    styleDataCell(summarySheet.cell(`A${r}`), '제품별 정산 총합', false, true, 'F1F5F9', '0F172A');
+    styleDataCell(summarySheet.cell(`B${r}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(summarySheet.cell(`C${r}`), totalProdCount, true, true, 'F1F5F9', '0F172A', 'center');
+    styleDataCell(summarySheet.cell(`D${r}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(summarySheet.cell(`E${r}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(summarySheet.cell(`F${r}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(summarySheet.cell(`G${r}`), totalProdSupplyPrice, true, true, 'F1F5F9', '0F172A');
+    styleDataCell(summarySheet.cell(`H${r}`), totalProdSupplyComm, true, true, 'FFE4E6', '9F1239');
+    styleDataCell(summarySheet.cell(`I${r}`), totalProdMargin, true, true, 'FEF3C7', '92400E');
+    styleDataCell(summarySheet.cell(`J${r}`), '전체 합계', false, false, 'F1F5F9');
+    summarySheet.row(r).height(20);
+    r += 2;
+
+    // 6. 대표님 보고 종합 의견
+    if (monthEndMemo && monthEndMemo.trim()) {
+      summarySheet.range(`A${r}:J${r}`).merged(true);
+      styleSectionHeader(summarySheet.cell(`A${r}`), '6. 대표님 보고 종합 의견');
+      summarySheet.row(r).height(22);
+      r++;
+
+      summarySheet.range(`A${r}:J${r + 2}`).merged(true);
+      const memoCell = summarySheet.cell(`A${r}`);
+      memoCell.value(monthEndMemo);
+      memoCell.style({
+        fontSize: 10,
+        verticalAlignment: 'top',
+        horizontalAlignment: 'left',
+        wrapText: true,
+        fill: 'FAFAFA'
+      });
+      applyBorder(memoCell);
+      summarySheet.row(r).height(45);
+    }
+
+    // 종합 시트 열 너비 최적화
+    summarySheet.column('A').width(22);
+    summarySheet.column('B').width(30);
+    summarySheet.column('C').width(16);
+    summarySheet.column('D').width(18);
+    summarySheet.column('E').width(20);
+    summarySheet.column('F').width(22);
+    summarySheet.column('G').width(20);
+    summarySheet.column('H').width(20);
+    summarySheet.column('I').width(20);
+    summarySheet.column('J').width(22);
+
+    // =========================================================
+    // [Sheet 2: 1_핵심손익지표]
+    // =========================================================
+    const sheet1 = workbook.addSheet('1_핵심손익지표');
+    sheet1.range('A1:C1').merged(true);
+    styleSectionHeader(sheet1.cell('A1'), `1. 당월 핵심 손익 요약 (${selectedMonth})`);
+    sheet1.row(1).height(24);
+
+    styleTableHeader(sheet1.cell('A2'), '구분');
+    styleTableHeader(sheet1.cell('B2'), '항목명');
+    styleTableHeader(sheet1.cell('C2'), '금액');
+    sheet1.row(2).height(20);
+
+    pnlRows.forEach((item, idx) => {
+      const rowIdx = idx + 3;
+      styleDataCell(sheet1.cell(`A${rowIdx}`), item.cat, false, false, item.bg, undefined, 'center');
+      styleDataCell(sheet1.cell(`B${rowIdx}`), item.label, false, item.isBold, item.bg, item.fc);
+      styleDataCell(sheet1.cell(`C${rowIdx}`), item.val, true, item.isBold, item.bg, item.fc);
+      sheet1.row(rowIdx).height(20);
+    });
+    sheet1.column('A').width(20);
+    sheet1.column('B').width(35);
+    sheet1.column('C').width(22);
+
+    // =========================================================
+    // [Sheet 3: 2_영업실적및수수료]
+    // =========================================================
+    const sheet2 = workbook.addSheet('2_영업실적및수수료');
+    sheet2.range('A1:F1').merged(true);
+    styleSectionHeader(sheet2.cell('A1'), `2. 본부·사업단별 / 상품별 영업실적 및 수수료 지급현황 (${selectedMonth})`);
+    sheet2.row(1).height(24);
+
+    hqHeaders.forEach((h, idx) => {
+      const colLetter = String.fromCharCode(65 + idx);
+      styleTableHeader(sheet2.cell(`${colLetter}2`), h);
+    });
+    sheet2.row(2).height(20);
+
+    hqProductSalesList.forEach((row: any, idx: number) => {
+      const rowIdx = idx + 3;
+      styleDataCell(sheet2.cell(`A${rowIdx}`), row.hqName || '', false, true);
+      styleDataCell(sheet2.cell(`B${rowIdx}`), row.prodName || '', false, false);
+      styleDataCell(sheet2.cell(`C${rowIdx}`), Number(row.count) || 0, true, false, undefined, undefined, 'center');
+      styleDataCell(sheet2.cell(`D${rowIdx}`), Number(row.unitCommission) || 0, true, false);
+      styleDataCell(sheet2.cell(`E${rowIdx}`), Number(row.totalCommission) || 0, true, true, undefined, '1E3A8A');
+      styleDataCell(sheet2.cell(`F${rowIdx}`), row.note || '', false, false);
+      sheet2.row(rowIdx).height(20);
+    });
+
+    const hqTotalRow = hqProductSalesList.length + 3;
+    styleDataCell(sheet2.cell(`A${hqTotalRow}`), '전체 본부 수수료 합계 ([B])', false, true, 'F1F5F9', '0F172A', 'left');
+    styleDataCell(sheet2.cell(`B${hqTotalRow}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(sheet2.cell(`C${hqTotalRow}`), totalHqCount, true, true, 'F1F5F9', '0F172A', 'center');
+    styleDataCell(sheet2.cell(`D${hqTotalRow}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(sheet2.cell(`E${hqTotalRow}`), totalHqComm, true, true, 'EFF6FF', '1E3A8A');
+    styleDataCell(sheet2.cell(`F${hqTotalRow}`), '총합계', false, false, 'F1F5F9');
+    sheet2.row(hqTotalRow).height(21);
+
+    sheet2.column('A').width(22);
+    sheet2.column('B').width(30);
+    sheet2.column('C').width(14);
+    sheet2.column('D').width(18);
+    sheet2.column('E').width(22);
+    sheet2.column('F').width(30);
+
+    // =========================================================
+    // [Sheet 4: 3_특수수당및본사지출]
+    // =========================================================
+    const sheet3 = workbook.addSheet('3_특수수당및본사지출');
+    sheet3.range('A1:E1').merged(true);
+    styleSectionHeader(sheet3.cell('A1'), `3. 특수수당 및 본사 지출 내역 요약 (${selectedMonth})`);
+    sheet3.row(1).height(24);
+
+    spHeaders.forEach((h, idx) => {
+      const colLetter = String.fromCharCode(65 + idx);
+      styleTableHeader(sheet3.cell(`${colLetter}2`), h);
+    });
+    sheet3.row(2).height(20);
+
+    specialExpenseList.forEach((row: any, idx: number) => {
+      const rowIdx = idx + 3;
+      styleDataCell(sheet3.cell(`A${rowIdx}`), row.category || '', false, true);
+      styleDataCell(sheet3.cell(`B${rowIdx}`), row.name || '', false, false);
+      styleDataCell(sheet3.cell(`C${rowIdx}`), String(row.count ?? ''), false, false, undefined, undefined, 'center');
+      styleDataCell(sheet3.cell(`D${rowIdx}`), Number(row.amount) || 0, true, true, undefined, '581C87');
+      styleDataCell(sheet3.cell(`E${rowIdx}`), row.note || '', false, false);
+      sheet3.row(rowIdx).height(20);
+    });
+
+    const spTotalRow = specialExpenseList.length + 3;
+    styleDataCell(sheet3.cell(`A${spTotalRow}`), '본사 추가 지출 소계 ([C])', false, true, 'F1F5F9', '0F172A', 'left');
+    styleDataCell(sheet3.cell(`B${spTotalRow}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(sheet3.cell(`C${spTotalRow}`), specialExpenseList.length, false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(sheet3.cell(`D${spTotalRow}`), totalSpecialAmount, true, true, 'F3E8FF', '581C87');
+    styleDataCell(sheet3.cell(`E${spTotalRow}`), '총합계', false, false, 'F1F5F9');
+    sheet3.row(spTotalRow).height(21);
+
+    sheet3.column('A').width(20);
+    sheet3.column('B').width(28);
+    sheet3.column('C').width(14);
+    sheet3.column('D').width(22);
+    sheet3.column('E').width(35);
+
+    // =========================================================
+    // [Sheet 5: 4_공급사정산총괄]
+    // =========================================================
+    const sheet4 = workbook.addSheet('4_공급사정산총괄');
+    sheet4.range('A1:D1').merged(true);
+    styleSectionHeader(sheet4.cell('A1'), `4. 공급사 정산관리 총괄 요약 (${selectedMonth})`);
+    sheet4.row(1).height(24);
+
+    suppSumHeaders.forEach((h, idx) => {
+      const colLetter = String.fromCharCode(65 + idx);
+      styleTableHeader(sheet4.cell(`${colLetter}2`), h);
+    });
+    sheet4.row(2).height(20);
+
+    // [E] 에넥스 총 입금액 (공급사 위 최상단)
+    styleDataCell(sheet4.cell('A3'), '[E] 에넥스 총 입금액', false, true, 'ECFDF5', '065F46');
+    styleDataCell(sheet4.cell('B3'), '입금 총액', false, false, 'ECFDF5', '065F46', 'center');
+    styleDataCell(sheet4.cell('C3'), enexDeposit, true, true, 'ECFDF5', '065F46');
+    styleDataCell(sheet4.cell('D3'), '에넥스 본사 총 입금 승인액', false, false, 'ECFDF5', '065F46');
+    sheet4.row(3).height(20);
+
+    validSuppliers.forEach((row: any, idx: number) => {
+      const rowIdx = idx + 4;
+      styleDataCell(sheet4.cell(`A${rowIdx}`), row.supplierName || '', false, true);
+      styleDataCell(sheet4.cell(`B${rowIdx}`), Number(row.count) || 0, true, false, undefined, undefined, 'center');
+      styleDataCell(sheet4.cell(`C${rowIdx}`), Number(row.supplyPrice) || 0, true, true);
+      styleDataCell(sheet4.cell(`D${rowIdx}`), row.settlementCondition || '-', false, false);
+      sheet4.row(rowIdx).height(20);
+    });
+
+    const suppPayTotalRow = validSuppliers.length + 4;
+    styleDataCell(sheet4.cell(`A${suppPayTotalRow}`), '공급사 지급 합계', false, true, 'F1F5F9', '0F172A');
+    styleDataCell(sheet4.cell(`B${suppPayTotalRow}`), totalSuppCount, true, true, 'F1F5F9', '0F172A', 'center');
+    styleDataCell(sheet4.cell(`C${suppPayTotalRow}`), totalSuppPrice, true, true, 'F1F5F9', '0F172A');
+    styleDataCell(sheet4.cell(`D${suppPayTotalRow}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    sheet4.row(suppPayTotalRow).height(21);
+
+    const suppDiffRow = suppPayTotalRow + 1;
+    styleDataCell(sheet4.cell(`A${suppDiffRow}`), '에넥스 입금 차감 잔액 ([E] - 공급사 지급 합계)', false, true, 'FEF9C3', '78350F');
+    styleDataCell(sheet4.cell(`B${suppDiffRow}`), '-', false, false, 'FEF9C3', '78350F', 'center');
+    styleDataCell(sheet4.cell(`C${suppDiffRow}`), diffAfterSupply, true, true, 'FEF9C3', '78350F');
+    styleDataCell(sheet4.cell(`D${suppDiffRow}`), '에넥스 총 입금액 - 공급사 지급 합계', false, false, 'FEF9C3', '78350F');
+    sheet4.row(suppDiffRow).height(22);
+
+    sheet4.column('A').width(25);
+    sheet4.column('B').width(16);
+    sheet4.column('C').width(22);
+    sheet4.column('D').width(35);
+
+    // =========================================================
+    // [Sheet 6: 5_제품별세부정산]
+    // =========================================================
+    const sheet5 = workbook.addSheet('5_제품별세부정산');
+    sheet5.range('A1:J1').merged(true);
+    styleSectionHeader(sheet5.cell('A1'), `5. 공급사 제품별 세부 정산 내역 (${selectedMonth})`);
+    sheet5.row(1).height(24);
+
+    prodDetailHeaders.forEach((h, idx) => {
+      const colLetter = String.fromCharCode(65 + idx);
+      styleTableHeader(sheet5.cell(`${colLetter}2`), h);
+    });
+    sheet5.row(2).height(20);
+
+    validProducts.forEach((row: any, idx: number) => {
+      const rowIdx = idx + 3;
+      styleDataCell(sheet5.cell(`A${rowIdx}`), row.supplierName || '', false, true);
+      styleDataCell(sheet5.cell(`B${rowIdx}`), row.prodName || '', false, false);
+      styleDataCell(sheet5.cell(`C${rowIdx}`), Number(row.count) || 0, true, false, undefined, undefined, 'center');
+      styleDataCell(sheet5.cell(`D${rowIdx}`), Number(row.unitDeposit) || 0, true, false);
+      styleDataCell(sheet5.cell(`E${rowIdx}`), Number(row.unitSupplyPrice) || 0, true, false);
+      styleDataCell(sheet5.cell(`F${rowIdx}`), Number(row.unitCommission) || 0, true, false);
+      styleDataCell(sheet5.cell(`G${rowIdx}`), Number(row.totalSupplyPrice) || 0, true, true);
+      styleDataCell(sheet5.cell(`H${rowIdx}`), Number(row.totalSupplyCommission) || 0, true, true, undefined, '9F1239');
+      styleDataCell(sheet5.cell(`I${rowIdx}`), Number(row.totalMargin) || 0, true, true, undefined, '92400E');
+      styleDataCell(sheet5.cell(`J${rowIdx}`), row.note || '', false, false);
+      sheet5.row(rowIdx).height(20);
+    });
+
+    const prodTotalRow = validProducts.length + 3;
+    styleDataCell(sheet5.cell(`A${prodTotalRow}`), '제품별 정산 총합', false, true, 'F1F5F9', '0F172A');
+    styleDataCell(sheet5.cell(`B${prodTotalRow}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(sheet5.cell(`C${prodTotalRow}`), totalProdCount, true, true, 'F1F5F9', '0F172A', 'center');
+    styleDataCell(sheet5.cell(`D${prodTotalRow}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(sheet5.cell(`E${prodTotalRow}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(sheet5.cell(`F${prodTotalRow}`), '-', false, false, 'F1F5F9', undefined, 'center');
+    styleDataCell(sheet5.cell(`G${prodTotalRow}`), totalProdSupplyPrice, true, true, 'F1F5F9', '0F172A');
+    styleDataCell(sheet5.cell(`H${prodTotalRow}`), totalProdSupplyComm, true, true, 'FFE4E6', '9F1239');
+    styleDataCell(sheet5.cell(`I${prodTotalRow}`), totalProdMargin, true, true, 'FEF3C7', '92400E');
+    styleDataCell(sheet5.cell(`J${prodTotalRow}`), '전체 합계', false, false, 'F1F5F9');
+    sheet5.row(prodTotalRow).height(21);
+
+    sheet5.column('A').width(18);
+    sheet5.column('B').width(32);
+    sheet5.column('C').width(12);
+    sheet5.column('D').width(18);
+    sheet5.column('E').width(18);
+    sheet5.column('F').width(18);
+    sheet5.column('G').width(20);
+    sheet5.column('H').width(20);
+    sheet5.column('I').width(20);
+    sheet5.column('J').width(25);
+
+    // 엑셀 바이너리 버퍼 생성 후 전송
+    const buffer = await workbook.outputAsync();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="report_${selectedMonth}.xlsx"`);
+    res.send(buffer);
+  } catch (error: any) {
+    console.error('[Export Excel Error]', error);
+    res.status(500).json({ error: error.message || '엑셀 파일 생성 중 오류가 발생했습니다.' });
+  }
+});
+
 // Vite Middleware
 async function start() {
   try {
