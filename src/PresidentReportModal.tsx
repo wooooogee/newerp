@@ -69,7 +69,8 @@ function EditableText({
   className = '',
   placeholder = '-',
   isPrint = false,
-  align = 'center'
+  align = 'center',
+  allowWrap = false
 }: {
   value: string;
   onChange: (val: string) => void;
@@ -77,6 +78,7 @@ function EditableText({
   placeholder?: string;
   isPrint?: boolean;
   align?: 'left' | 'center' | 'right';
+  allowWrap?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState(value);
@@ -105,7 +107,7 @@ function EditableText({
             setIsEditing(false);
           }
         }}
-        className={`w-full px-1.5 py-0.5 border border-rose-500 rounded bg-white text-slate-900 font-bold focus:outline-none text-${align} shadow-xs text-xs whitespace-nowrap`}
+        className={`w-full px-1.5 py-0.5 border border-rose-500 rounded bg-white text-slate-900 font-bold focus:outline-none text-${align} shadow-xs text-xs ${allowWrap ? 'whitespace-normal' : 'whitespace-nowrap'}`}
       />
     );
   }
@@ -114,7 +116,7 @@ function EditableText({
     <span
       onClick={() => setIsEditing(true)}
       title="클릭하여 직접 수정"
-      className={`cursor-pointer hover:bg-amber-100 hover:text-slate-950 transition-colors rounded px-1 py-0.5 inline-block whitespace-nowrap ${className}`}
+      className={`cursor-pointer hover:bg-amber-100 hover:text-slate-950 transition-colors rounded px-1 py-0.5 ${allowWrap ? 'inline break-words leading-tight whitespace-normal' : 'inline-block whitespace-nowrap'} ${className}`}
     >
       {value || placeholder}
     </span>
@@ -201,10 +203,10 @@ function EditableNumber({
     <span
       onClick={() => setIsEditing(true)}
       title="클릭하여 직접 수정"
-      className={`cursor-pointer hover:bg-amber-100 hover:text-slate-950 transition-colors rounded px-1 py-0.5 font-mono whitespace-nowrap inline-flex items-center justify-end gap-0.5 select-none ${className}`}
+      className={`cursor-pointer hover:bg-amber-100 hover:text-slate-950 transition-colors rounded px-0.5 py-0.5 font-mono tracking-tight whitespace-nowrap inline-flex items-center justify-end gap-0.5 select-none ${className}`}
     >
       <span>{value.toLocaleString()}</span>
-      {unit && <span className="text-[10px] text-slate-600 font-medium shrink-0 ml-0.5">{unit}</span>}
+      {unit && <span className="text-[10px] text-slate-500 font-medium shrink-0 ml-0.5">{unit}</span>}
     </span>
   );
 }
@@ -935,10 +937,12 @@ export function PresidentReportModal({
         });
       });
 
-      // 실적 건수가 있는 제품 우선 정렬, 그다음 공급사명 순
+      // [요청 5] 공급사별 우선 정렬 (공급사명 기준 묶음 후 건수 내림차순 및 제품명 정렬)
       initialProductDetail.sort((a, b) => {
+        const suppComp = (a.supplierName || '').localeCompare(b.supplierName || '');
+        if (suppComp !== 0) return suppComp;
         if (b.count !== a.count) return b.count - a.count;
-        return a.supplierName.localeCompare(b.supplierName);
+        return (a.prodName || '').localeCompare(b.prodName || '');
       });
     }
 
@@ -1317,6 +1321,16 @@ export function PresidentReportModal({
       return { hqName, items, subtotalCount, subtotalCommission };
     });
   }, [hqProductSalesList]);
+
+  // 5번 공급사 제품별 목록: 항상 공급사별로 먼저 묶이고, 동일 공급사 내에서는 건수 및 제품명 순 정렬
+  const sortedSupplierProducts = useMemo(() => {
+    return [...supplierProductDetailList].sort((a, b) => {
+      const suppComp = (a.supplierName || '').localeCompare(b.supplierName || '');
+      if (suppComp !== 0) return suppComp;
+      if (b.count !== a.count) return b.count - a.count;
+      return (a.prodName || '').localeCompare(b.prodName || '');
+    });
+  }, [supplierProductDetailList]);
 
   const handlePrint = () => {
     window.print();
@@ -2185,12 +2199,13 @@ export function PresidentReportModal({
                   </div>
 
                   {/* ---------------------------------------------------- */}
-                  {/* [4] 공급사 정산관리 총괄 요약 (에넥스 총 입금액 & 공급사별 총 공급가액) (요청 5 반영) */}
+                  {/* ---------------------------------------------------- */}
+                  {/* [4] 공급사 정산관리 총괄 요약 (공급사 지급 공급가액 및 에넥스 입금 차감 정산) (요청 4 반영) */}
                   {/* ---------------------------------------------------- */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
                       <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
-                        4. 공급사 정산관리 총괄 요약 (에넥스 총 입금액 및 공급사 지급 공급가액)
+                        4. 공급사 정산관리 총괄 요약 (공급사 지급 공급가액 및 에넥스 입금 차감 정산)
                       </h4>
                       <button
                         onClick={() => {
@@ -2201,57 +2216,56 @@ export function PresidentReportModal({
                         }}
                         className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 print:hidden border border-blue-200 px-2 py-0.5 rounded bg-blue-50 cursor-pointer"
                       >
-                        <Plus size={10} /> 행 추가
+                        <Plus size={10} /> 공급사 추가
                       </button>
                     </div>
 
                     <table className="w-full text-left border-collapse border border-slate-400 text-xs table-fixed">
                       <thead>
                         <tr className="bg-slate-100 text-slate-900 font-black border-b border-slate-400 text-center select-none">
-                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[32%] whitespace-nowrap">공급사명</th>
-                          <th className="border border-slate-400 py-1.5 px-1 text-center w-[14%] whitespace-nowrap">정산 건수</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[27%] whitespace-nowrap">에넥스 총 입금액(E)</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[27%] whitespace-nowrap">공급사 지급 공급가액(F)</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[28%] whitespace-nowrap">공급사명</th>
+                          <th className="border border-slate-400 py-1.5 px-1 text-center w-[12%] whitespace-nowrap">정산 건수</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[28%] whitespace-nowrap">공급사 지급 공급가액(F)</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[28%] whitespace-nowrap">정산 조건 및 비고</th>
                           <th className="border border-slate-400 py-1.5 px-1 text-center w-[4%] print:hidden"></th>
                         </tr>
                       </thead>
                       <tbody>
                         {supplierSummaryList.filter(row => row.count > 0).map(row => (
                           <tr key={row.id} className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors group">
-                            <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap truncate">
+                            <td className="border border-slate-300 py-1.5 px-2 font-bold text-slate-900 whitespace-nowrap">
                               <EditableText
                                 value={row.supplierName}
                                 onChange={val => updateSupplierSummary(p => p.map(r => r.id === row.id ? { ...r, supplierName: val } : r))}
                                 align="left"
                               />
                             </td>
-                            <td className="border border-slate-300 py-1 px-1 text-center font-bold text-slate-900 whitespace-nowrap">
+                            <td className="border border-slate-300 py-1.5 px-1 text-center font-bold text-slate-900 whitespace-nowrap">
                               <EditableNumber
                                 value={row.count}
                                 onChange={val => updateSupplierSummary(p => p.map(r => r.id === row.id ? { ...r, count: val } : r))}
                                 unit="건"
                               />
                             </td>
-                            <td className="border border-slate-300 py-1 px-2 text-right font-black text-emerald-700 whitespace-nowrap">
-                              <EditableNumber
-                                value={row.depositPrice}
-                                onChange={val => updateSupplierSummary(p => p.map(r => r.id === row.id ? { ...r, depositPrice: val, unitMargin: val > 0 ? val - r.supplyPrice - r.supplyCommission : 0 } : r))}
-                                unit="원"
-                                showZeroAsBlank={true}
-                                placeholder="직접 입력"
-                              />
-                            </td>
-                            <td className="border border-slate-300 py-1 px-2 text-right font-bold text-slate-800 whitespace-nowrap">
+                            <td className="border border-slate-300 py-1.5 px-2 text-right font-black text-slate-900 whitespace-nowrap tracking-tight">
                               <EditableNumber
                                 value={row.supplyPrice}
                                 onChange={val => updateSupplierSummary(p => p.map(r => r.id === row.id ? { ...r, supplyPrice: val } : r))}
                                 unit="원"
                               />
                             </td>
-                            <td className="border border-slate-300 py-1 px-1 text-center print:hidden">
+                            <td className="border border-slate-300 py-1.5 px-2 text-slate-600 text-[11px] leading-tight">
+                              <EditableText
+                                value={row.settlementCondition || '-'}
+                                onChange={val => updateSupplierSummary(p => p.map(r => r.id === row.id ? { ...r, settlementCondition: val } : r))}
+                                align="left"
+                                allowWrap={true}
+                              />
+                            </td>
+                            <td className="border border-slate-300 py-1.5 px-1 text-center print:hidden">
                               <button
                                 onClick={() => updateSupplierSummary(p => p.filter(r => r.id !== row.id))}
-                                className="text-slate-300 hover:text-rose-600"
+                                className="text-slate-300 hover:text-rose-600 cursor-pointer"
                                 title="삭제"
                               >
                                 <Trash2 size={12} />
@@ -2259,23 +2273,71 @@ export function PresidentReportModal({
                             </td>
                           </tr>
                         ))}
-                        {/* 합계 행 */}
+
+                        {/* 합계 및 단일 에넥스 입금액 차감 정산 블록 */}
                         {(() => {
                           const validSummaries = supplierSummaryList.filter(row => row.count > 0);
+                          const totalSupCount = validSummaries.reduce((s, r) => s + r.count, 0);
+                          const totalSupPrice = validSummaries.reduce((s, r) => s + r.supplyPrice, 0);
+                          const enexDeposit = metrics.e_richwelfareDeposit;
+                          const totalComm = metrics.g_supplyCommission;
+                          // 에넥스 총 입금액에서 공급사 지급 공급가액(F) 및 공급수수료(G) 차감
+                          const netSupplyMargin = enexDeposit > 0 ? (enexDeposit - totalSupPrice - totalComm) : 0;
+
                           return (
-                            <tr className="bg-slate-200/90 font-black border-t-2 border-slate-400 text-black">
-                              <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap">공급사 정산 총계</td>
-                              <td className="border border-slate-400 py-1.5 px-1 text-center whitespace-nowrap">
-                                {validSummaries.reduce((s, r) => s + r.count, 0).toLocaleString()} 건
-                              </td>
-                              <td className="border border-slate-400 py-1.5 px-2 text-right text-emerald-900 whitespace-nowrap font-black">
-                                {validSummaries.reduce((s, r) => s + r.depositPrice, 0).toLocaleString()} 원
-                              </td>
-                              <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-900 whitespace-nowrap font-black">
-                                {validSummaries.reduce((s, r) => s + r.supplyPrice, 0).toLocaleString()} 원
-                              </td>
-                              <td className="border border-slate-400 py-1.5 px-1 print:hidden"></td>
-                            </tr>
+                            <>
+                              {/* 1) 공급사 지급 합계 소계 */}
+                              <tr className="bg-slate-100 font-extrabold border-t-2 border-slate-400 text-slate-900">
+                                <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap">공급사 지급 합계 (F 소계)</td>
+                                <td className="border border-slate-400 py-1.5 px-1 text-center whitespace-nowrap">{totalSupCount.toLocaleString()} 건</td>
+                                <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-950 font-black whitespace-nowrap tracking-tight">
+                                  {totalSupPrice.toLocaleString()} 원
+                                </td>
+                                <td className="border border-slate-400 py-1.5 px-2 text-slate-600 text-[11px]" colSpan={2}>
+                                  가스트로플러스 및 바디프랜드 지급 총액
+                                </td>
+                              </tr>
+
+                              {/* 2) 에넥스 총 입금액 (한번만 입력) */}
+                              <tr className="bg-emerald-50/70 border-t border-slate-300">
+                                <td className="border border-slate-400 py-1.5 px-2 text-left font-black text-emerald-900 whitespace-nowrap" colSpan={2}>
+                                  [E] 에넥스 총 입금액 (한번만 입력)
+                                </td>
+                                <td className="border border-slate-400 py-1.5 px-2 text-right text-emerald-800 font-black whitespace-nowrap tracking-tight">
+                                  <EditableNumber
+                                    value={metrics.e_richwelfareDeposit}
+                                    onChange={handleUpdateE}
+                                    unit="원"
+                                    showZeroAsBlank={true}
+                                    placeholder="직접 입력"
+                                    className="font-black text-emerald-700"
+                                  />
+                                </td>
+                                <td className="border border-slate-400 py-1.5 px-2 text-emerald-800 text-[11px] font-medium" colSpan={2}>
+                                  에넥스 본사에서 리치웰로 정산 입금된 총액
+                                </td>
+                              </tr>
+
+                              {/* 3) 공급가 차감 순익 결과 행 */}
+                              <tr className="bg-amber-100/90 font-black border-t-2 border-slate-400 text-amber-950">
+                                <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap" colSpan={2}>
+                                  [H] 공급가 정산 순익 (에넥스입금액 - 공급사지급액 차감)
+                                </td>
+                                <td className="border border-slate-400 py-1.5 px-2 text-right text-amber-950 font-black whitespace-nowrap text-sm tracking-tight">
+                                  {netSupplyMargin.toLocaleString()} 원
+                                </td>
+                                <td className="border border-slate-400 py-1.5 px-2 text-amber-900 text-[11px] font-bold" colSpan={2}>
+                                  {enexDeposit > 0 ? (
+                                    <span>
+                                      에넥스입금({enexDeposit.toLocaleString()}) - 공급사지급({totalSupPrice.toLocaleString()})
+                                      {totalComm > 0 ? ` - 공급수수료(${totalComm.toLocaleString()})` : ''}
+                                    </span>
+                                  ) : (
+                                    <span>※ 에넥스 총 입금액을 입력하면 공급사 지급액을 차감한 순익이 자동 계산됩니다.</span>
+                                  )}
+                                </td>
+                              </tr>
+                            </>
                           );
                         })()}
                       </tbody>
@@ -2329,22 +2391,22 @@ export function PresidentReportModal({
 
                     <table className="w-full text-left border-collapse border border-slate-400 text-xs table-fixed">
                       <thead>
-                        <tr className="bg-slate-100 text-slate-900 font-black border-b border-slate-400 text-center select-none">
-                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[13%] whitespace-nowrap">공급사</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[20%] whitespace-nowrap">취급 제품명</th>
-                          <th className="border border-slate-400 py-1.5 px-1 text-center w-[6%] whitespace-nowrap">건수</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[13%] whitespace-nowrap">건당 에넥스입금</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[13%] whitespace-nowrap">제품별 공급단가</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[12%] whitespace-nowrap">총 공급가액</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[11%] whitespace-nowrap">공급수수료</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[12%] whitespace-nowrap">총 공급마진(순익)</th>
+                        <tr className="bg-slate-100 text-slate-900 font-black border-b border-slate-400 text-center select-none text-[11px]">
+                          <th className="border border-slate-400 py-1 px-1 text-left w-[13%] whitespace-nowrap">공급사</th>
+                          <th className="border border-slate-400 py-1 px-1.5 text-left w-[25%] whitespace-nowrap">취급 제품명</th>
+                          <th className="border border-slate-400 py-1 px-0.5 text-center w-[5%] whitespace-nowrap">건수</th>
+                          <th className="border border-slate-400 py-1 px-1 text-right w-[11%] leading-tight">건당<br/>에넥스입금</th>
+                          <th className="border border-slate-400 py-1 px-1 text-right w-[11%] leading-tight">제품별<br/>공급단가</th>
+                          <th className="border border-slate-400 py-1 px-1 text-right w-[12%] leading-tight">총<br/>공급가액</th>
+                          <th className="border border-slate-400 py-1 px-1 text-right w-[11%] leading-tight">공급<br/>수수료</th>
+                          <th className="border border-slate-400 py-1 px-1 text-right w-[12%] leading-tight">총 공급마진<br/>(순익)</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {supplierProductDetailList.filter(row => row.count > 0).map(row => (
+                        {sortedSupplierProducts.filter(row => row.count > 0).map(row => (
                           <tr key={row.id} className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors group">
-                            <td className="border border-slate-300 py-1 px-2 font-bold text-slate-700 whitespace-nowrap truncate">
-                              <div className="flex items-center justify-between gap-1">
+                            <td className="border border-slate-300 py-1 px-1 font-bold text-slate-800 text-[11px] whitespace-nowrap">
+                              <div className="flex items-center justify-between gap-0.5">
                                 <div className="flex-1 min-w-0">
                                   <EditableText
                                     value={row.supplierName}
@@ -2361,14 +2423,15 @@ export function PresidentReportModal({
                                 </button>
                               </div>
                             </td>
-                            <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 truncate">
+                            <td className="border border-slate-300 py-1 px-1.5 font-bold text-slate-900 text-[11px] leading-tight break-words product-name-cell">
                               <EditableText
                                 value={row.prodName}
                                 onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? { ...r, prodName: val } : r))}
                                 align="left"
+                                allowWrap={true}
                               />
                             </td>
-                            <td className="border border-slate-300 py-1 px-1 text-center font-bold text-slate-900 whitespace-nowrap">
+                            <td className="border border-slate-300 py-1 px-0.5 text-center font-bold text-slate-900 whitespace-nowrap text-[11px]">
                               <EditableNumber
                                 value={row.count}
                                 onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? {
@@ -2381,7 +2444,7 @@ export function PresidentReportModal({
                                 unit="건"
                               />
                             </td>
-                            <td className="border border-slate-300 py-1 px-2 text-right font-medium text-emerald-700 whitespace-nowrap">
+                            <td className="border border-slate-300 py-1 px-1 text-right font-medium text-emerald-700 whitespace-nowrap text-[11px]">
                               <EditableNumber
                                 value={row.unitDeposit}
                                 onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? {
@@ -2395,7 +2458,7 @@ export function PresidentReportModal({
                                 placeholder="직접 입력"
                               />
                             </td>
-                            <td className="border border-slate-300 py-1 px-2 text-right font-bold text-slate-800 whitespace-nowrap">
+                            <td className="border border-slate-300 py-1 px-1 text-right font-bold text-slate-800 whitespace-nowrap text-[11px]">
                               <EditableNumber
                                 value={row.unitSupplyPrice}
                                 onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? {
@@ -2408,7 +2471,7 @@ export function PresidentReportModal({
                                 unit="원"
                               />
                             </td>
-                            <td className="border border-slate-300 py-1 px-2 text-right font-semibold text-slate-900 whitespace-nowrap">
+                            <td className="border border-slate-300 py-1 px-1 text-right font-semibold text-slate-900 whitespace-nowrap text-[11px]">
                               <EditableNumber
                                 value={row.totalSupplyPrice}
                                 onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? {
@@ -2419,7 +2482,7 @@ export function PresidentReportModal({
                                 unit="원"
                               />
                             </td>
-                            <td className="border border-slate-300 py-1 px-2 text-right font-semibold text-rose-700 whitespace-nowrap">
+                            <td className="border border-slate-300 py-1 px-1 text-right font-semibold text-rose-700 whitespace-nowrap text-[11px]">
                               <EditableNumber
                                 value={row.totalSupplyCommission}
                                 onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? {
@@ -2430,7 +2493,7 @@ export function PresidentReportModal({
                                 unit="원"
                               />
                             </td>
-                            <td className="border border-slate-300 py-1 px-2 text-right font-black text-amber-950 whitespace-nowrap">
+                            <td className="border border-slate-300 py-1 px-1 text-right font-black text-amber-950 whitespace-nowrap text-[11px]">
                               <EditableNumber
                                 value={row.totalMargin}
                                 onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? { ...r, totalMargin: val } : r))}
@@ -2441,25 +2504,25 @@ export function PresidentReportModal({
                         ))}
                         {/* 합계 행 */}
                         {(() => {
-                          const validProducts = supplierProductDetailList.filter(row => row.count > 0);
+                          const validProducts = sortedSupplierProducts.filter(row => row.count > 0);
                           return (
-                            <tr className="bg-slate-200/90 font-black border-t-2 border-slate-400 text-black">
-                              <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap" colSpan={2}>
-                                제품별 세부 합계
+                            <tr className="bg-slate-200/90 font-black border-t-2 border-slate-400 text-black text-[11px]">
+                              <td className="border border-slate-400 py-1.5 px-1 text-left whitespace-nowrap" colSpan={2}>
+                                제품별 세부 합계 (총 {validProducts.length}개 품목)
                               </td>
-                              <td className="border border-slate-400 py-1.5 px-1 text-center whitespace-nowrap">
+                              <td className="border border-slate-400 py-1.5 px-0.5 text-center whitespace-nowrap font-black">
                                 {validProducts.reduce((s, r) => s + r.count, 0).toLocaleString()} 건
                               </td>
-                              <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-500 text-[11px] font-normal whitespace-nowrap" colSpan={2}>
-                                총 {validProducts.length}개 품목
+                              <td className="border border-slate-400 py-1.5 px-1 text-right text-slate-500 text-[10px] whitespace-nowrap" colSpan={2}>
+                                -
                               </td>
-                              <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-950 font-black whitespace-nowrap">
+                              <td className="border border-slate-400 py-1.5 px-1 text-right text-slate-950 font-black whitespace-nowrap tracking-tight">
                                 {validProducts.reduce((s, r) => s + r.totalSupplyPrice, 0).toLocaleString()} 원
                               </td>
-                              <td className="border border-slate-400 py-1.5 px-2 text-right text-rose-950 font-black whitespace-nowrap">
+                              <td className="border border-slate-400 py-1.5 px-1 text-right text-rose-950 font-black whitespace-nowrap tracking-tight">
                                 {validProducts.reduce((s, r) => s + (r.totalSupplyCommission || 0), 0).toLocaleString()} 원
                               </td>
-                              <td className="border border-slate-400 py-1.5 px-2 text-right text-amber-950 font-black whitespace-nowrap">
+                              <td className="border border-slate-400 py-1.5 px-1 text-right text-amber-950 font-black whitespace-nowrap tracking-tight">
                                 {validProducts.reduce((s, r) => s + r.totalMargin, 0).toLocaleString()} 원
                               </td>
                             </tr>
@@ -2551,10 +2614,18 @@ export function PresidentReportModal({
                   }
                   
                   td, th {
-                    word-wrap: normal !important;
-                    white-space: nowrap !important;
-                    overflow: hidden !important;
-                    text-overflow: ellipsis !important;
+                    word-wrap: break-word !important;
+                    overflow: visible !important;
+                    text-overflow: clip !important;
+                  }
+
+                  .product-name-cell,
+                  .product-name-cell * {
+                    white-space: normal !important;
+                    word-break: break-all !important;
+                    overflow: visible !important;
+                    text-overflow: clip !important;
+                    line-height: 1.2 !important;
                   }
 
                   .whitespace-nowrap {
