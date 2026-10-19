@@ -846,6 +846,7 @@ export function PresidentReportModal({
     // 10월 결산 유효 배송완료 건(validItems)에서 공급사 취급제품 매칭 및 실제 건수 집계
     const seenRentalNos = new Set<string>();
     const productCountMap = new Map<string, number>();
+    const productCommissionSumMap = new Map<string, number>();
 
     validItems.forEach(item => {
       const rNo = (item.rentalNo || '').trim();
@@ -863,6 +864,16 @@ export function PresidentReportModal({
           if (kw && targetProdString.includes(kw)) {
             const pKey = `${supp.name || supp.id}___${prod.productName || prod.productKeyword}`;
             productCountMap.set(pKey, (productCountMap.get(pKey) || 0) + 1);
+
+            // 공급수수료 매칭 (본부별 수수료 우선 매칭, 없으면 대표 단일 수수료)
+            let itemComm = 0;
+            if (Array.isArray(prod.hqCommissions) && prod.hqCommissions.length > 0) {
+              const targetHq = prod.hqCommissions.find((h: any) => h.hqName && item.hq && (item.hq.includes(h.hqName) || h.hqName.includes(item.hq)));
+              itemComm = targetHq ? (Number(targetHq.commission) || 0) : (Number(prod.hqCommissions[0]?.commission) || 0);
+            } else {
+              itemComm = Number(prod.supplyCommission) || 0;
+            }
+            productCommissionSumMap.set(pKey, (productCommissionSumMap.get(pKey) || 0) + itemComm);
             return; // 1개 계약건당 1개 제품만 매칭
           }
         }
@@ -886,9 +897,19 @@ export function PresidentReportModal({
 
           const enex = Number(prod.enexPrice) || 0;
           const supply = Number(prod.supplyPrice) || 0;
-          const comm = Number(prod.supplyCommission) || 0;
+
+          // 공급수수료 단가 및 총액 연동 (단일 수수료 또는 본부별 수수료 설정값 활용)
+          let defaultUnitComm = Number(prod.supplyCommission) || 0;
+          if (defaultUnitComm === 0 && Array.isArray(prod.hqCommissions) && prod.hqCommissions.length > 0) {
+            defaultUnitComm = Number(prod.hqCommissions[0]?.commission) || 0;
+          }
+
+          const commTotal = productCommissionSumMap.has(pKey)
+            ? (productCommissionSumMap.get(pKey) || 0)
+            : actualCount * defaultUnitComm;
+          const commUnit = actualCount > 0 ? Math.round(commTotal / actualCount) : defaultUnitComm;
+
           const supTotal = actualCount * supply;
-          const commTotal = actualCount * comm;
           const margin = enex > 0 ? (actualCount * enex) - supTotal - commTotal : 0;
 
           initialProductDetail.push({
@@ -898,10 +919,10 @@ export function PresidentReportModal({
             count: actualCount,
             unitDeposit: enex,
             unitSupplyPrice: supply,
-            unitCommission: comm,
+            unitCommission: commUnit,
             totalSupplyPrice: supTotal,
             totalSupplyCommission: commTotal,
-            unitMargin: enex > 0 ? enex - supply - comm : 0,
+            unitMargin: enex > 0 ? enex - supply - commUnit : 0,
             totalMargin: margin,
             note: enex > 0 ? '공급사관리 에넥스입금가 연동' : `배송완료 ${actualCount}건`
           });
