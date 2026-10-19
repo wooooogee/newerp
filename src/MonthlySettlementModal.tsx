@@ -138,11 +138,30 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   const [sortField, setSortField] = useState<'netTotal' | 'count' | 'hqName' | 'custom'>('netTotal');
   const [sortAsc, setSortAsc] = useState(false);
 
-  // 사업자별 묶기 상태 (기본값 true로 설정하여 접속 시 바로 사업자별로 정돈되어 나타남)
-  const [groupByBusiness, setGroupByBusiness] = useState<boolean>(() => {
-    const saved = localStorage.getItem('erp_monthly_settlement_group_business');
-    return saved === null ? true : saved === 'true';
+  // 사업단별 묶기 상태 (기본값 true로 설정하여 접속 시 바로 사업단별로 정돈되어 나타남)
+  const [groupByDivision, setGroupByDivision] = useState<boolean>(() => {
+    const saved = localStorage.getItem('erp_monthly_settlement_group_division');
+    if (saved !== null) return saved === 'true';
+    const oldSaved = localStorage.getItem('erp_monthly_settlement_group_business');
+    return oldSaved === null ? true : oldSaved === 'true';
   });
+
+  // 본부명으로 소속 사업단 찾는 헬퍼 함수
+  const getDivisionForHq = useCallback((hqName: string) => {
+    if (!hqName) return null;
+    const normalizeHq = (name: string) => (name || '').replace(/[\s()본부]/g, '').toLowerCase();
+    const cleanHq = normalizeHq(hqName);
+    if (!cleanHq) return null;
+
+    for (const div of (divisionSettings || [])) {
+      const isMember = (div.hqNames || []).some((h: string) => {
+        const normH = normalizeHq(h);
+        return normH === cleanHq || normH.includes(cleanHq) || cleanHq.includes(normH);
+      });
+      if (isMember) return div;
+    }
+    return null;
+  }, [divisionSettings]);
 
   // 사용자 지정 본부 순서 (순서 변경 지원 및 로컬 저장)
   const [customHqOrder, setCustomHqOrder] = useState<string[]>(() => {
@@ -767,13 +786,21 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         if (orderA !== orderB) return orderA - orderB;
         return b.netTotal - a.netTotal;
       });
-    } else if (groupByBusiness) {
-      // [사업자별 묶기] 동일 계좌 예금주(사업체)별로 모으고, 동일 사업자 내에서는 실지급액 내림차순
+    } else if (groupByDivision) {
+      // [사업단별 묶기] 등록된 사업단별로 묶고, 사업단 내에서는 실지급액 내림차순 정렬 (미소속 독립 본부는 뒤로)
       list.sort((a, b) => {
-        const holderA = (a.accountHolder || a.bankName || a.hqName || '').trim();
-        const holderB = (b.accountHolder || b.bankName || b.hqName || '').trim();
-        const holderDiff = holderA.localeCompare(holderB, 'ko');
-        if (holderDiff !== 0) return holderDiff;
+        const divA = getDivisionForHq(a.hqName);
+        const divB = getDivisionForHq(b.hqName);
+
+        const divNameA = divA ? (divA.name || '') : 'zzz_독립본부';
+        const divNameB = divB ? (divB.name || '') : 'zzz_독립본부';
+
+        if (divNameA !== divNameB) {
+          // 사업단이 있는 본부를 상단에 먼저 노출
+          if (divA && !divB) return -1;
+          if (!divA && divB) return 1;
+          return divNameA.localeCompare(divNameB, 'ko');
+        }
         return b.netTotal - a.netTotal;
       });
     } else {
@@ -788,7 +815,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     }
 
     return list;
-  }, [effectiveHqMonthlyStats, selectedHqs, typeFilter, searchTerm, sortField, sortAsc, groupByBusiness, customHqOrder]);
+  }, [effectiveHqMonthlyStats, selectedHqs, typeFilter, searchTerm, sortField, sortAsc, groupByDivision, customHqOrder, getDivisionForHq]);
 
   // 행 순서 위/아래 이동 핸들러
   const handleMoveRow = (fromIdx: number, toIdx: number) => {
@@ -831,23 +858,30 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     handleMoveRow(fromIdx, toIdx);
   };
 
-  // 사업자별 묶기 토글 핸들러
-  const handleToggleGroupByBusiness = () => {
-    const nextVal = !groupByBusiness;
-    setGroupByBusiness(nextVal);
+  // 사업단별 묶기 토글 핸들러
+  const handleToggleGroupByDivision = () => {
+    const nextVal = !groupByDivision;
+    setGroupByDivision(nextVal);
     try {
-      localStorage.setItem('erp_monthly_settlement_group_business', String(nextVal));
+      localStorage.setItem('erp_monthly_settlement_group_division', String(nextVal));
     } catch (e) {}
     if (nextVal) {
-      // 사업자별로 묶어 customOrder 순서도 갱신
-      const sortedByBusiness = [...filteredAndSortedStats].sort((a, b) => {
-        const holderA = (a.accountHolder || a.bankName || a.hqName || '').trim();
-        const holderB = (b.accountHolder || b.bankName || b.hqName || '').trim();
-        const holderDiff = holderA.localeCompare(holderB, 'ko');
-        if (holderDiff !== 0) return holderDiff;
+      // 사업단별로 묶어 customOrder 순서도 갱신
+      const sortedByDivision = [...filteredAndSortedStats].sort((a, b) => {
+        const divA = getDivisionForHq(a.hqName);
+        const divB = getDivisionForHq(b.hqName);
+
+        const divNameA = divA ? (divA.name || '') : 'zzz_독립본부';
+        const divNameB = divB ? (divB.name || '') : 'zzz_독립본부';
+
+        if (divNameA !== divNameB) {
+          if (divA && !divB) return -1;
+          if (!divA && divB) return 1;
+          return divNameA.localeCompare(divNameB, 'ko');
+        }
         return b.netTotal - a.netTotal;
       });
-      const newNames = sortedByBusiness.map(s => s.hqName);
+      const newNames = sortedByDivision.map(s => s.hqName);
       setCustomHqOrder(newNames);
       setSortField('custom');
       try {
@@ -1600,20 +1634,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                   개인 3.3% ({effectiveHqMonthlyStats.filter(s => s.settlementType.includes('개인')).length})
                 </button>
               </div>
-              {/* 사업자별 묶기 토글 버튼 */}
+              {/* 사업단별로 묶기 토글 버튼 */}
               <button
                 type="button"
-                onClick={handleToggleGroupByBusiness}
+                onClick={handleToggleGroupByDivision}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-2xs ${
-                  groupByBusiness
+                  groupByDivision
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-indigo-600/20'
                     : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
                 }`}
-                title="동일 사업자(계좌 예금주/상호명)별로 본부들을 묶어서 모아봅니다"
+                title="등록된 사업단(소속 본부 그룹)별로 본부들을 묶어서 모아봅니다"
               >
-                <Layers size={14} className={groupByBusiness ? 'text-white' : 'text-indigo-600'} />
-                <span>사업자별 묶기</span>
-                {groupByBusiness && (
+                <Layers size={14} className={groupByDivision ? 'text-white' : 'text-indigo-600'} />
+                <span>사업단별로 묶기</span>
+                {groupByDivision && (
                   <span className="w-1.5 h-1.5 rounded-full bg-white ml-0.5 animate-pulse" />
                 )}
               </button>
@@ -1879,9 +1913,21 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                             </div>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 font-bold text-slate-900 border-r border-slate-100 flex items-center gap-1.5">
-                          <Building2 size={13} className="text-blue-500 opacity-70" />
-                          <span className="group-hover:text-blue-600 transition-colors">{stat.hqName}</span>
+                        <td className="px-3 py-2.5 font-bold text-slate-900 border-r border-slate-100 flex items-center gap-1.5 flex-wrap">
+                          <Building2 size={13} className="text-blue-500 opacity-70 shrink-0" />
+                          <span className="group-hover:text-blue-600 transition-colors whitespace-nowrap">{stat.hqName}</span>
+                          {(() => {
+                            const divObj = getDivisionForHq(stat.hqName);
+                            if (!divObj) return null;
+                            return (
+                              <span 
+                                className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0 whitespace-nowrap"
+                                title={`소속 사업단: ${divObj.name}`}
+                              >
+                                {divObj.name}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="px-3 py-2.5 text-center border-r border-slate-100">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${stat.settlementType.includes('개인') ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'}`}>
