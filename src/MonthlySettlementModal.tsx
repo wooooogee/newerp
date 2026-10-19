@@ -1180,24 +1180,26 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
     // 2. 전체 계약 상세 명세 시트
     const detailRows: any[][] = [
-      ['본부명', '회원명', '계약일자', '상품명', '상태', '지사', '영업사원', '판매수수료', '촉진비', '총수수료', '지급일']
+      ['본부명', '지사명', '영업사원', '계약일자', '배송일자', '상태', '상품명', '제품명', '회원명', '판매수수료', '촉진비', '총수수료', '지급일']
     ];
 
     filteredAndSortedStats.forEach(stat => {
       stat.items.forEach(item => {
         const { totalCommission, salesComm } = calculateCommissionDetails(item, globalStatsMap);
         detailRows.push([
-          item.hq,
-          item.memName,
-          item.contractDate,
-          item.prodName,
-          item.status,
-          item.branch,
-          item.empName,
+          item.hq || stat.hqName || '-',
+          item.branch || '-',
+          item.empName || '-',
+          item.contractDate || '-',
+          item.deliveryDate || '-',
+          item.status || '-',
+          item.prodName || '-',
+          item.rentalProd && item.rentalProd !== '-' ? item.rentalProd : (item.prodName || '-'),
+          item.memName || '-',
           { v: salesComm, t: 'n', z: '#,##0' },
           { v: totalCommission - salesComm, t: 'n', z: '#,##0' },
           { v: totalCommission, t: 'n', z: '#,##0' },
-          item.payDate
+          item.payDate || '-'
         ]);
       });
     });
@@ -1234,19 +1236,33 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
     // 3. 유지수수료 상세 명세 시트
     const maintDetailRows: any[][] = [
-      ['본부명', '회원명', '계약일자', '상품명', '회차', '유지수수료금액', '지급일자']
+      ['본부명', '지사명', '영업사원', '계약일자', '상태', '상품명', '회원명', '회차', '유지수수료금액', '지급일']
     ];
 
     filteredAndSortedStats.forEach(stat => {
       (stat.maintenanceItems || []).forEach(mItem => {
+        const hq = mItem.hq || stat.hqName || '-';
+        const branch = mItem.branch || '-';
+        const empName = mItem.empName || '-';
+        const contractDate = mItem.contractDate || '-';
+        const status = mItem.status || '유지';
+        const prodName = mItem.productName || mItem.prodName || '-';
+        const memName = mItem.customerName || mItem.memName || '-';
+        const installment = mItem.fromInstallment ? `${mItem.fromInstallment}회차` : (mItem.round ? `${mItem.round}회차` : '-');
+        const amount = mItem.amount || 0;
+        const payDate = mItem.payDate || selectedMonth || '-';
+
         maintDetailRows.push([
-          mItem.hq || stat.hqName,
-          mItem.memName || '-',
-          mItem.contractDate || '-',
-          mItem.prodName || '-',
-          mItem.round ? `${mItem.round}회차` : '-',
-          { v: mItem.amount || 0, t: 'n', z: '#,##0' },
-          mItem.payDate || selectedMonth
+          hq,
+          branch,
+          empName,
+          contractDate,
+          status,
+          prodName,
+          memName,
+          installment,
+          { v: amount, t: 'n', z: '#,##0' },
+          payDate
         ]);
       });
     });
@@ -2158,11 +2174,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                           </h4>
                         </div>
                         <div className="overflow-x-auto border border-emerald-200 rounded-lg shadow-2xs">
-                          <table className="w-full text-xs text-left min-w-[750px] bg-emerald-50/10">
+                          <table className="w-full text-xs text-left min-w-[850px] bg-emerald-50/10">
                             <thead className="bg-emerald-100/60 text-emerald-900 font-bold border-b border-emerald-200 sticky top-0 z-10">
                               <tr>
                                 <th className="px-3 py-2 text-center w-12 whitespace-nowrap">No</th>
                                 <th className="px-3 py-2 whitespace-nowrap min-w-[70px]">회원명</th>
+                                <th className="px-3 py-2 whitespace-nowrap min-w-[80px]">지사</th>
+                                <th className="px-3 py-2 whitespace-nowrap min-w-[80px]">영업사원</th>
                                 <th className="px-3 py-2 whitespace-nowrap min-w-[160px]">상품명</th>
                                 <th className="px-3 py-2 text-center whitespace-nowrap min-w-[65px]">회차</th>
                                 <th className="px-3 py-2 text-right whitespace-nowrap min-w-[95px]">유지수수료</th>
@@ -2174,10 +2192,12 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                               {selectedHqDetail.maintenanceItems.map((mItem, idx) => (
                                 <tr key={idx} className="hover:bg-emerald-50/40 transition-colors">
                                   <td className="px-3 py-2 text-center text-slate-400 whitespace-nowrap">{idx + 1}</td>
-                                  <td className="px-3 py-2 font-bold text-slate-800 whitespace-nowrap">{mItem.memName || '-'}</td>
-                                  <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{mItem.prodName || '-'}</td>
+                                  <td className="px-3 py-2 font-bold text-slate-800 whitespace-nowrap">{mItem.customerName || mItem.memName || '-'}</td>
+                                  <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{mItem.branch || '-'}</td>
+                                  <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{mItem.empName || '-'}</td>
+                                  <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{mItem.productName || mItem.prodName || '-'}</td>
                                   <td className="px-3 py-2 text-center font-semibold text-emerald-700 whitespace-nowrap">
-                                    {mItem.round ? `${mItem.round}회차` : '-'}
+                                    {mItem.fromInstallment ? `${mItem.fromInstallment}회차` : (mItem.round ? `${mItem.round}회차` : '-')}
                                   </td>
                                   <td className="px-3 py-2 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
                                     {(mItem.amount || 0).toLocaleString()}원
