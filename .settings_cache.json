@@ -53,7 +53,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은프리미엄540",
@@ -73,7 +75,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -112,7 +116,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은통신결합540플러스",
@@ -145,7 +151,9 @@
                 }
               ]
             }
-          ]
+          ],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은통신결합360플러스",
@@ -165,7 +173,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -204,7 +214,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -243,7 +255,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은통신결합540플러스",
@@ -276,7 +290,9 @@
                 }
               ]
             }
-          ]
+          ],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은통신결합360플러스",
@@ -296,7 +312,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -335,7 +353,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -410,7 +430,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은헬스케어580",
@@ -430,7 +452,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은프리미엄540",
@@ -450,7 +474,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -489,7 +515,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은라이즈498",
@@ -509,7 +537,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "좋은건강크루즈",
@@ -542,7 +572,9 @@
                 }
               ]
             }
-          ]
+          ],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -594,7 +626,9 @@
                 }
               ]
             }
-          ]
+          ],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -603,8 +637,8 @@
       "hqName": "언바운드컴퍼니",
       "settlementType": "사업자",
       "isActive": true,
-      "bankName": "국민은행",
-      "accountNumber": "79400104179154",
+      "bankName": "하나은행",
+      "accountNumber": "285-910018-29104",
       "accountHolder": "주식회사 언바운드컴퍼니",
       "paymentMethod": "계좌이체",
       "enableOverriding": false,
@@ -620,8 +654,8 @@
           "totalAmount": 720000,
           "salesAmount": 300000,
           "applyOverriding": false,
-          "tier1Count": 0,
-          "tier1Price": 0,
+          "tier1Count": 300,
+          "tier1Price": 750000,
           "tier2Count": 0,
           "tier2Price": 0,
           "tier3Count": 0,
@@ -633,15 +667,17 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "all",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은프리미엄540",
           "totalAmount": 720000,
           "salesAmount": 300000,
           "applyOverriding": false,
-          "tier1Count": 0,
-          "tier1Price": 0,
+          "tier1Count": 300,
+          "tier1Price": 750000,
           "tier2Count": 0,
           "tier2Price": 0,
           "tier3Count": 0,
@@ -653,15 +689,17 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "all",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은프리미엄540플러스",
           "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
-          "tier1Count": 0,
-          "tier1Price": 0,
+          "tier1Count": 300,
+          "tier1Price": 740000,
           "tier2Count": 0,
           "tier2Price": 0,
           "tier3Count": 0,
@@ -673,7 +711,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "all",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -712,7 +752,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -751,7 +793,9 @@
             "hqManager": 70000
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -790,7 +834,9 @@
             "hqManager": 70000
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은헬스케어580",
@@ -823,7 +869,9 @@
                 }
               ]
             }
-          ]
+          ],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은프리미엄540",
@@ -843,7 +891,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -882,7 +932,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은하이브리드698",
@@ -902,7 +954,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -941,7 +995,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -980,7 +1036,9 @@
             "hqManager": 10
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1019,7 +1077,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은통신결합540플러스",
@@ -1039,7 +1099,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은헬스케어580",
@@ -1072,7 +1134,9 @@
                 }
               ]
             }
-          ]
+          ],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1111,7 +1175,9 @@
             "hqManager": 70000
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은헬스케어580",
@@ -1144,7 +1210,9 @@
                 }
               ]
             }
-          ]
+          ],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1183,7 +1251,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1207,12 +1277,12 @@
     },
     {
       "id": "hq-1782264724946",
-      "hqName": "다보다",
+      "hqName": "KMN솔루션",
       "settlementType": "사업자",
       "isActive": true,
-      "bankName": "국민은행",
-      "accountNumber": "164501-04-161888",
-      "accountHolder": "김애숙(에스제이컨설팅)",
+      "bankName": "우리은행",
+      "accountNumber": "1005-204-894652",
+      "accountHolder": "(유)에이치컴퍼니",
       "paymentMethod": "계좌이체",
       "enableOverriding": false,
       "overriding": {
@@ -1224,7 +1294,7 @@
       "productRules": [
         {
           "productName": "굿라이프헬스케어실버",
-          "totalAmount": 710000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1240,11 +1310,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1260,11 +1332,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1280,11 +1354,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은프리미엄540",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1300,7 +1376,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1357,7 +1435,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "더좋은프리미엄540",
@@ -1377,7 +1457,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1400,7 +1482,7 @@
       "productRules": [
         {
           "productName": "굿라이프헬스케어실버",
-          "totalAmount": 710000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1416,11 +1498,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1436,11 +1520,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1456,7 +1542,31 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
+        },
+        {
+          "productName": "더좋은프리미엄540",
+          "totalAmount": 550000,
+          "salesAmount": 300000,
+          "applyOverriding": false,
+          "tier1Count": 0,
+          "tier1Price": 0,
+          "tier2Count": 0,
+          "tier2Price": 0,
+          "tier3Count": 0,
+          "tier3Price": 0,
+          "overriding": {
+            "salesperson": 0,
+            "teamLeader": 0,
+            "branchManager": 0,
+            "hqManager": 0
+          },
+          "applyMaintenance": false,
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1495,11 +1605,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1515,11 +1627,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1535,7 +1649,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1558,7 +1674,7 @@
       "productRules": [
         {
           "productName": "굿라이프헬스케어실버",
-          "totalAmount": 710000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1574,11 +1690,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1594,11 +1712,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1614,7 +1734,31 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
+        },
+        {
+          "productName": "더좋은프리미엄540",
+          "totalAmount": 550000,
+          "salesAmount": 300000,
+          "applyOverriding": false,
+          "tier1Count": 0,
+          "tier1Price": 0,
+          "tier2Count": 0,
+          "tier2Price": 0,
+          "tier3Count": 0,
+          "tier3Price": 0,
+          "overriding": {
+            "salesperson": 0,
+            "teamLeader": 0,
+            "branchManager": 0,
+            "hqManager": 0
+          },
+          "applyMaintenance": false,
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1623,9 +1767,9 @@
       "hqName": "노반AI",
       "settlementType": "사업자",
       "isActive": true,
-      "bankName": "국민은행",
-      "accountNumber": "164501-04-161888",
-      "accountHolder": "김애숙(에스제이컨설팅)",
+      "bankName": "기업은행",
+      "accountNumber": "313-094871-04-010",
+      "accountHolder": "주식회사 지오홀딩스",
       "paymentMethod": "계좌이체",
       "enableOverriding": false,
       "overriding": {
@@ -1637,7 +1781,7 @@
       "productRules": [
         {
           "productName": "굿라이프헬스케어실버",
-          "totalAmount": 710000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1653,11 +1797,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1673,11 +1819,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1693,7 +1841,31 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
+        },
+        {
+          "productName": "더좋은프리미엄540",
+          "totalAmount": 550000,
+          "salesAmount": 300000,
+          "applyOverriding": false,
+          "tier1Count": 0,
+          "tier1Price": 0,
+          "tier2Count": 0,
+          "tier2Price": 0,
+          "tier3Count": 0,
+          "tier3Price": 0,
+          "overriding": {
+            "salesperson": 0,
+            "teamLeader": 0,
+            "branchManager": 0,
+            "hqManager": 0
+          },
+          "applyMaintenance": false,
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1732,11 +1904,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1752,11 +1926,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1772,7 +1948,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1811,11 +1989,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1831,11 +2011,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1851,7 +2033,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1890,11 +2074,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1910,11 +2096,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1930,7 +2118,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -1969,11 +2159,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -1989,11 +2181,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2009,7 +2203,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2048,11 +2244,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2068,11 +2266,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2088,7 +2288,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2127,11 +2329,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2147,11 +2351,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2167,7 +2373,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2206,11 +2414,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2226,11 +2436,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2246,7 +2458,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2285,11 +2499,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2305,11 +2521,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2325,7 +2543,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2364,11 +2584,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2384,11 +2606,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2404,7 +2628,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2443,11 +2669,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2463,11 +2691,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2483,7 +2713,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2522,11 +2754,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2542,11 +2776,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2562,7 +2798,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2601,11 +2839,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2621,11 +2861,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2641,7 +2883,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2680,11 +2924,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2700,11 +2946,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2720,7 +2968,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2759,11 +3009,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2779,11 +3031,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 710000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2799,7 +3053,9 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
     },
@@ -2822,7 +3078,7 @@
       "productRules": [
         {
           "productName": "굿라이프헬스케어실버",
-          "totalAmount": 710000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2838,11 +3094,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어골드",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2858,11 +3116,13 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         },
         {
           "productName": "굿라이프헬스케어올인원",
-          "totalAmount": 750000,
+          "totalAmount": 550000,
           "salesAmount": 300000,
           "applyOverriding": false,
           "tier1Count": 0,
@@ -2878,21 +3138,89 @@
             "hqManager": 0
           },
           "applyMaintenance": false,
-          "maintenanceRules": []
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
+        },
+        {
+          "productName": "더좋은프리미엄540",
+          "totalAmount": 550000,
+          "salesAmount": 300000,
+          "applyOverriding": false,
+          "tier1Count": 0,
+          "tier1Price": 0,
+          "tier2Count": 0,
+          "tier2Price": 0,
+          "tier3Count": 0,
+          "tier3Price": 0,
+          "overriding": {
+            "salesperson": 0,
+            "teamLeader": 0,
+            "branchManager": 0,
+            "hqManager": 0
+          },
+          "applyMaintenance": false,
+          "maintenanceRules": [],
+          "tierCountBasis": "self",
+          "tierGroupProducts": []
         }
       ]
+    },
+    {
+      "id": "hq-1791447641219-0",
+      "hqName": "신동우 대표",
+      "settlementType": "사업자",
+      "isActive": true,
+      "bankName": "국민은행",
+      "accountNumber": "164501-04-161888",
+      "accountHolder": "김애숙(에스제이컨설팅)",
+      "paymentMethod": "계좌이체",
+      "enableOverriding": false,
+      "overriding": {
+        "salesperson": 0,
+        "teamLeader": 0,
+        "branchManager": 0,
+        "hqManager": 0
+      },
+      "productRules": []
     }
   ],
   "globalIncentives": [
     {
-      "id": "1790042146867",
-      "incentiveName": "공급 수수료",
-      "targetName": "해당본부",
-      "payDay": 25,
+      "id": "1792119233853",
+      "incentiveName": "컨설팅 수수료",
+      "targetName": "신동우 대표",
+      "payDay": 0,
       "targetHq": "",
       "targetHqs": [],
       "targetDivisions": [
         "div-goodlife"
+      ],
+      "targetProducts": [
+        "굿라이프헬스케어실버"
+      ],
+      "targetItems": [
+        "ALL"
+      ],
+      "baseDateType": "PAY_DATE",
+      "commissionPerUnit": 160000,
+      "minimumGuarantee": 0,
+      "useInstallments": false,
+      "installments": [],
+      "taxType": "DEFAULT",
+      "taxBusinessName": "",
+      "taxBusinessNo": ""
+    },
+    {
+      "id": "1791962248122",
+      "incentiveName": "공급 수수료",
+      "targetName": "신동우 대표",
+      "payDay": 0,
+      "targetHq": "",
+      "targetHqs": [],
+      "targetDivisions": [
+        "div-goodlife",
+        "div-1791444906611"
       ],
       "targetProducts": [
         "ALL"
@@ -2900,19 +3228,45 @@
       "targetItems": [
         "2구좌_[테라웨이브]테라웨이브G+코스메틱 3종(A)"
       ],
-      "baseDateType": "DELIVERY",
+      "baseDateType": "PAY_DATE",
       "commissionPerUnit": 500000,
       "minimumGuarantee": 0,
       "useInstallments": false,
       "installments": [],
-      "taxType": "CORPORATE",
-      "taxBusinessName": "리치웰페어",
-      "taxBusinessNo": "546-86-01339"
+      "taxType": "DEFAULT",
+      "taxBusinessName": "",
+      "taxBusinessNo": ""
     },
     {
-      "id": "1790034757135",
-      "incentiveName": "공급 수수료",
-      "targetName": "해당본부",
+      "id": "1791962200030",
+      "incentiveName": "컨설팅 수수료",
+      "targetName": "신동우 대표",
+      "payDay": 0,
+      "targetHq": "",
+      "targetHqs": [],
+      "targetDivisions": [
+        "div-1791444906611"
+      ],
+      "targetProducts": [
+        "굿라이프헬스케어골드",
+        "굿라이프헬스케어올인원"
+      ],
+      "targetItems": [
+        "ALL"
+      ],
+      "baseDateType": "PAY_DATE",
+      "commissionPerUnit": 40000,
+      "minimumGuarantee": 0,
+      "useInstallments": false,
+      "installments": [],
+      "taxType": "DEFAULT",
+      "taxBusinessName": "",
+      "taxBusinessNo": ""
+    },
+    {
+      "id": "1791962154632",
+      "incentiveName": "컨설팅 수수료",
+      "targetName": "신동우 대표",
       "payDay": 0,
       "targetHq": "",
       "targetHqs": [],
@@ -2920,184 +3274,26 @@
         "div-goodlife"
       ],
       "targetProducts": [
-        "ALL"
+        "굿라이프헬스케어올인원",
+        "굿라이프헬스케어골드"
       ],
       "targetItems": [
-        "2구좌_[바디프랜드]안마의자(파밀레c_머스타드(A))",
-        "2구좌_[바디프랜드]안마의자(파밀레c_머스타드(540+))",
-        "2구좌_[바디프랜드]안마의자(파밀레c_베이지(A))",
-        "2구좌_[바디프랜드]안마의자(파밀레c_인디고(540+))",
-        "2구좌_[바디프랜드]안마의자(파밀레c_인디고(A))",
-        "2구좌_[바디프랜드]안마의자(파밀레m(A))",
-        "3구좌_[바디프랜드]안마의자(전신헬스케어로봇(A))",
-        "2구좌_[바디프랜드]안마의자(파밀레S(A))",
-        "3구좌_[바디프랜드]안마의자(카릭스로봇(A))"
-      ],
-      "baseDateType": "DELIVERY",
-      "commissionPerUnit": 50000,
-      "minimumGuarantee": 0,
-      "useInstallments": false,
-      "installments": [],
-      "taxType": "CORPORATE",
-      "taxBusinessName": "리치웰페어",
-      "taxBusinessNo": "546-86-01339"
-    },
-    {
-      "id": "1786589544669",
-      "incentiveName": "공급 수수료",
-      "targetName": "해당본부",
-      "payDay": 0,
-      "targetHq": "",
-      "targetHqs": [
-        "언바운드컴퍼니"
-      ],
-      "targetDivisions": [],
-      "targetProducts": [
         "ALL"
       ],
-      "targetItems": [
-        "2구좌_[쿠쿠] 파워클론 로봇청소기(CRVC-CAC1620W(A))"
-      ],
-      "baseDateType": "DELIVERY",
-      "commissionPerUnit": 150000,
-      "minimumGuarantee": 0,
-      "useInstallments": false,
-      "installments": [],
-      "taxType": "CORPORATE",
-      "taxBusinessName": "리치웰페어",
-      "taxBusinessNo": "546-86-01339"
-    },
-    {
-      "id": "1786589323758",
-      "incentiveName": "공급 수수료",
-      "targetName": "해당본부",
-      "payDay": 0,
-      "targetHq": "",
-      "targetHqs": [
-        "언바운드컴퍼니"
-      ],
-      "targetDivisions": [],
-      "targetProducts": [
-        "ALL"
-      ],
-      "targetItems": [
-        "2구좌_[쿠쿠] 안마의자 (CMS-G210NW(A))"
-      ],
-      "baseDateType": "DELIVERY",
-      "commissionPerUnit": 100000,
-      "minimumGuarantee": 0,
-      "useInstallments": false,
-      "installments": [],
-      "taxType": "CORPORATE",
-      "taxBusinessName": "리치웰페어",
-      "taxBusinessNo": "546-86-01339"
-    },
-    {
-      "id": "1786589175575",
-      "incentiveName": "공급 수수료",
-      "targetName": "해당본부",
-      "payDay": 0,
-      "targetHq": "",
-      "targetHqs": [],
-      "targetDivisions": [
-        "div-goodlife"
-      ],
-      "targetProducts": [
-        "ALL"
-      ],
-      "targetItems": [
-        "2구좌_[쿠쿠] 안마의자 (CMS-G210NW(A))"
-      ],
-      "baseDateType": "DELIVERY",
-      "commissionPerUnit": 150000,
-      "minimumGuarantee": 0,
-      "useInstallments": false,
-      "installments": [],
-      "taxType": "CORPORATE",
-      "taxBusinessName": "리치웰페어",
-      "taxBusinessNo": "546-86-01339"
-    },
-    {
-      "id": "1786588980323",
-      "incentiveName": "공급 수수료",
-      "targetName": "해당본부",
-      "payDay": 0,
-      "targetHq": "",
-      "targetHqs": [],
-      "targetDivisions": [
-        "div-goodlife"
-      ],
-      "targetProducts": [
-        "ALL"
-      ],
-      "targetItems": [
-        "2구좌_[쿠쿠] 파워클론 로봇청소기(CRVC-CAC1620W(A))"
-      ],
-      "baseDateType": "DELIVERY",
-      "commissionPerUnit": 300000,
-      "minimumGuarantee": 0,
-      "useInstallments": false,
-      "installments": [],
-      "taxType": "CORPORATE",
-      "taxBusinessName": "리치웰페어",
-      "taxBusinessNo": "546-86-01339"
-    },
-    {
-      "id": "1786429086337",
-      "incentiveName": "공급 수수료",
-      "targetName": "해당본부",
-      "payDay": 0,
-      "targetHq": "",
-      "targetHqs": [],
-      "targetDivisions": [
-        "div-goodlife"
-      ],
-      "targetProducts": [
-        "ALL"
-      ],
-      "targetItems": [
-        "2구좌_[샤크]에보 파워 시스템 NEO 플러스 청소기(LC351KRBK)"
-      ],
-      "baseDateType": "DELIVERY",
-      "commissionPerUnit": 350000,
-      "minimumGuarantee": 0,
-      "useInstallments": false,
-      "installments": [],
-      "taxType": "CORPORATE",
-      "taxBusinessName": "리치웰페어",
-      "taxBusinessNo": "546-86-01339"
-    },
-    {
-      "id": "1786414392790",
-      "incentiveName": "공급 수수료",
-      "targetName": "해당본부",
-      "payDay": 0,
-      "targetHq": "",
-      "targetHqs": [],
-      "targetDivisions": [
-        "div-goodlife"
-      ],
-      "targetProducts": [
-        "ALL"
-      ],
-      "targetItems": [
-        "1구좌_[가스트로플러스]공기청정 냉온풍기 블루 (뉴스카이타워G9 3in1)",
-        "1구좌_[가스트로플러스]공기청정 냉온풍기 화이트 (뉴스카이타워G9 3in1)"
-      ],
-      "baseDateType": "DELIVERY",
+      "baseDateType": "PAY_DATE",
       "commissionPerUnit": 200000,
       "minimumGuarantee": 0,
       "useInstallments": false,
       "installments": [],
-      "taxType": "CORPORATE",
-      "taxBusinessName": "리치웰페어",
-      "taxBusinessNo": "546-86-01339"
+      "taxType": "DEFAULT",
+      "taxBusinessName": "",
+      "taxBusinessNo": ""
     },
     {
       "id": "1782265753575",
       "incentiveName": "컨설팅비",
       "targetName": "이종연",
-      "payDay": 25,
+      "payDay": 0,
       "targetHq": "",
       "targetHqs": [
         "해랑인터내셔널",
@@ -3226,7 +3422,7 @@
       "targetItems": [
         "ALL"
       ],
-      "baseDateType": "DELIVERY",
+      "baseDateType": "PAY_DATE",
       "commissionPerUnit": 5000,
       "minimumGuarantee": 0,
       "useInstallments": false,
@@ -3257,7 +3453,7 @@
       "targetItems": [
         "ALL"
       ],
-      "baseDateType": "DELIVERY",
+      "baseDateType": "PAY_DATE",
       "commissionPerUnit": 10000,
       "minimumGuarantee": 2068252,
       "useInstallments": false,
@@ -3283,63 +3479,90 @@
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
       "installCertDate": "2026-06-25",
-      "installCertMonth": "2026-06"
+      "installCertMonth": "2026-06",
+      "orderDate": "",
+      "courier": "",
+      "trackingNo": ""
     },
     "12303637": {
       "deliveryDate": "2026-08-29",
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
       "installCertDate": "2026-08-31",
-      "installCertMonth": "2026-08"
+      "installCertMonth": "2026-08",
+      "orderDate": "",
+      "courier": "",
+      "trackingNo": ""
     },
     "12303655": {
       "deliveryDate": "2026-08-13",
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
       "installCertDate": "2026-08-26",
-      "installCertMonth": "2026-08"
+      "installCertMonth": "2026-08",
+      "orderDate": "",
+      "courier": "",
+      "trackingNo": ""
     },
     "12305763": {
       "deliveryDate": "2026-08-14",
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
       "installCertDate": "2026-08-26",
-      "installCertMonth": "2026-08"
+      "installCertMonth": "2026-08",
+      "orderDate": "",
+      "courier": "",
+      "trackingNo": ""
     },
     "12308134": {
       "deliveryDate": "2026-08-19",
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
       "installCertDate": "2026-08-26",
-      "installCertMonth": "2026-08"
+      "installCertMonth": "2026-08",
+      "orderDate": "",
+      "courier": "",
+      "trackingNo": ""
     },
     "12308137": {
       "deliveryDate": "2026-08-28",
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
       "installCertDate": "2026-08-28",
-      "installCertMonth": "2026-08"
+      "installCertMonth": "2026-08",
+      "orderDate": "",
+      "courier": "",
+      "trackingNo": ""
     },
     "12309442": {
       "deliveryDate": "2026-08-28",
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
       "installCertDate": "2026-08-31",
-      "installCertMonth": "2026-08"
+      "installCertMonth": "2026-08",
+      "orderDate": "",
+      "courier": "",
+      "trackingNo": ""
     },
     "12309450": {
       "deliveryDate": "2026-08-16",
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
       "installCertDate": "2026-08-18",
-      "installCertMonth": "2026-08"
+      "installCertMonth": "2026-08",
+      "orderDate": "",
+      "courier": "",
+      "trackingNo": ""
     },
     "12318615": {
       "deliveryDate": "2026-08-16",
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
       "installCertDate": "2026-08-18",
-      "installCertMonth": "2026-08"
+      "installCertMonth": "2026-08",
+      "orderDate": "",
+      "courier": "",
+      "trackingNo": ""
     },
     "12319207": {
       "orderDate": "",
@@ -3715,7 +3938,7 @@
       "orderDate": "2026-09-09",
       "deliveryDate": "2026-09-23",
       "courier": "",
-      "trackingNo": "",
+      "trackingNo": "9월10~11일 예정",
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
       "installCertDate": "2026-09-28",
@@ -3854,8 +4077,8 @@
     "12346669": {
       "orderDate": "2026-09-16",
       "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
+      "courier": "CJ대한통운",
+      "trackingNo": "600409565785",
       "deliveryState": "발주완료",
       "installCertStatus": "미등록",
       "installCertDate": "",
@@ -3978,8 +4201,8 @@
       "trackingNo": "",
       "deliveryState": "배송완료",
       "installCertStatus": "등록",
-      "installCertDate": "2026-09-28",
-      "installCertMonth": "2026-09"
+      "installCertDate": "2026-10-01",
+      "installCertMonth": "2026-10"
     },
     "12352256": {
       "orderDate": "2026-09-21",
@@ -4183,23 +4406,23 @@
     },
     "12361202": {
       "orderDate": "2026-10-01",
-      "deliveryDate": "",
+      "deliveryDate": "2026-10-13",
       "courier": "",
       "trackingNo": "",
       "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12361884": {
       "orderDate": "2026-10-07",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-10",
+      "courier": "CJ대한통운",
+      "trackingNo": "600786980364",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12362015": {
       "orderDate": "2026-10-07",
@@ -4213,23 +4436,23 @@
     },
     "12362138": {
       "orderDate": "2026-10-07",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-09",
+      "courier": "CJ대한통운",
+      "trackingNo": "600786980375",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12362294": {
       "orderDate": "2026-10-07",
-      "deliveryDate": "",
+      "deliveryDate": "2026-10-13",
       "courier": "",
       "trackingNo": "",
       "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12363873": {
       "orderDate": "2026-10-07",
@@ -4243,73 +4466,73 @@
     },
     "12364141": {
       "orderDate": "2026-10-07",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-10",
+      "courier": "CJ대한통운",
+      "trackingNo": "600786980342",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12364554": {
       "orderDate": "2026-10-07",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-09",
+      "courier": "CJ대한통운",
+      "trackingNo": "600786980316",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12364571": {
       "orderDate": "2026-10-07",
-      "deliveryDate": "",
+      "deliveryDate": "2026-10-13",
       "courier": "",
       "trackingNo": "",
       "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12365713": {
       "orderDate": "2026-10-07",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-09",
+      "courier": "CJ대한통운",
+      "trackingNo": "600786980331",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12365827": {
       "orderDate": "2026-10-07",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-09",
+      "courier": "CJ대한통운",
+      "trackingNo": "600786980320",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12366822": {
       "orderDate": "2026-10-08",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-10",
+      "courier": "CJ대한통운",
+      "trackingNo": "600786980353",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12366887": {
       "orderDate": "2026-10-08",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-10",
+      "courier": "CJ대한통운",
+      "trackingNo": "600786980353",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12369118": {
       "orderDate": "2026-10-08",
@@ -4323,13 +4546,13 @@
     },
     "12369309": {
       "orderDate": "2026-10-08",
-      "deliveryDate": "",
+      "deliveryDate": "2026-10-13",
       "courier": "",
       "trackingNo": "",
       "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12369372": {
       "orderDate": "2026-10-08",
@@ -4343,6 +4566,16 @@
     },
     "12370387": {
       "orderDate": "2026-10-12",
+      "deliveryDate": "2026-10-15",
+      "courier": "경동택배",
+      "trackingNo": "8026100780918",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-15",
+      "installCertMonth": "2026-10"
+    },
+    "12370425": {
+      "orderDate": "2026-10-19",
       "deliveryDate": "",
       "courier": "",
       "trackingNo": "",
@@ -4353,13 +4586,13 @@
     },
     "12370665": {
       "orderDate": "2026-10-12",
-      "deliveryDate": "",
+      "deliveryDate": "2026-10-13",
       "courier": "",
       "trackingNo": "",
       "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12370803": {
       "orderDate": "2026-10-12",
@@ -4383,13 +4616,13 @@
     },
     "12371689": {
       "orderDate": "2026-10-12",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-15",
+      "courier": "경동택배",
+      "trackingNo": "8026100781055",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-15",
+      "installCertMonth": "2026-10"
     },
     "12371771": {
       "orderDate": "2026-10-12",
@@ -4403,13 +4636,13 @@
     },
     "12372091": {
       "orderDate": "2026-10-12",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-15",
+      "courier": "경동택배",
+      "trackingNo": "8026100780977",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-15",
+      "installCertMonth": "2026-10"
     },
     "12372236": {
       "orderDate": "2026-10-12",
@@ -4443,13 +4676,13 @@
     },
     "12373019": {
       "orderDate": "2026-10-12",
-      "deliveryDate": "",
-      "courier": "",
-      "trackingNo": "",
-      "deliveryState": "발주완료",
-      "installCertStatus": "미등록",
-      "installCertDate": "",
-      "installCertMonth": ""
+      "deliveryDate": "2026-10-14",
+      "courier": "롯데택배",
+      "trackingNo": "263983047635",
+      "deliveryState": "배송완료",
+      "installCertStatus": "등록",
+      "installCertDate": "2026-10-14",
+      "installCertMonth": "2026-10"
     },
     "12373134": {
       "orderDate": "2026-10-12",
@@ -4510,6 +4743,56 @@
       "installCertStatus": "미등록",
       "installCertDate": "",
       "installCertMonth": ""
+    },
+    "12377065": {
+      "orderDate": "2026-10-15",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12377411": {
+      "orderDate": "2026-10-15",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12378127": {
+      "orderDate": "2026-10-19",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12378140": {
+      "orderDate": "2026-10-19",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
+    },
+    "12379098": {
+      "orderDate": "2026-10-19",
+      "deliveryDate": "",
+      "courier": "",
+      "trackingNo": "",
+      "deliveryState": "발주완료",
+      "installCertStatus": "미등록",
+      "installCertDate": "",
+      "installCertMonth": ""
     }
   },
   "reportSettings": {
@@ -4533,7 +4816,7 @@
   "divisions": [
     {
       "id": "div-goodlife",
-      "name": "굿라이프",
+      "name": "굿라이프(신동우)",
       "settlementType": "사업자",
       "bankName": "국민은행",
       "accountNumber": "164501-04-161888",
@@ -4542,25 +4825,85 @@
       "memo": "굿라이프 사업단",
       "hqNames": [
         "다보다",
-        "더굿",
-        "최강본부",
-        "노반AI",
         "더굿라이프",
+        "노반AI",
+        "LS지사",
+        "신동우 대표",
+        "더굿",
+        "KMN솔루션"
+      ],
+      "isActive": true
+    },
+    {
+      "id": "div-1791444906611",
+      "name": "굿라이프(꿈잇다)",
+      "settlementType": "사업자",
+      "bankName": "",
+      "accountNumber": "",
+      "accountHolder": "",
+      "paymentMethod": "계좌이체",
+      "memo": "",
+      "hqNames": [
+        "최강본부",
         "가치온본부",
         "1본부",
         "새빛본부",
         "온누리본부",
         "명품본부",
+        "이음본부",
         "무한본부",
         "꿈잇다",
         "서울중앙본부",
         "스마일본부",
-        "이음본부",
-        "챔피언본부",
         "아우라본부",
+        "챔피언본부",
         "두드림본부",
-        "조이본부",
-        "LS지사"
+        "조이본부"
+      ],
+      "isActive": true
+    },
+    {
+      "id": "div-1792373934389",
+      "name": "더좋은라이프",
+      "settlementType": "사업자",
+      "bankName": "",
+      "accountNumber": "",
+      "accountHolder": "",
+      "paymentMethod": "계좌이체",
+      "memo": "",
+      "hqNames": [
+        "해랑인터내셔널",
+        "파란하늘",
+        "파파쿡",
+        "한가득플러스",
+        "제이어스",
+        "웰다잉라이프",
+        "위더스앤씨",
+        "맥스",
+        "뷰티가이",
+        "어센틱(구)",
+        "리치웰페어",
+        "드라마플라워",
+        "더원시스템",
+        "글로씨",
+        "다이렉트",
+        "더라이프앤",
+        "피티엠에스",
+        "커런시마켓"
+      ],
+      "isActive": true
+    },
+    {
+      "id": "div-1792373955883",
+      "name": "언바운드컴퍼니",
+      "settlementType": "사업자",
+      "bankName": "",
+      "accountNumber": "",
+      "accountHolder": "",
+      "paymentMethod": "계좌이체",
+      "memo": "",
+      "hqNames": [
+        "언바운드컴퍼니"
       ],
       "isActive": true
     }

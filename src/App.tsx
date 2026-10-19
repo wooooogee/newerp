@@ -13439,6 +13439,11 @@ const ERP_Dashboard = () => {
               isOpen={isPresidentReportModalOpen}
               onClose={() => setIsPresidentReportModalOpen(false)}
               data={data}
+              enexProfitSummary={enexProfitSummary}
+              hqSettings={hqSettings}
+              divisionSettings={divisionSettings}
+              globalIncentiveRules={globalIncentiveRules}
+              maintenancePayouts={maintenancePayouts}
             />
           )}
           {isBranchNoteModalOpen && (
