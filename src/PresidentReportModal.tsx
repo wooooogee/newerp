@@ -1836,137 +1836,104 @@ export function PresidentReportModal({
                     <table className="w-full text-left border-collapse border border-slate-400 text-xs table-fixed">
                       <thead>
                         <tr className="bg-slate-100 text-slate-900 font-black border-b border-slate-400 text-center select-none">
-                          <th className="border border-slate-400 py-1.5 px-2 w-[8%] whitespace-nowrap">구분</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[28%] whitespace-nowrap">항목명</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[24%] whitespace-nowrap">금액 (원)</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[40%] whitespace-nowrap">산출 공식 및 세부 설명</th>
+                          <th className="border border-slate-400 py-1.5 px-2 w-[12%] whitespace-nowrap text-center">구분</th>
+                          <th className="border border-slate-400 py-1.5 px-3 text-left w-[50%] whitespace-nowrap">항목명</th>
+                          <th className="border border-slate-400 py-1.5 px-3 text-right w-[38%] whitespace-nowrap">금액 (단위: 원)</th>
                         </tr>
                       </thead>
                       <tbody>
                         {/* 1부: 에넥스 렌탈 영업 부문 (A ~ D) */}
                         <tr className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors">
-                          <td className="border border-slate-300 py-1 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[A]</td>
-                          <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap">에넥스 입금액</td>
-                          <td className="border border-slate-300 py-1 px-2 text-right font-black text-emerald-700 whitespace-nowrap">
+                          <td className="border border-slate-300 py-1.5 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[A]</td>
+                          <td className="border border-slate-300 py-1.5 px-3 font-bold text-slate-900 whitespace-nowrap">에넥스 입금액</td>
+                          <td className="border border-slate-300 py-1.5 px-3 text-right font-black text-emerald-700 whitespace-nowrap tracking-tight">
                             <EditableNumber
                               value={metrics.a_enexDeposit}
                               onChange={handleUpdateA}
-                              unit="원"
                               showZeroAsBlank={true}
                               placeholder="직접 입력"
                             />
                           </td>
-                          <td className="border border-slate-300 py-1 px-2 text-slate-600 text-[11px] truncate">
-                            유통사(에넥스) 거래처 수납 총액
+                        </tr>
+                        <tr className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors">
+                          <td className="border border-slate-300 py-1.5 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[B]</td>
+                          <td className="border border-slate-300 py-1.5 px-3 font-bold text-slate-900 whitespace-nowrap">본부·사업단별 영업수수료</td>
+                          <td className="border border-slate-300 py-1.5 px-3 text-right font-bold text-blue-700 whitespace-nowrap tracking-tight">
+                            <EditableNumber value={metrics.b_salesCommission} onChange={handleUpdateB} />
                           </td>
                         </tr>
                         <tr className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors">
-                          <td className="border border-slate-300 py-1 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[B]</td>
-                          <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap">본부·사업단별 영업수수료</td>
-                          <td className="border border-slate-300 py-1 px-2 text-right font-bold text-blue-700 whitespace-nowrap">
-                            <EditableNumber value={metrics.b_salesCommission} onChange={handleUpdateB} unit="원" />
-                          </td>
-                          <td className="border border-slate-300 py-1 px-2 text-slate-600 text-[11px] truncate">
-                            각 사업단 및 본부 영업조직 실적 수수료 합계 (하단 2번 상세 집계)
-                          </td>
-                        </tr>
-                        <tr className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors">
-                          <td className="border border-slate-300 py-1 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[C]</td>
-                          <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap">특수수당 및 유지수수료</td>
-                          <td className="border border-slate-300 py-1 px-2 text-right font-bold text-purple-700 whitespace-nowrap">
-                            <EditableNumber value={metrics.c_specialAndMaintenance} onChange={handleUpdateC} unit="원" />
-                          </td>
-                          <td className="border border-slate-300 py-1 px-2 text-slate-600 text-[11px] truncate">
-                            신동우, 모델비, 유지비, 직급수당 등 차감 (하단 3번 상세 집계)
+                          <td className="border border-slate-300 py-1.5 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[C]</td>
+                          <td className="border border-slate-300 py-1.5 px-3 font-bold text-slate-900 whitespace-nowrap">특수수당 및 유지수수료</td>
+                          <td className="border border-slate-300 py-1.5 px-3 text-right font-bold text-purple-700 whitespace-nowrap tracking-tight">
+                            <EditableNumber value={metrics.c_specialAndMaintenance} onChange={handleUpdateC} />
                           </td>
                         </tr>
                         <tr className="border-b-2 border-slate-400 bg-blue-50/60 font-black">
-                          <td className="border border-slate-400 py-1.5 px-2 text-center font-bold text-blue-900 bg-blue-100/60 whitespace-nowrap">[D]</td>
-                          <td className="border border-slate-400 py-1.5 px-2 font-black text-blue-900 whitespace-nowrap">렌탈 영업 순익</td>
-                          <td className="border border-slate-400 py-1.5 px-2 text-right font-black text-blue-900 whitespace-nowrap">
+                          <td className="border border-slate-400 py-2 px-2 text-center font-bold text-blue-900 bg-blue-100/60 whitespace-nowrap">[D]</td>
+                          <td className="border border-slate-400 py-2 px-3 font-black text-blue-900 whitespace-nowrap">렌탈 영업 순익</td>
+                          <td className="border border-slate-400 py-2 px-3 text-right font-black text-blue-900 whitespace-nowrap tracking-tight text-sm">
                             <EditableNumber
                               value={metrics.d_operatingProfit}
                               onChange={val => {
                                 setMetrics(prev => ({ ...prev, d_operatingProfit: val, i_finalNetProfit: val + prev.h_supplyProfit }));
                               }}
-                              unit="원"
                             />
-                          </td>
-                          <td className="border border-slate-400 py-1.5 px-2 text-blue-900 text-[11px] font-bold truncate">
-                            [A] 에넥스 입금액 - [B] 영업수수료 - [C] 특수/유지수수료
                           </td>
                         </tr>
 
                         {/* 2부: 리치웰 공급가 부문 (E ~ H) */}
                         <tr className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors">
-                          <td className="border border-slate-300 py-1 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[E]</td>
-                          <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap">에넥스 공급가 입금액(리치웰)</td>
-                          <td className="border border-slate-300 py-1 px-2 text-right font-black text-emerald-700 whitespace-nowrap">
+                          <td className="border border-slate-300 py-1.5 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[E]</td>
+                          <td className="border border-slate-300 py-1.5 px-3 font-bold text-slate-900 whitespace-nowrap">에넥스 공급가 입금액 (리치웰)</td>
+                          <td className="border border-slate-300 py-1.5 px-3 text-right font-black text-emerald-700 whitespace-nowrap tracking-tight">
                             <EditableNumber
                               value={metrics.e_richwelfareDeposit}
                               onChange={handleUpdateE}
-                              unit="원"
                               showZeroAsBlank={true}
                               placeholder="직접 입력"
                             />
                           </td>
-                          <td className="border border-slate-300 py-1 px-2 text-slate-600 text-[11px] truncate">
-                            에넥스에서 수납된 결합원가 공급가 합계 (하단 4번 상세 집계)
+                        </tr>
+                        <tr className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors">
+                          <td className="border border-slate-300 py-1.5 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[F]</td>
+                          <td className="border border-slate-300 py-1.5 px-3 font-bold text-slate-900 whitespace-nowrap">리치웰 공급가액</td>
+                          <td className="border border-slate-300 py-1.5 px-3 text-right font-bold text-slate-800 whitespace-nowrap tracking-tight">
+                            <EditableNumber value={metrics.f_richwelfareSupplyPrice} onChange={handleUpdateF} />
                           </td>
                         </tr>
                         <tr className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors">
-                          <td className="border border-slate-300 py-1 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[F]</td>
-                          <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap">리치웰 공급가액</td>
-                          <td className="border border-slate-300 py-1 px-2 text-right font-bold text-slate-800 whitespace-nowrap">
-                            <EditableNumber value={metrics.f_richwelfareSupplyPrice} onChange={handleUpdateF} unit="원" />
-                          </td>
-                          <td className="border border-slate-300 py-1 px-2 text-slate-600 text-[11px] truncate">
-                            공급사(바디프랜드 등)에 우리가 지급해야 되는 공급물품대금 합계
-                          </td>
-                        </tr>
-                        <tr className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors">
-                          <td className="border border-slate-300 py-1 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[G]</td>
-                          <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap">공급수수료</td>
-                          <td className="border border-slate-300 py-1 px-2 text-right font-bold text-rose-700 whitespace-nowrap">
-                            <EditableNumber value={metrics.g_supplyCommission} onChange={handleUpdateG} unit="원" />
-                          </td>
-                          <td className="border border-slate-300 py-1 px-2 text-slate-600 text-[11px] truncate">
-                            설치확인서 등록건 기준 공급수수료 지급액 합계
+                          <td className="border border-slate-300 py-1.5 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[G]</td>
+                          <td className="border border-slate-300 py-1.5 px-3 font-bold text-slate-900 whitespace-nowrap">공급수수료</td>
+                          <td className="border border-slate-300 py-1.5 px-3 text-right font-bold text-rose-700 whitespace-nowrap tracking-tight">
+                            <EditableNumber value={metrics.g_supplyCommission} onChange={handleUpdateG} />
                           </td>
                         </tr>
                         <tr className="border-b-2 border-slate-400 bg-amber-50/60 font-black">
-                          <td className="border border-slate-400 py-1.5 px-2 text-center font-bold text-amber-900 bg-amber-100/60 whitespace-nowrap">[H]</td>
-                          <td className="border border-slate-400 py-1.5 px-2 font-black text-amber-900 whitespace-nowrap">공급가 순익</td>
-                          <td className="border border-slate-400 py-1.5 px-2 text-right font-black text-amber-900 whitespace-nowrap">
+                          <td className="border border-slate-400 py-2 px-2 text-center font-bold text-amber-900 bg-amber-100/60 whitespace-nowrap">[H]</td>
+                          <td className="border border-slate-400 py-2 px-3 font-black text-amber-900 whitespace-nowrap">공급가 순익</td>
+                          <td className="border border-slate-400 py-2 px-3 text-right font-black text-amber-900 whitespace-nowrap tracking-tight text-sm">
                             <EditableNumber
                               value={metrics.h_supplyProfit}
                               onChange={val => {
                                 setMetrics(prev => ({ ...prev, h_supplyProfit: val, i_finalNetProfit: prev.d_operatingProfit + val }));
                               }}
-                              unit="원"
                             />
-                          </td>
-                          <td className="border border-slate-400 py-1.5 px-2 text-amber-900 text-[11px] font-bold truncate">
-                            [E] 공급가 입금액 - [F] 공급가액 - [G] 공급수수료
                           </td>
                         </tr>
 
                         {/* 3부: 최종 합산 순익 (I = D + H) */}
                         <tr className="bg-emerald-100/90 font-black border-t-2 border-b-2 border-slate-600 text-black">
                           <td className="border border-slate-600 py-2.5 px-2 text-center font-black text-emerald-950 bg-emerald-200/90 whitespace-nowrap">[I]</td>
-                          <td className="border border-slate-600 py-2.5 px-2 font-black text-emerald-950 whitespace-nowrap">
+                          <td className="border border-slate-600 py-2.5 px-3 font-black text-emerald-950 whitespace-nowrap text-sm">
                             더좋은라이프 최종 순익
                           </td>
-                          <td className="border border-slate-600 py-2.5 px-2 text-right font-black text-emerald-950 whitespace-nowrap">
+                          <td className="border border-slate-600 py-2.5 px-3 text-right font-black text-emerald-950 whitespace-nowrap tracking-tight text-base">
                             <EditableNumber
                               value={metrics.i_finalNetProfit}
                               onChange={val => setMetrics(prev => ({ ...prev, i_finalNetProfit: val }))}
-                              unit="원"
-                              className="font-black text-emerald-950 text-sm"
+                              className="font-black text-emerald-950 text-base"
                             />
-                          </td>
-                          <td className="border border-slate-600 py-2.5 px-2 text-emerald-950 text-xs font-black truncate">
-                            ★ [D] 렌탈 영업 순익 + [H] 공급가 순익 (당월 최종 실현 순익)
                           </td>
                         </tr>
                       </tbody>
@@ -2000,8 +1967,8 @@ export function PresidentReportModal({
                           <th className="border border-slate-400 py-1.5 px-2 text-left w-[20%] whitespace-nowrap">본부 / 사업단</th>
                           <th className="border border-slate-400 py-1.5 px-2 text-left w-[26%] whitespace-nowrap">판매 상품명</th>
                           <th className="border border-slate-400 py-1.5 px-1 text-center w-[10%] whitespace-nowrap">건수</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[18%] whitespace-nowrap">건당 수수료 (설정값)</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[20%] whitespace-nowrap">지급 수수료 합계</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[18%] whitespace-nowrap">건당 수수료</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[20%] whitespace-nowrap">수수료 합계</th>
                           <th className="border border-slate-400 py-1.5 px-1 text-center w-[6%] print:hidden">관리</th>
                         </tr>
                       </thead>
@@ -2048,14 +2015,12 @@ export function PresidentReportModal({
                                   <EditableNumber
                                     value={item.unitCommission}
                                     onChange={val => updateHqProductSalesList(p => p.map(r => r.id === item.id ? { ...r, unitCommission: val, totalCommission: r.count * val } : r))}
-                                    unit="원"
                                   />
                                 </td>
                                 <td className="border border-slate-300 py-1 px-2 text-right font-bold text-blue-700 whitespace-nowrap">
                                   <EditableNumber
                                     value={item.totalCommission}
                                     onChange={val => updateHqProductSalesList(p => p.map(r => r.id === item.id ? { ...r, totalCommission: val } : r))}
-                                    unit="원"
                                   />
                                 </td>
                                 <td className="border border-slate-300 py-1 px-1 text-center print:hidden">
@@ -2075,7 +2040,7 @@ export function PresidentReportModal({
                                 └ <strong className="text-slate-950 font-bold">{group.hqName}</strong> 총 지급 합계 ({group.subtotalCount}건)
                               </td>
                               <td className="border border-slate-300 py-1 px-2 text-right text-blue-900 font-black whitespace-nowrap" colSpan={2}>
-                                {group.subtotalCommission.toLocaleString()} 원
+                                {group.subtotalCommission.toLocaleString()}
                               </td>
                               <td className="border border-slate-300 py-1 px-1 print:hidden"></td>
                             </tr>
@@ -2094,7 +2059,7 @@ export function PresidentReportModal({
                             총 {groupedHqSales.length}개 조직
                           </td>
                           <td className="border border-slate-400 py-1.5 px-2 text-right text-blue-950 font-black whitespace-nowrap">
-                            {hqProductSalesList.reduce((s, r) => s + r.totalCommission, 0).toLocaleString()} 원
+                            {hqProductSalesList.reduce((s, r) => s + r.totalCommission, 0).toLocaleString()}
                           </td>
                           <td className="border border-slate-400 py-1.5 px-1 print:hidden"></td>
                         </tr>
@@ -2108,7 +2073,7 @@ export function PresidentReportModal({
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
                       <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
-                        3. 특수수당 및 본사 지출 내역 요약 ([C] 차감 상세)
+                        3. 특수수당 및 본사 지출 내역 요약
                       </h4>
                       <button
                         onClick={() => {
@@ -2161,7 +2126,6 @@ export function PresidentReportModal({
                               <EditableNumber
                                 value={row.amount}
                                 onChange={val => updateSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, amount: val } : r))}
-                                unit="원"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-2 text-slate-600 text-[11px] truncate">
@@ -2188,7 +2152,7 @@ export function PresidentReportModal({
                             본사 추가 지출 소계 ([C] 합계)
                           </td>
                           <td className="border border-slate-400 py-1.5 px-2 text-right text-purple-950 font-black whitespace-nowrap">
-                            {specialExpenseList.reduce((s, r) => s + r.amount, 0).toLocaleString()} 원
+                            {specialExpenseList.reduce((s, r) => s + r.amount, 0).toLocaleString()}
                           </td>
                           <td className="border border-slate-400 py-1.5 px-2 text-slate-600 text-[11px] font-normal" colSpan={2}>
                             총 {specialExpenseList.length}건
@@ -2200,12 +2164,13 @@ export function PresidentReportModal({
 
                   {/* ---------------------------------------------------- */}
                   {/* ---------------------------------------------------- */}
-                  {/* [4] 공급사 정산관리 총괄 요약 (공급사 지급 공급가액 및 에넥스 입금 차감 정산) (요청 4 반영) */}
+                  {/* ---------------------------------------------------- */}
+                  {/* [4] 공급사 정산관리 총괄 요약 (요청 4 반영) */}
                   {/* ---------------------------------------------------- */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
                       <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
-                        4. 공급사 정산관리 총괄 요약 (공급사 지급 공급가액 및 에넥스 입금 차감 정산)
+                        4. 공급사 정산관리 총괄 요약
                       </h4>
                       <button
                         onClick={() => {
@@ -2225,8 +2190,8 @@ export function PresidentReportModal({
                         <tr className="bg-slate-100 text-slate-900 font-black border-b border-slate-400 text-center select-none">
                           <th className="border border-slate-400 py-1.5 px-2 text-left w-[28%] whitespace-nowrap">공급사명</th>
                           <th className="border border-slate-400 py-1.5 px-1 text-center w-[12%] whitespace-nowrap">정산 건수</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[28%] whitespace-nowrap">공급사 지급 공급가액(F)</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[28%] whitespace-nowrap">정산 조건 및 비고</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[28%] whitespace-nowrap">공급사 지급 공급가액</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[28%] whitespace-nowrap">비고</th>
                           <th className="border border-slate-400 py-1.5 px-1 text-center w-[4%] print:hidden"></th>
                         </tr>
                       </thead>
@@ -2251,7 +2216,6 @@ export function PresidentReportModal({
                               <EditableNumber
                                 value={row.supplyPrice}
                                 onChange={val => updateSupplierSummary(p => p.map(r => r.id === row.id ? { ...r, supplyPrice: val } : r))}
-                                unit="원"
                               />
                             </td>
                             <td className="border border-slate-300 py-1.5 px-2 text-slate-600 text-[11px] leading-tight">
@@ -2281,60 +2245,51 @@ export function PresidentReportModal({
                           const totalSupPrice = validSummaries.reduce((s, r) => s + r.supplyPrice, 0);
                           const enexDeposit = metrics.e_richwelfareDeposit;
                           const totalComm = metrics.g_supplyCommission;
-                          // 에넥스 총 입금액에서 공급사 지급 공급가액(F) 및 공급수수료(G) 차감
                           const netSupplyMargin = enexDeposit > 0 ? (enexDeposit - totalSupPrice - totalComm) : 0;
 
                           return (
                             <>
                               {/* 1) 공급사 지급 합계 소계 */}
                               <tr className="bg-slate-100 font-extrabold border-t-2 border-slate-400 text-slate-900">
-                                <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap">공급사 지급 합계 (F 소계)</td>
+                                <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap">공급사 지급 합계</td>
                                 <td className="border border-slate-400 py-1.5 px-1 text-center whitespace-nowrap">{totalSupCount.toLocaleString()} 건</td>
                                 <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-950 font-black whitespace-nowrap tracking-tight">
-                                  {totalSupPrice.toLocaleString()} 원
+                                  {totalSupPrice.toLocaleString()}
                                 </td>
-                                <td className="border border-slate-400 py-1.5 px-2 text-slate-600 text-[11px]" colSpan={2}>
-                                  가스트로플러스 및 바디프랜드 지급 총액
+                                <td className="border border-slate-400 py-1.5 px-2 text-slate-400 text-[11px] text-center" colSpan={2}>
+                                  -
                                 </td>
                               </tr>
 
                               {/* 2) 에넥스 총 입금액 (한번만 입력) */}
                               <tr className="bg-emerald-50/70 border-t border-slate-300">
                                 <td className="border border-slate-400 py-1.5 px-2 text-left font-black text-emerald-900 whitespace-nowrap" colSpan={2}>
-                                  [E] 에넥스 총 입금액 (한번만 입력)
+                                  [E] 에넥스 총 입금액
                                 </td>
                                 <td className="border border-slate-400 py-1.5 px-2 text-right text-emerald-800 font-black whitespace-nowrap tracking-tight">
                                   <EditableNumber
                                     value={metrics.e_richwelfareDeposit}
                                     onChange={handleUpdateE}
-                                    unit="원"
                                     showZeroAsBlank={true}
                                     placeholder="직접 입력"
                                     className="font-black text-emerald-700"
                                   />
                                 </td>
-                                <td className="border border-slate-400 py-1.5 px-2 text-emerald-800 text-[11px] font-medium" colSpan={2}>
-                                  에넥스 본사에서 리치웰로 정산 입금된 총액
+                                <td className="border border-slate-400 py-1.5 px-2 text-slate-400 text-[11px] text-center" colSpan={2}>
+                                  -
                                 </td>
                               </tr>
 
                               {/* 3) 공급가 차감 순익 결과 행 */}
                               <tr className="bg-amber-100/90 font-black border-t-2 border-slate-400 text-amber-950">
                                 <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap" colSpan={2}>
-                                  [H] 공급가 정산 순익 (에넥스입금액 - 공급사지급액 차감)
+                                  [H] 공급가 정산 순익
                                 </td>
                                 <td className="border border-slate-400 py-1.5 px-2 text-right text-amber-950 font-black whitespace-nowrap text-sm tracking-tight">
-                                  {netSupplyMargin.toLocaleString()} 원
+                                  {netSupplyMargin.toLocaleString()}
                                 </td>
-                                <td className="border border-slate-400 py-1.5 px-2 text-amber-900 text-[11px] font-bold" colSpan={2}>
-                                  {enexDeposit > 0 ? (
-                                    <span>
-                                      에넥스입금({enexDeposit.toLocaleString()}) - 공급사지급({totalSupPrice.toLocaleString()})
-                                      {totalComm > 0 ? ` - 공급수수료(${totalComm.toLocaleString()})` : ''}
-                                    </span>
-                                  ) : (
-                                    <span>※ 에넥스 총 입금액을 입력하면 공급사 지급액을 차감한 순익이 자동 계산됩니다.</span>
-                                  )}
+                                <td className="border border-slate-400 py-1.5 px-2 text-slate-400 text-[11px] text-center" colSpan={2}>
+                                  -
                                 </td>
                               </tr>
                             </>
@@ -2345,12 +2300,13 @@ export function PresidentReportModal({
                   </div>
 
                   {/* ---------------------------------------------------- */}
-                  {/* [5] 공급사 제품별 세부 정산 내역 (제품별 에넥스 입금액 & 제품별 공급단가) (요청 6 반영) */}
+                  {/* ---------------------------------------------------- */}
+                  {/* [5] 공급사 제품별 세부 정산 내역 (요청 5 반영) */}
                   {/* ---------------------------------------------------- */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center">
                       <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
-                        5. 공급사 제품별 세부 정산 내역 (제품별 에넥스 입금액 및 제품별 공급단가)
+                        5. 공급사 제품별 세부 정산 내역
                       </h4>
                       <div className="flex items-center gap-1.5 print:hidden">
                         <button
@@ -2399,7 +2355,7 @@ export function PresidentReportModal({
                           <th className="border border-slate-400 py-1 px-1 text-right w-[11%] leading-tight">제품별<br/>공급단가</th>
                           <th className="border border-slate-400 py-1 px-1 text-right w-[12%] leading-tight">총<br/>공급가액</th>
                           <th className="border border-slate-400 py-1 px-1 text-right w-[11%] leading-tight">공급<br/>수수료</th>
-                          <th className="border border-slate-400 py-1 px-1 text-right w-[12%] leading-tight">총 공급마진<br/>(순익)</th>
+                          <th className="border border-slate-400 py-1 px-1 text-right w-[12%] leading-tight">총 공급마진</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2453,7 +2409,6 @@ export function PresidentReportModal({
                                   unitMargin: val > 0 ? val - r.unitSupplyPrice - r.unitCommission : 0,
                                   totalMargin: val > 0 ? (r.count * val) - r.totalSupplyPrice - r.totalSupplyCommission : 0
                                 } : r))}
-                                unit="원"
                                 showZeroAsBlank={true}
                                 placeholder="직접 입력"
                               />
@@ -2468,7 +2423,6 @@ export function PresidentReportModal({
                                   unitMargin: r.unitDeposit > 0 ? r.unitDeposit - val - r.unitCommission : 0,
                                   totalMargin: r.unitDeposit > 0 ? (r.count * r.unitDeposit) - (r.count * val) - r.totalSupplyCommission : 0
                                 } : r))}
-                                unit="원"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-1 text-right font-semibold text-slate-900 whitespace-nowrap text-[11px]">
@@ -2479,7 +2433,6 @@ export function PresidentReportModal({
                                   totalSupplyPrice: val,
                                   totalMargin: r.unitDeposit > 0 ? (r.count * r.unitDeposit) - val - r.totalSupplyCommission : 0
                                 } : r))}
-                                unit="원"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-1 text-right font-semibold text-rose-700 whitespace-nowrap text-[11px]">
@@ -2490,14 +2443,12 @@ export function PresidentReportModal({
                                   totalSupplyCommission: val,
                                   totalMargin: r.unitDeposit > 0 ? (r.count * r.unitDeposit) - r.totalSupplyPrice - val : 0
                                 } : r))}
-                                unit="원"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-1 text-right font-black text-amber-950 whitespace-nowrap text-[11px]">
                               <EditableNumber
                                 value={row.totalMargin}
                                 onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? { ...r, totalMargin: val } : r))}
-                                unit="원"
                               />
                             </td>
                           </tr>
@@ -2517,13 +2468,13 @@ export function PresidentReportModal({
                                 -
                               </td>
                               <td className="border border-slate-400 py-1.5 px-1 text-right text-slate-950 font-black whitespace-nowrap tracking-tight">
-                                {validProducts.reduce((s, r) => s + r.totalSupplyPrice, 0).toLocaleString()} 원
+                                {validProducts.reduce((s, r) => s + r.totalSupplyPrice, 0).toLocaleString()}
                               </td>
                               <td className="border border-slate-400 py-1.5 px-1 text-right text-rose-950 font-black whitespace-nowrap tracking-tight">
-                                {validProducts.reduce((s, r) => s + (r.totalSupplyCommission || 0), 0).toLocaleString()} 원
+                                {validProducts.reduce((s, r) => s + (r.totalSupplyCommission || 0), 0).toLocaleString()}
                               </td>
                               <td className="border border-slate-400 py-1.5 px-1 text-right text-amber-950 font-black whitespace-nowrap tracking-tight">
-                                {validProducts.reduce((s, r) => s + r.totalMargin, 0).toLocaleString()} 원
+                                {validProducts.reduce((s, r) => s + r.totalMargin, 0).toLocaleString()}
                               </td>
                             </tr>
                           );
