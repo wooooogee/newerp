@@ -146,6 +146,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     return oldSaved === null ? true : oldSaved === 'true';
   });
 
+  // 사업단별 아코디언 접힘/펼침 상태 (기본적으로 모두 펼쳐진 상태)
+  const [collapsedDivisions, setCollapsedDivisions] = useState<Record<string, boolean>>({});
+
   // 본부명으로 소속 사업단 찾는 헬퍼 함수
   const getDivisionForHq = useCallback((hqName: string) => {
     if (!hqName) return null;
@@ -913,6 +916,90 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     }
   };
 
+  // 사업단별 소속 본부 일괄 선택/해제 핸들러
+  const handleToggleDivisionHqs = (stats: HqMonthlyStat[]) => {
+    const hqNames = stats.map(s => s.hqName);
+    const allSelected = hqNames.every(name => selectedHqs.includes(name));
+    if (allSelected) {
+      setSelectedHqs(prev => prev.filter(name => !hqNames.includes(name)));
+    } else {
+      setSelectedHqs(prev => Array.from(new Set([...prev, ...hqNames])));
+    }
+  };
+
+  // 사업단별 그룹화 데이터 계산 (groupByDivision 활성화 시 사용)
+  const groupedDivisionData = useMemo(() => {
+    if (!groupByDivision) return null;
+
+    const processedHqNames = new Set<string>();
+    const groups: Array<{
+      division: any;
+      stats: HqMonthlyStat[];
+      totals: {
+        count: number;
+        accountCount: number;
+        salesSum: number;
+        promoSum: number;
+        generalSum: number;
+        maintenanceSum: number;
+        specialSum: number;
+        grossTotal: number;
+        tax: number;
+        netTotal: number;
+      };
+    }> = [];
+
+    // 등록된 사업단 순서대로 매칭
+    (divisionSettings || []).forEach(div => {
+      const matchedStats = filteredAndSortedStats.filter(s => {
+        if (processedHqNames.has(s.hqName)) return false;
+        const normHq = (s.hqName || '').replace(/[\s()본부]/g, '').toLowerCase();
+        return (div.hqNames || []).some((h: string) => {
+          const normH = (h || '').replace(/[\s()본부]/g, '').toLowerCase();
+          return normH === normHq || normH.includes(normHq) || normHq.includes(normH);
+        });
+      });
+
+      if (matchedStats.length > 0) {
+        matchedStats.forEach(s => processedHqNames.add(s.hqName));
+        const totals = matchedStats.reduce((acc, s) => ({
+          count: acc.count + s.count,
+          accountCount: acc.accountCount + (s.accountCount || s.count),
+          salesSum: acc.salesSum + s.salesSum,
+          promoSum: acc.promoSum + s.promoSum,
+          generalSum: acc.generalSum + s.generalSum,
+          maintenanceSum: acc.maintenanceSum + s.maintenanceSum,
+          specialSum: acc.specialSum + s.specialSum,
+          grossTotal: acc.grossTotal + s.grossTotal,
+          tax: acc.tax + s.tax,
+          netTotal: acc.netTotal + s.netTotal
+        }), {
+          count: 0,
+          accountCount: 0,
+          salesSum: 0,
+          promoSum: 0,
+          generalSum: 0,
+          maintenanceSum: 0,
+          specialSum: 0,
+          grossTotal: 0,
+          tax: 0,
+          netTotal: 0
+        });
+
+        groups.push({
+          division: div,
+          stats: matchedStats,
+          totals
+        });
+      }
+    });
+
+    // 사업단에 속하지 않은 독립 본부들
+    const independentStats = filteredAndSortedStats.filter(s => !processedHqNames.has(s.hqName));
+
+    return { groups, independentStats };
+  }, [groupByDivision, divisionSettings, filteredAndSortedStats]);
+
   // 전체 요약 KPI 계산
   const summaryTotals = useMemo(() => {
     let totalCount = 0;
@@ -1180,7 +1267,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
     // 2. 전체 계약 상세 명세 시트
     const detailRows: any[][] = [
-      ['본부명', '지사명', '영업사원', '계약일자', '배송일자', '상태', '상품명', '제품명', '회원명', '판매수수료', '촉진비', '총수수료', '지급일']
+      ['본부명', '지사명', '영업사원', '계약일자', '상태', '상품명', '회원명', '판매수수료', '촉진비', '총수수료', '지급일', '배송일자', '제품명']
     ];
 
     filteredAndSortedStats.forEach(stat => {
@@ -1191,15 +1278,15 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           item.branch || '-',
           item.empName || '-',
           item.contractDate || '-',
-          item.deliveryDate || '-',
           item.status || '-',
           item.prodName || '-',
-          item.rentalProd && item.rentalProd !== '-' ? item.rentalProd : (item.prodName || '-'),
           item.memName || '-',
           { v: salesComm, t: 'n', z: '#,##0' },
           { v: totalCommission - salesComm, t: 'n', z: '#,##0' },
           { v: totalCommission, t: 'n', z: '#,##0' },
-          item.payDate || '-'
+          item.payDate || '-',
+          item.deliveryDate || '-',
+          item.rentalProd && item.rentalProd !== '-' ? item.rentalProd : (item.prodName || '-')
         ]);
       });
     });
@@ -1872,8 +1959,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                           : `${selectedMonth} 월에 조회된 본부별 정산 내역이 없습니다.`}
                       </td>
                     </tr>
-                  ) : (
-                    filteredAndSortedStats.map((stat, idx) => (
+                  ) : (() => {
+                    const renderHqRow = (stat: HqMonthlyStat, idx: number, isSubRow = false) => (
                       <tr 
                         key={stat.hqName} 
                         draggable={true}
@@ -1881,7 +1968,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                         onDragOver={(e) => handleDragOver(e, idx)}
                         onDragLeave={handleDragLeave}
                         onDrop={(e) => handleDrop(e, idx)}
-                        className={`hover:bg-blue-50/40 transition-colors cursor-pointer group ${selectedHqs.includes(stat.hqName) ? 'bg-blue-50/15' : ''} ${dragOverIdx === idx ? 'border-t-2 border-indigo-600 bg-indigo-50/40' : ''}`}
+                        className={`hover:bg-blue-50/40 transition-colors cursor-pointer group ${isSubRow ? 'bg-indigo-50/20 border-l-4 border-indigo-400' : ''} ${selectedHqs.includes(stat.hqName) ? 'bg-blue-50/15' : ''} ${dragOverIdx === idx ? 'border-t-2 border-indigo-600 bg-indigo-50/40' : ''}`}
                         onClick={() => setSelectedHqDetail(stat)}
                       >
                         <td 
@@ -1929,21 +2016,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                             </div>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 font-bold text-slate-900 border-r border-slate-100 flex items-center gap-1.5 flex-wrap">
+                        <td className={`px-3 py-2.5 font-bold text-slate-900 border-r border-slate-100 flex items-center gap-1.5 flex-wrap ${isSubRow ? 'pl-6' : ''}`}>
+                          {isSubRow && <span className="text-slate-400 text-xs select-none">└</span>}
                           <Building2 size={13} className="text-blue-500 opacity-70 shrink-0" />
                           <span className="group-hover:text-blue-600 transition-colors whitespace-nowrap">{stat.hqName}</span>
-                          {(() => {
-                            const divObj = getDivisionForHq(stat.hqName);
-                            if (!divObj) return null;
-                            return (
-                              <span 
-                                className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0 whitespace-nowrap"
-                                title={`소속 사업단: ${divObj.name}`}
-                              >
-                                {divObj.name}
-                              </span>
-                            );
-                          })()}
                         </td>
                         <td className="px-3 py-2.5 text-center border-r border-slate-100">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${stat.settlementType.includes('개인') ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'}`}>
@@ -2001,8 +2077,132 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                           </button>
                         </td>
                       </tr>
-                    ))
-                  )}
+                    );
+
+                    // 1. 사업단별 묶기 모드 활성화 시: 사업단 헤더 행 및 소속 본부 행 계층적 렌더링
+                    if (groupByDivision && groupedDivisionData && groupedDivisionData.groups.length > 0) {
+                      return (
+                        <>
+                          {groupedDivisionData.groups.map(group => {
+                            const isCollapsed = !!collapsedDivisions[group.division.id];
+                            const allDivHqSelected = group.stats.every(s => selectedHqs.includes(s.hqName));
+                            const someDivHqSelected = group.stats.some(s => selectedHqs.includes(s.hqName)) && !allDivHqSelected;
+                            const divBankStr = (group.division.bankName && group.division.accountNumber) ? group.division.bankName : (group.stats[0]?.bankName || '-');
+                            const divAcctStr = group.division.accountNumber || (group.stats[0]?.accountNumber || '-');
+                            const divHolderStr = group.division.accountHolder || (group.stats[0]?.accountHolder || '-');
+
+                            return (
+                              <React.Fragment key={group.division.id}>
+                                {/* 사업단 헤더 행 (소계 및 계좌 정보 노출) */}
+                                <tr className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white font-bold border-y-2 border-indigo-500 shadow-xs whitespace-nowrap">
+                                  <td className="border-r border-slate-700 px-2.5 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                    <input
+                                      type="checkbox"
+                                      checked={allDivHqSelected}
+                                      ref={input => { if (input) input.indeterminate = someDivHqSelected; }}
+                                      onChange={() => handleToggleDivisionHqs(group.stats)}
+                                      className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-indigo-500 cursor-pointer"
+                                      title={`${group.division.name} 소속 본부 전체 선택/해제`}
+                                    />
+                                  </td>
+                                  <td className="border-r border-slate-700 p-1.5 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => setCollapsedDivisions(prev => ({ ...prev, [group.division.id]: !prev[group.division.id] }))}
+                                      className="p-1 bg-indigo-700 hover:bg-indigo-600 rounded text-white flex items-center justify-center w-full transition-colors cursor-pointer"
+                                      title={isCollapsed ? "소속 본부 목록 펼치기" : "소속 본부 목록 접기"}
+                                    >
+                                      {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                                    </button>
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-left">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-amber-300 font-black text-xs">
+                                        🏢 {group.division.name} 사업단
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-900/80 text-indigo-200 border border-indigo-700">
+                                        {group.stats.length}개 본부
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-center">
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-800 text-amber-200 border border-indigo-600">
+                                      {group.division.settlementType || '사업자'}
+                                    </span>
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-right font-mono text-indigo-200 font-bold">
+                                    {group.totals.count.toLocaleString()}건
+                                    {group.totals.accountCount !== group.totals.count && (
+                                      <span className="ml-1 text-[11px] text-indigo-300">({group.totals.accountCount.toLocaleString()}구좌)</span>
+                                    )}
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-right font-mono text-indigo-200">
+                                    {group.totals.salesSum.toLocaleString()}
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-right font-mono text-indigo-200">
+                                    {group.totals.promoSum.toLocaleString()}
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-right font-mono text-indigo-100 font-bold bg-indigo-900/30">
+                                    {group.totals.generalSum.toLocaleString()}
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-right font-mono text-emerald-300">
+                                    {group.totals.maintenanceSum > 0 ? group.totals.maintenanceSum.toLocaleString() : '-'}
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-right font-mono text-purple-300">
+                                    {group.totals.specialSum > 0 ? group.totals.specialSum.toLocaleString() : '-'}
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-right font-mono text-indigo-100">
+                                    {group.totals.grossTotal.toLocaleString()}
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-right font-mono text-rose-300">
+                                    {group.totals.tax > 0 ? `-${group.totals.tax.toLocaleString()}` : '-'}
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-right font-mono font-black text-amber-300 text-xs bg-indigo-950/80">
+                                    {group.totals.netTotal.toLocaleString()}원
+                                  </td>
+                                  <td className="border-r border-slate-700 px-3 py-2.5 text-left text-xs text-indigo-100">
+                                    <span className="text-[11px] truncate block max-w-[200px]" title={`${divBankStr} ${divAcctStr} (${divHolderStr})`}>
+                                      {divBankStr} {divAcctStr} ({divHolderStr})
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-center text-indigo-400 text-xs">
+                                    -
+                                  </td>
+                                </tr>
+
+                                {/* 사업단 소속 본부 행들 (접히지 않았을 때) */}
+                                {!isCollapsed && group.stats.map(stat => {
+                                  const globalIdx = filteredAndSortedStats.findIndex(s => s.hqName === stat.hqName);
+                                  return renderHqRow(stat, globalIdx >= 0 ? globalIdx : 0, true);
+                                })}
+                              </React.Fragment>
+                            );
+                          })}
+
+                          {/* 사업단 미소속 독립 본부 행들 */}
+                          {groupedDivisionData.independentStats.length > 0 && (
+                            <React.Fragment>
+                              <tr className="bg-slate-200/90 text-slate-800 font-bold border-y border-slate-300 whitespace-nowrap">
+                                <td colSpan={15} className="px-4 py-2 text-left">
+                                  <div className="flex items-center gap-2">
+                                    <Building2 size={14} className="text-slate-600" />
+                                    <span className="text-xs">🏢 독립 본부 (사업단 미소속) - {groupedDivisionData.independentStats.length}개 본부</span>
+                                  </div>
+                                </td>
+                              </tr>
+                              {groupedDivisionData.independentStats.map(stat => {
+                                const globalIdx = filteredAndSortedStats.findIndex(s => s.hqName === stat.hqName);
+                                return renderHqRow(stat, globalIdx >= 0 ? globalIdx : 0, false);
+                              })}
+                            </React.Fragment>
+                          )}
+                        </>
+                      );
+                    }
+
+                    // 2. 사업단별 묶기가 꺼져 있을 때: 기본 플랫 렌더링
+                    return filteredAndSortedStats.map((stat, idx) => renderHqRow(stat, idx, false));
+                  })()}
                 </tbody>
                 {filteredAndSortedStats.length > 0 && (
                   <tfoot className="bg-slate-100/90 font-black text-slate-900 border-t-2 border-slate-300">
