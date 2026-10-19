@@ -19,6 +19,7 @@ export interface SupplierProductSetting {
   id: string;
   productKeyword: string; // 매칭 키워드 (렌탈상품명 등에 포함된 단어)
   productName: string;    // 공식 표시 제품명
+  enexPrice?: number;     // 에넥스 입금가 (건당 수납액, VAT 포함)
   supplyPrice: number;    // 공급 단가 (VAT 포함)
   supplyCommission: number; // 보조 기본 수수료 (전체본부 설정 시 호환)
   hqCommissions?: HqCommissionSetting[]; // 지급 대상 본부 및 수수료 설정 (선택한 곳만 지급)
@@ -253,7 +254,8 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
   const [copyOptions, setCopyOptions] = useState({
     copyCommissions: true,  // 본부별 수수료 목록 복사
     copyRecipient: true,    // 수수료 수령처 및 계좌정보 복사
-    copySupplyPrice: false  // 공급 단가 복사 (선택 사항)
+    copySupplyPrice: false, // 공급 단가 복사 (선택 사항)
+    copyEnexPrice: false    // 에넥스 입금가 복사 (선택 사항)
   });
 
   // 선택 가능한 모든 본부 후보 (availableHqs + 커스텀 추가 + 기존 등록)
@@ -757,6 +759,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
         : `prod-${Date.now()}`,
       productKeyword: prodKeyword,
       productName: productForm.productName?.trim() || prodKeyword,
+      enexPrice: Number(productForm.enexPrice) || 0,
       supplyPrice: Number(productForm.supplyPrice) || 0,
       supplyCommission: defaultComm,
       hqCommissions: productForm.hqCommissions || [],
@@ -821,7 +824,8 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     setCopyOptions({
       copyCommissions: true,
       copyRecipient: true,
-      copySupplyPrice: false
+      copySupplyPrice: false,
+      copyEnexPrice: false
     });
     setIsBatchCopyModalOpen(true);
   };
@@ -865,7 +869,8 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
       `• 복사 내용: ` +
       (copyOptions.copyCommissions ? `[본부별 수수료 ${(sourceProductForCopy.hqCommissions || []).length}개 본부 설정] ` : '') +
       (copyOptions.copyRecipient ? `[수령처: ${sourceProductForCopy.commissionRecipient || activeSupplier.name}] ` : '') +
-      (copyOptions.copySupplyPrice ? `[공급단가: ${(sourceProductForCopy.supplyPrice || 0).toLocaleString()}원]` : '');
+      (copyOptions.copySupplyPrice ? `[공급단가: ${(sourceProductForCopy.supplyPrice || 0).toLocaleString()}원] ` : '') +
+      (copyOptions.copyEnexPrice ? `[에넥스입금가: ${(sourceProductForCopy.enexPrice || 0).toLocaleString()}원]` : '');
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -899,6 +904,11 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
       // 공급단가 복사 (선택 시)
       if (copyOptions.copySupplyPrice) {
         updated.supplyPrice = sourceProductForCopy.supplyPrice;
+      }
+
+      // 에넥스 입금가 복사 (선택 시)
+      if (copyOptions.copyEnexPrice) {
+        updated.enexPrice = sourceProductForCopy.enexPrice;
       }
 
       return updated;
@@ -1351,6 +1361,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                         setProductForm({
                           productKeyword: '',
                           productName: '',
+                          enexPrice: 0,
                           supplyPrice: 0,
                           supplyCommission: 0,
                           hqCommissions: [],
@@ -1397,6 +1408,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                         <tr className="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold whitespace-nowrap">
                           <th className="p-3">매칭 제품명 (키워드)</th>
                           <th className="p-3">공식 표시 제품명</th>
+                          <th className="p-3 text-right text-emerald-800">에넥스 입금가 (VAT포함)</th>
                           <th className="p-3 text-right">공급 단가 (VAT포함)</th>
                           <th className="p-3 text-right">공급 수수료 (단가, VAT포함)</th>
                           <th className="p-3">수수료 수령처/계좌</th>
@@ -1406,7 +1418,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                       <tbody className="divide-y divide-slate-100">
                         {(!activeSupplier.products || activeSupplier.products.length === 0) ? (
                           <tr>
-                            <td colSpan={6} className="py-10 text-center text-slate-400 whitespace-nowrap">
+                            <td colSpan={7} className="py-10 text-center text-slate-400 whitespace-nowrap">
                               등록된 취급 제품이 없습니다. 우측 상단 [+ 제품 추가] 버튼을 눌러 정확한 제품명을 선택하여 등록하세요.
                             </td>
                           </tr>
@@ -1422,6 +1434,13 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                                 </td>
                                 <td className="p-3 font-bold text-slate-800">
                                   {p.productName}
+                                </td>
+                                <td className="p-3 text-right font-mono font-bold text-emerald-700 text-sm">
+                                  {p.enexPrice ? (
+                                    `${p.enexPrice.toLocaleString()}원`
+                                  ) : (
+                                    <span className="text-slate-300 font-normal text-xs">-</span>
+                                  )}
                                 </td>
                                 <td className="p-3 text-right font-mono font-bold text-slate-900 text-sm">
                                   {(p.supplyPrice || 0).toLocaleString()}원
@@ -1672,6 +1691,32 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                       onChange={(e) => setProductForm({ ...productForm, productName: e.target.value })}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-none"
                     />
+                  </div>
+
+                  {/* [NEW] 에넥스 입금가 (건당 수납 단가) 입력 */}
+                  <div className="p-3.5 bg-emerald-50/70 rounded-xl border border-emerald-200 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold text-emerald-950 flex items-center gap-1.5 text-xs">
+                        <DollarSign size={14} className="text-emerald-600" />
+                        <span>에넥스 입금가 (건당 거래처 수납단가, VAT포함)</span>
+                      </label>
+                      <span className="text-[11px] text-emerald-700 font-bold bg-white px-2 py-0.5 rounded border border-emerald-200">
+                        월말보고서 [E] 자동 연동
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={productForm.enexPrice || ''}
+                        onChange={(e) => setProductForm({ ...productForm, enexPrice: Number(e.target.value) })}
+                        className="w-full px-3 py-2.5 bg-white border border-emerald-300 rounded-xl font-black font-mono text-base text-emerald-900 focus:ring-2 focus:ring-emerald-400 outline-none text-right pr-9"
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-emerald-600 font-bold text-sm">원</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      * 에넥스(거래처)에서 수납 입금되는 제품 1건당 기준 입금가입니다. 설정해두면 월말보고서에 자동 반영됩니다.
+                    </p>
                   </div>
 
                   {/* 공급 단가 (원가) 입력 */}
@@ -1958,6 +2003,15 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                           className="w-4 h-4 text-purple-600 rounded cursor-pointer accent-purple-600"
                         />
                         <span>공급 단가도 함께 복사</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer font-semibold text-emerald-800">
+                        <input
+                          type="checkbox"
+                          checked={copyOptions.copyEnexPrice}
+                          onChange={(e) => setCopyOptions({ ...copyOptions, copyEnexPrice: e.target.checked })}
+                          className="w-4 h-4 text-emerald-600 rounded cursor-pointer accent-emerald-600"
+                        />
+                        <span>에넥스 입금가도 함께 복사</span>
                       </label>
                     </div>
                   </div>

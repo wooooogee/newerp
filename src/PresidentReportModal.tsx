@@ -12,7 +12,8 @@ import {
   Building,
   Edit3,
   Layers,
-  ChevronDown
+  ChevronDown,
+  RefreshCw
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -800,101 +801,213 @@ export function PresidentReportModal({
     // -----------------------------------------------------------------
     // 5. 공급사 관리 데이터 연동 (4번 총괄 및 5번 세부)
     // -----------------------------------------------------------------
-    // 발주관리/공급사 마스터(erp_suppliers_master_v3) 조회 및 제품별 공급단가 연동
-    const initialSupplierSummary: typeof supplierSummaryList = [
-      {
-        id: 'supp-sum-1',
-        supplierName: '바디프랜드',
-        count: 18,
-        depositPrice: 0, // 에넥스 총 입금액: 초기값 공란(직접 입력)
-        supplyPrice: 20700000,
-        supplyCommission: 3060000,
-        unitMargin: 0,
-        settlementCondition: '당월 말일 결제 (확인서 등록건)'
-      },
-      {
-        id: 'supp-sum-2',
-        supplierName: '(주)리치웰',
-        count: 14,
-        depositPrice: 0, // 에넥스 총 입금액: 초기값 공란(직접 입력)
-        supplyPrice: 21050000,
-        supplyCommission: 2790000,
-        unitMargin: 0,
-        settlementCondition: '익월 말일 세금계산서 발행 지급'
-      }
-    ];
-    setSupplierSummaryList(initialSupplierSummary);
+    // -----------------------------------------------------------------
+    // 5. 공급사 관리 데이터 연동 (4번 총괄 및 5번 세부)
+    // -----------------------------------------------------------------
+    // 발주관리/공급사 마스터(erp_suppliers_master_v3) 조회 및 제품별 에넥스 입금가 & 공급단가 연동
+    let masterSuppliers: any[] = [];
+    try {
+      const savedSupp = localStorage.getItem('erp_suppliers_master_v3');
+      if (savedSupp) masterSuppliers = JSON.parse(savedSupp);
+    } catch (e) {}
 
-    // 5번: 공급사 제품별 세부 정산 내역 (건당 에넥스입금은 공란 0원, 제품별 공급단가는 자동 연동)
+    // 공급사 마스터에 등록된 제품별 enexPrice, supplyPrice 맵 구축
+    const suppProdMap = new Map<string, { enexPrice: number; supplyPrice: number; commission: number; supplierName: string }>();
+    if (Array.isArray(masterSuppliers)) {
+      masterSuppliers.forEach((s: any) => {
+        (s.products || []).forEach((p: any) => {
+          const info = {
+            enexPrice: Number(p.enexPrice) || 0,
+            supplyPrice: Number(p.supplyPrice) || 0,
+            commission: Number(p.supplyCommission) || 0,
+            supplierName: s.name || ''
+          };
+          if (p.productName) suppProdMap.set(p.productName.trim(), info);
+          if (p.productKeyword) suppProdMap.set(p.productKeyword.trim(), info);
+        });
+      });
+    }
+
+    const findMasterPrice = (prodName: string, defaultSupply: number, defaultDeposit: number = 0) => {
+      let matchedEnex = defaultDeposit;
+      let matchedSupply = defaultSupply;
+      for (const [key, val] of suppProdMap.entries()) {
+        if (prodName.includes(key) || key.includes(prodName)) {
+          if (val.enexPrice > 0) matchedEnex = val.enexPrice;
+          if (val.supplyPrice > 0) matchedSupply = val.supplyPrice;
+          break;
+        }
+      }
+      return { enexPrice: matchedEnex, supplyPrice: matchedSupply };
+    };
+
+    // 5번 기본 품목에 공급사 설정값 우선 적용
+    const p1 = findMasterPrice('팔콘 안마의자', 1150000, 0);
+    const p2 = findMasterPrice('팬텀 로보 안마의자', 1533333, 0);
+    const p3 = findMasterPrice('리클라이너 소파 4인', 1531250, 0);
+    const p4 = findMasterPrice('프리미엄 호텔 침대', 1466667, 0);
+
     const initialProductDetail: typeof supplierProductDetailList = [
       {
         id: 'sp-1',
         supplierName: '바디프랜드',
         prodName: '팔콘 안마의자',
         count: 12,
-        unitDeposit: 0, // 건당 에넥스 입금단가: 초기값 공란(직접 입력)
-        unitSupplyPrice: 1150000, // 공급단가
+        unitDeposit: p1.enexPrice, // 공급사 관리 에넥스입금가 우선 연동 (없으면 0 공란)
+        unitSupplyPrice: p1.supplyPrice, // 공급사 관리 공급단가 연동
         unitCommission: 170000,
-        unitMargin: 0,
-        totalSupplyPrice: 12 * 1150000, // 13,800,000
-        totalMargin: 0,
-        note: '설치확인서 등록 12건'
+        unitMargin: p1.enexPrice > 0 ? p1.enexPrice - p1.supplyPrice - 170000 : 0,
+        totalSupplyPrice: 12 * p1.supplyPrice,
+        totalMargin: p1.enexPrice > 0 ? 12 * (p1.enexPrice - p1.supplyPrice - 170000) : 0,
+        note: p1.enexPrice > 0 ? '공급사관리 입금가 연동' : '설치확인서 등록 12건'
       },
       {
         id: 'sp-2',
         supplierName: '바디프랜드',
         prodName: '팬텀 로보 안마의자',
         count: 6,
-        unitDeposit: 0, // 건당 에넥스 입금단가: 초기값 공란(직접 입력)
-        unitSupplyPrice: 1533333, // 공급단가
+        unitDeposit: p2.enexPrice,
+        unitSupplyPrice: p2.supplyPrice,
         unitCommission: 200000,
-        unitMargin: 0,
-        totalSupplyPrice: 6 * 1533333, // 9,200,000
-        totalMargin: 0,
-        note: '프리미엄 라인'
+        unitMargin: p2.enexPrice > 0 ? p2.enexPrice - p2.supplyPrice - 200000 : 0,
+        totalSupplyPrice: 6 * p2.supplyPrice,
+        totalMargin: p2.enexPrice > 0 ? 6 * (p2.enexPrice - p2.supplyPrice - 200000) : 0,
+        note: p2.enexPrice > 0 ? '공급사관리 입금가 연동' : '프리미엄 라인'
       },
       {
         id: 'sp-3',
         supplierName: '(주)리치웰',
         prodName: '리클라이너 소파 4인',
         count: 8,
-        unitDeposit: 0, // 건당 에넥스 입금단가: 초기값 공란(직접 입력)
-        unitSupplyPrice: 1531250, // 공급단가
+        unitDeposit: p3.enexPrice,
+        unitSupplyPrice: p3.supplyPrice,
         unitCommission: 206250,
-        unitMargin: 0,
-        totalSupplyPrice: 8 * 1531250, // 12,250,000
-        totalMargin: 0,
-        note: '익월 말일 지급'
+        unitMargin: p3.enexPrice > 0 ? p3.enexPrice - p3.supplyPrice - 206250 : 0,
+        totalSupplyPrice: 8 * p3.supplyPrice,
+        totalMargin: p3.enexPrice > 0 ? 8 * (p3.enexPrice - p3.supplyPrice - 206250) : 0,
+        note: p3.enexPrice > 0 ? '공급사관리 입금가 연동' : '익월 말일 지급'
       },
       {
         id: 'sp-4',
         supplierName: '(주)리치웰',
         prodName: '프리미엄 호텔 침대',
         count: 6,
-        unitDeposit: 0, // 건당 에넥스 입금단가: 초기값 공란(직접 입력)
-        unitSupplyPrice: 1466667, // 공급단가
+        unitDeposit: p4.enexPrice,
+        unitSupplyPrice: p4.supplyPrice,
         unitCommission: 190000,
-        unitMargin: 0,
-        totalSupplyPrice: 6 * 1466667, // 8,800,000
-        totalMargin: 0,
-        note: '매트리스 결합'
+        unitMargin: p4.enexPrice > 0 ? p4.enexPrice - p4.supplyPrice - 190000 : 0,
+        totalSupplyPrice: 6 * p4.supplyPrice,
+        totalMargin: p4.enexPrice > 0 ? 6 * (p4.enexPrice - p4.supplyPrice - 190000) : 0,
+        note: p4.enexPrice > 0 ? '공급사관리 입금가 연동' : '매트리스 결합'
       }
     ];
+
+    // 사용자가 공급사 관리에 추가한 다른 제품들(가스트로플러스 등)도 목록에 반영
+    if (Array.isArray(masterSuppliers)) {
+      let addIdx = 10;
+      masterSuppliers.forEach((supp: any) => {
+        if (!supp.isActive && supp.isActive !== undefined) return;
+        (supp.products || []).forEach((prod: any) => {
+          const pName = prod.productName || prod.productKeyword;
+          const exists = initialProductDetail.some(it => it.prodName.includes(pName) || pName.includes(it.prodName));
+          if (!exists) {
+            const enex = Number(prod.enexPrice) || 0;
+            const supply = Number(prod.supplyPrice) || 0;
+            const comm = Number(prod.supplyCommission) || 0;
+            const cnt = 1;
+            const margin = enex > 0 ? enex - supply - comm : 0;
+            initialProductDetail.push({
+              id: `sp-dyn-${addIdx++}`,
+              supplierName: supp.name || '공급사',
+              prodName: pName,
+              count: cnt,
+              unitDeposit: enex,
+              unitSupplyPrice: supply,
+              unitCommission: comm,
+              unitMargin: margin,
+              totalSupplyPrice: cnt * supply,
+              totalMargin: cnt * margin,
+              note: enex > 0 ? '공급사관리 입금가 연동' : '공급사관리 등록 제품'
+            });
+          }
+        });
+      });
+    }
+
     setSupplierProductDetailList(initialProductDetail);
+
+    // 4번: 공급사 정산관리 총괄 요약 (5번 제품들의 에넥스 입금가 및 공급가액 합계 자동 연동)
+    const bodyfriendProds = initialProductDetail.filter(p => p.supplierName.includes('바디프랜드'));
+    const bfDeposit = bodyfriendProds.reduce((s, r) => s + (r.unitDeposit * r.count), 0);
+    const bfSupply = bodyfriendProds.reduce((s, r) => s + r.totalSupplyPrice, 0);
+    const bfComm = bodyfriendProds.reduce((s, r) => s + (r.unitCommission * r.count), 0);
+
+    const richProds = initialProductDetail.filter(p => p.supplierName.includes('리치웰'));
+    const richDeposit = richProds.reduce((s, r) => s + (r.unitDeposit * r.count), 0);
+    const richSupply = richProds.reduce((s, r) => s + r.totalSupplyPrice, 0);
+    const richComm = richProds.reduce((s, r) => s + (r.unitCommission * r.count), 0);
+
+    const initialSupplierSummary: typeof supplierSummaryList = [
+      {
+        id: 'supp-sum-1',
+        supplierName: '바디프랜드',
+        count: bodyfriendProds.reduce((s, r) => s + r.count, 0) || 18,
+        depositPrice: bfDeposit,
+        supplyPrice: bfSupply || 20700000,
+        supplyCommission: bfComm || 3060000,
+        unitMargin: bfDeposit > 0 ? bfDeposit - bfSupply - bfComm : 0,
+        settlementCondition: '당월 말일 결제 (확인서 등록건)'
+      },
+      {
+        id: 'supp-sum-2',
+        supplierName: '(주)리치웰',
+        count: richProds.reduce((s, r) => s + r.count, 0) || 14,
+        depositPrice: richDeposit,
+        supplyPrice: richSupply || 21050000,
+        supplyCommission: richComm || 2790000,
+        unitMargin: richDeposit > 0 ? richDeposit - richSupply - richComm : 0,
+        settlementCondition: '익월 말일 세금계산서 발행 지급'
+      }
+    ];
+
+    // 기타 공급사 추가
+    const otherSuppliers = Array.from(new Set(
+      initialProductDetail
+        .map(p => p.supplierName)
+        .filter(name => !name.includes('바디프랜드') && !name.includes('리치웰'))
+    ));
+    otherSuppliers.forEach((sName, sIdx) => {
+      const prods = initialProductDetail.filter(p => p.supplierName === sName);
+      const dep = prods.reduce((s, r) => s + (r.unitDeposit * r.count), 0);
+      const sup = prods.reduce((s, r) => s + r.totalSupplyPrice, 0);
+      const comm = prods.reduce((s, r) => s + (r.unitCommission * r.count), 0);
+      initialSupplierSummary.push({
+        id: `supp-sum-dyn-${sIdx}`,
+        supplierName: sName,
+        count: prods.reduce((s, r) => s + r.count, 0),
+        depositPrice: dep,
+        supplyPrice: sup,
+        supplyCommission: comm,
+        unitMargin: dep > 0 ? dep - sup - comm : 0,
+        settlementCondition: '공급사 계약조건 준수'
+      });
+    });
+
+    setSupplierSummaryList(initialSupplierSummary);
 
     // -----------------------------------------------------------------
     // 6. 1번 핵심 손익 지표 계산 및 연동
-    //    - 에넥스 입금액 [A]와 [E]는 초기값 0 (공란)
+    //    - 에넥스 입금액 [A]는 초기값 0 (직접 입력)
+    //    - 에넥스 공급가 입금액 [E]는 공급사 관리에서 설정된 에넥스 총 입금액 반영 (없으면 0)
     //    - [B]는 2번 표 총합, [C]는 3번 표 총합, [F]는 4번 표 총합 자동 연동
     // -----------------------------------------------------------------
     const b_sales = initialHqProductList.reduce((acc, cur) => acc + cur.totalCommission, 0);
     const c_special = initialSpecialList.reduce((acc, cur) => acc + cur.amount, 0);
     const f_rich_sup = initialSupplierSummary.reduce((acc, cur) => acc + cur.supplyPrice, 0);
-    const g_rich_comm = 5850000;
+    const g_rich_comm = initialSupplierSummary.reduce((acc, cur) => acc + cur.supplyCommission, 0) || 5850000;
 
-    // A와 E는 사용자가 직접 입력하도록 초기값 0
     const a_enex = 0;
-    const e_rich_dep = 0;
+    const e_rich_dep = initialSupplierSummary.reduce((acc, cur) => acc + cur.depositPrice, 0);
     const d_operating = a_enex > 0 ? a_enex - b_sales - c_special : 0;
     const h_supp_profit = e_rich_dep > 0 ? e_rich_dep - f_rich_sup - g_rich_comm : 0;
     const i_final = d_operating + h_supp_profit;
@@ -956,6 +1069,98 @@ export function PresidentReportModal({
       const h = prev.e_richwelfareDeposit > 0 ? prev.e_richwelfareDeposit - prev.f_richwelfareSupplyPrice - val : 0;
       return { ...prev, g_supplyCommission: val, h_supplyProfit: h, i_finalNetProfit: prev.d_operatingProfit + h };
     });
+  };
+
+  // 공급사 관리(erp_suppliers_master_v3)에서 최신 에넥스 입금가 및 공급단가 즉시 동기화
+  const handleSyncSupplierPrices = () => {
+    try {
+      const saved = localStorage.getItem('erp_suppliers_master_v3');
+      if (!saved) {
+        alert('공급사 관리에 등록된 설정 데이터가 없습니다.');
+        return;
+      }
+      const suppliers = JSON.parse(saved);
+      if (!Array.isArray(suppliers) || suppliers.length === 0) {
+        alert('공급사 관리에 등록된 제품 설정이 없습니다.');
+        return;
+      }
+
+      const priceMap = new Map<string, { enexPrice: number; supplyPrice: number; commission: number; supplierName: string }>();
+      suppliers.forEach((s: any) => {
+        (s.products || []).forEach((p: any) => {
+          const info = {
+            enexPrice: Number(p.enexPrice) || 0,
+            supplyPrice: Number(p.supplyPrice) || 0,
+            commission: Number(p.supplyCommission) || 0,
+            supplierName: s.name || ''
+          };
+          if (p.productName) priceMap.set(p.productName.trim(), info);
+          if (p.productKeyword) priceMap.set(p.productKeyword.trim(), info);
+        });
+      });
+
+      let updatedCount = 0;
+      const nextDetail = supplierProductDetailList.map(item => {
+        let matched: any = null;
+        for (const [key, val] of priceMap.entries()) {
+          if (item.prodName.includes(key) || key.includes(item.prodName)) {
+            matched = val;
+            break;
+          }
+        }
+        if (matched) {
+          updatedCount++;
+          const newDep = matched.enexPrice > 0 ? matched.enexPrice : item.unitDeposit;
+          const newSup = matched.supplyPrice > 0 ? matched.supplyPrice : item.unitSupplyPrice;
+          const newComm = matched.commission > 0 ? matched.commission : item.unitCommission;
+          const newMargin = newDep > 0 ? newDep - newSup - newComm : 0;
+          return {
+            ...item,
+            unitDeposit: newDep,
+            unitSupplyPrice: newSup,
+            unitCommission: newComm,
+            totalSupplyPrice: item.count * newSup,
+            unitMargin: newMargin,
+            totalMargin: item.count * newMargin,
+            note: matched.enexPrice > 0 ? '공급사관리 입금가 연동됨' : item.note
+          };
+        }
+        return item;
+      });
+
+      setSupplierProductDetailList(nextDetail);
+
+      // 4번 공급사 총괄 요약도 동기화
+      const nextSummary = supplierSummaryList.map(sum => {
+        const related = nextDetail.filter(d => d.supplierName === sum.supplierName);
+        if (related.length > 0) {
+          const sumDep = related.reduce((s, r) => s + (r.unitDeposit * r.count), 0);
+          const sumSup = related.reduce((s, r) => s + r.totalSupplyPrice, 0);
+          const sumComm = related.reduce((s, r) => s + (r.unitCommission * r.count), 0);
+          return {
+            ...sum,
+            count: related.reduce((s, r) => s + r.count, 0),
+            depositPrice: sumDep,
+            supplyPrice: sumSup,
+            supplyCommission: sumComm,
+            unitMargin: sumDep > 0 ? sumDep - sumSup - sumComm : 0
+          };
+        }
+        return sum;
+      });
+      setSupplierSummaryList(nextSummary);
+
+      // 1번 핵심 손익 [E], [F] 동기화
+      const totalDep = nextSummary.reduce((s, r) => s + r.depositPrice, 0);
+      const totalSup = nextSummary.reduce((s, r) => s + r.supplyPrice, 0);
+      handleUpdateE(totalDep);
+      handleUpdateF(totalSup);
+
+      alert(`공급사 관리에서 ${updatedCount}개 제품의 에넥스 입금가 및 공급단가를 동기화했습니다.`);
+    } catch (e: any) {
+      console.error(e);
+      alert('동기화 실패: ' + (e.message || ''));
+    }
   };
 
   // 본부별/상품별 그룹핑 계산 (본부별 소계)
@@ -1925,17 +2130,27 @@ export function PresidentReportModal({
                       <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
                         5. 공급사 제품별 세부 정산 내역 (제품별 에넥스 입금액 및 제품별 공급단가)
                       </h4>
-                      <button
-                        onClick={() => {
-                          setSupplierProductDetailList(prev => [
-                            ...prev,
-                            { id: `sp-${Date.now()}`, supplierName: '공급사', prodName: '취급제품명', count: 1, unitDeposit: 0, unitSupplyPrice: 1150000, unitCommission: 170000, unitMargin: 0, totalSupplyPrice: 1150000, totalMargin: 0, note: '-' }
-                          ]);
-                        }}
-                        className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 print:hidden border border-blue-200 px-2 py-0.5 rounded bg-blue-50 cursor-pointer"
-                      >
-                        <Plus size={10} /> 행 추가
-                      </button>
+                      <div className="flex items-center gap-1.5 print:hidden">
+                        <button
+                          onClick={handleSyncSupplierPrices}
+                          title="공급사 관리에서 설정된 최신 에넥스 입금가 및 공급단가를 다시 불러와 적용합니다."
+                          className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 border border-emerald-300 px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 cursor-pointer shadow-2xs transition-colors"
+                        >
+                          <RefreshCw size={10} className="text-emerald-600" />
+                          <span>공급사 설정 동기화</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSupplierProductDetailList(prev => [
+                              ...prev,
+                              { id: `sp-${Date.now()}`, supplierName: '공급사', prodName: '취급제품명', count: 1, unitDeposit: 0, unitSupplyPrice: 1150000, unitCommission: 170000, unitMargin: 0, totalSupplyPrice: 1150000, totalMargin: 0, note: '-' }
+                            ]);
+                          }}
+                          className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 border border-blue-200 px-2 py-0.5 rounded bg-blue-50 cursor-pointer"
+                        >
+                          <Plus size={10} /> 행 추가
+                        </button>
+                      </div>
                     </div>
 
                     <table className="w-full text-left border-collapse border border-slate-400 text-xs table-fixed">
