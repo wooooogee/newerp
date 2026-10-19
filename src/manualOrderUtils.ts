@@ -145,6 +145,8 @@ export function getNextMonthStr(yearMonth: string): string {
  */
 export function isSupplyCommissionRule(rule: any): boolean {
   if (!rule) return false;
+  // 수수료일자 기준(PAY_DATE)인 규칙은 수기발주 마감월 익월 전환을 강제하지 않고 실제 수수료일자 매칭을 따름
+  if (rule.baseDateType === 'PAY_DATE') return false;
   if (rule.baseDateType === 'DELIVERY') return true;
   if (!rule.targetName || rule.targetName.trim() === '' || rule.targetName === 'SELF_HQ' || rule.targetName === '판매본부' || rule.targetName === '해당본부' || rule.targetName === '본부') return true;
   if (rule.incentiveName && rule.incentiveName.includes('공급수수료')) return true;

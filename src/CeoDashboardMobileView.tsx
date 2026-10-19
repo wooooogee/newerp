@@ -635,7 +635,13 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
             let isMatchedDate = false;
             const pDate = String(item.payDate || '').trim();
 
-            if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
+            if (rule.baseDateType === 'PAY_DATE') {
+              if (pDate && pDate !== '-' && !pDate.includes('미지정') && !pDate.includes('미입금')) {
+                const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
+                const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
+                isMatchedDate = (itemPayMonth === selectedMonth);
+              }
+            } else if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
               isMatchedDate = certEligibility.expectedPayoutMonth === selectedMonth;
             } else {
               if (pDate && pDate !== '-' && !pDate.includes('미지정') && !pDate.includes('미입금')) {

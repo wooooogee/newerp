@@ -171,7 +171,7 @@ export interface GlobalIncentiveRule {
   targetDivisions?: string[];
   targetProducts: string[];
   targetItems?: string[];
-  baseDateType: 'CONTRACT' | 'DELIVERY';
+  baseDateType: 'CONTRACT' | 'DELIVERY' | 'PAY_DATE';
   commissionPerUnit: number;
   minimumGuarantee: number;
   useInstallments?: boolean;
@@ -1713,7 +1713,7 @@ const ERP_Dashboard = () => {
   const loadSettingsFromCloud = async () => {
     if (!isAuthenticated) return;
     try {
-      const res = await fetch('/api/sheets/settings/load');
+      const res = await fetch('/api/sheets/settings/load?t=' + Date.now());
       const data = await res.json();
       if (data.settings) {
         const sanitizedSettings = data.settings.map((hq: any) => ({
@@ -1725,6 +1725,9 @@ const ERP_Dashboard = () => {
           }))
         }));
         setHqSettings(sanitizedSettings);
+        hqSettingsRef.current = sanitizedSettings;
+
+        // 사업단(Division) 설정: 클라우드 데이터가 절대적 최우선 원본 (Source of Truth)
         const savedDivsStr = localStorage.getItem("erp_division_settings") || localStorage.getItem("erp_division_settings_bak");
         let localDivs: DivisionSetting[] = [];
         if (savedDivsStr) {
@@ -1734,28 +1737,23 @@ const ERP_Dashboard = () => {
           } catch (e) {}
         }
 
-        let effectiveDivisions = data.divisions;
-        if (!effectiveDivisions || !Array.isArray(effectiveDivisions) || effectiveDivisions.length === 0) {
-          effectiveDivisions = localDivs;
-        } else if (localDivs.length > 0) {
-          if (localDivs.length >= effectiveDivisions.length) {
-            const cloudMap = new Map(effectiveDivisions.map((cd: any) => [cd.id, cd]));
-            effectiveDivisions = localDivs.map(ld => {
-              const matched = cloudMap.get(ld.id);
-              if (matched) {
-                return {
-                  ...matched,
-                  ...ld,
-                  name: ld.name || matched.name,
-                  hqNames: Array.isArray(ld.hqNames) && ld.hqNames.length > 0 ? ld.hqNames : (matched.hqNames || [])
-                };
-              }
-              return ld;
-            });
+        let effectiveDivisions: DivisionSetting[] = [];
+        if (data.divisions && Array.isArray(data.divisions) && data.divisions.length > 0) {
+          // 클라우드 설정을 그대로 채택 (다른 PC에서 저장한 신동우 사업단 등 최신 데이터 온전히 보존)
+          effectiveDivisions = data.divisions;
+          // 클라우드에 아직 없는 신규 로컬 사업단이 있을 때만 추가
+          if (localDivs.length > 0) {
+            const cloudIds = new Set(effectiveDivisions.map((cd: any) => cd.id));
+            const newLocalOnly = localDivs.filter(ld => ld.id && !cloudIds.has(ld.id));
+            if (newLocalOnly.length > 0) {
+              effectiveDivisions = [...effectiveDivisions, ...newLocalOnly];
+            }
           }
+        } else if (localDivs.length > 0) {
+          effectiveDivisions = localDivs;
         }
 
-        if (effectiveDivisions && Array.isArray(effectiveDivisions) && effectiveDivisions.length > 0) {
+        if (effectiveDivisions && effectiveDivisions.length > 0) {
           const seenHqs = new Set<string>();
           const sanitizedDivisions = effectiveDivisions.map((d: any) => {
             let hqs = Array.isArray(d.hqNames) ? [...d.hqNames] : [];
@@ -1785,28 +1783,12 @@ const ERP_Dashboard = () => {
           localStorage.setItem("erp_division_settings_bak", JSON.stringify(finalDivisions));
           divisionSettingsRef.current = finalDivisions;
         }
-        if (data.globalIncentives && Array.isArray(data.globalIncentives) && data.globalIncentives.length > 0) {
-          let localIncMap = new Map();
-          try {
-            const savedIncStr = localStorage.getItem("erp_global_incentives") || localStorage.getItem("erp_global_incentives_bak");
-            if (savedIncStr) {
-              const parsedInc = JSON.parse(savedIncStr);
-              if (Array.isArray(parsedInc)) {
-                parsedInc.forEach((r: any) => { if (r?.id) localIncMap.set(r.id, r); });
-              }
-            }
-          } catch (e) {}
 
+        // 특수 수당(글로벌 인센티브) 규칙: 클라우드 설정 최우선 적용
+        if (data.globalIncentives && Array.isArray(data.globalIncentives) && data.globalIncentives.length > 0) {
           const sanitizedInc = data.globalIncentives.map((r: any) => {
-            const localR = localIncMap.get(r.id);
             let targetDivs = Array.isArray(r.targetDivisions) ? r.targetDivisions : [];
-            if (targetDivs.length === 0 && localR && Array.isArray(localR.targetDivisions) && localR.targetDivisions.length > 0) {
-              targetDivs = localR.targetDivisions;
-            }
             let targetHqs = Array.isArray(r.targetHqs) ? r.targetHqs : (r.targetHq ? [r.targetHq] : []);
-            if ((!targetHqs || targetHqs.length === 0 || targetHqs.includes("ALL")) && localR && Array.isArray(localR.targetHqs) && localR.targetHqs.length > 0 && !localR.targetHqs.includes("ALL")) {
-              targetHqs = localR.targetHqs;
-            }
             if (!targetHqs || targetHqs.length === 0) {
               targetHqs = targetDivs.length > 0 ? [] : ["ALL"];
             }
@@ -1815,12 +1797,16 @@ const ERP_Dashboard = () => {
               ...r,
               targetHqs,
               targetDivisions: targetDivs,
-              payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : (localR?.payDay ?? 0),
-              commissionPerUnit: Number(r.commissionPerUnit || localR?.commissionPerUnit || 0),
-              minimumGuarantee: Number(r.minimumGuarantee || localR?.minimumGuarantee || 0)
+              targetProducts: Array.isArray(r.targetProducts) && r.targetProducts.length > 0 ? r.targetProducts : ['ALL'],
+              targetItems: Array.isArray(r.targetItems) && r.targetItems.length > 0 ? r.targetItems : ['ALL'],
+              baseDateType: (r.baseDateType as any) || 'DELIVERY',
+              payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
+              commissionPerUnit: Number(r.commissionPerUnit || 0),
+              minimumGuarantee: Number(r.minimumGuarantee || 0)
             };
           });
           setGlobalIncentiveRules(sanitizedInc);
+          globalIncentiveRulesRef.current = sanitizedInc;
           try {
             localStorage.setItem("erp_global_incentives", JSON.stringify(sanitizedInc));
             localStorage.setItem("erp_global_incentives_bak", JSON.stringify(sanitizedInc));
@@ -1830,7 +1816,10 @@ const ERP_Dashboard = () => {
           if (savedInc) {
             try {
               const parsed = JSON.parse(savedInc);
-              if (Array.isArray(parsed) && parsed.length > 0) setGlobalIncentiveRules(parsed);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setGlobalIncentiveRules(parsed);
+                globalIncentiveRulesRef.current = parsed;
+              }
             } catch (e) {}
           }
         }
@@ -4094,8 +4083,18 @@ const ERP_Dashboard = () => {
           const normDisplay = cleanDisplay.length === 6 ? '20' + cleanDisplay : cleanDisplay;
           const normFilter = filterClean.length === 6 ? '20' + filterClean : filterClean;
 
-          // 설치확인서 마감월이 존재하는 수기발주 대상 건인 경우: 마감월의 익월 25일 지급 규칙 최우선 적용
-          if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
+          if (rule.baseDateType === 'PAY_DATE') {
+            // [실적 인정 기준일: 수수료일자 기준 (지급월 당월 지급)]
+            if (payDateFilter && payDateFilter !== 'ALL') {
+              if (normDisplay && normDisplay !== '지급일미지정' && normDisplay !== '-' && !normDisplay.includes('미입금')) {
+                const targetYM = normFilter.length >= 6 ? normFilter.substring(0, 6) : '';
+                const itemYM = normDisplay.length >= 6 ? normDisplay.substring(0, 6) : '';
+                isMatchedDate = Boolean(targetYM && itemYM === targetYM);
+              }
+            } else {
+              isMatchedDate = !!(normDisplay && normDisplay !== '지급일미지정' && normDisplay !== '-' && !normDisplay.includes('미입금'));
+            }
+          } else if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
             if (payDateFilter && payDateFilter !== 'ALL') {
               const filterYM = normFilter.length >= 6 ? `${normFilter.substring(0, 4)}-${normFilter.substring(4, 6)}` : '';
               isMatchedDate = filterYM === certEligibility.expectedPayoutMonth;
@@ -4617,7 +4616,14 @@ const ERP_Dashboard = () => {
         let isMatchedDate = false;
         const pDate = String(item.payDate || '').trim();
 
-        if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
+        if (rule.baseDateType === 'PAY_DATE') {
+          // [실적 인정 기준일: 수수료일자 기준 (지급월 당월 지급)]
+          if (pDate && pDate !== '-' && !pDate.includes('미지정') && !pDate.includes('미입금')) {
+            const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
+            const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
+            isMatchedDate = (itemPayMonth === targetPayoutMonth);
+          }
+        } else if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
           isMatchedDate = certEligibility.expectedPayoutMonth === targetPayoutMonth;
         } else {
           if (pDate && pDate !== '-' && !pDate.includes('미지정') && !pDate.includes('미입금')) {

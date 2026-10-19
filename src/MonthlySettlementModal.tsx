@@ -470,7 +470,15 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           let isMatchedDate = false;
           const pDate = String(item.payDate || '').trim();
 
-          if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
+          if (rule.baseDateType === 'PAY_DATE') {
+            // [실적 인정 기준일: 수수료일자 기준 (지급월 당월 지급)]
+            // 설치확인서 익월 전환 등과 상관없이, 실제 수수료일자의 월이 정산월(selectedMonth)과 정확히 일치할 때만 지급
+            if (pDate && pDate !== '-' && !pDate.includes('미지정') && !pDate.includes('미입금')) {
+              const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
+              const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
+              isMatchedDate = (itemPayMonth === selectedMonth);
+            }
+          } else if (certEligibility?.isTargetOrder && certEligibility?.expectedPayoutMonth) {
             // 설치확인서 마감월이 존재하는 수기발주 대상 건: 마감월의 익월(selectedMonth) 지급 규칙
             isMatchedDate = certEligibility.expectedPayoutMonth === selectedMonth;
           } else {
@@ -634,24 +642,39 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     return map;
   }, [effectiveHqMonthlyStats]);
 
-  // 3-3. 월 변경 또는 초기 로드 시 본부 선택 목록 초기화/동기화
+  // 3-3. 모달 열림, 월 변경 또는 초기 로드 시 본부 선택 목록 초기화 (항상 전체 본부 기본 선택)
   const prevMonthRef = useRef<string>('');
+  const prevOpenRef = useRef<boolean>(false);
+
   useEffect(() => {
     if (allAvailableHqs.length === 0) return;
+
+    // 모달이 새로 열릴 때 (isOpen: false -> true): 항상 전체 본부 기본 선택
+    if (isOpen && !prevOpenRef.current) {
+      prevOpenRef.current = true;
+      prevMonthRef.current = selectedMonth;
+      setSelectedHqs(allAvailableHqs);
+      return;
+    }
+
+    if (!isOpen) {
+      prevOpenRef.current = false;
+      return;
+    }
 
     if (prevMonthRef.current !== selectedMonth) {
       // 월이 변경되었을 때: 새로운 월의 전체 본부를 기본 선택
       prevMonthRef.current = selectedMonth;
       setSelectedHqs(allAvailableHqs);
     } else {
-      // 데이터 업데이트 등으로 본부 목록이 달라졌을 때
+      // 데이터 업데이트 등으로 본부 목록이 달라졌을 때 (빈 배열이거나 선택 항목이 없으면 전체 선택)
       setSelectedHqs(prev => {
-        if (prev.length === 0) return allAvailableHqs;
+        if (!prev || prev.length === 0) return allAvailableHqs;
         const valid = prev.filter(h => allAvailableHqs.includes(h));
         return valid.length > 0 ? valid : allAvailableHqs;
       });
     }
-  }, [selectedMonth, allAvailableHqs]);
+  }, [isOpen, selectedMonth, allAvailableHqs]);
 
   // 3-4. 드롭다운 팝오버 외부 클릭 시 닫기
   useEffect(() => {

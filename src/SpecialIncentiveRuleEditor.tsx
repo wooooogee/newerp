@@ -484,7 +484,7 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
             <div className="md:col-span-3 flex flex-col gap-1.5 bg-slate-50/90 p-3 rounded-2xl border border-slate-200/80">
               <label className="text-xs font-bold text-slate-700">실적 인정 기준일</label>
               <select
-                value={draft.baseDateType}
+                value={draft.baseDateType || 'DELIVERY'}
                 onChange={(e) => {
                   const val = e.target.value as any;
                   updateDraft((prev) => ({ ...prev, baseDateType: val }), true);
@@ -493,6 +493,7 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
               >
                 <option value="DELIVERY">배송완료일자 기준</option>
                 <option value="CONTRACT">계약일자 기준</option>
+                <option value="PAY_DATE">수수료일자 기준 (지급월 당월 지급)</option>
               </select>
             </div>
           </div>
