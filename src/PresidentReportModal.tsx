@@ -2039,8 +2039,8 @@ export function PresidentReportModal({
                   {/* ---------------------------------------------------- */}
                   {/* [1] 핵심 손익 결산 요약 (A ~ I 지표) */}
                   {/* ---------------------------------------------------- */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
+                  <div className="report-section space-y-1.5">
+                    <div className="flex justify-between items-center report-section-header">
                       <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
                         1. 월말 종합 손익 결산 요약 (A ~ I)
                       </h4>
@@ -2159,8 +2159,8 @@ export function PresidentReportModal({
                   {/* ---------------------------------------------------- */}
                   {/* [2] 본부·사업단별 / 상품별 영업 실적 및 수수료 지급 현황 (요청 2, 3 통합) */}
                   {/* ---------------------------------------------------- */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
+                  <div className="report-section space-y-1.5">
+                    <div className="flex justify-between items-center report-section-header">
                       <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
                         2. 본부·사업단별 / 상품별 영업 실적 및 수수료 지급 현황
                       </h4>
@@ -2286,8 +2286,8 @@ export function PresidentReportModal({
                   {/* ---------------------------------------------------- */}
                   {/* [3] 특수수당 및 본사 지출 내역 요약 (요청 4 반영) */}
                   {/* ---------------------------------------------------- */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
+                  <div className="report-section space-y-1.5">
+                    <div className="flex justify-between items-center report-section-header">
                       <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
                         3. 특수수당 및 본사 지출 내역 요약
                       </h4>
@@ -2379,12 +2379,34 @@ export function PresidentReportModal({
                   </div>
 
                   {/* ---------------------------------------------------- */}
+                  {/* [4] 공급사 정산관리 총괄 요약 (2페이지 시작) */}
                   {/* ---------------------------------------------------- */}
-                  {/* ---------------------------------------------------- */}
-                  {/* [4] 공급사 정산관리 총괄 요약 (요청 4 반영) */}
-                  {/* ---------------------------------------------------- */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
+                  <div className="report-section print-page-break-before space-y-1.5 pt-4 print:pt-0">
+                    {/* 2페이지 인쇄 전용 상단 헤더 */}
+                    <div className="hidden print:flex justify-between items-end border-b-2 border-black pb-1 mb-3">
+                      <div>
+                        <span className="text-xl font-black text-black tracking-wider inline-block">
+                          월 말 결 산 보 고 서 (공급사 정산)
+                        </span>
+                        <span className="text-xs font-bold text-slate-700 ml-3">
+                          귀속월: {selectedMonth.substring(0, 4)}년 {selectedMonth.substring(5, 7)}월
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold text-slate-600">
+                        [ 2 / 2 ]
+                      </span>
+                    </div>
+
+                    {/* 화면 미리보기용 페이지 구분선 (인쇄 시 숨김) */}
+                    <div className="print:hidden my-6 flex items-center gap-3">
+                      <div className="flex-1 border-t-2 border-dashed border-rose-300"></div>
+                      <span className="text-xs font-extrabold text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-200 shadow-2xs">
+                        📄 인쇄 2페이지 시작 (공급사 정산 관리 총괄 및 제품별 세부 내역)
+                      </span>
+                      <div className="flex-1 border-t-2 border-dashed border-rose-300"></div>
+                    </div>
+
+                    <div className="flex justify-between items-center report-section-header">
                       <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
                         4. 공급사 정산관리 총괄 요약
                       </h4>
@@ -2516,11 +2538,10 @@ export function PresidentReportModal({
                   </div>
 
                   {/* ---------------------------------------------------- */}
-                  {/* ---------------------------------------------------- */}
                   {/* [5] 공급사 제품별 세부 정산 내역 (요청 5 반영) */}
                   {/* ---------------------------------------------------- */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
+                  <div className="report-section space-y-1.5">
+                    <div className="flex justify-between items-center report-section-header">
                       <h4 className="text-xs sm:text-sm font-black text-black flex items-center gap-1 pl-2 border-l-[4px] border-black select-none">
                         5. 공급사 제품별 세부 정산 내역
                       </h4>
@@ -2703,7 +2724,7 @@ export function PresidentReportModal({
                   {/* [6] 하단 대표님 보고 의견 메모 */}
                   {/* ---------------------------------------------------- */}
                   {monthEndMemo.trim() && (
-                    <div className="mt-4 pt-3 border-t border-dashed border-slate-400 text-xs text-slate-800 leading-relaxed font-semibold">
+                    <div className="report-section mt-4 pt-3 border-t border-dashed border-slate-400 text-xs text-slate-800 leading-relaxed font-semibold">
                       <div className="whitespace-pre-wrap">{monthEndMemo}</div>
                     </div>
                   )}
@@ -2775,9 +2796,32 @@ export function PresidentReportModal({
                     display: none !important;
                   }
 
+                  /* 2페이지 강제 분할 */
+                  .print-page-break-before {
+                    break-before: page !important;
+                    page-break-before: always !important;
+                  }
+
+                  /* 제목과 본문 분리(고아 제목) 절대 방지 */
+                  h1, h2, h3, h4, h5, h6,
+                  .report-section-header {
+                    break-after: avoid !important;
+                    page-break-after: avoid !important;
+                  }
+
+                  /* 섹션 블록 단위 분할 방지 */
+                  .report-section {
+                    break-inside: avoid !important;
+                    page-break-inside: avoid !important;
+                  }
+
                   table {
                     width: 100% !important;
                     table-layout: fixed !important;
+                  }
+
+                  thead {
+                    display: table-header-group !important;
                   }
                   
                   td, th {
@@ -2804,7 +2848,8 @@ export function PresidentReportModal({
                     display: inline-block !important;
                   }
 
-                  table, tr, td, th {
+                  tr, td, th {
+                    break-inside: avoid !important;
                     page-break-inside: avoid !important;
                   }
                 }
