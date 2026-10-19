@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   X,
   Printer,
@@ -534,6 +534,12 @@ export function PresidentReportModal({
     return '※ 렌탈 영업 순익 및 리치웰 공급가 마진이 정상 반영된 최종 결산 보고입니다.\n※ 설치확인서 등록 및 배송 완료 건을 기준으로 지급이 확정되었습니다.';
   });
 
+  // 사용자 직접 수정 내용 보존 및 자동 복원 관련 상태/Ref
+  const [hasCustomSavedData, setHasCustomSavedData] = useState(false);
+  const isInitializedRef = useRef(false);
+  const isAutoComputingRef = useRef(false);
+  const getReportCacheKey = (month: string) => `erp_month_end_report_custom_v3_${month}`;
+
   // 공급사 마스터 상태 및 서버 비동기 로딩 상태
   const [suppliersData, setSuppliersData] = useState<SupplierItem[]>(() => loadSuppliersFromStorage());
   const [isSyncingSuppliers, setIsSyncingSuppliers] = useState(false);
@@ -1028,19 +1034,219 @@ export function PresidentReportModal({
     });
   };
 
-  useEffect(() => {
-    if (isOpen) {
-      // 1) 로컬 캐시로 즉시 기본 계산
-      computeMonthEndDefaults();
+  // ----------------------------------------------------
+  // 실시간 연동 헬퍼: 5번 제품별 세부 수정 시 -> 4번 요약 및 1번 손익 [E, F, G, H, I] 동기화
+  // ----------------------------------------------------
+  const syncFromProductDetails = (
+    newDetails: typeof supplierProductDetailList,
+    currentSummaryList: typeof supplierSummaryList = supplierSummaryList
+  ) => {
+    const suppMap = new Map<string, { count: number; depositPrice: number; supplyPrice: number; supplyCommission: number }>();
+    newDetails.forEach(p => {
+      if (p.count <= 0) return;
+      const cur = suppMap.get(p.supplierName) || { count: 0, depositPrice: 0, supplyPrice: 0, supplyCommission: 0 };
+      cur.count += p.count;
+      cur.depositPrice += (p.unitDeposit * p.count);
+      cur.supplyPrice += p.totalSupplyPrice;
+      cur.supplyCommission += p.totalSupplyCommission;
+      suppMap.set(p.supplierName, cur);
+    });
 
-      // 2) 서버에서 최신 공급사 데이터 비동기 동기화 후 재계산
-      fetchAndSyncSuppliers().then(latest => {
-        if (latest && latest.length > 0) {
-          computeMonthEndDefaults(latest);
+    const nextSummary = Array.from(suppMap.entries()).map(([sName, data], idx) => {
+      const existing = currentSummaryList.find(s => s.supplierName === sName);
+      return {
+        id: existing?.id || `supp-sum-${idx + 1}`,
+        supplierName: sName,
+        count: data.count,
+        depositPrice: data.depositPrice,
+        supplyPrice: data.supplyPrice,
+        supplyCommission: data.supplyCommission,
+        unitMargin: data.depositPrice > 0 ? data.depositPrice - data.supplyPrice - data.supplyCommission : 0,
+        settlementCondition: existing?.settlementCondition || (sName.includes('바디프랜드') ? '당월 말일 결제 (확인서 등록건)' : '익월 말일 세금계산서 발행 지급')
+      };
+    });
+
+    setSupplierSummaryList(nextSummary);
+
+    // 1번 핵심 손익 지표 [E, F, G, H, I] 동기화
+    const totalDep = nextSummary.reduce((s, r) => s + r.depositPrice, 0);
+    const totalSup = nextSummary.reduce((s, r) => s + r.supplyPrice, 0);
+    const totalComm = nextSummary.reduce((s, r) => s + r.supplyCommission, 0);
+    const totalMargin = totalDep > 0 ? totalDep - totalSup - totalComm : 0;
+
+    setMetrics(prev => {
+      const d = prev.a_enexDeposit > 0 ? prev.a_enexDeposit - prev.b_salesCommission - prev.c_specialAndMaintenance : 0;
+      return {
+        ...prev,
+        e_richwelfareDeposit: totalDep,
+        f_richwelfareSupplyPrice: totalSup,
+        g_supplyCommission: totalComm,
+        h_supplyProfit: totalMargin,
+        d_operatingProfit: d,
+        i_finalNetProfit: d + totalMargin
+      };
+    });
+  };
+
+  // 4번 공급사 총괄 요약 수정 시 -> 1번 손익 [E, F, G, H, I] 동기화
+  const syncFromSupplierSummary = (newSummaries: typeof supplierSummaryList) => {
+    const totalDep = newSummaries.reduce((s, r) => s + r.depositPrice, 0);
+    const totalSup = newSummaries.reduce((s, r) => s + r.supplyPrice, 0);
+    const totalComm = newSummaries.reduce((s, r) => s + r.supplyCommission, 0);
+    const totalMargin = totalDep > 0 ? totalDep - totalSup - totalComm : 0;
+
+    setMetrics(prev => {
+      const d = prev.a_enexDeposit > 0 ? prev.a_enexDeposit - prev.b_salesCommission - prev.c_specialAndMaintenance : 0;
+      return {
+        ...prev,
+        e_richwelfareDeposit: totalDep,
+        f_richwelfareSupplyPrice: totalSup,
+        g_supplyCommission: totalComm,
+        h_supplyProfit: totalMargin,
+        d_operatingProfit: d,
+        i_finalNetProfit: d + totalMargin
+      };
+    });
+  };
+
+  // 2번 본부별 영업실적 수정 핸들러
+  const updateHqProductSalesList = (newItems: typeof hqProductSalesList) => {
+    setHqProductSalesList(newItems);
+    const newB = newItems.reduce((s, r) => s + r.totalCommission, 0);
+    setMetrics(m => {
+      const d = m.a_enexDeposit > 0 ? m.a_enexDeposit - newB - m.c_specialAndMaintenance : 0;
+      return { ...m, b_salesCommission: newB, d_operatingProfit: d, i_finalNetProfit: d + m.h_supplyProfit };
+    });
+  };
+
+  // 3번 특수수당 및 지출내역 수정 핸들러
+  const updateSpecialExpenseList = (newItems: typeof specialExpenseList) => {
+    setSpecialExpenseList(newItems);
+    const newC = newItems.reduce((s, r) => s + r.amount, 0);
+    setMetrics(m => {
+      const d = m.a_enexDeposit > 0 ? m.a_enexDeposit - m.b_salesCommission - newC : 0;
+      return { ...m, c_specialAndMaintenance: newC, d_operatingProfit: d, i_finalNetProfit: d + m.h_supplyProfit };
+    });
+  };
+
+  // 4번 공급사 요약 수정 핸들러
+  const updateSupplierSummary = (newItems: typeof supplierSummaryList) => {
+    setSupplierSummaryList(newItems);
+    syncFromSupplierSummary(newItems);
+  };
+
+  // 5번 제품별 상세 수정 핸들러
+  const updateSupplierProductDetails = (newItems: typeof supplierProductDetailList) => {
+    setSupplierProductDetailList(newItems);
+    syncFromProductDetails(newItems);
+  };
+
+  // ----------------------------------------------------
+  // 모달 오픈 시: 저장된 수정본이 있으면 우선 복원, 없으면 자동 계산
+  // ----------------------------------------------------
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const cacheKey = getReportCacheKey(selectedMonth);
+    const cachedStr = localStorage.getItem(cacheKey);
+
+    if (cachedStr) {
+      try {
+        const cached = JSON.parse(cachedStr);
+        if (cached && cached.metrics) {
+          isAutoComputingRef.current = true;
+          setMetrics(cached.metrics);
+          if (Array.isArray(cached.hqProductSalesList)) setHqProductSalesList(cached.hqProductSalesList);
+          if (Array.isArray(cached.specialExpenseList)) setSpecialExpenseList(cached.specialExpenseList);
+          if (Array.isArray(cached.supplierSummaryList)) setSupplierSummaryList(cached.supplierSummaryList);
+          if (Array.isArray(cached.supplierProductDetailList)) setSupplierProductDetailList(cached.supplierProductDetailList);
+          if (cached.monthEndMemo) setMonthEndMemo(cached.monthEndMemo);
+          setHasCustomSavedData(true);
+          setTimeout(() => {
+            isAutoComputingRef.current = false;
+            isInitializedRef.current = true;
+          }, 100);
+          return;
         }
-      });
+      } catch (e) {
+        console.warn('[월말보고서 캐시 로드 실패]', e);
+      }
     }
+
+    // 캐시가 없으면 ERP 원본 데이터 기반 자동 계산값 산출
+    setHasCustomSavedData(false);
+    isAutoComputingRef.current = true;
+    computeMonthEndDefaults();
+    fetchAndSyncSuppliers().then(latest => {
+      if (latest && latest.length > 0) {
+        computeMonthEndDefaults(latest);
+      }
+      setTimeout(() => {
+        isAutoComputingRef.current = false;
+        isInitializedRef.current = true;
+      }, 100);
+    });
   }, [isOpen, selectedMonth]);
+
+  // ----------------------------------------------------
+  // 사용자 수정 내용 로컬 영구 보관 (화면 닫았다 다시 열어도 완벽 보존)
+  // ----------------------------------------------------
+  useEffect(() => {
+    if (!isInitializedRef.current || isAutoComputingRef.current) return;
+    if (!isOpen) return;
+
+    try {
+      const key = getReportCacheKey(selectedMonth);
+      const payload = {
+        metrics,
+        hqProductSalesList,
+        specialExpenseList,
+        supplierSummaryList,
+        supplierProductDetailList,
+        monthEndMemo,
+        savedAt: new Date().toISOString()
+      };
+      localStorage.setItem(key, JSON.stringify(payload));
+      setHasCustomSavedData(true);
+    } catch (e) {
+      console.warn('[월말보고서 캐시 저장 실패]', e);
+    }
+  }, [
+    metrics,
+    hqProductSalesList,
+    specialExpenseList,
+    supplierSummaryList,
+    supplierProductDetailList,
+    monthEndMemo,
+    selectedMonth,
+    isOpen
+  ]);
+
+  // ----------------------------------------------------
+  // [복원] 사용자가 원할 때 언제든 ERP 원본 자동 계산값으로 초기화
+  // ----------------------------------------------------
+  const handleResetToAutoComputed = () => {
+    if (!window.confirm('ERP 원본 계약 데이터 기반의 자동 계산값으로 복원하시겠습니까?\n\n직접 수정한 내용과 입력한 에넥스 입금액이 초기화되고 최초 산출값으로 되돌아갑니다.')) {
+      return;
+    }
+    try {
+      const cacheKey = getReportCacheKey(selectedMonth);
+      localStorage.removeItem(cacheKey);
+    } catch (e) {}
+    setHasCustomSavedData(false);
+    isAutoComputingRef.current = true;
+    computeMonthEndDefaults();
+    fetchAndSyncSuppliers().then(latest => {
+      if (latest && latest.length > 0) {
+        computeMonthEndDefaults(latest);
+      }
+      setTimeout(() => {
+        isAutoComputingRef.current = false;
+        isInitializedRef.current = true;
+      }, 100);
+    });
+    alert('ERP 원본 자동 계산값으로 복원되었습니다.');
+  };
 
   // A, B, C 수정 시 D 자동 갱신 (A가 0이면 D는 0 또는 수동값, A가 입력되면 A - B - C)
   const handleUpdateA = (val: number) => {
@@ -1174,6 +1380,21 @@ export function PresidentReportModal({
           </div>
 
           <div className="flex items-center gap-2">
+            {activeTab === 'MONTH_END' && hasCustomSavedData && (
+              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg flex items-center gap-1 shadow-2xs">
+                <span>💾 수정내용 저장됨</span>
+              </span>
+            )}
+            {activeTab === 'MONTH_END' && (
+              <button
+                onClick={handleResetToAutoComputed}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-300 rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
+                title="모든 수정 내용을 지우고 ERP 원본 데이터 기반 자동 계산값으로 복원합니다."
+              >
+                <RotateCcw size={13} className="text-slate-500" />
+                <span>자동 계산값으로 복원</span>
+              </button>
+            )}
             <button
               onClick={handlePrint}
               className="px-4 py-1.5 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
@@ -1748,7 +1969,7 @@ export function PresidentReportModal({
                       </h4>
                       <button
                         onClick={() => {
-                          setHqProductSalesList(prev => [
+                          updateHqProductSalesList(prev => [
                             ...prev,
                             { id: `hp-${Date.now()}`, hqName: '신규조직', prodName: '더좋은프리미엄540', count: 1, unitCommission: 750000, totalCommission: 750000, note: '-' }
                           ]);
@@ -1784,7 +2005,7 @@ export function PresidentReportModal({
                                       <EditableText
                                         value={group.hqName}
                                         onChange={val => {
-                                          setHqProductSalesList(p => p.map(it => it.hqName === group.hqName ? { ...it, hqName: val } : it));
+                                          updateHqProductSalesList(p => p.map(it => it.hqName === group.hqName ? { ...it, hqName: val } : it));
                                         }}
                                         align="left"
                                         className="font-bold text-slate-950"
@@ -1798,34 +2019,34 @@ export function PresidentReportModal({
                                 <td className="border border-slate-300 py-1 px-2 font-semibold text-slate-800 truncate">
                                   <EditableText
                                     value={item.prodName}
-                                    onChange={val => setHqProductSalesList(p => p.map(r => r.id === item.id ? { ...r, prodName: val } : r))}
+                                    onChange={val => updateHqProductSalesList(p => p.map(r => r.id === item.id ? { ...r, prodName: val } : r))}
                                     align="left"
                                   />
                                 </td>
                                 <td className="border border-slate-300 py-1 px-1 text-center font-bold text-slate-900 whitespace-nowrap">
                                   <EditableNumber
                                     value={item.count}
-                                    onChange={val => setHqProductSalesList(p => p.map(r => r.id === item.id ? { ...r, count: val, totalCommission: val * r.unitCommission } : r))}
+                                    onChange={val => updateHqProductSalesList(p => p.map(r => r.id === item.id ? { ...r, count: val, totalCommission: val * r.unitCommission } : r))}
                                     unit="건"
                                   />
                                 </td>
                                 <td className="border border-slate-300 py-1 px-2 text-right font-medium text-slate-700 whitespace-nowrap">
                                   <EditableNumber
                                     value={item.unitCommission}
-                                    onChange={val => setHqProductSalesList(p => p.map(r => r.id === item.id ? { ...r, unitCommission: val, totalCommission: r.count * val } : r))}
+                                    onChange={val => updateHqProductSalesList(p => p.map(r => r.id === item.id ? { ...r, unitCommission: val, totalCommission: r.count * val } : r))}
                                     unit="원"
                                   />
                                 </td>
                                 <td className="border border-slate-300 py-1 px-2 text-right font-bold text-blue-700 whitespace-nowrap">
                                   <EditableNumber
                                     value={item.totalCommission}
-                                    onChange={val => setHqProductSalesList(p => p.map(r => r.id === item.id ? { ...r, totalCommission: val } : r))}
+                                    onChange={val => updateHqProductSalesList(p => p.map(r => r.id === item.id ? { ...r, totalCommission: val } : r))}
                                     unit="원"
                                   />
                                 </td>
                                 <td className="border border-slate-300 py-1 px-1 text-center print:hidden">
                                   <button
-                                    onClick={() => setHqProductSalesList(p => p.filter(r => r.id !== item.id))}
+                                    onClick={() => updateHqProductSalesList(p => p.filter(r => r.id !== item.id))}
                                     className="text-slate-300 hover:text-rose-600 transition-colors p-1"
                                     title="삭제"
                                   >
@@ -1877,7 +2098,7 @@ export function PresidentReportModal({
                       </h4>
                       <button
                         onClick={() => {
-                          setSpecialExpenseList(prev => [
+                          updateSpecialExpenseList(prev => [
                             ...prev,
                             { id: `s-${Date.now()}`, category: '추가지출', name: '항목명', count: 1, amount: 0, note: '-' }
                           ]);
@@ -1905,40 +2126,40 @@ export function PresidentReportModal({
                             <td className="border border-slate-300 py-1 px-2 font-bold text-slate-700 whitespace-nowrap">
                               <EditableText
                                 value={row.category}
-                                onChange={val => setSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, category: val } : r))}
+                                onChange={val => updateSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, category: val } : r))}
                                 align="left"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 truncate">
                               <EditableText
                                 value={row.name}
-                                onChange={val => setSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, name: val } : r))}
+                                onChange={val => updateSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, name: val } : r))}
                                 align="left"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-1 text-center text-slate-700 whitespace-nowrap">
                               <EditableText
                                 value={String(row.count)}
-                                onChange={val => setSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, count: val } : r))}
+                                onChange={val => updateSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, count: val } : r))}
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-2 text-right font-bold text-purple-700 whitespace-nowrap">
                               <EditableNumber
                                 value={row.amount}
-                                onChange={val => setSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, amount: val } : r))}
+                                onChange={val => updateSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, amount: val } : r))}
                                 unit="원"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-2 text-slate-600 text-[11px] truncate">
                               <EditableText
                                 value={row.note}
-                                onChange={val => setSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, note: val } : r))}
+                                onChange={val => updateSpecialExpenseList(p => p.map(r => r.id === row.id ? { ...r, note: val } : r))}
                                 align="left"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-1 text-center print:hidden">
                               <button
-                                onClick={() => setSpecialExpenseList(p => p.filter(r => r.id !== row.id))}
+                                onClick={() => updateSpecialExpenseList(p => p.filter(r => r.id !== row.id))}
                                 className="text-slate-300 hover:text-rose-600"
                                 title="삭제"
                               >
@@ -1973,9 +2194,9 @@ export function PresidentReportModal({
                       </h4>
                       <button
                         onClick={() => {
-                          setSupplierSummaryList(prev => [
+                          updateSupplierSummary(prev => [
                             ...prev,
-                            { id: `supp-${Date.now()}`, supplierName: '신규공급사', count: 0, depositPrice: 0, supplyPrice: 0, supplyCommission: 0, unitMargin: 0, settlementCondition: '-' }
+                            { id: `supp-${Date.now()}`, supplierName: '신규공급사', count: 1, depositPrice: 0, supplyPrice: 0, supplyCommission: 0, unitMargin: 0, settlementCondition: '-' }
                           ]);
                         }}
                         className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 print:hidden border border-blue-200 px-2 py-0.5 rounded bg-blue-50 cursor-pointer"
@@ -2000,21 +2221,21 @@ export function PresidentReportModal({
                             <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap truncate">
                               <EditableText
                                 value={row.supplierName}
-                                onChange={val => setSupplierSummaryList(p => p.map(r => r.id === row.id ? { ...r, supplierName: val } : r))}
+                                onChange={val => updateSupplierSummary(p => p.map(r => r.id === row.id ? { ...r, supplierName: val } : r))}
                                 align="left"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-1 text-center font-bold text-slate-900 whitespace-nowrap">
                               <EditableNumber
                                 value={row.count}
-                                onChange={val => setSupplierSummaryList(p => p.map(r => r.id === row.id ? { ...r, count: val } : r))}
+                                onChange={val => updateSupplierSummary(p => p.map(r => r.id === row.id ? { ...r, count: val } : r))}
                                 unit="건"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-2 text-right font-black text-emerald-700 whitespace-nowrap">
                               <EditableNumber
                                 value={row.depositPrice}
-                                onChange={val => setSupplierSummaryList(p => p.map(r => r.id === row.id ? { ...r, depositPrice: val, unitMargin: val > 0 ? val - r.supplyPrice - r.supplyCommission : 0 } : r))}
+                                onChange={val => updateSupplierSummary(p => p.map(r => r.id === row.id ? { ...r, depositPrice: val, unitMargin: val > 0 ? val - r.supplyPrice - r.supplyCommission : 0 } : r))}
                                 unit="원"
                                 showZeroAsBlank={true}
                                 placeholder="직접 입력"
@@ -2023,13 +2244,13 @@ export function PresidentReportModal({
                             <td className="border border-slate-300 py-1 px-2 text-right font-bold text-slate-800 whitespace-nowrap">
                               <EditableNumber
                                 value={row.supplyPrice}
-                                onChange={val => setSupplierSummaryList(p => p.map(r => r.id === row.id ? { ...r, supplyPrice: val } : r))}
+                                onChange={val => updateSupplierSummary(p => p.map(r => r.id === row.id ? { ...r, supplyPrice: val } : r))}
                                 unit="원"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-1 text-center print:hidden">
                               <button
-                                onClick={() => setSupplierSummaryList(p => p.filter(r => r.id !== row.id))}
+                                onClick={() => updateSupplierSummary(p => p.filter(r => r.id !== row.id))}
                                 className="text-slate-300 hover:text-rose-600"
                                 title="삭제"
                               >
@@ -2081,7 +2302,7 @@ export function PresidentReportModal({
                         </button>
                         <button
                           onClick={() => {
-                            setSupplierProductDetailList(prev => [
+                            updateSupplierProductDetails(prev => [
                               ...prev,
                               {
                                 id: `sp-${Date.now()}`,
@@ -2123,23 +2344,34 @@ export function PresidentReportModal({
                         {supplierProductDetailList.filter(row => row.count > 0).map(row => (
                           <tr key={row.id} className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors group">
                             <td className="border border-slate-300 py-1 px-2 font-bold text-slate-700 whitespace-nowrap truncate">
-                              <EditableText
-                                value={row.supplierName}
-                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? { ...r, supplierName: val } : r))}
-                                align="left"
-                              />
+                              <div className="flex items-center justify-between gap-1">
+                                <div className="flex-1 min-w-0">
+                                  <EditableText
+                                    value={row.supplierName}
+                                    onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? { ...r, supplierName: val } : r))}
+                                    align="left"
+                                  />
+                                </div>
+                                <button
+                                  onClick={() => updateSupplierProductDetails(p => p.filter(r => r.id !== row.id))}
+                                  className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-rose-600 transition-opacity print:hidden cursor-pointer shrink-0"
+                                  title="행 삭제"
+                                >
+                                  <Trash2 size={11} />
+                                </button>
+                              </div>
                             </td>
                             <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 truncate">
                               <EditableText
                                 value={row.prodName}
-                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? { ...r, prodName: val } : r))}
+                                onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? { ...r, prodName: val } : r))}
                                 align="left"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-1 text-center font-bold text-slate-900 whitespace-nowrap">
                               <EditableNumber
                                 value={row.count}
-                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? {
+                                onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? {
                                   ...r,
                                   count: val,
                                   totalSupplyPrice: val * r.unitSupplyPrice,
@@ -2152,7 +2384,7 @@ export function PresidentReportModal({
                             <td className="border border-slate-300 py-1 px-2 text-right font-medium text-emerald-700 whitespace-nowrap">
                               <EditableNumber
                                 value={row.unitDeposit}
-                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? {
+                                onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? {
                                   ...r,
                                   unitDeposit: val,
                                   unitMargin: val > 0 ? val - r.unitSupplyPrice - r.unitCommission : 0,
@@ -2166,7 +2398,7 @@ export function PresidentReportModal({
                             <td className="border border-slate-300 py-1 px-2 text-right font-bold text-slate-800 whitespace-nowrap">
                               <EditableNumber
                                 value={row.unitSupplyPrice}
-                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? {
+                                onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? {
                                   ...r,
                                   unitSupplyPrice: val,
                                   totalSupplyPrice: r.count * val,
@@ -2179,7 +2411,7 @@ export function PresidentReportModal({
                             <td className="border border-slate-300 py-1 px-2 text-right font-semibold text-slate-900 whitespace-nowrap">
                               <EditableNumber
                                 value={row.totalSupplyPrice}
-                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? {
+                                onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? {
                                   ...r,
                                   totalSupplyPrice: val,
                                   totalMargin: r.unitDeposit > 0 ? (r.count * r.unitDeposit) - val - r.totalSupplyCommission : 0
@@ -2190,7 +2422,7 @@ export function PresidentReportModal({
                             <td className="border border-slate-300 py-1 px-2 text-right font-semibold text-rose-700 whitespace-nowrap">
                               <EditableNumber
                                 value={row.totalSupplyCommission}
-                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? {
+                                onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? {
                                   ...r,
                                   totalSupplyCommission: val,
                                   totalMargin: r.unitDeposit > 0 ? (r.count * r.unitDeposit) - r.totalSupplyPrice - val : 0
@@ -2201,7 +2433,7 @@ export function PresidentReportModal({
                             <td className="border border-slate-300 py-1 px-2 text-right font-black text-amber-950 whitespace-nowrap">
                               <EditableNumber
                                 value={row.totalMargin}
-                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? { ...r, totalMargin: val } : r))}
+                                onChange={val => updateSupplierProductDetails(p => p.map(r => r.id === row.id ? { ...r, totalMargin: val } : r))}
                                 unit="원"
                               />
                             </td>
