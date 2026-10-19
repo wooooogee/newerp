@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { X, Calendar, Download, Search, Building2, ChevronRight, ChevronDown, FileSpreadsheet, Layers, CreditCard, ArrowUpDown, Filter, Check, RotateCcw, Lock, Unlock, Sparkles } from 'lucide-react';
+import { X, Calendar, Download, Search, Building2, ChevronRight, ChevronDown, FileSpreadsheet, Layers, CreditCard, ArrowUpDown, Filter, Check, RotateCcw, Lock, Unlock, Sparkles, GripVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { checkInstallCertEligibility, isSupplyCommissionRule } from './manualOrderUtils';
 
@@ -135,8 +135,25 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | '사업자' | '개인'>('all');
   const [selectedHqDetail, setSelectedHqDetail] = useState<HqMonthlyStat | null>(null);
-  const [sortField, setSortField] = useState<'netTotal' | 'count' | 'hqName'>('netTotal');
+  const [sortField, setSortField] = useState<'netTotal' | 'count' | 'hqName' | 'custom'>('netTotal');
   const [sortAsc, setSortAsc] = useState(false);
+
+  // 사업자별 묶기 상태 (기본값 true로 설정하여 접속 시 바로 사업자별로 정돈되어 나타남)
+  const [groupByBusiness, setGroupByBusiness] = useState<boolean>(() => {
+    const saved = localStorage.getItem('erp_monthly_settlement_group_business');
+    return saved === null ? true : saved === 'true';
+  });
+
+  // 사용자 지정 본부 순서 (순서 변경 지원 및 로컬 저장)
+  const [customHqOrder, setCustomHqOrder] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('erp_monthly_settlement_custom_order');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
   // 본부 다중 선택 상태
   const [selectedHqs, setSelectedHqs] = useState<string[]>([]);
@@ -513,6 +530,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           const specialItemInfo = {
             id: `${item.raw?.[0] || Math.random()}_${rule.id}`,
             hq: isSelfHq ? item.hq : (rule.targetName || item.hq || '-'),
+            contractHq: item.hq || '-',
             branch: item.branch || '-',
             rentalNo: item.rentalNo || item.resNo || '-',
             empName: item.empName || '-',
@@ -740,17 +758,113 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       return true;
     });
 
-    list.sort((a, b) => {
-      let valA: any = a[sortField];
-      let valB: any = b[sortField];
-      if (typeof valA === 'string') {
-        return sortAsc ? valA.localeCompare(valB, 'ko') : valB.localeCompare(valA, 'ko');
-      }
-      return sortAsc ? valA - valB : valB - valA;
-    });
+    if (sortField === 'custom' && customHqOrder.length > 0) {
+      // 사용자 지정 순서 정렬
+      const orderMap = new Map<string, number>(customHqOrder.map((name, i) => [name, i]));
+      list.sort((a, b) => {
+        const orderA: number = orderMap.has(a.hqName) ? (orderMap.get(a.hqName) as number) : 9999;
+        const orderB: number = orderMap.has(b.hqName) ? (orderMap.get(b.hqName) as number) : 9999;
+        if (orderA !== orderB) return orderA - orderB;
+        return b.netTotal - a.netTotal;
+      });
+    } else if (groupByBusiness) {
+      // [사업자별 묶기] 동일 계좌 예금주(사업체)별로 모으고, 동일 사업자 내에서는 실지급액 내림차순
+      list.sort((a, b) => {
+        const holderA = (a.accountHolder || a.bankName || a.hqName || '').trim();
+        const holderB = (b.accountHolder || b.bankName || b.hqName || '').trim();
+        const holderDiff = holderA.localeCompare(holderB, 'ko');
+        if (holderDiff !== 0) return holderDiff;
+        return b.netTotal - a.netTotal;
+      });
+    } else {
+      list.sort((a, b) => {
+        let valA: any = a[sortField];
+        let valB: any = b[sortField];
+        if (typeof valA === 'string') {
+          return sortAsc ? valA.localeCompare(valB, 'ko') : valB.localeCompare(valA, 'ko');
+        }
+        return sortAsc ? valA - valB : valB - valA;
+      });
+    }
 
     return list;
-  }, [effectiveHqMonthlyStats, selectedHqs, typeFilter, searchTerm, sortField, sortAsc]);
+  }, [effectiveHqMonthlyStats, selectedHqs, typeFilter, searchTerm, sortField, sortAsc, groupByBusiness, customHqOrder]);
+
+  // 행 순서 위/아래 이동 핸들러
+  const handleMoveRow = (fromIdx: number, toIdx: number) => {
+    if (toIdx < 0 || toIdx >= filteredAndSortedStats.length) return;
+    const currentList = [...filteredAndSortedStats];
+    const [moved] = currentList.splice(fromIdx, 1);
+    currentList.splice(toIdx, 0, moved);
+
+    const newNames = currentList.map(s => s.hqName);
+    const allNames = Array.from(new Set([...newNames, ...customHqOrder, ...allAvailableHqs]));
+    setCustomHqOrder(allNames);
+    setSortField('custom');
+    try {
+      localStorage.setItem('erp_monthly_settlement_custom_order', JSON.stringify(allNames));
+    } catch (e) {}
+  };
+
+  // 드래그 앤 드롭 순서 변경 핸들러
+  const handleDragStart = (e: React.DragEvent, idx: number) => {
+    e.dataTransfer.setData('text/plain', String(idx));
+    setDraggedIdx(idx);
+  };
+
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    if (dragOverIdx !== idx) setDragOverIdx(idx);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIdx(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, toIdx: number) => {
+    e.preventDefault();
+    const fromIdxStr = e.dataTransfer.getData('text/plain');
+    const fromIdx = parseInt(fromIdxStr, 10);
+    setDraggedIdx(null);
+    setDragOverIdx(null);
+    if (isNaN(fromIdx) || fromIdx === toIdx) return;
+    handleMoveRow(fromIdx, toIdx);
+  };
+
+  // 사업자별 묶기 토글 핸들러
+  const handleToggleGroupByBusiness = () => {
+    const nextVal = !groupByBusiness;
+    setGroupByBusiness(nextVal);
+    try {
+      localStorage.setItem('erp_monthly_settlement_group_business', String(nextVal));
+    } catch (e) {}
+    if (nextVal) {
+      // 사업자별로 묶어 customOrder 순서도 갱신
+      const sortedByBusiness = [...filteredAndSortedStats].sort((a, b) => {
+        const holderA = (a.accountHolder || a.bankName || a.hqName || '').trim();
+        const holderB = (b.accountHolder || b.bankName || b.hqName || '').trim();
+        const holderDiff = holderA.localeCompare(holderB, 'ko');
+        if (holderDiff !== 0) return holderDiff;
+        return b.netTotal - a.netTotal;
+      });
+      const newNames = sortedByBusiness.map(s => s.hqName);
+      setCustomHqOrder(newNames);
+      setSortField('custom');
+      try {
+        localStorage.setItem('erp_monthly_settlement_custom_order', JSON.stringify(newNames));
+      } catch (e) {}
+    }
+  };
+
+  // 순서 초기화 핸들러
+  const handleResetOrder = () => {
+    setCustomHqOrder([]);
+    setSortField('netTotal');
+    setSortAsc(false);
+    try {
+      localStorage.removeItem('erp_monthly_settlement_custom_order');
+    } catch (e) {}
+  };
 
   // 테이블 내 현재 표시된 본부들의 전체 선택 여부 판별
   const visibleHqNames = useMemo(() => filteredAndSortedStats.map(s => s.hqName), [filteredAndSortedStats]);
@@ -1140,9 +1254,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       XLSX.utils.book_append_sheet(wb, wsMaintDetail, '유지수수료명세');
     }
 
-    // 4. 특수수당 상세 명세 시트
+    // 4. 특수수당 상세 명세 시트 (A열: 지급대상자, 지급일자 다음에 본부명, 지사명, 영업자명 추가)
     const specialDetailRows: any[][] = [
-      ['본부명', '수당명', '회원명', '상품명', '수당금액', '계약일자', '배송일자', '지급일자']
+      ['지급대상자', '수당명', '회원명', '상품명', '수당금액', '계약일자', '배송일자', '지급일자', '본부명', '지사명', '영업자명']
     ];
 
     filteredAndSortedStats.forEach(stat => {
@@ -1155,7 +1269,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           { v: spItem.amount || 0, t: 'n', z: '#,##0' },
           spItem.contractDate || '-',
           spItem.deliveryDate || '-',
-          spItem.payDate || '-'
+          spItem.payDate || '-',
+          spItem.contractHq || spItem.hq || stat.hqName || '-',
+          spItem.branch || '-',
+          spItem.empName || '-'
         ]);
       });
     });
@@ -1483,6 +1600,36 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                   개인 3.3% ({effectiveHqMonthlyStats.filter(s => s.settlementType.includes('개인')).length})
                 </button>
               </div>
+              {/* 사업자별 묶기 토글 버튼 */}
+              <button
+                type="button"
+                onClick={handleToggleGroupByBusiness}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-2xs ${
+                  groupByBusiness
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-indigo-600/20'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                }`}
+                title="동일 사업자(계좌 예금주/상호명)별로 본부들을 묶어서 모아봅니다"
+              >
+                <Layers size={14} className={groupByBusiness ? 'text-white' : 'text-indigo-600'} />
+                <span>사업자별 묶기</span>
+                {groupByBusiness && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-white ml-0.5 animate-pulse" />
+                )}
+              </button>
+
+              {/* 순서 변경됨 표시 및 초기화 버튼 */}
+              {(customHqOrder.length > 0 || sortField === 'custom') && (
+                <button
+                  type="button"
+                  onClick={handleResetOrder}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-all cursor-pointer"
+                  title="기본 순서(금액순)로 초기화"
+                >
+                  <RotateCcw size={12} />
+                  <span>순서 초기화</span>
+                </button>
+              )}
             </div>
 
             {/* 검색창 */}
@@ -1679,7 +1826,12 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                     filteredAndSortedStats.map((stat, idx) => (
                       <tr 
                         key={stat.hqName} 
-                        className={`hover:bg-blue-50/40 transition-colors cursor-pointer group ${selectedHqs.includes(stat.hqName) ? 'bg-blue-50/15' : ''}`}
+                        draggable={true}
+                        onDragStart={(e) => handleDragStart(e, idx)}
+                        onDragOver={(e) => handleDragOver(e, idx)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, idx)}
+                        className={`hover:bg-blue-50/40 transition-colors cursor-pointer group ${selectedHqs.includes(stat.hqName) ? 'bg-blue-50/15' : ''} ${dragOverIdx === idx ? 'border-t-2 border-indigo-600 bg-indigo-50/40' : ''}`}
                         onClick={() => setSelectedHqDetail(stat)}
                       >
                         <td 
@@ -1693,8 +1845,39 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                             className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                           />
                         </td>
-                        <td className="px-3 py-2.5 text-center text-slate-400 font-medium border-r border-slate-100">
-                          {idx + 1}
+                        <td 
+                          className="px-2 py-2 text-center text-slate-400 font-medium border-r border-slate-100 select-none"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="flex items-center justify-center gap-1">
+                            <span 
+                              className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-indigo-600 transition-colors"
+                              title="마우스로 드래그하여 순서 변경"
+                            >
+                              <GripVertical size={13} />
+                            </span>
+                            <span className="w-5 font-mono text-xs">{idx + 1}</span>
+                            <div className="flex flex-col -space-y-0.5">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => handleMoveRow(idx, idx - 1)}
+                                className="text-[9px] text-slate-400 hover:text-blue-600 disabled:opacity-20 disabled:hover:text-slate-400 cursor-pointer leading-none p-0.5"
+                                title="위로 이동"
+                              >
+                                ▲
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === filteredAndSortedStats.length - 1}
+                                onClick={() => handleMoveRow(idx, idx + 1)}
+                                className="text-[9px] text-slate-400 hover:text-blue-600 disabled:opacity-20 disabled:hover:text-slate-400 cursor-pointer leading-none p-0.5"
+                                title="아래로 이동"
+                              >
+                                ▼
+                              </button>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-3 py-2.5 font-bold text-slate-900 border-r border-slate-100 flex items-center gap-1.5">
                           <Building2 size={13} className="text-blue-500 opacity-70" />
@@ -1750,9 +1933,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                               e.stopPropagation();
                               setSelectedHqDetail(stat);
                             }}
-                            className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 text-[11px] font-bold transition-all shadow-2xs cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 text-[11px] font-bold transition-all shadow-2xs cursor-pointer"
                           >
-                            명세보기
+                            상세보기
                           </button>
                         </td>
                       </tr>
@@ -1809,21 +1992,21 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4"
+                className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 md:p-6"
               >
                 <motion.div
-                  initial={{ scale: 0.95, y: 15 }}
+                  initial={{ scale: 0.96, y: 15 }}
                   animate={{ scale: 1, y: 0 }}
-                  exit={{ scale: 0.95, y: 15 }}
-                  className="bg-white w-full max-w-5xl max-h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200"
+                  exit={{ scale: 0.96, y: 15 }}
+                  className="bg-white w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] max-h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200"
                 >
-                  <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50 shrink-0">
                     <div className="flex items-center gap-2.5">
                       <Building2 className="w-5 h-5 text-blue-600" />
                       <h3 className="text-base font-bold text-slate-900">
                         [{selectedHqDetail.hqName}] {selectedMonth} 정산 상세 명세
                       </h3>
-                      <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold">
+                      <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold whitespace-nowrap">
                         {selectedHqDetail.count}건
                         {selectedHqDetail.accountCount && selectedHqDetail.accountCount !== selectedHqDetail.count && (
                           <span className="ml-1 text-blue-800">({selectedHqDetail.accountCount}구좌)</span>
@@ -1834,7 +2017,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       {onExportHqSettlement && (
                         <button
                           onClick={() => onExportHqSettlement(selectedHqDetail.hqName, selectedMonth, selectedHqDetail)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer whitespace-nowrap"
                         >
                           <Download size={13} />
                           본부 정산서 다운로드
@@ -1849,115 +2032,127 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="p-4 bg-slate-50/50 border-b border-slate-200 flex flex-wrap gap-4 text-xs">
-                    <div><span className="text-slate-400">판매수수료:</span> <strong className="font-mono text-slate-800">{selectedHqDetail.salesSum.toLocaleString()}원</strong></div>
-                    <div><span className="text-slate-400">촉진비:</span> <strong className="font-mono text-slate-800">{selectedHqDetail.promoSum.toLocaleString()}원</strong></div>
-                    <div><span className="text-slate-400">유지수수료:</span> <strong className="font-mono text-emerald-600">{selectedHqDetail.maintenanceSum.toLocaleString()}원</strong></div>
-                    <div><span className="text-slate-400">특수수당:</span> <strong className="font-mono text-purple-600">{selectedHqDetail.specialSum.toLocaleString()}원</strong></div>
-                    <div><span className="text-slate-400">최종 실지급액:</span> <strong className="font-mono text-indigo-700 text-sm">{selectedHqDetail.netTotal.toLocaleString()}원</strong></div>
+                  <div className="p-4 bg-slate-50/50 border-b border-slate-200 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs shrink-0">
+                    <div><span className="text-slate-400">판매수수료:</span> <strong className="font-mono text-slate-800 ml-1">{selectedHqDetail.salesSum.toLocaleString()}원</strong></div>
+                    <div><span className="text-slate-400">촉진비:</span> <strong className="font-mono text-slate-800 ml-1">{selectedHqDetail.promoSum.toLocaleString()}원</strong></div>
+                    <div><span className="text-slate-400">유지수수료:</span> <strong className="font-mono text-emerald-600 ml-1">{selectedHqDetail.maintenanceSum.toLocaleString()}원</strong></div>
+                    <div><span className="text-slate-400">특수수당:</span> <strong className="font-mono text-purple-600 ml-1">{selectedHqDetail.specialSum.toLocaleString()}원</strong></div>
+                    <div><span className="text-slate-400">최종 실지급액:</span> <strong className="font-mono text-indigo-700 text-sm ml-1">{selectedHqDetail.netTotal.toLocaleString()}원</strong></div>
                     <div className="ml-auto text-slate-500">
                       <span>계좌: {selectedHqDetail.bankName} {selectedHqDetail.accountNumber} ({selectedHqDetail.accountHolder})</span>
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-auto p-4 custom-scrollbar space-y-4">
-                    <table className="w-full text-xs text-left border border-slate-200 rounded-lg overflow-hidden">
-                      <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 sticky top-0">
-                        <tr>
-                          <th className="px-3 py-2 text-center w-10">No</th>
-                          <th className="px-3 py-2">회원명</th>
-                          <th className="px-3 py-2">계약일자</th>
-                          <th className="px-3 py-2">상품명</th>
-                          <th className="px-3 py-2 text-center">구좌</th>
-                          <th className="px-3 py-2">지사</th>
-                          <th className="px-3 py-2">영업사원</th>
-                          <th className="px-3 py-2 text-right">판매수수료</th>
-                          <th className="px-3 py-2 text-right">촉진비</th>
-                          <th className="px-3 py-2 text-right">총수수료</th>
-                          <th className="px-3 py-2 text-center">지급일</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {selectedHqDetail.items.map((item, i) => {
-                          const { totalCommission, salesComm } = calculateCommissionDetails(item, globalStatsMap);
-                          const accounts = 1; // ERP 데이터의 각 행은 이미 1구좌 단위
-                          return (
-                            <tr key={i} className="hover:bg-slate-50">
-                              <td className="px-3 py-2 text-center text-slate-400">{i + 1}</td>
-                              <td className="px-3 py-2 font-bold text-slate-800">{item.memName}</td>
-                              <td className="px-3 py-2 text-slate-600">{item.contractDate}</td>
-                              <td className="px-3 py-2 text-slate-800">
-                                {item.prodName}
-                                {item.rentalProd && item.rentalProd !== '-' && item.rentalProd !== item.prodName && (
-                                  <span className="block text-[11px] text-slate-400">{item.rentalProd}</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-center">
-                                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">
-                                  1구좌
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-slate-600">{item.branch || '-'}</td>
-                              <td className="px-3 py-2 text-slate-600">{item.empName || '-'}</td>
-                              <td className="px-3 py-2 text-right font-mono">{salesComm.toLocaleString()}</td>
-                              <td className="px-3 py-2 text-right font-mono">{(totalCommission - salesComm).toLocaleString()}</td>
-                              <td className="px-3 py-2 text-right font-mono font-bold text-blue-600">{totalCommission.toLocaleString()}</td>
-                              <td className="px-3 py-2 text-center text-slate-500">{item.payDate}</td>
+                  <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-6">
+                    {/* 계약 판매/촉진 수수료 테이블 */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-blue-600" />
+                          계약 수수료 내역 ({selectedHqDetail.items.length}건)
+                        </h4>
+                      </div>
+                      <div className="overflow-x-auto border border-slate-200 rounded-lg shadow-2xs">
+                        <table className="w-full text-xs text-left min-w-[980px]">
+                          <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 sticky top-0 z-10">
+                            <tr>
+                              <th className="px-3 py-2.5 text-center w-12 whitespace-nowrap">No</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap min-w-[70px]">회원명</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap min-w-[95px] text-center">계약일자</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap min-w-[180px]">상품명</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap min-w-[65px] text-center">구좌</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap min-w-[80px]">지사</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap min-w-[80px]">영업사원</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap min-w-[95px] text-right">판매수수료</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap min-w-[95px] text-right">촉진비</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap min-w-[100px] text-right">총수수료</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap min-w-[95px] text-center">지급일</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {selectedHqDetail.items.map((item, i) => {
+                              const { totalCommission, salesComm } = calculateCommissionDetails(item, globalStatsMap);
+                              return (
+                                <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-3 py-2.5 text-center text-slate-400 whitespace-nowrap">{i + 1}</td>
+                                  <td className="px-3 py-2.5 font-bold text-slate-800 whitespace-nowrap">{item.memName}</td>
+                                  <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap text-center">{item.contractDate}</td>
+                                  <td className="px-3 py-2.5 text-slate-800">
+                                    <span className="font-medium">{item.prodName}</span>
+                                    {item.rentalProd && item.rentalProd !== '-' && item.rentalProd !== item.prodName && (
+                                      <span className="block text-[11px] text-slate-400 mt-0.5">{item.rentalProd}</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 inline-block">
+                                      1구좌
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{item.branch || '-'}</td>
+                                  <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{item.empName || '-'}</td>
+                                  <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap">{salesComm.toLocaleString()}원</td>
+                                  <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap">{(totalCommission - salesComm).toLocaleString()}원</td>
+                                  <td className="px-3 py-2.5 text-right font-mono font-bold text-blue-600 whitespace-nowrap">{totalCommission.toLocaleString()}원</td>
+                                  <td className="px-3 py-2.5 text-center text-slate-500 whitespace-nowrap">{item.payDate}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
 
                     {/* 유지수수료 상세 목록 */}
                     {selectedHqDetail.maintenanceItems && selectedHqDetail.maintenanceItems.length > 0 && (
-                      <div className="pt-2 space-y-2">
-                        <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
                           <h4 className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
                             <span className="w-2 h-2 rounded-full bg-emerald-600" />
                             유지수수료 내역 ({selectedHqDetail.maintenanceItems.length}건, 총 {selectedHqDetail.maintenanceSum.toLocaleString()}원)
                           </h4>
                         </div>
-                        <table className="w-full text-xs text-left border border-emerald-200 rounded-lg overflow-hidden bg-emerald-50/10">
-                          <thead className="bg-emerald-100/60 text-emerald-900 font-bold border-b border-emerald-200">
-                            <tr>
-                              <th className="px-3 py-2 text-center w-10">No</th>
-                              <th className="px-3 py-2">회원명</th>
-                              <th className="px-3 py-2">상품명</th>
-                              <th className="px-3 py-2 text-center">회차</th>
-                              <th className="px-3 py-2 text-right">유지수수료</th>
-                              <th className="px-3 py-2 text-center">계약일자</th>
-                              <th className="px-3 py-2 text-center">지급일자</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-emerald-100">
-                            {selectedHqDetail.maintenanceItems.map((mItem, idx) => (
-                              <tr key={idx} className="hover:bg-emerald-50/40">
-                                <td className="px-3 py-1.5 text-center text-slate-400">{idx + 1}</td>
-                                <td className="px-3 py-1.5 font-bold text-slate-800">{mItem.memName || '-'}</td>
-                                <td className="px-3 py-1.5 text-slate-700">{mItem.prodName || '-'}</td>
-                                <td className="px-3 py-1.5 text-center font-semibold text-emerald-700">
-                                  {mItem.round ? `${mItem.round}회차` : '-'}
-                                </td>
-                                <td className="px-3 py-1.5 text-right font-mono font-bold text-emerald-700">
-                                  {(mItem.amount || 0).toLocaleString()}원
-                                </td>
-                                <td className="px-3 py-1.5 text-center text-slate-500">{mItem.contractDate || '-'}</td>
-                                <td className="px-3 py-1.5 text-center text-slate-500">{mItem.payDate || '-'}</td>
+                        <div className="overflow-x-auto border border-emerald-200 rounded-lg shadow-2xs">
+                          <table className="w-full text-xs text-left min-w-[750px] bg-emerald-50/10">
+                            <thead className="bg-emerald-100/60 text-emerald-900 font-bold border-b border-emerald-200 sticky top-0 z-10">
+                              <tr>
+                                <th className="px-3 py-2 text-center w-12 whitespace-nowrap">No</th>
+                                <th className="px-3 py-2 whitespace-nowrap min-w-[70px]">회원명</th>
+                                <th className="px-3 py-2 whitespace-nowrap min-w-[160px]">상품명</th>
+                                <th className="px-3 py-2 text-center whitespace-nowrap min-w-[65px]">회차</th>
+                                <th className="px-3 py-2 text-right whitespace-nowrap min-w-[95px]">유지수수료</th>
+                                <th className="px-3 py-2 text-center whitespace-nowrap min-w-[95px]">계약일자</th>
+                                <th className="px-3 py-2 text-center whitespace-nowrap min-w-[95px]">지급일자</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody className="divide-y divide-emerald-100">
+                              {selectedHqDetail.maintenanceItems.map((mItem, idx) => (
+                                <tr key={idx} className="hover:bg-emerald-50/40 transition-colors">
+                                  <td className="px-3 py-2 text-center text-slate-400 whitespace-nowrap">{idx + 1}</td>
+                                  <td className="px-3 py-2 font-bold text-slate-800 whitespace-nowrap">{mItem.memName || '-'}</td>
+                                  <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{mItem.prodName || '-'}</td>
+                                  <td className="px-3 py-2 text-center font-semibold text-emerald-700 whitespace-nowrap">
+                                    {mItem.round ? `${mItem.round}회차` : '-'}
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
+                                    {(mItem.amount || 0).toLocaleString()}원
+                                  </td>
+                                  <td className="px-3 py-2 text-center text-slate-500 whitespace-nowrap">{mItem.contractDate || '-'}</td>
+                                  <td className="px-3 py-2 text-center text-slate-500 whitespace-nowrap">{mItem.payDate || '-'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
 
                     {/* 특수수당 상세 목록 */}
                     {selectedHqDetail.specialItems && selectedHqDetail.specialItems.length > 0 && (
-                      <div className="pt-2 space-y-2">
+                      <div>
                         {(() => {
                           const totalSpAccounts = selectedHqDetail.specialItems.reduce((acc, sp) => acc + (sp.accountCount || getAccountCountFromItem(sp)), 0);
                           return (
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between mb-2">
                               <h4 className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
                                 <span className="w-2 h-2 rounded-full bg-purple-600" />
                                 특수수당 내역 ({selectedHqDetail.specialItems.length}건{totalSpAccounts !== selectedHqDetail.specialItems.length ? ` / ${totalSpAccounts}구좌` : ''}, 총 {selectedHqDetail.specialSum.toLocaleString()}원)
@@ -1965,34 +2160,42 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                             </div>
                           );
                         })()}
-                        <table className="w-full text-xs text-left border border-purple-200 rounded-lg overflow-hidden bg-purple-50/10">
-                          <thead className="bg-purple-100/60 text-purple-900 font-bold border-b border-purple-200">
-                            <tr>
-                              <th className="px-3 py-2 text-center w-10">No</th>
-                              <th className="px-3 py-2">수당명</th>
-                              <th className="px-3 py-2">회원명</th>
-                              <th className="px-3 py-2">상품명</th>
-                              <th className="px-3 py-2 text-right">수당금액</th>
-                              <th className="px-3 py-2 text-center">계약일자</th>
-                              <th className="px-3 py-2 text-center">배송일자</th>
-                              <th className="px-3 py-2 text-center">지급일자</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-purple-100">
-                            {selectedHqDetail.specialItems.map((spItem, idx) => (
-                              <tr key={idx} className="hover:bg-purple-50/40">
-                                <td className="px-3 py-1.5 text-center text-slate-400">{idx + 1}</td>
-                                <td className="px-3 py-1.5 font-bold text-purple-700">{spItem.incentiveName}</td>
-                                <td className="px-3 py-1.5 text-slate-800">{spItem.memName}</td>
-                                <td className="px-3 py-1.5 text-slate-700">{spItem.prodName}</td>
-                                <td className="px-3 py-1.5 text-right font-mono font-bold text-purple-700">{spItem.amount.toLocaleString()}원</td>
-                                <td className="px-3 py-1.5 text-center text-slate-500">{spItem.contractDate}</td>
-                                <td className="px-3 py-1.5 text-center text-slate-500">{spItem.deliveryDate}</td>
-                                <td className="px-3 py-1.5 text-center text-slate-500">{spItem.payDate}</td>
+                        <div className="overflow-x-auto border border-purple-200 rounded-lg shadow-2xs">
+                          <table className="w-full text-xs text-left min-w-[950px] bg-purple-50/10">
+                            <thead className="bg-purple-100/60 text-purple-900 font-bold border-b border-purple-200 sticky top-0 z-10">
+                              <tr>
+                                <th className="px-3 py-2 text-center w-12 whitespace-nowrap">No</th>
+                                <th className="px-3 py-2 whitespace-nowrap min-w-[120px]">수당명</th>
+                                <th className="px-3 py-2 whitespace-nowrap min-w-[70px]">회원명</th>
+                                <th className="px-3 py-2 whitespace-nowrap min-w-[150px]">상품명</th>
+                                <th className="px-3 py-2 text-right whitespace-nowrap min-w-[95px]">수당금액</th>
+                                <th className="px-3 py-2 text-center whitespace-nowrap min-w-[95px]">계약일자</th>
+                                <th className="px-3 py-2 text-center whitespace-nowrap min-w-[95px]">배송일자</th>
+                                <th className="px-3 py-2 text-center whitespace-nowrap min-w-[95px]">지급일자</th>
+                                <th className="px-3 py-2 whitespace-nowrap min-w-[80px]">본부명</th>
+                                <th className="px-3 py-2 whitespace-nowrap min-w-[80px]">지사명</th>
+                                <th className="px-3 py-2 whitespace-nowrap min-w-[80px]">영업자명</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody className="divide-y divide-purple-100">
+                              {selectedHqDetail.specialItems.map((spItem, idx) => (
+                                <tr key={idx} className="hover:bg-purple-50/40 transition-colors">
+                                  <td className="px-3 py-2 text-center text-slate-400 whitespace-nowrap">{idx + 1}</td>
+                                  <td className="px-3 py-2 font-bold text-purple-700 whitespace-nowrap">{spItem.incentiveName}</td>
+                                  <td className="px-3 py-2 text-slate-800 whitespace-nowrap">{spItem.memName}</td>
+                                  <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{spItem.prodName}</td>
+                                  <td className="px-3 py-2 text-right font-mono font-bold text-purple-700 whitespace-nowrap">{spItem.amount.toLocaleString()}원</td>
+                                  <td className="px-3 py-2 text-center text-slate-500 whitespace-nowrap">{spItem.contractDate}</td>
+                                  <td className="px-3 py-2 text-center text-slate-500 whitespace-nowrap">{spItem.deliveryDate}</td>
+                                  <td className="px-3 py-2 text-center text-slate-500 whitespace-nowrap">{spItem.payDate}</td>
+                                  <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{spItem.contractHq || spItem.hq || selectedHqDetail.hqName || '-'}</td>
+                                  <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{spItem.branch || '-'}</td>
+                                  <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{spItem.empName || '-'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </div>
