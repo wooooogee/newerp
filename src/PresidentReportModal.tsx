@@ -13,8 +13,12 @@ import {
   Edit3,
   Layers,
   ChevronDown,
-  RefreshCw
+  RefreshCw,
+  Download,
+  Save
 } from 'lucide-react';
+import * as XLSXModule from 'xlsx';
+const XLSX = (window as any).XLSX || XLSXModule;
 import { motion } from 'motion/react';
 import {
   SupplierItem,
@@ -1146,7 +1150,17 @@ export function PresidentReportModal({
   };
 
   // ----------------------------------------------------
-  // 모달 오픈 시: 저장된 수정본이 있으면 우선 복원, 없으면 자동 계산
+  // 모달 닫힘 감지 시 Ref 리셋 (재오픈 시 빈 상태 덮어쓰기 방지)
+  // ----------------------------------------------------
+  useEffect(() => {
+    if (!isOpen) {
+      isInitializedRef.current = false;
+      isAutoComputingRef.current = false;
+    }
+  }, [isOpen]);
+
+  // ----------------------------------------------------
+  // 모달 오픈 시: 저장된 수정본(기본값)이 있으면 우선 복원, 없으면 자동 계산
   // ----------------------------------------------------
   useEffect(() => {
     if (!isOpen) return;
@@ -1193,7 +1207,7 @@ export function PresidentReportModal({
   }, [isOpen, selectedMonth]);
 
   // ----------------------------------------------------
-  // 사용자 수정 내용 로컬 영구 보관 (화면 닫았다 다시 열어도 완벽 보존)
+  // 사용자 수정 내용 로컬 영구 보관 (화면 닫았다 다시 열어도 기본값으로 완벽 유지)
   // ----------------------------------------------------
   useEffect(() => {
     if (!isInitializedRef.current || isAutoComputingRef.current) return;
@@ -1227,6 +1241,30 @@ export function PresidentReportModal({
   ]);
 
   // ----------------------------------------------------
+  // [기본값으로 저장] 사용자가 수정한 내용을 공식 기본값으로 저장
+  // ----------------------------------------------------
+  const handleSaveAsDefault = () => {
+    try {
+      const key = getReportCacheKey(selectedMonth);
+      const payload = {
+        metrics,
+        hqProductSalesList,
+        specialExpenseList,
+        supplierSummaryList,
+        supplierProductDetailList,
+        monthEndMemo,
+        savedAt: new Date().toISOString()
+      };
+      localStorage.setItem(key, JSON.stringify(payload));
+      setHasCustomSavedData(true);
+      alert(`[${selectedMonth}] 월말보고서 내용이 공식 기본값으로 저장되었습니다.\n\n화면을 닫거나 새로고침해도 이 수정본이 항상 기본값으로 표시됩니다.`);
+    } catch (e) {
+      console.error('[월말보고서 저장 오류]', e);
+      alert('저장 중 오류가 발생했습니다.');
+    }
+  };
+
+  // ----------------------------------------------------
   // [복원] 사용자가 원할 때 언제든 ERP 원본 자동 계산값으로 초기화
   // ----------------------------------------------------
   const handleResetToAutoComputed = () => {
@@ -1250,6 +1288,166 @@ export function PresidentReportModal({
       }, 100);
     });
     alert('ERP 원본 자동 계산값으로 복원되었습니다.');
+  };
+
+  // ----------------------------------------------------
+  // [엑셀 다운로드] 월말보고서 5대 정산표 전체를 .xlsx 로 내보내기
+  // ----------------------------------------------------
+  const handleExportExcel = () => {
+    try {
+      if (!XLSX || !XLSX.utils) {
+        alert('엑셀 변환 라이브러리를 불러오지 못했습니다.');
+        return;
+      }
+
+      const wb = XLSX.utils.book_new();
+
+      // 통계 합계 계산
+      const totalHqCount = hqProductSalesList.reduce((acc, h) => acc + h.count, 0);
+      const totalHqComm = hqProductSalesList.reduce((acc, h) => acc + h.totalCommission, 0);
+      const totalSpecialAmount = specialExpenseList.reduce((acc, s) => acc + s.amount, 0);
+      const totalSuppCount = supplierSummaryList.reduce((acc, s) => acc + s.count, 0);
+      const totalSuppDeposit = supplierSummaryList.reduce((acc, s) => acc + s.depositPrice, 0);
+      const totalSuppPrice = supplierSummaryList.reduce((acc, s) => acc + s.supplyPrice, 0);
+      const totalSuppComm = supplierSummaryList.reduce((acc, s) => acc + s.supplyCommission, 0);
+      const totalSuppMargin = supplierSummaryList.reduce((acc, s) => acc + s.unitMargin, 0);
+      const totalProdCount = supplierProductDetailList.reduce((acc, p) => acc + p.count, 0);
+      const totalProdSupplyPrice = supplierProductDetailList.reduce((acc, p) => acc + p.totalSupplyPrice, 0);
+      const totalProdSupplyComm = supplierProductDetailList.reduce((acc, p) => acc + p.totalSupplyCommission, 0);
+      const totalProdMargin = supplierProductDetailList.reduce((acc, p) => acc + p.totalMargin, 0);
+
+      // [Sheet 1: 월말보고서_종합]
+      const summaryAoa: any[][] = [
+        [`더좋은라이프 월말 종합 결산보고서 (${selectedMonth})`],
+        [`보고서 생성일시: ${new Date().toLocaleDateString('ko-KR')} | 기본값 저장 상태: ${hasCustomSavedData ? '저장된 기본값 적용 중' : 'ERP 원본 자동산출'}`],
+        [],
+        ['========================================================================================'],
+        ['1. 당월 핵심 손익 요약'],
+        ['========================================================================================'],
+        ['구분', '항목', '금액(원)', '산출공식 및 세부설명'],
+        ['렌탈 영업부문', '에넥스 총 입금액 [A]', metrics.a_enexDeposit, '에넥스 본사 총 입금 승인액'],
+        ['렌탈 영업부문', '영업본부 수수료 지급액 [B]', metrics.b_salesCommission, '영업본부·사업단 지급 수수료 총액 (2번 표 총합)'],
+        ['렌탈 영업부문', '특수수당 및 본사지출 [C]', metrics.c_specialAndMaintenance, '직급/직책수당 및 본사 유지비용 (3번 표 총합)'],
+        ['렌탈 영업부문', '영업 순이익 [D = A - B - C]', metrics.d_operatingProfit, '에넥스 입금액 - 본부수수료 - 특수수당'],
+        ['공급사 정산부문', '에넥스 공급가 입금액 [E]', metrics.e_richwelfareDeposit, '에넥스 입금 공급가 총액 (4번 표 총합)'],
+        ['공급사 정산부문', '공급사 지급 공급가액 [F]', metrics.f_richwelfareSupplyPrice, '가스트로플러스/바디프랜드 등 공급가 (4번 표 총합)'],
+        ['공급사 정산부문', '공급수수료 [G]', metrics.g_supplyCommission, '공급사 지급 수수료 총액 (4번 표 총합)'],
+        ['공급사 정산부문', '공급가 마진 순익 [H = E - F - G]', metrics.h_supplyProfit, '에넥스 공급가 입금액 - 공급가액 - 공급수수료'],
+        ['최종 결산', '당월 최종 순이익 [I = D + H]', metrics.i_finalNetProfit, '렌탈 영업 순익(D) + 공급가 마진 순익(H)'],
+        [],
+        ['========================================================================================'],
+        ['2. 본부·사업단별/상품별 영업실적 및 수수료 지급현황'],
+        ['========================================================================================'],
+        ['영업본부/사업단', '취급 상품명', '건수', '건당 수수료(원)', '총 지급 수수료(원)', '정산 비고'],
+        ...hqProductSalesList.map(h => [h.hqName, h.prodName, h.count, h.unitCommission, h.totalCommission, h.note]),
+        ['합계', '-', totalHqCount, '-', totalHqComm, '전체 본부 수수료 합계 [B]'],
+        [],
+        ['========================================================================================'],
+        ['3. 특수수당 및 본사 지출 내역 요약'],
+        ['========================================================================================'],
+        ['지출 구분', '항목명 / 대상자', '수량 / 인원', '총 지출액(원)', '비고 및 산출기준'],
+        ...specialExpenseList.map(s => [s.category, s.name, s.count, s.amount, s.note]),
+        ['합계', '-', '-', totalSpecialAmount, '본사 특수수당/지출 총합 [C]'],
+        [],
+        ['========================================================================================'],
+        ['4. 공급사 정산 총괄 (총 입금액 & 지급 공급가액)'],
+        ['========================================================================================'],
+        ['공급사명', '총 발주건수', '에넥스 총 입금액(원)', '지급 공급가액(원)', '공급수수료(원)', '공급 순마진(원)', '정산조건 / 비고'],
+        ...supplierSummaryList.map(s => [s.supplierName, s.count, s.depositPrice, s.supplyPrice, s.supplyCommission, s.unitMargin, s.settlementCondition]),
+        ['합계', totalSuppCount, totalSuppDeposit, totalSuppPrice, totalSuppComm, totalSuppMargin, '공급사 정산 총괄 합계 [E, F, G, H]'],
+        [],
+        ['========================================================================================'],
+        ['5. 공급사 제품별 세부 정산 내역 (입금단가 & 공급단가)'],
+        ['========================================================================================'],
+        ['공급사', '제품명', '건수', '에넥스 입금단가(원)', '공급단가(원)', '건당 공급수수료(원)', '총 공급가액(원)', '총 공급수수료(원)', '총 공급마진(원)', '비고'],
+        ...supplierProductDetailList.map(p => [p.supplierName, p.prodName, p.count, p.unitDeposit, p.unitSupplyPrice, p.unitCommission, p.totalSupplyPrice, p.totalSupplyCommission, p.totalMargin, p.note]),
+        ['합계', '-', totalProdCount, '-', '-', '-', totalProdSupplyPrice, totalProdSupplyComm, totalProdMargin, '제품별 정산 총합'],
+        [],
+        ['========================================================================================'],
+        ['6. 대표님 보고 종합 의견'],
+        ['========================================================================================'],
+        [monthEndMemo]
+      ];
+
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
+      wsSummary['!cols'] = [
+        { wch: 18 },
+        { wch: 32 },
+        { wch: 16 },
+        { wch: 18 },
+        { wch: 20 },
+        { wch: 22 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 20 },
+        { wch: 20 }
+      ];
+      XLSX.utils.book_append_sheet(wb, wsSummary, '월말보고서_종합');
+
+      // [Sheet 2: 1_핵심손익지표]
+      const sheet1Aoa = [
+        ['구분', '항목', '금액(원)', '세부 설명'],
+        ['렌탈 영업부문', '에넥스 총 입금액 [A]', metrics.a_enexDeposit, '에넥스 본사 총 입금 승인액'],
+        ['렌탈 영업부문', '영업본부 수수료 지급액 [B]', metrics.b_salesCommission, '영업본부·사업단 지급 수수료 총액 (2번 표 총합)'],
+        ['렌탈 영업부문', '특수수당 및 본사지출 [C]', metrics.c_specialAndMaintenance, '직급/직책수당 및 본사 유지비용 (3번 표 총합)'],
+        ['렌탈 영업부문', '영업 순이익 [D = A - B - C]', metrics.d_operatingProfit, '에넥스 입금액 - 본부수수료 - 특수수당'],
+        ['공급사 정산부문', '에넥스 공급가 입금액 [E]', metrics.e_richwelfareDeposit, '에넥스 입금 공급가 총액 (4번 표 총합)'],
+        ['공급사 정산부문', '공급사 지급 공급가액 [F]', metrics.f_richwelfareSupplyPrice, '가스트로플러스/바디프랜드 등 공급가 (4번 표 총합)'],
+        ['공급사 정산부문', '공급수수료 [G]', metrics.g_supplyCommission, '공급사 지급 수수료 총액 (4번 표 총합)'],
+        ['공급사 정산부문', '공급가 마진 순익 [H = E - F - G]', metrics.h_supplyProfit, '에넥스 공급가 입금액 - 공급가액 - 공급수수료'],
+        ['최종 결산', '당월 최종 순이익 [I = D + H]', metrics.i_finalNetProfit, '렌탈 영업 순익(D) + 공급가 마진 순익(H)']
+      ];
+      const ws1 = XLSX.utils.aoa_to_sheet(sheet1Aoa);
+      ws1['!cols'] = [{ wch: 18 }, { wch: 32 }, { wch: 18 }, { wch: 45 }];
+      XLSX.utils.book_append_sheet(wb, ws1, '1_핵심손익지표');
+
+      // [Sheet 3: 2_영업실적및수수료]
+      const sheet2Aoa = [
+        ['영업본부/사업단', '취급 상품명', '건수', '건당 수수료(원)', '총 지급 수수료(원)', '정산 비고'],
+        ...hqProductSalesList.map(h => [h.hqName, h.prodName, h.count, h.unitCommission, h.totalCommission, h.note]),
+        ['합계', '-', totalHqCount, '-', totalHqComm, '전체 본부 수수료 합계 [B]']
+      ];
+      const ws2 = XLSX.utils.aoa_to_sheet(sheet2Aoa);
+      ws2['!cols'] = [{ wch: 20 }, { wch: 28 }, { wch: 10 }, { wch: 16 }, { wch: 20 }, { wch: 30 }];
+      XLSX.utils.book_append_sheet(wb, ws2, '2_영업실적및수수료');
+
+      // [Sheet 4: 3_특수수당및본사지출]
+      const sheet3Aoa = [
+        ['지출 구분', '항목명 / 대상자', '수량 / 인원', '총 지출액(원)', '비고 및 산출기준'],
+        ...specialExpenseList.map(s => [s.category, s.name, s.count, s.amount, s.note]),
+        ['합계', '-', '-', totalSpecialAmount, '본사 특수수당/지출 총합 [C]']
+      ];
+      const ws3 = XLSX.utils.aoa_to_sheet(sheet3Aoa);
+      ws3['!cols'] = [{ wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 18 }, { wch: 35 }];
+      XLSX.utils.book_append_sheet(wb, ws3, '3_특수수당및본사지출');
+
+      // [Sheet 5: 4_공급사정산총괄]
+      const sheet4Aoa = [
+        ['공급사명', '총 발주건수', '에넥스 총 입금액(원)', '지급 공급가액(원)', '공급수수료(원)', '공급 순마진(원)', '정산조건 / 비고'],
+        ...supplierSummaryList.map(s => [s.supplierName, s.count, s.depositPrice, s.supplyPrice, s.supplyCommission, s.unitMargin, s.settlementCondition]),
+        ['합계', totalSuppCount, totalSuppDeposit, totalSuppPrice, totalSuppComm, totalSuppMargin, '공급사 정산 총괄 합계 [E, F, G, H]']
+      ];
+      const ws4 = XLSX.utils.aoa_to_sheet(sheet4Aoa);
+      ws4['!cols'] = [{ wch: 20 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 35 }];
+      XLSX.utils.book_append_sheet(wb, ws4, '4_공급사정산총괄');
+
+      // [Sheet 6: 5_제품별세부정산]
+      const sheet5Aoa = [
+        ['공급사', '제품명', '건수', '에넥스 입금단가(원)', '공급단가(원)', '건당 공급수수료(원)', '총 공급가액(원)', '총 공급수수료(원)', '총 공급마진(원)', '비고'],
+        ...supplierProductDetailList.map(p => [p.supplierName, p.prodName, p.count, p.unitDeposit, p.unitSupplyPrice, p.unitCommission, p.totalSupplyPrice, p.totalSupplyCommission, p.totalMargin, p.note]),
+        ['합계', '-', totalProdCount, '-', '-', '-', totalProdSupplyPrice, totalProdSupplyComm, totalProdMargin, '제품별 정산 총합']
+      ];
+      const ws5 = XLSX.utils.aoa_to_sheet(sheet5Aoa);
+      ws5['!cols'] = [{ wch: 18 }, { wch: 30 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 25 }];
+      XLSX.utils.book_append_sheet(wb, ws5, '5_제품별세부정산');
+
+      // 파일 다운로드
+      const filename = `더좋은라이프_월말보고서_${selectedMonth}.xlsx`;
+      XLSX.writeFile(wb, filename);
+    } catch (e) {
+      console.error('[엑셀 다운로드 오류]', e);
+      alert('엑셀 파일 생성 중 오류가 발생했습니다.');
+    }
   };
 
   // A, B, C 수정 시 D 자동 갱신 (A가 0이면 D는 0 또는 수동값, A가 입력되면 A - B - C)
@@ -1395,19 +1593,37 @@ export function PresidentReportModal({
 
           <div className="flex items-center gap-2">
             {activeTab === 'MONTH_END' && hasCustomSavedData && (
-              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg flex items-center gap-1 shadow-2xs">
-                <span>💾 수정내용 저장됨</span>
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-2xs">
+                <span>💾 저장된 기본값 적용 중</span>
               </span>
             )}
             {activeTab === 'MONTH_END' && (
-              <button
-                onClick={handleResetToAutoComputed}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-300 rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
-                title="모든 수정 내용을 지우고 ERP 원본 데이터 기반 자동 계산값으로 복원합니다."
-              >
-                <RotateCcw size={13} className="text-slate-500" />
-                <span>자동 계산값으로 복원</span>
-              </button>
+              <>
+                <button
+                  onClick={handleSaveAsDefault}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="현재 수정한 모든 표와 수치를 공식 기본값으로 저장합니다. (재접속 시 자동 유지)"
+                >
+                  <Save size={13} />
+                  <span>기본값으로 저장</span>
+                </button>
+                <button
+                  onClick={handleExportExcel}
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="월말보고서 5대 정산표 전체를 엑셀 파일(.xlsx)로 다운로드합니다."
+                >
+                  <Download size={13} />
+                  <span>엑셀 다운로드</span>
+                </button>
+                <button
+                  onClick={handleResetToAutoComputed}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-300 rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="모든 수정 내용을 지우고 ERP 원본 데이터 기반 자동 계산값으로 복원합니다."
+                >
+                  <RotateCcw size={13} className="text-slate-500" />
+                  <span>자동 계산값으로 복원</span>
+                </button>
+              </>
             )}
             <button
               onClick={handlePrint}
