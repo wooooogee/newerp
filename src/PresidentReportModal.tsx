@@ -117,31 +117,39 @@ function EditableText({
 // ----------------------------------------------------
 // 인라인 직접 수정 가능한 숫자 컴포넌트 (줄바꿈 원천 방지)
 // ----------------------------------------------------
+// ----------------------------------------------------
+// 인라인 직접 수정 가능한 숫자 컴포넌트 (줄바꿈 원천 방지 및 직접 입력 공란 지원)
+// ----------------------------------------------------
 function EditableNumber({
   value,
   onChange,
   className = '',
   unit = '',
-  isPrint = false
+  isPrint = false,
+  showZeroAsBlank = false,
+  placeholder = '직접 입력'
 }: {
   value: number;
   onChange: (val: number) => void;
   className?: string;
   unit?: string;
   isPrint?: boolean;
+  showZeroAsBlank?: boolean;
+  placeholder?: string;
 }) {
   const [isEditing, setIsEditing] = useState(false);
-  const [tempVal, setTempVal] = useState(String(value));
+  const [tempVal, setTempVal] = useState(value === 0 && showZeroAsBlank ? '' : String(value));
 
   useEffect(() => {
-    setTempVal(String(value));
-  }, [value]);
+    setTempVal(value === 0 && showZeroAsBlank ? '' : String(value));
+  }, [value, showZeroAsBlank]);
 
   if (isEditing && !isPrint) {
     return (
       <input
         type="number"
         autoFocus
+        placeholder="금액 입력"
         value={tempVal}
         onChange={e => setTempVal(e.target.value)}
         onBlur={() => {
@@ -155,12 +163,30 @@ function EditableNumber({
             const parsed = parseInt(tempVal, 10);
             onChange(isNaN(parsed) ? 0 : parsed);
           } else if (e.key === 'Escape') {
-            setTempVal(String(value));
+            setTempVal(value === 0 && showZeroAsBlank ? '' : String(value));
             setIsEditing(false);
           }
         }}
         className="w-full px-1.5 py-0.5 border border-rose-500 rounded bg-white text-slate-900 font-mono font-bold focus:outline-none text-right shadow-xs text-xs whitespace-nowrap"
       />
+    );
+  }
+
+  const isBlank = showZeroAsBlank && (value === 0 || isNaN(value));
+
+  if (isBlank) {
+    if (isPrint) {
+      return <span className="text-slate-400 font-mono">-</span>;
+    }
+    return (
+      <span
+        onClick={() => setIsEditing(true)}
+        title="클릭하여 직접 입력"
+        className={`cursor-pointer border border-dashed border-rose-400 bg-rose-50/70 hover:bg-rose-100 hover:border-rose-500 text-rose-600 transition-all rounded px-2 py-0.5 font-sans font-bold whitespace-nowrap inline-flex items-center justify-center gap-1 select-none text-[11px] shadow-2xs ${className}`}
+      >
+        <Edit3 size={11} className="text-rose-500 shrink-0" />
+        <span>{placeholder}</span>
+      </span>
     );
   }
 
@@ -175,6 +201,7 @@ function EditableNumber({
     </span>
   );
 }
+
 
 // ----------------------------------------------------
 // 메인 모달 컴포넌트
@@ -432,20 +459,21 @@ export function PresidentReportModal({
   });
 
   // 1. 핵심 손익 지표 (A ~ I)
+  // 에넥스 입금액(A) 및 에넥스 공급가 입금액(E) 초기값 공란(0) -> 사용자가 직접 입력 지원
   const [metrics, setMetrics] = useState({
-    a_enexDeposit: 385000000,
-    b_salesCommission: 304500000,
+    a_enexDeposit: 0,
+    b_salesCommission: 368410000,
     c_specialAndMaintenance: 25918000,
-    d_operatingProfit: 54582000,
-    e_richwelfareDeposit: 54500000,
+    d_operatingProfit: 0,
+    e_richwelfareDeposit: 0,
     f_richwelfareSupplyPrice: 41750000,
     g_supplyCommission: 5850000,
-    h_supplyProfit: 6900000,
-    i_finalNetProfit: 61482000,
+    h_supplyProfit: 0,
+    i_finalNetProfit: 0,
   });
 
   // 2. [통합] 본부별 / 상품별 영업 실적 및 수수료 지급 현황 (요청 2, 3 반영)
-  // 언바운드컴퍼니 예: 540플러스 355건(건당 74만), 540 27건(건당 75만) -> 총 286,500,000원 등
+  // 언바운드컴퍼니 예: 540플러스 355건(건당 74만), 540 27건(건당 75만) -> 총 282,950,000원 등
   const [hqProductSalesList, setHqProductSalesList] = useState<Array<{
     id: string;
     hqName: string;
@@ -471,7 +499,7 @@ export function PresidentReportModal({
     id: string;
     supplierName: string;
     count: number;
-    depositPrice: number;     // 에넥스 총 입금액 (E)
+    depositPrice: number;     // 에넥스 총 입금액 (E) - 초기값 공란
     supplyPrice: number;      // 공급사별 지급 공급가액 (F)
     supplyCommission: number; // 공급수수료 (G)
     unitMargin: number;       // 공급가 순익 (H)
@@ -484,8 +512,8 @@ export function PresidentReportModal({
     supplierName: string;
     prodName: string;
     count: number;
-    unitDeposit: number;      // 제품별 에넥스 건당 입금액
-    unitSupplyPrice: number;  // 제품별 공급단가 (우리가 지급하는 단가)
+    unitDeposit: number;      // 제품별 에넥스 건당 입금액 - 초기값 공란
+    unitSupplyPrice: number;  // 제품별 공급단가 (발주관리/공급사 마스터 공급단가)
     unitCommission: number;   // 제품별 공급수수료
     unitMargin: number;       // 제품별 건당 마진
     totalSupplyPrice: number; // 제품별 총 공급가액
@@ -516,68 +544,120 @@ export function PresidentReportModal({
       return matchMonth;
     });
 
-    // 1. 에넥스 대사 요약(enexProfitSummary) 우선 연동
-    let a_enex = enexProfitSummary?.totalExt || 0;
-    let b_sales = enexProfitSummary?.totalInt || 0;
-    let c_special = enexProfitSummary?.totalExtraExpenses || 0;
+    // -----------------------------------------------------------------
+    // 1. 사업단 및 본부 매핑 집합: 굿라이프(신동우)와 굿라이프(꿈잇다) 산하 22개 본부 통합
+    // -----------------------------------------------------------------
+    const defaultGoodlifeHqs = [
+      '최강본부', '가치온본부', '1본부', '새빛본부', '온누리본부', '명품본부', '이음본부',
+      '무한본부', '꿈잇다', '서울중앙본부', '스마일본부', '아우라본부', '챔피언본부', '두드림본부', '조이본부',
+      '다보다', '더굿라이프', '노반AI', 'LS지사', '신동우 대표', '더굿', 'KMN솔루션'
+    ];
+    const goodlifeSet = new Set<string>(defaultGoodlifeHqs.map(h => h.trim()));
 
-    // 만약 전달받은 정산 요약이 없으면 기존 실제 결산 기준치 로드
-    if (a_enex === 0) a_enex = 385000000;
-    if (b_sales === 0) b_sales = 304500000;
-    if (c_special === 0) c_special = 25918000;
-    const d_operating = a_enex - b_sales - c_special;
+    let divisions = divisionSettings;
+    if (!divisions || divisions.length === 0) {
+      try {
+        const saved = localStorage.getItem('erp_division_settings');
+        if (saved) divisions = JSON.parse(saved);
+      } catch (e) {}
+    }
+    if (Array.isArray(divisions)) {
+      divisions.forEach((div: any) => {
+        if (div.name && div.name.includes('굿라이프') && Array.isArray(div.hqNames)) {
+          div.hqNames.forEach((h: string) => goodlifeSet.add(h.trim()));
+        }
+      });
+    }
 
-    const e_rich_dep = 54500000;
-    const f_rich_sup = 41750000;
-    const g_rich_comm = 5850000;
-    const h_supp_profit = e_rich_dep - f_rich_sup - g_rich_comm;
-    const i_final = d_operating + h_supp_profit;
-
-    setMetrics({
-      a_enexDeposit: a_enex,
-      b_salesCommission: b_sales,
-      c_specialAndMaintenance: c_special,
-      d_operatingProfit: d_operating,
-      e_richwelfareDeposit: e_rich_dep,
-      f_richwelfareSupplyPrice: f_rich_sup,
-      g_supplyCommission: g_rich_comm,
-      h_supplyProfit: h_supp_profit,
-      i_finalNetProfit: i_final,
-    });
-
-    // 2. [통합] 본부별 / 상품별 영업 실적 및 수수료 지급 현황
-    // 굿라이프(신동우/꿈잇다)는 '굿라이프'로 통합: 실버 71만, 골드 75만, 올인원 75만 적용
-    // 언바운드컴퍼니: 540플러스 74만, 540 75만 적용
+    // 본부명 표준화 (굿라이프 산하 본부는 무조건 '굿라이프'로 통합, 5대 조직 분류)
     const normalizeHq = (rawHq: string): string => {
       const h = (rawHq || '').trim();
-      if (h.includes('굿라이프')) return '굿라이프';
-      return h || '기타본부';
+      if (!h) return '기타본부';
+      if (goodlifeSet.has(h) || h.includes('굿라이프') || h.includes('신동우')) {
+        return '굿라이프';
+      }
+      if (h.includes('언바운드')) return '언바운드컴퍼니';
+      if (h.includes('피티엠에스') || h.toUpperCase().includes('PTMS')) return '피티엠에스';
+      if (h.includes('해랑')) return '해랑인터내셔널';
+      if (h.includes('맥스')) return '맥스';
+      return h;
     };
 
-    const getUnitComm = (hq: string, prod: string): number => {
+    // -----------------------------------------------------------------
+    // 2. 본부별 수수료 설정값(hqSettings) 연동 및 수수료 단가 결정 로직
+    // -----------------------------------------------------------------
+    let allHqSettings = hqSettings;
+    if (!allHqSettings || allHqSettings.length === 0) {
+      try {
+        const saved = localStorage.getItem('erp_hq_settings_v2');
+        if (saved) allHqSettings = JSON.parse(saved);
+      } catch (e) {}
+    }
+
+    const getUnitComm = (normHq: string, prod: string, rawHq?: string): number => {
       const cleanProd = prod.replace(/\s+/g, '');
-      if (hq === '굿라이프') {
+
+      // 1) 굿라이프: 실버 71만원, 골드 75만원, 올인원 75만원
+      if (normHq === '굿라이프') {
         if (cleanProd.includes('실버')) return 710000;
         if (cleanProd.includes('골드')) return 750000;
         if (cleanProd.includes('올인원')) return 750000;
-        return 750000; // 굿라이프 기본 단가
+        return 750000;
       }
-      if (hq.includes('언바운드')) {
+
+      // 2) 언바운드컴퍼니: 540플러스 74만원, 540 75만원
+      if (normHq === '언바운드컴퍼니') {
         if (cleanProd.includes('540플러스') || cleanProd.includes('540plus')) return 740000;
         if (cleanProd.includes('540')) return 750000;
       }
+
+      // 3) hqSettings의 productRules 조회
+      if (Array.isArray(allHqSettings) && allHqSettings.length > 0) {
+        const targetHq = allHqSettings.find((s: any) =>
+          (s.hqName && normHq.includes(s.hqName)) ||
+          (s.hqName && s.hqName.includes(normHq)) ||
+          (rawHq && s.hqName && rawHq.includes(s.hqName))
+        );
+        if (targetHq && Array.isArray(targetHq.productRules)) {
+          const matched = targetHq.productRules.find((r: any) => {
+            const rProd = (r.productName || '').replace(/\s+/g, '');
+            return rProd && (cleanProd.includes(rProd) || rProd.includes(cleanProd));
+          });
+          if (matched && typeof matched.totalAmount === 'number' && matched.totalAmount > 0) {
+            return matched.totalAmount;
+          }
+        }
+      }
+
+      // 4) 5대 본부 기본값 보정
+      if (normHq === '피티엠에스') {
+        if (cleanProd.includes('698')) return 680000;
+        if (cleanProd.includes('540')) return 580000;
+      }
+      if (normHq === '해랑인터내셔널') {
+        if (cleanProd.includes('698')) return 650000;
+        if (cleanProd.includes('540')) return 600000;
+      }
+      if (normHq === '맥스') {
+        if (cleanProd.includes('698')) return 680000;
+        if (cleanProd.includes('540')) return 650000;
+      }
+
       return 750000;
     };
 
-    // 실제 데이터가 있는 경우 굿라이프 통합 및 단가 적용 계산
-    const hqProdMap = new Map<string, { hqName: string; prodName: string; count: number }>();
+    // -----------------------------------------------------------------
+    // 3. 실제 ERP 데이터 기반 본부·사업단별 / 상품별 실적 집계
+    // -----------------------------------------------------------------
+    const hqProdMap = new Map<string, { hqName: string; prodName: string; count: number; rawHqs: Set<string> }>();
     if (validItems.length > 0) {
       validItems.forEach(it => {
         const normHq = normalizeHq(it.hq);
-        const prod = (it.prodName || '기타상품').trim();
+        const prod = (it.prodName || '더좋은프리미엄540').trim();
         const key = `${normHq}___${prod}`;
-        const existing = hqProdMap.get(key) || { hqName: normHq, prodName: prod, count: 0 };
+        const existing = hqProdMap.get(key) || { hqName: normHq, prodName: prod, count: 0, rawHqs: new Set() };
         existing.count++;
+        if (it.hq) existing.rawHqs.add(it.hq.trim());
         hqProdMap.set(key, existing);
       });
     }
@@ -585,7 +665,8 @@ export function PresidentReportModal({
     const calculatedHqProdList: typeof hqProductSalesList = [];
     if (hqProdMap.size > 0) {
       Array.from(hqProdMap.values()).forEach((item, idx) => {
-        const unit = getUnitComm(item.hqName, item.prodName);
+        const firstRaw = Array.from(item.rawHqs)[0];
+        const unit = getUnitComm(item.hqName, item.prodName, firstRaw);
         calculatedHqProdList.push({
           id: `hp-calc-${idx}`,
           hqName: item.hqName,
@@ -596,13 +677,25 @@ export function PresidentReportModal({
           note: item.hqName === '굿라이프' ? '신동우/꿈잇다 통합 정산' : '정상 정산'
         });
       });
+
+      // 5대 조직 순서 우선 정렬 (언바운드컴퍼니 -> 굿라이프 -> 피티엠에스 -> 해랑인터내셔널 -> 맥스)
+      const priorityOrder = ['언바운드컴퍼니', '굿라이프', '피티엠에스', '해랑인터내셔널', '맥스'];
+      calculatedHqProdList.sort((a, b) => {
+        const idxA = priorityOrder.indexOf(a.hqName);
+        const idxB = priorityOrder.indexOf(b.hqName);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.hqName.localeCompare(b.hqName);
+      });
     }
 
+    let initialHqProductList: typeof hqProductSalesList = [];
     if (calculatedHqProdList.length > 0) {
-      setHqProductSalesList(calculatedHqProdList);
+      initialHqProductList = calculatedHqProdList;
     } else {
-      // 기본값 세팅 (언바운드컴퍼니 + 굿라이프 통합 단가 완벽 반영)
-      setHqProductSalesList([
+      // 10월 결산 5대 조직 기본값 세팅 (사용자 지정 수수료 및 건수 완벽 반영)
+      initialHqProductList = [
         {
           id: 'hp-1',
           hqName: '언바운드컴퍼니',
@@ -610,7 +703,7 @@ export function PresidentReportModal({
           count: 355,
           unitCommission: 740000,
           totalCommission: 355 * 740000, // 262,700,000
-          note: '300건 초과 구간 수수료 적용'
+          note: '300건 초과 구간 수수료 (74만원)'
         },
         {
           id: 'hp-2',
@@ -619,7 +712,7 @@ export function PresidentReportModal({
           count: 27,
           unitCommission: 750000,
           totalCommission: 27 * 750000, // 20,250,000
-          note: '기본 단가 적용'
+          note: '기본 단가 (75만원)'
         },
         {
           id: 'hp-gl-1',
@@ -650,83 +743,101 @@ export function PresidentReportModal({
         },
         {
           id: 'hp-3',
-          hqName: '경인본부',
+          hqName: '피티엠에스',
           prodName: '더좋은프리미엄540',
-          count: 15,
-          unitCommission: 750000,
-          totalCommission: 15 * 750000, // 11,250,000
-          note: '정상 정산'
+          count: 18,
+          unitCommission: 580000,
+          totalCommission: 18 * 580000, // 10,440,000
+          note: '정상 정산 (본부 설정값 58만원)'
         },
         {
           id: 'hp-4',
-          hqName: '영남본부',
+          hqName: '해랑인터내셔널',
           prodName: '더좋은프리미엄540',
-          count: 9,
-          unitCommission: 750000,
-          totalCommission: 9 * 750000, // 6,750,000
-          note: '정상 정산'
+          count: 12,
+          unitCommission: 600000,
+          totalCommission: 12 * 600000, // 7,200,000
+          note: '정상 정산 (본부 설정값 60만원)'
+        },
+        {
+          id: 'hp-5',
+          hqName: '맥스',
+          prodName: '더좋은프리미엄540',
+          count: 10,
+          unitCommission: 650000,
+          totalCommission: 10 * 650000, // 6,500,000
+          note: '정상 정산 (본부 설정값 65만원)'
         }
-      ]);
+      ];
     }
+    setHqProductSalesList(initialHqProductList);
 
-    // 3. 특수수당 및 본사 지출 내역 기본값 (실제 데이터와 동일하게 정밀 반영)
+    // -----------------------------------------------------------------
+    // 4. 특수수당 및 본사 지출 내역
+    // -----------------------------------------------------------------
+    let initialSpecialList: typeof specialExpenseList = [];
     if (enexProfitSummary?.extraDeductions && Array.isArray(enexProfitSummary.extraDeductions) && enexProfitSummary.extraDeductions.length > 0) {
-      setSpecialExpenseList(enexProfitSummary.extraDeductions.map((e: any, idx: number) => ({
+      initialSpecialList = enexProfitSummary.extraDeductions.map((e: any, idx: number) => ({
         id: `spec-${idx}`,
         category: e.category || '지출차감',
         name: e.name || '지출항목',
         count: e.count || 1,
         amount: e.amount || 0,
         note: e.remark || e.accountInfo || '10월 지급 수수료'
-      })));
+      }));
     } else {
-      setSpecialExpenseList([
+      initialSpecialList = [
         { id: 's-1', category: '특수수당', name: '신동우 대표', count: '208', amount: 16600000, note: '10월 지급 수수료' },
         { id: 's-2', category: '컨설팅', name: '이종연', count: '3', amount: 90000, note: '10월 지급 수수료' },
         { id: 's-3', category: '유지보수', name: '권성훈', count: '602', amount: 150000, note: '10월 지급 수수료' },
         { id: 's-4', category: '컨설팅', name: '조민경', count: '598', amount: 2990000, note: '10월 지급 수수료' },
         { id: 's-5', category: '모델비', name: '조재윤', count: '598', amount: 5980000, note: '10월 지급 수수료' },
         { id: 's-6', category: '유지수수료', name: '본부 유지수수료', count: '10', amount: 108000, note: '10월 회차 유지수수료' }
-      ]);
+      ];
     }
+    setSpecialExpenseList(initialSpecialList);
 
-    // 4. 공급사 정산관리 총괄 요약 (에넥스 총 입금액 & 공급사별 지급 공급가액)
-    setSupplierSummaryList([
+    // -----------------------------------------------------------------
+    // 5. 공급사 관리 데이터 연동 (4번 총괄 및 5번 세부)
+    // -----------------------------------------------------------------
+    // 발주관리/공급사 마스터(erp_suppliers_master_v3) 조회 및 제품별 공급단가 연동
+    const initialSupplierSummary: typeof supplierSummaryList = [
       {
         id: 'supp-sum-1',
         supplierName: '바디프랜드',
         count: 18,
-        depositPrice: 27000000,
+        depositPrice: 0, // 에넥스 총 입금액: 초기값 공란(직접 입력)
         supplyPrice: 20700000,
         supplyCommission: 3060000,
-        unitMargin: 3240000,
+        unitMargin: 0,
         settlementCondition: '당월 말일 결제 (확인서 등록건)'
       },
       {
         id: 'supp-sum-2',
         supplierName: '(주)리치웰',
         count: 14,
-        depositPrice: 27500000,
+        depositPrice: 0, // 에넥스 총 입금액: 초기값 공란(직접 입력)
         supplyPrice: 21050000,
         supplyCommission: 2790000,
-        unitMargin: 3660000,
+        unitMargin: 0,
         settlementCondition: '익월 말일 세금계산서 발행 지급'
       }
-    ]);
+    ];
+    setSupplierSummaryList(initialSupplierSummary);
 
-    // 5. 공급사 제품별 세부 정산 내역 (제품별 에넥스 입금액 & 제품별 공급단가)
-    setSupplierProductDetailList([
+    // 5번: 공급사 제품별 세부 정산 내역 (건당 에넥스입금은 공란 0원, 제품별 공급단가는 자동 연동)
+    const initialProductDetail: typeof supplierProductDetailList = [
       {
         id: 'sp-1',
         supplierName: '바디프랜드',
         prodName: '팔콘 안마의자',
         count: 12,
-        unitDeposit: 1500000,
-        unitSupplyPrice: 1150000,
+        unitDeposit: 0, // 건당 에넥스 입금단가: 초기값 공란(직접 입력)
+        unitSupplyPrice: 1150000, // 공급단가
         unitCommission: 170000,
-        unitMargin: 180000,
-        totalSupplyPrice: 13800000,
-        totalMargin: 2160000,
+        unitMargin: 0,
+        totalSupplyPrice: 12 * 1150000, // 13,800,000
+        totalMargin: 0,
         note: '설치확인서 등록 12건'
       },
       {
@@ -734,12 +845,12 @@ export function PresidentReportModal({
         supplierName: '바디프랜드',
         prodName: '팬텀 로보 안마의자',
         count: 6,
-        unitDeposit: 2000000,
-        unitSupplyPrice: 1533333,
+        unitDeposit: 0, // 건당 에넥스 입금단가: 초기값 공란(직접 입력)
+        unitSupplyPrice: 1533333, // 공급단가
         unitCommission: 200000,
-        unitMargin: 266667,
-        totalSupplyPrice: 9200000,
-        totalMargin: 1600000,
+        unitMargin: 0,
+        totalSupplyPrice: 6 * 1533333, // 9,200,000
+        totalMargin: 0,
         note: '프리미엄 라인'
       },
       {
@@ -747,12 +858,12 @@ export function PresidentReportModal({
         supplierName: '(주)리치웰',
         prodName: '리클라이너 소파 4인',
         count: 8,
-        unitDeposit: 2000000,
-        unitSupplyPrice: 1531250,
+        unitDeposit: 0, // 건당 에넥스 입금단가: 초기값 공란(직접 입력)
+        unitSupplyPrice: 1531250, // 공급단가
         unitCommission: 206250,
-        unitMargin: 262500,
-        totalSupplyPrice: 12250000,
-        totalMargin: 2100000,
+        unitMargin: 0,
+        totalSupplyPrice: 8 * 1531250, // 12,250,000
+        totalMargin: 0,
         note: '익월 말일 지급'
       },
       {
@@ -760,15 +871,45 @@ export function PresidentReportModal({
         supplierName: '(주)리치웰',
         prodName: '프리미엄 호텔 침대',
         count: 6,
-        unitDeposit: 1916667,
-        unitSupplyPrice: 1466667,
+        unitDeposit: 0, // 건당 에넥스 입금단가: 초기값 공란(직접 입력)
+        unitSupplyPrice: 1466667, // 공급단가
         unitCommission: 190000,
-        unitMargin: 260000,
-        totalSupplyPrice: 8800000,
-        totalMargin: 1560000,
+        unitMargin: 0,
+        totalSupplyPrice: 6 * 1466667, // 8,800,000
+        totalMargin: 0,
         note: '매트리스 결합'
       }
-    ]);
+    ];
+    setSupplierProductDetailList(initialProductDetail);
+
+    // -----------------------------------------------------------------
+    // 6. 1번 핵심 손익 지표 계산 및 연동
+    //    - 에넥스 입금액 [A]와 [E]는 초기값 0 (공란)
+    //    - [B]는 2번 표 총합, [C]는 3번 표 총합, [F]는 4번 표 총합 자동 연동
+    // -----------------------------------------------------------------
+    const b_sales = initialHqProductList.reduce((acc, cur) => acc + cur.totalCommission, 0);
+    const c_special = initialSpecialList.reduce((acc, cur) => acc + cur.amount, 0);
+    const f_rich_sup = initialSupplierSummary.reduce((acc, cur) => acc + cur.supplyPrice, 0);
+    const g_rich_comm = 5850000;
+
+    // A와 E는 사용자가 직접 입력하도록 초기값 0
+    const a_enex = 0;
+    const e_rich_dep = 0;
+    const d_operating = a_enex > 0 ? a_enex - b_sales - c_special : 0;
+    const h_supp_profit = e_rich_dep > 0 ? e_rich_dep - f_rich_sup - g_rich_comm : 0;
+    const i_final = d_operating + h_supp_profit;
+
+    setMetrics({
+      a_enexDeposit: a_enex,
+      b_salesCommission: b_sales,
+      c_specialAndMaintenance: c_special,
+      d_operatingProfit: d_operating,
+      e_richwelfareDeposit: e_rich_dep,
+      f_richwelfareSupplyPrice: f_rich_sup,
+      g_supplyCommission: g_rich_comm,
+      h_supplyProfit: h_supp_profit,
+      i_finalNetProfit: i_final,
+    });
   };
 
   useEffect(() => {
@@ -777,42 +918,42 @@ export function PresidentReportModal({
     }
   }, [isOpen, selectedMonth]);
 
-  // A, B, C 수정 시 D 자동 갱신
+  // A, B, C 수정 시 D 자동 갱신 (A가 0이면 D는 0 또는 수동값, A가 입력되면 A - B - C)
   const handleUpdateA = (val: number) => {
     setMetrics(prev => {
-      const d = val - prev.b_salesCommission - prev.c_specialAndMaintenance;
+      const d = val > 0 ? val - prev.b_salesCommission - prev.c_specialAndMaintenance : 0;
       return { ...prev, a_enexDeposit: val, d_operatingProfit: d, i_finalNetProfit: d + prev.h_supplyProfit };
     });
   };
   const handleUpdateB = (val: number) => {
     setMetrics(prev => {
-      const d = prev.a_enexDeposit - val - prev.c_specialAndMaintenance;
+      const d = prev.a_enexDeposit > 0 ? prev.a_enexDeposit - val - prev.c_specialAndMaintenance : 0;
       return { ...prev, b_salesCommission: val, d_operatingProfit: d, i_finalNetProfit: d + prev.h_supplyProfit };
     });
   };
   const handleUpdateC = (val: number) => {
     setMetrics(prev => {
-      const d = prev.a_enexDeposit - prev.b_salesCommission - val;
+      const d = prev.a_enexDeposit > 0 ? prev.a_enexDeposit - prev.b_salesCommission - val : 0;
       return { ...prev, c_specialAndMaintenance: val, d_operatingProfit: d, i_finalNetProfit: d + prev.h_supplyProfit };
     });
   };
 
-  // E, F, G 수정 시 H 자동 갱신
+  // E, F, G 수정 시 H 자동 갱신 (E가 0이면 H는 0, E가 입력되면 E - F - G)
   const handleUpdateE = (val: number) => {
     setMetrics(prev => {
-      const h = val - prev.f_richwelfareSupplyPrice - prev.g_supplyCommission;
+      const h = val > 0 ? val - prev.f_richwelfareSupplyPrice - prev.g_supplyCommission : 0;
       return { ...prev, e_richwelfareDeposit: val, h_supplyProfit: h, i_finalNetProfit: prev.d_operatingProfit + h };
     });
   };
   const handleUpdateF = (val: number) => {
     setMetrics(prev => {
-      const h = prev.e_richwelfareDeposit - val - prev.g_supplyCommission;
+      const h = prev.e_richwelfareDeposit > 0 ? prev.e_richwelfareDeposit - val - prev.g_supplyCommission : 0;
       return { ...prev, f_richwelfareSupplyPrice: val, h_supplyProfit: h, i_finalNetProfit: prev.d_operatingProfit + h };
     });
   };
   const handleUpdateG = (val: number) => {
     setMetrics(prev => {
-      const h = prev.e_richwelfareDeposit - prev.f_richwelfareSupplyPrice - val;
+      const h = prev.e_richwelfareDeposit > 0 ? prev.e_richwelfareDeposit - prev.f_richwelfareSupplyPrice - val : 0;
       return { ...prev, g_supplyCommission: val, h_supplyProfit: h, i_finalNetProfit: prev.d_operatingProfit + h };
     });
   };
@@ -1333,7 +1474,13 @@ export function PresidentReportModal({
                           <td className="border border-slate-300 py-1 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[A]</td>
                           <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap">에넥스 입금액</td>
                           <td className="border border-slate-300 py-1 px-2 text-right font-black text-emerald-700 whitespace-nowrap">
-                            <EditableNumber value={metrics.a_enexDeposit} onChange={handleUpdateA} unit="원" />
+                            <EditableNumber
+                              value={metrics.a_enexDeposit}
+                              onChange={handleUpdateA}
+                              unit="원"
+                              showZeroAsBlank={true}
+                              placeholder="직접 입력"
+                            />
                           </td>
                           <td className="border border-slate-300 py-1 px-2 text-slate-600 text-[11px] truncate">
                             유통사(에넥스) 거래처 수납 총액
@@ -1381,7 +1528,13 @@ export function PresidentReportModal({
                           <td className="border border-slate-300 py-1 px-2 text-center font-bold text-slate-700 bg-slate-50/60 whitespace-nowrap">[E]</td>
                           <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap">에넥스 공급가 입금액(리치웰)</td>
                           <td className="border border-slate-300 py-1 px-2 text-right font-black text-emerald-700 whitespace-nowrap">
-                            <EditableNumber value={metrics.e_richwelfareDeposit} onChange={handleUpdateE} unit="원" />
+                            <EditableNumber
+                              value={metrics.e_richwelfareDeposit}
+                              onChange={handleUpdateE}
+                              unit="원"
+                              showZeroAsBlank={true}
+                              placeholder="직접 입력"
+                            />
                           </td>
                           <td className="border border-slate-300 py-1 px-2 text-slate-600 text-[11px] truncate">
                             에넥스에서 수납된 결합원가 공급가 합계 (하단 4번 상세 집계)
@@ -1722,8 +1875,10 @@ export function PresidentReportModal({
                             <td className="border border-slate-300 py-1 px-2 text-right font-black text-emerald-700 whitespace-nowrap">
                               <EditableNumber
                                 value={row.depositPrice}
-                                onChange={val => setSupplierSummaryList(p => p.map(r => r.id === row.id ? { ...r, depositPrice: val } : r))}
+                                onChange={val => setSupplierSummaryList(p => p.map(r => r.id === row.id ? { ...r, depositPrice: val, unitMargin: val > 0 ? val - r.supplyPrice - r.supplyCommission : 0 } : r))}
                                 unit="원"
+                                showZeroAsBlank={true}
+                                placeholder="직접 입력"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-2 text-right font-bold text-slate-800 whitespace-nowrap">
@@ -1774,7 +1929,7 @@ export function PresidentReportModal({
                         onClick={() => {
                           setSupplierProductDetailList(prev => [
                             ...prev,
-                            { id: `sp-${Date.now()}`, supplierName: '공급사', prodName: '취급제품명', count: 1, unitDeposit: 1500000, unitSupplyPrice: 1150000, unitCommission: 170000, unitMargin: 180000, totalSupplyPrice: 1150000, totalMargin: 180000, note: '-' }
+                            { id: `sp-${Date.now()}`, supplierName: '공급사', prodName: '취급제품명', count: 1, unitDeposit: 0, unitSupplyPrice: 1150000, unitCommission: 170000, unitMargin: 0, totalSupplyPrice: 1150000, totalMargin: 0, note: '-' }
                           ]);
                         }}
                         className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 print:hidden border border-blue-200 px-2 py-0.5 rounded bg-blue-50 cursor-pointer"
@@ -1819,7 +1974,7 @@ export function PresidentReportModal({
                                   ...r,
                                   count: val,
                                   totalSupplyPrice: val * r.unitSupplyPrice,
-                                  totalMargin: val * r.unitMargin
+                                  totalMargin: val > 0 && r.unitDeposit > 0 ? val * (r.unitDeposit - r.unitSupplyPrice - r.unitCommission) : 0
                                 } : r))}
                                 unit="건"
                               />
@@ -1830,10 +1985,12 @@ export function PresidentReportModal({
                                 onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? {
                                   ...r,
                                   unitDeposit: val,
-                                  unitMargin: val - r.unitSupplyPrice - r.unitCommission,
-                                  totalMargin: r.count * (val - r.unitSupplyPrice - r.unitCommission)
+                                  unitMargin: val > 0 ? val - r.unitSupplyPrice - r.unitCommission : 0,
+                                  totalMargin: val > 0 ? r.count * (val - r.unitSupplyPrice - r.unitCommission) : 0
                                 } : r))}
                                 unit="원"
+                                showZeroAsBlank={true}
+                                placeholder="직접 입력"
                               />
                             </td>
                             <td className="border border-slate-300 py-1 px-2 text-right font-bold text-slate-800 whitespace-nowrap">
@@ -1843,8 +2000,8 @@ export function PresidentReportModal({
                                   ...r,
                                   unitSupplyPrice: val,
                                   totalSupplyPrice: r.count * val,
-                                  unitMargin: r.unitDeposit - val - r.unitCommission,
-                                  totalMargin: r.count * (r.unitDeposit - val - r.unitCommission)
+                                  unitMargin: r.unitDeposit > 0 ? r.unitDeposit - val - r.unitCommission : 0,
+                                  totalMargin: r.unitDeposit > 0 ? r.count * (r.unitDeposit - val - r.unitCommission) : 0
                                 } : r))}
                                 unit="원"
                               />
