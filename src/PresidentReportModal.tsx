@@ -1291,44 +1291,9 @@ export function PresidentReportModal({
   };
 
   // ----------------------------------------------------
-  // [엑셀 다운로드] 스타일(배경색, 글자색, 콤마서식) 적용된 월말보고서 .xlsx 내보내기
+  // [엑셀 다운로드] 표준 무결성 .xlsx 파일 내보내기 (손상 방지, 콤마서식, 2행제거, 세부설명제거)
   // ----------------------------------------------------
-  const handleExportExcel = async () => {
-    const filename = `더좋은라이프_월말보고서_${selectedMonth}.xlsx`;
-
-    try {
-      // 1. 서버의 XlsxPopulate 스타일 엑셀 생성 API 호출 (배경색, 폰트색, 콤마서식 완벽 적용)
-      const response = await fetch('/api/report/export-excel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          selectedMonth,
-          metrics,
-          hqProductSalesList,
-          specialExpenseList,
-          supplierSummaryList,
-          supplierProductDetailList,
-          monthEndMemo
-        })
-      });
-
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        return;
-      }
-    } catch (apiErr) {
-      console.warn('[서버 엑셀 생성 실패, 클라이언트 fallback 실행]', apiErr);
-    }
-
-    // 2. Fallback: 클라이언트 SheetJS 라이브러리로 다운로드 (2행 제거, 세부설명 제거, 콤마서식 적용)
+  const handleExportExcel = () => {
     try {
       if (!XLSX || !XLSX.utils) {
         alert('엑셀 변환 라이브러리를 불러오지 못했습니다.');
@@ -1353,7 +1318,23 @@ export function PresidentReportModal({
       const totalProdSupplyComm = validProducts.reduce((acc, p) => acc + p.totalSupplyCommission, 0);
       const totalProdMargin = validProducts.reduce((acc, p) => acc + p.totalMargin, 0);
 
+      // 숫자 서식 헬퍼 (모든 숫자 셀에 천단위 콤마 #,##0 완벽 부여)
+      const formatSheetNumbers = (sheet: any) => {
+        Object.keys(sheet).forEach(cellKey => {
+          if (cellKey.startsWith('!')) return;
+          const cell = sheet[cellKey];
+          if (cell && typeof cell.v === 'number') {
+            cell.t = 'n';
+            cell.z = '#,##0';
+          }
+        });
+      };
+
       // [Sheet 1: 월말보고서_종합]
+      // 1) 2행 기본값 정보 문구 제거
+      // 2) 산출 공식 및 세부설명 컬럼 제거
+      // 3) 4번 표에 [E] 에넥스 총 입금액을 공급사 위에 배치
+      // 4) 4번 표 결과에 [E - 공급사 지급 합계] 차감 잔액 표기
       const summaryAoa: any[][] = [
         [`더좋은라이프 월말 종합 결산보고서 (${selectedMonth})`],
         [],
@@ -1396,31 +1377,14 @@ export function PresidentReportModal({
       ];
 
       const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoa);
-      Object.keys(wsSummary).forEach(cellKey => {
-        if (cellKey.startsWith('!')) return;
-        const cell = wsSummary[cellKey];
-        if (cell && typeof cell.v === 'number') {
-          cell.t = 'n';
-          cell.z = '#,##0';
-        }
-      });
+      formatSheetNumbers(wsSummary);
       wsSummary['!cols'] = [
-        { wch: 22 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 20 },
+        { wch: 22 }, { wch: 32 }, { wch: 14 }, { wch: 18 }, { wch: 20 },
         { wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 22 }
       ];
       XLSX.utils.book_append_sheet(wb, wsSummary, '월말보고서_종합');
 
-      const formatSheetNumbers = (sheet: any) => {
-        Object.keys(sheet).forEach(cellKey => {
-          if (cellKey.startsWith('!')) return;
-          const cell = sheet[cellKey];
-          if (cell && typeof cell.v === 'number') {
-            cell.t = 'n';
-            cell.z = '#,##0';
-          }
-        });
-      };
-
+      // [Sheet 2: 1_핵심손익지표]
       const sheet1Aoa = [
         ['구분', '항목명', '금액'],
         ['렌탈 영업부문', '에넥스 총 입금액 [A]', metrics.a_enexDeposit],
@@ -1438,6 +1402,7 @@ export function PresidentReportModal({
       ws1['!cols'] = [{ wch: 20 }, { wch: 35 }, { wch: 22 }];
       XLSX.utils.book_append_sheet(wb, ws1, '1_핵심손익지표');
 
+      // [Sheet 3: 2_영업실적및수수료]
       const sheet2Aoa = [
         ['영업본부/사업단', '취급 상품명', '건수', '건당 수수료', '총 지급 수수료', '정산 비고'],
         ...hqProductSalesList.map(h => [h.hqName, h.prodName, h.count, h.unitCommission, h.totalCommission, h.note]),
@@ -1448,6 +1413,7 @@ export function PresidentReportModal({
       ws2['!cols'] = [{ wch: 22 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 22 }, { wch: 30 }];
       XLSX.utils.book_append_sheet(wb, ws2, '2_영업실적및수수료');
 
+      // [Sheet 4: 3_특수수당및본사지출]
       const sheet3Aoa = [
         ['지출 구분', '지출 항목명 / 대상', '수량/인원', '총 지출액', '비고'],
         ...specialExpenseList.map(s => [s.category, s.name, s.count, s.amount, s.note]),
@@ -1458,6 +1424,7 @@ export function PresidentReportModal({
       ws3['!cols'] = [{ wch: 20 }, { wch: 28 }, { wch: 14 }, { wch: 22 }, { wch: 35 }];
       XLSX.utils.book_append_sheet(wb, ws3, '3_특수수당및본사지출');
 
+      // [Sheet 5: 4_공급사정산총괄]
       const sheet4Aoa = [
         ['구분 / 공급사명', '정산 건수', '공급가액 / 금액', '정산조건 / 비고'],
         ['[E] 에넥스 총 입금액', '입금 총액', enexDeposit, '에넥스 본사 총 입금 승인액'],
@@ -1470,6 +1437,7 @@ export function PresidentReportModal({
       ws4['!cols'] = [{ wch: 25 }, { wch: 16 }, { wch: 22 }, { wch: 35 }];
       XLSX.utils.book_append_sheet(wb, ws4, '4_공급사정산총괄');
 
+      // [Sheet 6: 5_제품별세부정산]
       const sheet5Aoa = [
         ['공급사', '제품명', '건수', '에넥스 입금단가', '공급단가', '건당 공급수수료', '총 공급가액', '총 공급수수료', '총 공급마진', '비고'],
         ...validProducts.map(p => [p.supplierName, p.prodName, p.count, p.unitDeposit, p.unitSupplyPrice, p.unitCommission, p.totalSupplyPrice, p.totalSupplyCommission, p.totalMargin, p.note]),
@@ -1480,6 +1448,7 @@ export function PresidentReportModal({
       ws5['!cols'] = [{ wch: 18 }, { wch: 32 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 25 }];
       XLSX.utils.book_append_sheet(wb, ws5, '5_제품별세부정산');
 
+      const filename = `더좋은라이프_월말보고서_${selectedMonth}.xlsx`;
       XLSX.writeFile(wb, filename);
     } catch (e) {
       console.error('[엑셀 다운로드 오류]', e);
