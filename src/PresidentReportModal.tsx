@@ -519,12 +519,13 @@ export function PresidentReportModal({
     supplierName: string;
     prodName: string;
     count: number;
-    unitDeposit: number;      // 제품별 에넥스 건당 입금액 - 초기값 공란
-    unitSupplyPrice: number;  // 제품별 공급단가 (발주관리/공급사 마스터 공급단가)
-    unitCommission: number;   // 제품별 공급수수료
-    unitMargin: number;       // 제품별 건당 마진
-    totalSupplyPrice: number; // 제품별 총 공급가액
-    totalMargin: number;      // 제품별 총 마진
+    unitDeposit: number;          // 제품별 에넥스 건당 입금액 - 초기값 공란
+    unitSupplyPrice: number;      // 제품별 공급단가 (발주관리/공급사 마스터 공급단가)
+    unitCommission: number;       // 제품별 건당 공급수수료
+    totalSupplyPrice: number;     // 제품별 총 공급가액
+    totalSupplyCommission: number;// 제품별 총 공급수수료 (count * unitCommission)
+    unitMargin: number;           // 제품별 건당 마진
+    totalMargin: number;          // 제품별 총 마진
     note: string;
   }>>([]);
 
@@ -880,10 +881,15 @@ export function PresidentReportModal({
           const pKey = `${supp.name || supp.id}___${pName}`;
           const actualCount = productCountMap.get(pKey) || 0;
 
+          // 사용자의 요청: 0건인 내용은 표기하지 않음
+          if (actualCount <= 0) return;
+
           const enex = Number(prod.enexPrice) || 0;
           const supply = Number(prod.supplyPrice) || 0;
           const comm = Number(prod.supplyCommission) || 0;
-          const margin = enex > 0 ? enex - supply - comm : 0;
+          const supTotal = actualCount * supply;
+          const commTotal = actualCount * comm;
+          const margin = enex > 0 ? (actualCount * enex) - supTotal - commTotal : 0;
 
           initialProductDetail.push({
             id: `sp-${pIdx++}`,
@@ -893,10 +899,11 @@ export function PresidentReportModal({
             unitDeposit: enex,
             unitSupplyPrice: supply,
             unitCommission: comm,
-            unitMargin: margin,
-            totalSupplyPrice: actualCount * supply,
-            totalMargin: actualCount * margin,
-            note: enex > 0 ? '공급사관리 에넥스입금가 연동' : (actualCount > 0 ? `배송완료 ${actualCount}건` : '공급사 등록 제품')
+            totalSupplyPrice: supTotal,
+            totalSupplyCommission: commTotal,
+            unitMargin: enex > 0 ? enex - supply - comm : 0,
+            totalMargin: margin,
+            note: enex > 0 ? '공급사관리 에넥스입금가 연동' : `배송완료 ${actualCount}건`
           });
         });
       });
@@ -908,41 +915,29 @@ export function PresidentReportModal({
       });
     }
 
-    // 만약 공급사 마스터가 전혀 비어있거나 등록된 제품이 없는 경우에만 fallback
+    // 만약 공급사 마스터가 전혀 비어있거나 실적 품목이 전혀 없는 경우에만 최소 fallback 1개 구성
     if (initialProductDetail.length === 0) {
       initialProductDetail.push(
         {
           id: 'sp-1',
           supplierName: '바디프랜드',
           prodName: '2구좌_[바디프랜드]안마의자(파밀레S(A))',
-          count: 12,
+          count: 14,
           unitDeposit: 0,
-          unitSupplyPrice: 1150000,
-          unitCommission: 170000,
-          unitMargin: 0,
-          totalSupplyPrice: 12 * 1150000,
-          totalMargin: 0,
-          note: '설치확인서 등록 12건'
-        },
-        {
-          id: 'sp-2',
-          supplierName: '가스트로플러스',
-          prodName: '1구좌_[가스트로플러스]공기청정 냉온풍기 블루 (뉴스카이타워G9 3in1)',
-          count: 8,
-          unitDeposit: 0,
-          unitSupplyPrice: 1124760,
+          unitSupplyPrice: 1400000,
           unitCommission: 0,
+          totalSupplyPrice: 14 * 1400000,
+          totalSupplyCommission: 0,
           unitMargin: 0,
-          totalSupplyPrice: 8 * 1124760,
           totalMargin: 0,
-          note: '공급사관리 등록 제품'
+          note: '설치확인서 등록 14건'
         }
       );
     }
 
     setSupplierProductDetailList(initialProductDetail);
 
-    // 4번: 공급사 정산관리 총괄 요약 (5번 제품 목록을 공급사별로 자동 그룹핑 집계)
+    // 4번: 공급사 정산관리 총괄 요약 (5번 제품 목록을 공급사별로 자동 그룹핑 집계, 0건 공급사 제외)
     const suppSummaryMap = new Map<string, {
       supplierName: string;
       count: number;
@@ -962,20 +957,23 @@ export function PresidentReportModal({
       cur.count += p.count;
       cur.depositPrice += (p.unitDeposit * p.count);
       cur.supplyPrice += p.totalSupplyPrice;
-      cur.supplyCommission += (p.unitCommission * p.count);
+      cur.supplyCommission += p.totalSupplyCommission;
       suppSummaryMap.set(p.supplierName, cur);
     });
 
-    const initialSupplierSummary: typeof supplierSummaryList = Array.from(suppSummaryMap.values()).map((s, idx) => ({
-      id: `supp-sum-${idx + 1}`,
-      supplierName: s.supplierName,
-      count: s.count,
-      depositPrice: s.depositPrice,
-      supplyPrice: s.supplyPrice,
-      supplyCommission: s.supplyCommission,
-      unitMargin: s.depositPrice > 0 ? s.depositPrice - s.supplyPrice - s.supplyCommission : 0,
-      settlementCondition: s.supplierName.includes('바디프랜드') ? '당월 말일 결제 (확인서 등록건)' : '익월 말일 세금계산서 발행 지급'
-    }));
+    // 0건인 공급사는 제외하고 실적(count > 0) 공급사만 총괄 요약에 표시
+    const initialSupplierSummary: typeof supplierSummaryList = Array.from(suppSummaryMap.values())
+      .filter(s => s.count > 0)
+      .map((s, idx) => ({
+        id: `supp-sum-${idx + 1}`,
+        supplierName: s.supplierName,
+        count: s.count,
+        depositPrice: s.depositPrice,
+        supplyPrice: s.supplyPrice,
+        supplyCommission: s.supplyCommission,
+        unitMargin: s.depositPrice > 0 ? s.depositPrice - s.supplyPrice - s.supplyCommission : 0,
+        settlementCondition: s.supplierName.includes('바디프랜드') ? '당월 말일 결제 (확인서 등록건)' : '익월 말일 세금계산서 발행 지급'
+      }));
 
     setSupplierSummaryList(initialSupplierSummary);
 
@@ -1976,7 +1974,7 @@ export function PresidentReportModal({
                         </tr>
                       </thead>
                       <tbody>
-                        {supplierSummaryList.map(row => (
+                        {supplierSummaryList.filter(row => row.count > 0).map(row => (
                           <tr key={row.id} className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors group">
                             <td className="border border-slate-300 py-1 px-2 font-bold text-slate-900 whitespace-nowrap truncate">
                               <EditableText
@@ -2020,19 +2018,24 @@ export function PresidentReportModal({
                           </tr>
                         ))}
                         {/* 합계 행 */}
-                        <tr className="bg-slate-200/90 font-black border-t-2 border-slate-400 text-black">
-                          <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap">공급사 정산 총계</td>
-                          <td className="border border-slate-400 py-1.5 px-1 text-center whitespace-nowrap">
-                            {supplierSummaryList.reduce((s, r) => s + r.count, 0).toLocaleString()} 건
-                          </td>
-                          <td className="border border-slate-400 py-1.5 px-2 text-right text-emerald-900 whitespace-nowrap font-black">
-                            {supplierSummaryList.reduce((s, r) => s + r.depositPrice, 0).toLocaleString()} 원
-                          </td>
-                          <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-900 whitespace-nowrap font-black">
-                            {supplierSummaryList.reduce((s, r) => s + r.supplyPrice, 0).toLocaleString()} 원
-                          </td>
-                          <td className="border border-slate-400 py-1.5 px-1 print:hidden"></td>
-                        </tr>
+                        {(() => {
+                          const validSummaries = supplierSummaryList.filter(row => row.count > 0);
+                          return (
+                            <tr className="bg-slate-200/90 font-black border-t-2 border-slate-400 text-black">
+                              <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap">공급사 정산 총계</td>
+                              <td className="border border-slate-400 py-1.5 px-1 text-center whitespace-nowrap">
+                                {validSummaries.reduce((s, r) => s + r.count, 0).toLocaleString()} 건
+                              </td>
+                              <td className="border border-slate-400 py-1.5 px-2 text-right text-emerald-900 whitespace-nowrap font-black">
+                                {validSummaries.reduce((s, r) => s + r.depositPrice, 0).toLocaleString()} 원
+                              </td>
+                              <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-900 whitespace-nowrap font-black">
+                                {validSummaries.reduce((s, r) => s + r.supplyPrice, 0).toLocaleString()} 원
+                              </td>
+                              <td className="border border-slate-400 py-1.5 px-1 print:hidden"></td>
+                            </tr>
+                          );
+                        })()}
                       </tbody>
                     </table>
                   </div>
@@ -2059,7 +2062,20 @@ export function PresidentReportModal({
                           onClick={() => {
                             setSupplierProductDetailList(prev => [
                               ...prev,
-                              { id: `sp-${Date.now()}`, supplierName: '공급사', prodName: '취급제품명', count: 1, unitDeposit: 0, unitSupplyPrice: 1150000, unitCommission: 170000, unitMargin: 0, totalSupplyPrice: 1150000, totalMargin: 0, note: '-' }
+                              {
+                                id: `sp-${Date.now()}`,
+                                supplierName: '공급사',
+                                prodName: '취급제품명',
+                                count: 1,
+                                unitDeposit: 0,
+                                unitSupplyPrice: 1150000,
+                                unitCommission: 0,
+                                totalSupplyPrice: 1150000,
+                                totalSupplyCommission: 0,
+                                unitMargin: 0,
+                                totalMargin: 0,
+                                note: '-'
+                              }
                             ]);
                           }}
                           className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 border border-blue-200 px-2 py-0.5 rounded bg-blue-50 cursor-pointer"
@@ -2072,17 +2088,18 @@ export function PresidentReportModal({
                     <table className="w-full text-left border-collapse border border-slate-400 text-xs table-fixed">
                       <thead>
                         <tr className="bg-slate-100 text-slate-900 font-black border-b border-slate-400 text-center select-none">
-                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[14%] whitespace-nowrap">공급사</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-left w-[13%] whitespace-nowrap">공급사</th>
                           <th className="border border-slate-400 py-1.5 px-2 text-left w-[20%] whitespace-nowrap">취급 제품명</th>
-                          <th className="border border-slate-400 py-1.5 px-1 text-center w-[7%] whitespace-nowrap">건수</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[15%] whitespace-nowrap">건당 에넥스입금</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[15%] whitespace-nowrap">제품별 공급단가</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[14%] whitespace-nowrap">총 공급가액</th>
-                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[15%] whitespace-nowrap">총 공급마진(순익)</th>
+                          <th className="border border-slate-400 py-1.5 px-1 text-center w-[6%] whitespace-nowrap">건수</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[13%] whitespace-nowrap">건당 에넥스입금</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[13%] whitespace-nowrap">제품별 공급단가</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[12%] whitespace-nowrap">총 공급가액</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[11%] whitespace-nowrap">공급수수료</th>
+                          <th className="border border-slate-400 py-1.5 px-2 text-right w-[12%] whitespace-nowrap">총 공급마진(순익)</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {supplierProductDetailList.map(row => (
+                        {supplierProductDetailList.filter(row => row.count > 0).map(row => (
                           <tr key={row.id} className="border-b border-slate-300 hover:bg-slate-50/50 transition-colors group">
                             <td className="border border-slate-300 py-1 px-2 font-bold text-slate-700 whitespace-nowrap truncate">
                               <EditableText
@@ -2105,7 +2122,8 @@ export function PresidentReportModal({
                                   ...r,
                                   count: val,
                                   totalSupplyPrice: val * r.unitSupplyPrice,
-                                  totalMargin: val > 0 && r.unitDeposit > 0 ? val * (r.unitDeposit - r.unitSupplyPrice - r.unitCommission) : 0
+                                  totalSupplyCommission: val * r.unitCommission,
+                                  totalMargin: r.unitDeposit > 0 ? (val * r.unitDeposit) - (val * r.unitSupplyPrice) - (val * r.unitCommission) : 0
                                 } : r))}
                                 unit="건"
                               />
@@ -2117,7 +2135,7 @@ export function PresidentReportModal({
                                   ...r,
                                   unitDeposit: val,
                                   unitMargin: val > 0 ? val - r.unitSupplyPrice - r.unitCommission : 0,
-                                  totalMargin: val > 0 ? r.count * (val - r.unitSupplyPrice - r.unitCommission) : 0
+                                  totalMargin: val > 0 ? (r.count * val) - r.totalSupplyPrice - r.totalSupplyCommission : 0
                                 } : r))}
                                 unit="원"
                                 showZeroAsBlank={true}
@@ -2132,7 +2150,7 @@ export function PresidentReportModal({
                                   unitSupplyPrice: val,
                                   totalSupplyPrice: r.count * val,
                                   unitMargin: r.unitDeposit > 0 ? r.unitDeposit - val - r.unitCommission : 0,
-                                  totalMargin: r.unitDeposit > 0 ? r.count * (r.unitDeposit - val - r.unitCommission) : 0
+                                  totalMargin: r.unitDeposit > 0 ? (r.count * r.unitDeposit) - (r.count * val) - r.totalSupplyCommission : 0
                                 } : r))}
                                 unit="원"
                               />
@@ -2140,7 +2158,22 @@ export function PresidentReportModal({
                             <td className="border border-slate-300 py-1 px-2 text-right font-semibold text-slate-900 whitespace-nowrap">
                               <EditableNumber
                                 value={row.totalSupplyPrice}
-                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? { ...r, totalSupplyPrice: val } : r))}
+                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? {
+                                  ...r,
+                                  totalSupplyPrice: val,
+                                  totalMargin: r.unitDeposit > 0 ? (r.count * r.unitDeposit) - val - r.totalSupplyCommission : 0
+                                } : r))}
+                                unit="원"
+                              />
+                            </td>
+                            <td className="border border-slate-300 py-1 px-2 text-right font-semibold text-rose-700 whitespace-nowrap">
+                              <EditableNumber
+                                value={row.totalSupplyCommission}
+                                onChange={val => setSupplierProductDetailList(p => p.map(r => r.id === row.id ? {
+                                  ...r,
+                                  totalSupplyCommission: val,
+                                  totalMargin: r.unitDeposit > 0 ? (r.count * r.unitDeposit) - r.totalSupplyPrice - val : 0
+                                } : r))}
                                 unit="원"
                               />
                             </td>
@@ -2154,23 +2187,31 @@ export function PresidentReportModal({
                           </tr>
                         ))}
                         {/* 합계 행 */}
-                        <tr className="bg-slate-200/90 font-black border-t-2 border-slate-400 text-black">
-                          <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap" colSpan={2}>
-                            제품별 세부 합계
-                          </td>
-                          <td className="border border-slate-400 py-1.5 px-1 text-center whitespace-nowrap">
-                            {supplierProductDetailList.reduce((s, r) => s + r.count, 0).toLocaleString()} 건
-                          </td>
-                          <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-500 text-[11px] font-normal whitespace-nowrap" colSpan={2}>
-                            총 {supplierProductDetailList.length}개 품목
-                          </td>
-                          <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-950 font-black whitespace-nowrap">
-                            {supplierProductDetailList.reduce((s, r) => s + r.totalSupplyPrice, 0).toLocaleString()} 원
-                          </td>
-                          <td className="border border-slate-400 py-1.5 px-2 text-right text-amber-950 font-black whitespace-nowrap">
-                            {supplierProductDetailList.reduce((s, r) => s + r.totalMargin, 0).toLocaleString()} 원
-                          </td>
-                        </tr>
+                        {(() => {
+                          const validProducts = supplierProductDetailList.filter(row => row.count > 0);
+                          return (
+                            <tr className="bg-slate-200/90 font-black border-t-2 border-slate-400 text-black">
+                              <td className="border border-slate-400 py-1.5 px-2 text-left whitespace-nowrap" colSpan={2}>
+                                제품별 세부 합계
+                              </td>
+                              <td className="border border-slate-400 py-1.5 px-1 text-center whitespace-nowrap">
+                                {validProducts.reduce((s, r) => s + r.count, 0).toLocaleString()} 건
+                              </td>
+                              <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-500 text-[11px] font-normal whitespace-nowrap" colSpan={2}>
+                                총 {validProducts.length}개 품목
+                              </td>
+                              <td className="border border-slate-400 py-1.5 px-2 text-right text-slate-950 font-black whitespace-nowrap">
+                                {validProducts.reduce((s, r) => s + r.totalSupplyPrice, 0).toLocaleString()} 원
+                              </td>
+                              <td className="border border-slate-400 py-1.5 px-2 text-right text-rose-950 font-black whitespace-nowrap">
+                                {validProducts.reduce((s, r) => s + (r.totalSupplyCommission || 0), 0).toLocaleString()} 원
+                              </td>
+                              <td className="border border-slate-400 py-1.5 px-2 text-right text-amber-950 font-black whitespace-nowrap">
+                                {validProducts.reduce((s, r) => s + r.totalMargin, 0).toLocaleString()} 원
+                              </td>
+                            </tr>
+                          );
+                        })()}
                       </tbody>
                     </table>
                   </div>
