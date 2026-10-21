@@ -244,25 +244,16 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     return [];
   }, [hqSettings]);
 
-  // 본부별 정산 설정(hqSettings)에서 계약의 본부 및 상품에 따른 1구좌당 지급수수료 조회
-  const getHqPayoutFee = (
-    hqNameCandidate: string, // ERP 매칭 본부명 (matchedErp?.hq)
+  // 본부 매칭 헬퍼 함수
+  const findTargetHq = (
+    hqNameCandidate: string, // ERP 매칭 본부명
     branchOffice: string,    // 엑셀 판매점명
-    sangjoProdName: string,  // 상조 상품명
-    applianceProdName: string, // 가전 제품명
-    combineModel: string,    // 결합모델명
-    hqSettingsList: any[],   // effectiveHqSettings
-    defaultFallbackFee: number = 700000
-  ): { payoutFee: number; matchedHqName: string; ruleName?: string } => {
+    hqSettingsList: any[]    // effectiveHqSettings
+  ) => {
     const clean = (s: any) => String(s || '').replace(/\(주\)|주식회사|\s+/g, '').toLowerCase();
-
-    const normProd = `${sangjoProdName || ''} ${applianceProdName || ''} ${combineModel || ''}`.replace(/\s+/g, '').toLowerCase();
-    const hasPlus = normProd.includes('540+') || normProd.includes('540플러스') || normProd.includes('플러스') || normProd.includes('plus');
-
     const cleanCand = clean(hqNameCandidate);
     const cleanBranch = clean(branchOffice);
 
-    // 1. 본부 매칭 (1차: ERP 매칭 본부, 2차: 엑셀 판매점)
     let targetHq: any = null;
     if (cleanCand) {
       targetHq = hqSettingsList.find((h: any) => {
@@ -291,9 +282,35 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
             clean(h.hqName).includes('더라이프앤') ||
             clean(h.hqName).includes('더좋은라이프')
           );
+        } else if (cleanBranch.includes('피티엠에스') || cleanBranch.includes('ptms')) {
+          targetHq = hqSettingsList.find((h: any) =>
+            clean(h.hqName).includes('피티엠에스') || clean(h.hqName).includes('ptms')
+          );
+        } else if (cleanBranch.includes('맥스')) {
+          targetHq = hqSettingsList.find((h: any) => clean(h.hqName).includes('맥스'));
+        } else if (cleanBranch.includes('해랑')) {
+          targetHq = hqSettingsList.find((h: any) => clean(h.hqName).includes('해랑'));
         }
       }
     }
+    return targetHq;
+  };
+
+  // 본부별 정산 설정(hqSettings)에서 계약의 본부 및 상품에 따른 1구좌당 지급수수료 조회 (실적 구간단가 엄격 반영)
+  const getHqPayoutFee = (
+    hqNameCandidate: string, // ERP 매칭 본부명 (matchedErp?.hq)
+    branchOffice: string,    // 엑셀 판매점명
+    sangjoProdName: string,  // 상조 상품명
+    applianceProdName: string, // 가전 제품명
+    combineModel: string,    // 결합모델명
+    hqSettingsList: any[],   // effectiveHqSettings
+    defaultFallbackFee: number = 700000,
+    currentCount: number = 0 // 해당 본부(또는 상품)의 실적 건수
+  ): { payoutFee: number; matchedHqName: string; ruleName?: string; isTierApplied?: boolean } => {
+    const normProd = `${sangjoProdName || ''} ${applianceProdName || ''} ${combineModel || ''}`.replace(/\s+/g, '').toLowerCase();
+    const hasPlus = normProd.includes('540+') || normProd.includes('540플러스') || normProd.includes('플러스') || normProd.includes('plus');
+
+    const targetHq = findTargetHq(hqNameCandidate, branchOffice, hqSettingsList);
 
     if (targetHq && Array.isArray(targetHq.productRules)) {
       // 2. 해당 본부의 productRules에서 상품 매칭
@@ -318,16 +335,41 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         }
 
         if (isMatch) {
-          // 언바운드컴퍼니 등의 구간단가(tier1Price)가 있으면 우선 적용, 없으면 totalAmount, salesAmount 순
-          const fee = (rule.tier1Price && Number(rule.tier1Price) > 0)
-            ? Number(rule.tier1Price)
-            : (Number(rule.totalAmount) || Number(rule.salesAmount) || 0);
+          const basePrice = Number(rule.totalAmount) || Number(rule.salesAmount) || 0;
+          const tier1Count = Number(rule.tier1Count) || 0;
+          const tier1Price = Number(rule.tier1Price) || 0;
+          const tier2Count = Number(rule.tier2Count) || 0;
+          const tier2Price = Number(rule.tier2Price) || 0;
+          const tier3Count = Number(rule.tier3Count) || 0;
+          const tier3Price = Number(rule.tier3Price) || 0;
+
+          let fee = basePrice;
+          let isTierApplied = false;
+
+          // [구간단가 엄격 판정]:
+          // 1) 구간 건수(예: 언바운드 300건, 피티엠에스 100건)를 충족할 때만 구간 단가(tierPrice) 적용!
+          // 2) 건수 미달 시 무조건 기본단가(totalAmount = 언바운드 71만원, 피티엠에스 68만원) 적용!
+          if (tier3Count > 0 && tier3Price > 0 && currentCount >= tier3Count) {
+            fee = tier3Price;
+            isTierApplied = true;
+          } else if (tier2Count > 0 && tier2Price > 0 && currentCount >= tier2Count) {
+            fee = tier2Price;
+            isTierApplied = true;
+          } else if (tier1Count > 0 && tier1Price > 0 && currentCount >= tier1Count) {
+            fee = tier1Price;
+            isTierApplied = true;
+          } else if (basePrice > 0) {
+            fee = basePrice;
+          } else if (tier1Price > 0) {
+            fee = tier1Price;
+          }
 
           if (fee > 0) {
             return {
               payoutFee: fee,
               matchedHqName: targetHq.hqName,
-              ruleName: rule.productName
+              ruleName: rule.productName,
+              isTierApplied
             };
           }
         }
@@ -338,7 +380,8 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     const finalHqName = targetHq?.hqName || hqNameCandidate || branchOffice || '';
     return {
       payoutFee: defaultFallbackFee,
-      matchedHqName: finalHqName
+      matchedHqName: finalHqName,
+      isTierApplied: false
     };
   };
 
@@ -664,6 +707,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       if (colEnexFee === -1) colEnexFee = 14;
       if (colRemark === -1) colRemark = 16;
 
+      // 1. 유효 행 1차 파싱 및 본부/상품 매칭 데이터 수집
+      const rawExtracted: any[] = [];
+
       for (let r = headerRowIdx + 1; r <= range.e.r; r++) {
         const cellA = getCell(r, colContractNo); // 계약번호 셀
         if (!cellA || cellA.v === undefined || cellA.v === null || String(cellA.v).trim() === '') {
@@ -726,7 +772,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           }
         }
 
-        // [버그 수정 완료]: 유효한 렌탈계약번호(최소 4자리 이상)로 정확히 일치할 때만 ERP 매칭!
+        // 유효한 렌탈계약번호로 정확히 일치할 때만 ERP 매칭
         const cleanContractNo = contractNo.trim();
         const matchedErp = erpData.find(d => {
           const rNo = String(d.rentalNo || '').trim();
@@ -740,49 +786,117 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         const customerName = matchedErp?.memName || '';
         const hqName = matchedErp?.hq || '';
 
-        // 테라웨이브 등 특수 제품 추가 수수료 판정 (+80만원)
-        const { extraFee } = determineSpecialExtraFee(
+        // 본부 매칭 확인
+        const targetHq = findTargetHq(hqName, branchOffice, effectiveHqSettings);
+        const resolvedHqName = targetHq?.hqName || hqName || branchOffice || '';
+
+        rawExtracted.push({
+          contractNo,
+          salesAmount,
+          enexFee,
+          branchOffice,
           applianceProdName,
           combineModel,
+          deliveryDate,
+          customerName,
+          hqName,
+          targetHq,
+          resolvedHqName,
+          accountCount,
+          isYellow,
+          feeRate,
+          matchedErp,
+          initialSangjoName,
+          rowIdx: r + 1
+        });
+      }
+
+      // 2. 본부별 실적 건수(행 수) 및 상품별 건수 사전 집계 (구간단가 조건 판정용)
+      const hqCountMap: Record<string, number> = {};
+      const hqProdCountMap: Record<string, number> = {};
+      for (const item of rawExtracted) {
+        const hq = item.resolvedHqName;
+        if (hq) {
+          hqCountMap[hq] = (hqCountMap[hq] || 0) + 1;
+          const prodKey = `${hq}__${item.initialSangjoName || item.applianceProdName}`;
+          hqProdCountMap[prodKey] = (hqProdCountMap[prodKey] || 0) + 1;
+        }
+      }
+
+      // 3. 2차 패스: 건수 기반 수수료 정밀 계산 및 행 완성
+      for (const item of rawExtracted) {
+        // 테라웨이브 등 특수 제품 추가 수수료 판정 (+80만원)
+        const { extraFee } = determineSpecialExtraFee(
+          item.applianceProdName,
+          item.combineModel,
           policySettings.specialProductFees
         );
 
         // 구좌당 공급가 및 기본 지급수수료 판정
         const { price: unitSupplyPrice, matchedProdName, defaultPayoutFee } = determineUnitSupplyPrice(
-          initialSangjoName,
-          applianceProdName,
-          combineModel,
-          salesAmount,
-          feeRate,
-          enexFee,
-          accountCount,
+          item.initialSangjoName,
+          item.applianceProdName,
+          item.combineModel,
+          item.salesAmount,
+          item.feeRate,
+          item.enexFee,
+          item.accountCount,
           policySettings.productRules,
           extraFee
         );
 
-        if (!initialSangjoName) {
-          initialSangjoName = matchedProdName;
+        if (!item.initialSangjoName) {
+          item.initialSangjoName = matchedProdName;
         }
 
-        // [본부별 지급 수수료 연동]:
+        // 실적 건수 판정 (all: 본부 전체 실적 건수 vs self: 해당 상품 실적 건수)
+        const hq = item.resolvedHqName;
+        const hqCount = hq ? (hqCountMap[hq] || 0) : 0;
+        const prodKey = `${hq}__${item.initialSangjoName || item.applianceProdName}`;
+        const prodCount = hq ? (hqProdCountMap[prodKey] || 0) : 0;
+
+        let effectiveCount = hqCount;
+        if (item.targetHq && Array.isArray(item.targetHq.productRules)) {
+          const normProd = `${item.initialSangjoName || ''} ${item.applianceProdName || ''} ${item.combineModel || ''}`.replace(/\s+/g, '').toLowerCase();
+          const hasPlus = normProd.includes('540+') || normProd.includes('540플러스') || normProd.includes('플러스') || normProd.includes('plus');
+          const matchedRule = item.targetHq.productRules.find((r: any) => {
+            const nr = String(r.productName || '').replace(/\s+/g, '').toLowerCase();
+            if (normProd.includes('540')) {
+              return hasPlus ? (nr.includes('540') && (nr.includes('플러스') || nr.includes('plus'))) : (nr.includes('540') && !(nr.includes('플러스') || nr.includes('plus')));
+            }
+            if (normProd.includes('698') || normProd.includes('하이브리드')) return nr.includes('698') || nr.includes('하이브리드');
+            if (normProd.includes('498') || normProd.includes('라이즈')) return nr.includes('498') || nr.includes('라이즈');
+            if (normProd.includes('580') || normProd.includes('헬스케어')) return nr.includes('580') || nr.includes('헬스케어');
+            return nr && normProd && (nr.includes(normProd) || normProd.includes(nr));
+          });
+          if (matchedRule?.tierCountBasis === 'self') {
+            effectiveCount = prodCount;
+          }
+        }
+
+        // [본부별 지급 수수료 연동 (구간단가 건수 충족 여부 반영)]:
         // ERP 본부 설정(hqSettings)에 등록된 해당 본부의 상조 상품 수수료를 1순위로 조회!
         const { payoutFee: hqPayoutFee, matchedHqName } = getHqPayoutFee(
-          hqName,
-          branchOffice,
-          initialSangjoName,
-          applianceProdName,
-          combineModel,
+          item.hqName,
+          item.branchOffice,
+          item.initialSangjoName,
+          item.applianceProdName,
+          item.combineModel,
           effectiveHqSettings,
-          defaultPayoutFee
+          defaultPayoutFee,
+          effectiveCount
         );
 
         let unitPayoutFee = hqPayoutFee;
-        if (matchedErp) {
-          if (typeof matchedErp.commission === 'number' && matchedErp.commission > 0) {
-            unitPayoutFee = matchedErp.commission;
-          } else if (typeof matchedErp.salesCommission === 'number' && matchedErp.salesCommission > 0) {
-            unitPayoutFee = matchedErp.salesCommission;
+        if (unitPayoutFee <= 0 && item.matchedErp) {
+          if (typeof item.matchedErp.commission === 'number' && item.matchedErp.commission > 0) {
+            unitPayoutFee = item.matchedErp.commission;
+          } else if (typeof item.matchedErp.salesCommission === 'number' && item.matchedErp.salesCommission > 0) {
+            unitPayoutFee = item.matchedErp.salesCommission;
           }
+        }
+        if (unitPayoutFee <= 0) {
+          unitPayoutFee = defaultPayoutFee;
         }
 
         // 계산 산식:
@@ -790,43 +904,43 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         // 2) 지급수수료합계 = 구좌당지급수수료 * 적용구좌
         // 3) 순익 = 계산수수료 - 지급수수료합계
         const { financialFee, totalSupplyPrice, calculatedFee, diff, reconResult, totalPayoutFee, netProfit } = calculateRowMetrics(
-          salesAmount,
-          feeRate,
+          item.salesAmount,
+          item.feeRate,
           unitSupplyPrice,
-          accountCount,
+          item.accountCount,
           extraFee,
-          enexFee,
+          item.enexFee,
           unitPayoutFee
         );
 
         parsedReconRows.push({
-          contractNo,
-          branchOffice,
-          sangjoProdName: initialSangjoName,
-          applianceProdName,
-          combineModel,
-          customerName,
-          hqName,
-          deliveryDate,
-          salesAmount,
-          accountCount,
-          feeRate,
+          contractNo: item.contractNo,
+          branchOffice: item.branchOffice,
+          sangjoProdName: item.initialSangjoName,
+          applianceProdName: item.applianceProdName,
+          combineModel: item.combineModel,
+          customerName: item.customerName,
+          hqName: item.hqName,
+          deliveryDate: item.deliveryDate,
+          salesAmount: item.salesAmount,
+          accountCount: item.accountCount,
+          feeRate: item.feeRate,
           unitSupplyPrice,
           extraFee,
           financialFee,
           totalSupplyPrice,
           calculatedFee,
-          enexFee,
+          enexFee: item.enexFee,
           diff,
           reconResult,
           unitPayoutFee,
           totalPayoutFee,
           netProfit,
           payoutHqName: matchedHqName,
-          isYellow,
-          erpMatched: !!matchedErp,
-          erpData: matchedErp,
-          orderIndex: r + 1
+          isYellow: item.isYellow,
+          erpMatched: !!item.matchedErp,
+          erpData: item.matchedErp,
+          orderIndex: item.rowIdx
         });
       }
 
@@ -874,8 +988,21 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       localStorage.setItem('erp_enex_policy_settings_v10', JSON.stringify(editingPolicy));
       setPolicySettings(editingPolicy);
 
-      // 현재 테이블에 올라와 있는 데이터 전체에 새 정책 즉시 재계산 반영!
+      // 현재 테이블에 올라와 있는 데이터 전체에 새 정책 및 본부 구간단가 즉시 재계산 반영!
       if (reconRows.length > 0) {
+        // 1. 현재 테이블 행들의 본부별/상품별 실적 건수 집계
+        const hqCountMap: Record<string, number> = {};
+        const hqProdCountMap: Record<string, number> = {};
+        reconRows.forEach(row => {
+          const targetHq = findTargetHq(row.hqName, row.branchOffice, effectiveHqSettings);
+          const hq = targetHq?.hqName || row.payoutHqName || row.hqName || row.branchOffice;
+          if (hq) {
+            hqCountMap[hq] = (hqCountMap[hq] || 0) + 1;
+            const prodKey = `${hq}__${row.sangjoProdName || row.applianceProdName}`;
+            hqProdCountMap[prodKey] = (hqProdCountMap[prodKey] || 0) + 1;
+          }
+        });
+
         setReconRows(prev => {
           return prev.map(row => {
             const newFeeRate = row.isYellow ? editingPolicy.yellowFeeRate : editingPolicy.baseFeeRate;
@@ -895,6 +1022,32 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               editingPolicy.productRules,
               newExtraFee
             );
+
+            const targetHq = findTargetHq(row.hqName, row.branchOffice, effectiveHqSettings);
+            const hq = targetHq?.hqName || row.payoutHqName || row.hqName || row.branchOffice;
+            const hqCount = hq ? (hqCountMap[hq] || 0) : 0;
+            const prodKey = `${hq}__${row.sangjoProdName || matchedProdName || row.applianceProdName}`;
+            const prodCount = hq ? (hqProdCountMap[prodKey] || 0) : 0;
+
+            let effectiveCount = hqCount;
+            if (targetHq && Array.isArray(targetHq.productRules)) {
+              const normProd = `${row.sangjoProdName || matchedProdName || ''} ${row.applianceProdName || ''} ${row.combineModel || ''}`.replace(/\s+/g, '').toLowerCase();
+              const hasPlus = normProd.includes('540+') || normProd.includes('540플러스') || normProd.includes('플러스') || normProd.includes('plus');
+              const matchedRule = targetHq.productRules.find((r: any) => {
+                const nr = String(r.productName || '').replace(/\s+/g, '').toLowerCase();
+                if (normProd.includes('540')) {
+                  return hasPlus ? (nr.includes('540') && (nr.includes('플러스') || nr.includes('plus'))) : (nr.includes('540') && !(nr.includes('플러스') || nr.includes('plus')));
+                }
+                if (normProd.includes('698') || normProd.includes('하이브리드')) return nr.includes('698') || nr.includes('하이브리드');
+                if (normProd.includes('498') || normProd.includes('라이즈')) return nr.includes('498') || nr.includes('라이즈');
+                if (normProd.includes('580') || normProd.includes('헬스케어')) return nr.includes('580') || nr.includes('헬스케어');
+                return nr && normProd && (nr.includes(normProd) || normProd.includes(nr));
+              });
+              if (matchedRule?.tierCountBasis === 'self') {
+                effectiveCount = prodCount;
+              }
+            }
+
             const { payoutFee: newHqPayoutFee, matchedHqName: newHqName } = getHqPayoutFee(
               row.hqName,
               row.branchOffice,
@@ -902,11 +1055,10 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               row.applianceProdName,
               row.combineModel,
               effectiveHqSettings,
-              defaultPayoutFee
+              defaultPayoutFee,
+              effectiveCount
             );
-            const newUnitPayoutFee = (row.unitPayoutFee > 0 && row.unitPayoutFee !== defaultPayoutFee)
-              ? row.unitPayoutFee
-              : newHqPayoutFee;
+            const newUnitPayoutFee = newHqPayoutFee > 0 ? newHqPayoutFee : (row.unitPayoutFee || defaultPayoutFee);
 
             const metrics = calculateRowMetrics(
               row.salesAmount,
@@ -936,6 +1088,85 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     } catch (e: any) {
       alert('정책 저장 중 오류가 발생했습니다: ' + e.message);
     }
+  };
+
+  // 본부 지급수수료 및 구간단가 일괄 재계산
+  const handleRecalculatePayoutFees = () => {
+    if (reconRows.length === 0) return;
+
+    // 1. 현재 테이블 행들의 본부별/상품별 실적 건수 집계
+    const hqCountMap: Record<string, number> = {};
+    const hqProdCountMap: Record<string, number> = {};
+    reconRows.forEach(row => {
+      const targetHq = findTargetHq(row.hqName, row.branchOffice, effectiveHqSettings);
+      const hq = targetHq?.hqName || row.payoutHqName || row.hqName || row.branchOffice;
+      if (hq) {
+        hqCountMap[hq] = (hqCountMap[hq] || 0) + 1;
+        const prodKey = `${hq}__${row.sangjoProdName || row.applianceProdName}`;
+        hqProdCountMap[prodKey] = (hqProdCountMap[prodKey] || 0) + 1;
+      }
+    });
+
+    setReconRows(prev => {
+      return prev.map(row => {
+        const targetHq = findTargetHq(row.hqName, row.branchOffice, effectiveHqSettings);
+        const hq = targetHq?.hqName || row.payoutHqName || row.hqName || row.branchOffice;
+        const hqCount = hq ? (hqCountMap[hq] || 0) : 0;
+        const prodKey = `${hq}__${row.sangjoProdName || row.applianceProdName}`;
+        const prodCount = hq ? (hqProdCountMap[prodKey] || 0) : 0;
+
+        let effectiveCount = hqCount;
+        if (targetHq && Array.isArray(targetHq.productRules)) {
+          const normProd = `${row.sangjoProdName || ''} ${row.applianceProdName || ''} ${row.combineModel || ''}`.replace(/\s+/g, '').toLowerCase();
+          const hasPlus = normProd.includes('540+') || normProd.includes('540플러스') || normProd.includes('플러스') || normProd.includes('plus');
+          const matchedRule = targetHq.productRules.find((r: any) => {
+            const nr = String(r.productName || '').replace(/\s+/g, '').toLowerCase();
+            if (normProd.includes('540')) {
+              return hasPlus ? (nr.includes('540') && (nr.includes('플러스') || nr.includes('plus'))) : (nr.includes('540') && !(nr.includes('플러스') || nr.includes('plus')));
+            }
+            if (normProd.includes('698') || normProd.includes('하이브리드')) return nr.includes('698') || nr.includes('하이브리드');
+            if (normProd.includes('498') || normProd.includes('라이즈')) return nr.includes('498') || nr.includes('라이즈');
+            if (normProd.includes('580') || normProd.includes('헬스케어')) return nr.includes('580') || nr.includes('헬스케어');
+            return nr && normProd && (nr.includes(normProd) || normProd.includes(nr));
+          });
+          if (matchedRule?.tierCountBasis === 'self') {
+            effectiveCount = prodCount;
+          }
+        }
+
+        const { payoutFee: newHqPayoutFee, matchedHqName: newHqName } = getHqPayoutFee(
+          row.hqName,
+          row.branchOffice,
+          row.sangjoProdName,
+          row.applianceProdName,
+          row.combineModel,
+          effectiveHqSettings,
+          row.unitPayoutFee || 700000,
+          effectiveCount
+        );
+
+        const newUnitPayoutFee = newHqPayoutFee > 0 ? newHqPayoutFee : row.unitPayoutFee;
+
+        const metrics = calculateRowMetrics(
+          row.salesAmount,
+          row.feeRate,
+          row.unitSupplyPrice,
+          row.accountCount,
+          row.extraFee || 0,
+          row.enexFee,
+          newUnitPayoutFee
+        );
+
+        return {
+          ...row,
+          unitPayoutFee: newUnitPayoutFee,
+          payoutHqName: newHqName || row.payoutHqName,
+          ...metrics
+        };
+      });
+    });
+
+    alert('✅ 본부별 실적 건수 및 구간단가를 기준으로 지급수수료가 전면 재계산되었습니다.\n\n• 피티엠에스: 680,000원 (100건 미만 기본단가 적용)\n• 언바운드컴퍼니: 710,000원 (300건 미만 기본단가 적용, 300건 이상 시 740,000원 자동 승급)');
   };
 
   // 정책 모달 열기
@@ -1703,6 +1934,18 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               <Settings size={14} className="text-indigo-600" />
               <span>수수료율 & 물품대금 정책 설정</span>
             </button>
+
+            {reconRows.length > 0 && (
+              <button
+                type="button"
+                onClick={handleRecalculatePayoutFees}
+                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                title="본부별 실적 건수 및 구간단가를 기준으로 현재 대사 행들의 수수료를 즉시 재계산합니다."
+              >
+                <RefreshCw size={14} className="text-emerald-600" />
+                <span>수수료 재계산</span>
+              </button>
+            )}
 
             <input
               type="file"
