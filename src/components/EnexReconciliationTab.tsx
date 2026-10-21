@@ -110,9 +110,10 @@ export interface EnexReconciliationRow {
   enexFee: number;           // 13. 에넥스수수료 (O열 수수료 합계)
   diff: number;              // 14. 차액 (계산수수료 - 에넥스수수료)
   reconResult: '일치' | '확인필요'; // 15. 대조결과
-  unitPayoutFee: number;     // 16. 구좌당 지급수수료 (우리가 판매점/영업자에게 지급하는 단가)
+  unitPayoutFee: number;     // 16. 구좌당 지급수수료 (본부별 설정 수수료)
   totalPayoutFee: number;    // 17. 지급수수료 합계 (unitPayoutFee * accountCount)
   netProfit: number;         // 18. 순익 (calculatedFee - totalPayoutFee)
+  payoutHqName?: string;     // 수수료 기준 적용된 본부명
   isYellow: boolean;         // 노란색 음영 여부
   erpMatched: boolean;       // 우리 ERP 데이터 매칭 여부
   erpData?: any;             // 매칭된 ERP 계약 원본
@@ -137,11 +138,13 @@ export interface EnexSettlementHistoryItem {
 interface EnexReconciliationTabProps {
   erpData?: any[];
   currentUser?: any;
+  hqSettings?: any[];
 }
 
 export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   erpData = [],
-  currentUser
+  currentUser,
+  hqSettings = []
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -225,6 +228,119 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     });
     return Array.from(prices).sort((a, b) => a - b);
   }, [policySettings]);
+
+  // 본부별 정산 설정 목록 (prop 우선, 없으면 erp_hq_settings_v2 로컬스토리지 fallback)
+  const effectiveHqSettings = useMemo(() => {
+    if (Array.isArray(hqSettings) && hqSettings.length > 0) return hqSettings;
+    try {
+      const stored = localStorage.getItem('erp_hq_settings_v2') || localStorage.getItem('erp_hq_settings');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.error('Failed to parse erp_hq_settings_v2', e);
+    }
+    return [];
+  }, [hqSettings]);
+
+  // 본부별 정산 설정(hqSettings)에서 계약의 본부 및 상품에 따른 1구좌당 지급수수료 조회
+  const getHqPayoutFee = (
+    hqNameCandidate: string, // ERP 매칭 본부명 (matchedErp?.hq)
+    branchOffice: string,    // 엑셀 판매점명
+    sangjoProdName: string,  // 상조 상품명
+    applianceProdName: string, // 가전 제품명
+    combineModel: string,    // 결합모델명
+    hqSettingsList: any[],   // effectiveHqSettings
+    defaultFallbackFee: number = 700000
+  ): { payoutFee: number; matchedHqName: string; ruleName?: string } => {
+    const clean = (s: any) => String(s || '').replace(/\(주\)|주식회사|\s+/g, '').toLowerCase();
+
+    const normProd = `${sangjoProdName || ''} ${applianceProdName || ''} ${combineModel || ''}`.replace(/\s+/g, '').toLowerCase();
+    const hasPlus = normProd.includes('540+') || normProd.includes('540플러스') || normProd.includes('플러스') || normProd.includes('plus');
+
+    const cleanCand = clean(hqNameCandidate);
+    const cleanBranch = clean(branchOffice);
+
+    // 1. 본부 매칭 (1차: ERP 매칭 본부, 2차: 엑셀 판매점)
+    let targetHq: any = null;
+    if (cleanCand) {
+      targetHq = hqSettingsList.find((h: any) => {
+        const cH = clean(h.hqName);
+        return cH === cleanCand || cH.includes(cleanCand) || cleanCand.includes(cH);
+      });
+    }
+    if (!targetHq && cleanBranch) {
+      targetHq = hqSettingsList.find((h: any) => {
+        const cH = clean(h.hqName);
+        return cH === cleanBranch || cH.includes(cleanBranch) || cleanBranch.includes(cH);
+      });
+      // 판매점 키워드 특화 매칭
+      if (!targetHq) {
+        if (cleanBranch.includes('언바운드')) {
+          targetHq = hqSettingsList.find((h: any) => clean(h.hqName).includes('언바운드'));
+        } else if (cleanBranch.includes('굿라이프')) {
+          targetHq = hqSettingsList.find((h: any) =>
+            clean(h.hqName).includes('최강') ||
+            clean(h.hqName).includes('굿라이프') ||
+            clean(h.hqName).includes('새빛') ||
+            clean(h.hqName).includes('가치온')
+          );
+        } else if (cleanBranch.includes('더좋은라이프')) {
+          targetHq = hqSettingsList.find((h: any) =>
+            clean(h.hqName).includes('더라이프앤') ||
+            clean(h.hqName).includes('더좋은라이프')
+          );
+        }
+      }
+    }
+
+    if (targetHq && Array.isArray(targetHq.productRules)) {
+      // 2. 해당 본부의 productRules에서 상품 매칭
+      for (const rule of targetHq.productRules) {
+        const normRule = String(rule.productName || '').replace(/\s+/g, '').toLowerCase();
+        let isMatch = false;
+
+        if (normProd.includes('540')) {
+          if (hasPlus) {
+            isMatch = normRule.includes('540') && (normRule.includes('플러스') || normRule.includes('plus'));
+          } else {
+            isMatch = normRule.includes('540') && !(normRule.includes('플러스') || normRule.includes('plus'));
+          }
+        } else if (normProd.includes('698') || normProd.includes('하이브리드')) {
+          isMatch = normRule.includes('698') || normRule.includes('하이브리드');
+        } else if (normProd.includes('498') || normProd.includes('라이즈')) {
+          isMatch = normRule.includes('498') || normRule.includes('라이즈');
+        } else if (normProd.includes('580') || normProd.includes('헬스케어')) {
+          isMatch = normRule.includes('580') || normRule.includes('헬스케어');
+        } else if (normRule && normProd && (normRule.includes(normProd) || normProd.includes(normRule))) {
+          isMatch = true;
+        }
+
+        if (isMatch) {
+          // 언바운드컴퍼니 등의 구간단가(tier1Price)가 있으면 우선 적용, 없으면 totalAmount, salesAmount 순
+          const fee = (rule.tier1Price && Number(rule.tier1Price) > 0)
+            ? Number(rule.tier1Price)
+            : (Number(rule.totalAmount) || Number(rule.salesAmount) || 0);
+
+          if (fee > 0) {
+            return {
+              payoutFee: fee,
+              matchedHqName: targetHq.hqName,
+              ruleName: rule.productName
+            };
+          }
+        }
+      }
+    }
+
+    // 본부는 찾았으나 상품 룰이 없는 경우 or 본부도 못 찾은 경우
+    const finalHqName = targetHq?.hqName || hqNameCandidate || branchOffice || '';
+    return {
+      payoutFee: defaultFallbackFee,
+      matchedHqName: finalHqName
+    };
+  };
 
     // 특수 제품 추가 수수료 판정 헬퍼 (테라웨이브 등)
   const determineSpecialExtraFee = (
@@ -648,8 +764,19 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           initialSangjoName = matchedProdName;
         }
 
-        // 구좌당 지급수수료 결정 (우리가 판매점/영업자에게 지급할 기준 수수료)
-        let unitPayoutFee = defaultPayoutFee;
+        // [본부별 지급 수수료 연동]:
+        // ERP 본부 설정(hqSettings)에 등록된 해당 본부의 상조 상품 수수료를 1순위로 조회!
+        const { payoutFee: hqPayoutFee, matchedHqName } = getHqPayoutFee(
+          hqName,
+          branchOffice,
+          initialSangjoName,
+          applianceProdName,
+          combineModel,
+          effectiveHqSettings,
+          defaultPayoutFee
+        );
+
+        let unitPayoutFee = hqPayoutFee;
         if (matchedErp) {
           if (typeof matchedErp.commission === 'number' && matchedErp.commission > 0) {
             unitPayoutFee = matchedErp.commission;
@@ -695,6 +822,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           unitPayoutFee,
           totalPayoutFee,
           netProfit,
+          payoutHqName: matchedHqName,
           isYellow,
           erpMatched: !!matchedErp,
           erpData: matchedErp,
@@ -767,7 +895,19 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               editingPolicy.productRules,
               newExtraFee
             );
-            const newUnitPayoutFee = row.unitPayoutFee > 0 ? row.unitPayoutFee : defaultPayoutFee;
+            const { payoutFee: newHqPayoutFee, matchedHqName: newHqName } = getHqPayoutFee(
+              row.hqName,
+              row.branchOffice,
+              row.sangjoProdName || matchedProdName,
+              row.applianceProdName,
+              row.combineModel,
+              effectiveHqSettings,
+              defaultPayoutFee
+            );
+            const newUnitPayoutFee = (row.unitPayoutFee > 0 && row.unitPayoutFee !== defaultPayoutFee)
+              ? row.unitPayoutFee
+              : newHqPayoutFee;
+
             const metrics = calculateRowMetrics(
               row.salesAmount,
               newFeeRate,
@@ -782,6 +922,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               feeRate: newFeeRate,
               unitSupplyPrice: newUnitPrice,
               unitPayoutFee: newUnitPayoutFee,
+              payoutHqName: newHqName || row.payoutHqName,
               extraFee: newExtraFee,
               sangjoProdName: row.sangjoProdName || matchedProdName,
               ...metrics
@@ -1797,14 +1938,24 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                       {/* 16. 지급수수료 (구좌당) */}
                       {(viewMode === 'ALL' || viewMode === 'PROFIT') && (
                         <td className="py-1.5 px-2 text-right whitespace-nowrap">
-                          <input
-                            type="number"
-                            step="10000"
-                            value={r.unitPayoutFee || 0}
-                            onChange={e => handleChangePayoutFee(idx, Number(e.target.value) || 0)}
-                            className="w-24 px-1.5 py-0.5 text-right font-mono text-xs font-bold text-slate-800 bg-rose-50/60 border border-rose-200 rounded focus:bg-white focus:ring-1 focus:ring-indigo-500"
-                            title="클릭하여 구좌당 지급수수료를 직접 수정할 수 있습니다."
-                          />
+                          <div className="flex flex-col items-end">
+                            <input
+                              type="number"
+                              step="10000"
+                              value={r.unitPayoutFee || 0}
+                              onChange={e => handleChangePayoutFee(idx, Number(e.target.value) || 0)}
+                              className="w-24 px-1.5 py-0.5 text-right font-mono text-xs font-bold text-slate-800 bg-rose-50/60 border border-rose-200 rounded focus:bg-white focus:ring-1 focus:ring-indigo-500"
+                              title="클릭하여 구좌당 지급수수료를 직접 수정할 수 있습니다."
+                            />
+                            {r.payoutHqName && (
+                              <span
+                                className="text-[10px] text-indigo-700 font-bold bg-indigo-50 border border-indigo-200 px-1 py-0.2 rounded mt-0.5 max-w-[110px] truncate"
+                                title={`본부 수수료 설정 적용: ${r.payoutHqName}`}
+                              >
+                                {r.payoutHqName}
+                              </span>
+                            )}
+                          </div>
                         </td>
                       )}
 

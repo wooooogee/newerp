@@ -31,6 +31,7 @@ interface ExcelSyncModalProps {
   onSyncSuccess: () => Promise<void>;
   currentUser?: any;
   data?: any[];
+  hqSettings?: any[];
 }
 
 interface SyncStats {
@@ -55,7 +56,8 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   onClose,
   onSyncSuccess,
   currentUser,
-  data = []
+  data = [],
+  hqSettings = []
 }) => {
   const [activeTab, setActiveTab] = useState<'SYNC' | 'ENEX'>('SYNC');
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -1671,7 +1673,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
           </>
         ) : (
           <div className="flex-1 overflow-y-auto p-5">
-            <EnexReconciliationTab erpData={data} currentUser={currentUser} />
+            <EnexReconciliationTab erpData={data} currentUser={currentUser} hqSettings={hqSettings} />
           </div>
         )}
 
