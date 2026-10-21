@@ -1233,24 +1233,227 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         { wch: 13 }, // 계약번호
         { wch: 16 }, // 판매점
         { wch: 22 }, // 상품명(상조)
-        { wch: 32 }, // 제품명(가전)
+        { wch: 34 }, // 제품명(가전)
         { wch: 10 }, // 고객명
-        { wch: 12 }, // 본부명
+        { wch: 14 }, // 본부명
         { wch: 12 }, // 배송일자
         { wch: 14 }, // 매출액
         { wch: 9 },  // 적용구좌
-        { wch: 12 }, // 금융수수료율
-        { wch: 13 }, // 구좌당공급가
+        { wch: 13 }, // 금융수수료율
+        { wch: 14 }, // 구좌당공급가
         { wch: 14 }, // 금융수수료
         { wch: 14 }, // 공급가합계
         { wch: 14 }, // 계산수수료
         { wch: 14 }, // 에넥스수수료
-        { wch: 12 }, // 차액
-        { wch: 10 }, // 대조결과
+        { wch: 13 }, // 차액
+        { wch: 11 }, // 대조결과
         { wch: 16 }, // 지급수수료(구좌당)
         { wch: 16 }, // 지급수수료합계
         { wch: 16 }  // 순익
       ];
+
+      // ==========================================
+      // 스타일링 적용 (xlsx-js-style: 음영, 텍스트 색상, 테두리, 정렬)
+      // ==========================================
+      const thinBorder = {
+        top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        right: { style: 'thin', color: { rgb: 'CBD5E1' } }
+      };
+
+      const doubleBottomBorder = {
+        top: { style: 'thin', color: { rgb: '94A3B8' } },
+        bottom: { style: 'double', color: { rgb: '0F172A' } },
+        left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        right: { style: 'thin', color: { rgb: 'CBD5E1' } }
+      };
+
+      // 1) 헤더 행 스타일링 (Row 0)
+      for (let c = 0; c < headers.length; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 0, c });
+        if (!ws[addr]) continue;
+
+        // 그룹별 헤더 색상 구분 (다크 슬레이트, 코발트 블루, 인디고, 청록 틸)
+        let headerBg = '1E293B'; // 기본 계약정보 (A~G열)
+        if (c >= 7 && c <= 8) {
+          headerBg = '334155'; // 매출/구좌 (H~I열)
+        } else if (c >= 9 && c <= 12) {
+          headerBg = '1D4ED8'; // 금융수수료/공급가 (J~M열)
+        } else if (c >= 13 && c <= 16) {
+          headerBg = '4338CA'; // 에넥스 대사 (N~Q열)
+        } else if (c >= 17 && c <= 19) {
+          headerBg = '0F766E'; // 지급수수료 & 순익 (R~T열)
+        }
+
+        ws[addr].s = {
+          fill: { fgColor: { rgb: headerBg } },
+          font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+          alignment: { vertical: 'center', horizontal: 'center', wrapText: true },
+          border: thinBorder
+        };
+      }
+
+      // 2) 데이터 행 스타일링 (Row 1 ~ filteredRows.length)
+      filteredRows.forEach((r, idx) => {
+        const R = idx + 1; // 0-based row index in ws
+        const isMismatch = r.reconResult === '확인필요' || Math.abs(r.diff) >= 1;
+        const isYellowRate = r.isYellow || r.feeRate === policySettings.yellowFeeRate;
+
+        // 확인필요(차액 발생) 행은 연한 경고 배경으로 행 전체 구분
+        const rowDefaultBg = isMismatch ? 'FFF5F5' : (idx % 2 === 1 ? 'F8FAFC' : 'FFFFFF');
+
+        for (let c = 0; c < headers.length; c++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c });
+          if (!ws[addr]) continue;
+
+          let cellBg = rowDefaultBg;
+          let fontColor = isMismatch ? '7F1D1D' : '0F172A';
+          let isBold = false;
+          let horiz: 'left' | 'center' | 'right' = 'center';
+
+          // 컬럼별 특화 스타일
+          if (c === 0) { // 계약번호
+            horiz = 'center';
+            isBold = true;
+          } else if (c === 1) { // 판매점
+            horiz = 'left';
+          } else if (c === 2) { // 상조 상품명
+            horiz = 'left';
+            isBold = true;
+            fontColor = '1E293B';
+          } else if (c === 3) { // 가전 제품명
+            horiz = 'left';
+          } else if (c === 4) { // 고객명
+            horiz = 'center';
+          } else if (c === 5) { // 본부명
+            horiz = 'center';
+            isBold = true;
+            fontColor = '4338CA';
+          } else if (c === 6) { // 배송일자
+            horiz = 'center';
+          } else if (c === 7) { // 매출액
+            horiz = 'right';
+            isBold = true;
+            cellBg = isMismatch ? 'FEE2E2' : 'F1F5F9';
+          } else if (c === 8) { // 적용구좌
+            horiz = 'center';
+            isBold = true;
+          } else if (c === 9) { // 금융수수료율
+            horiz = 'center';
+            if (isYellowRate) {
+              cellBg = 'FEF08A'; // 노란색 음영 적용 계약 (30%)
+              fontColor = '854D0E';
+              isBold = true;
+            } else {
+              cellBg = isMismatch ? 'FFF5F5' : 'F8FAFC';
+            }
+          } else if (c === 10 || c === 11 || c === 12) { // 구좌당공급가, 금융수수료, 공급가합계
+            horiz = 'right';
+            cellBg = isMismatch ? 'FFF5F5' : 'F8FAFC';
+          } else if (c === 13) { // 계산수수료
+            horiz = 'right';
+            isBold = true;
+            cellBg = isMismatch ? 'FEE2E2' : 'EEF2FF'; // 옅은 인디고 음영
+            fontColor = '3730A3';
+          } else if (c === 14) { // 에넥스수수료
+            horiz = 'right';
+            isBold = true;
+          } else if (c === 15) { // 차액
+            horiz = 'right';
+            isBold = true;
+            if (isMismatch) {
+              cellBg = 'FEE2E2'; // 옅은 레드 음영
+              fontColor = 'DC2626'; // 진한 빨강
+            } else {
+              cellBg = 'ECFDF5'; // 옅은 초록 음영
+              fontColor = '059669';
+            }
+          } else if (c === 16) { // 대조결과
+            horiz = 'center';
+            isBold = true;
+            if (isMismatch) {
+              cellBg = 'FEE2E2';
+              fontColor = 'B91C1C';
+            } else {
+              cellBg = 'ECFDF5';
+              fontColor = '065F46';
+            }
+          } else if (c === 17 || c === 18) { // 지급수수료(구좌당), 지급수수료합계
+            horiz = 'right';
+            cellBg = 'FFF1F2'; // 옅은 로즈 음영
+            fontColor = c === 18 ? 'BE123C' : '9F1239';
+            isBold = c === 18;
+          } else if (c === 19) { // 순익
+            horiz = 'right';
+            isBold = true;
+            if ((r.netProfit || 0) > 0) {
+              cellBg = 'ECFDF5'; // 흑자: 옅은 에메랄드 음영
+              fontColor = '065F46';
+            } else if ((r.netProfit || 0) < 0) {
+              cellBg = 'FEE2E2'; // 적자: 옅은 레드 음영
+              fontColor = 'B91C1C';
+            } else {
+              cellBg = 'F8FAFC';
+              fontColor = '64748B';
+            }
+          }
+
+          ws[addr].s = {
+            fill: { fgColor: { rgb: cellBg } },
+            font: { name: '맑은 고딕', sz: 9, bold: isBold, color: { rgb: fontColor } },
+            alignment: { vertical: 'center', horizontal: horiz, wrapText: c === 3 },
+            border: thinBorder
+          };
+        }
+      });
+
+      // 3) 합계 행 스타일링 (Total Row: index = filteredRows.length + 1)
+      const totalRowIdx = filteredRows.length + 1;
+      for (let c = 0; c < headers.length; c++) {
+        const addr = XLSX.utils.encode_cell({ r: totalRowIdx, c });
+        if (!ws[addr]) continue;
+
+        let totalCellBg = 'E2E8F0'; // 다크 슬레이트 틴트
+        let totalFontColor = '0F172A';
+        let horiz: 'left' | 'center' | 'right' = 'right';
+
+        if (c === 0) {
+          horiz = 'center';
+        } else if (c === 15) { // 차액 합계
+          if (Math.abs(stats.filteredTotalDiff) >= 1) {
+            totalCellBg = 'FEE2E2';
+            totalFontColor = 'DC2626';
+          } else {
+            totalCellBg = 'D1FAE5';
+            totalFontColor = '065F46';
+          }
+        } else if (c === 16) { // 대조결과 합계 열
+          horiz = 'center';
+          if (stats.mismatchCount > 0) {
+            totalCellBg = 'FEE2E2';
+            totalFontColor = 'B91C1C';
+          } else {
+            totalCellBg = 'D1FAE5';
+            totalFontColor = '065F46';
+          }
+        } else if (c === 19) { // 순익 합계
+          if (stats.filteredTotalNetProfit > 0) {
+            totalCellBg = 'D1FAE5';
+            totalFontColor = '065F46';
+          } else if (stats.filteredTotalNetProfit < 0) {
+            totalCellBg = 'FEE2E2';
+            totalFontColor = 'B91C1C';
+          }
+        }
+
+        ws[addr].s = {
+          fill: { fgColor: { rgb: totalCellBg } },
+          font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: totalFontColor } },
+          alignment: { vertical: 'center', horizontal: horiz },
+          border: doubleBottomBorder
+        };
+      }
 
       if (summaryData) {
         const summaryWsData = [
@@ -1269,7 +1472,49 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           ['대사 차액 합계', { t: 'n', v: stats.filteredTotalDiff, z: '#,##0' }]
         ];
         const sumWs = XLSX.utils.aoa_to_sheet(summaryWsData);
-        sumWs['!cols'] = [{ wch: 24 }, { wch: 20 }];
+        sumWs['!cols'] = [{ wch: 28 }, { wch: 22 }];
+
+        // '정산 요약' 시트 스타일링
+        for (let R = 0; R <= 12; R++) {
+          for (let C = 0; C <= 1; C++) {
+            const addr = XLSX.utils.encode_cell({ r: R, c: C });
+            if (!sumWs[addr]) continue;
+
+            if (R === 0) {
+              sumWs[addr].s = {
+                fill: { fgColor: { rgb: '1E293B' } },
+                font: { name: '맑은 고딕', sz: 12, bold: true, color: { rgb: 'FFFFFF' } },
+                alignment: { vertical: 'center', horizontal: 'left' }
+              };
+            } else if (R === 2 || R === 9) {
+              sumWs[addr].s = {
+                fill: { fgColor: { rgb: '334155' } },
+                font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+                alignment: { vertical: 'center', horizontal: C === 0 ? 'left' : 'right' },
+                border: thinBorder
+              };
+            } else if (R >= 3 && R <= 7) {
+              sumWs[addr].s = {
+                fill: { fgColor: { rgb: R === 7 ? 'EEF2FF' : 'FFFFFF' } },
+                font: { name: '맑은 고딕', sz: 9, bold: R === 7, color: { rgb: R === 7 ? '3730A3' : '0F172A' } },
+                alignment: { vertical: 'center', horizontal: C === 0 ? 'left' : 'right' },
+                border: thinBorder
+              };
+            } else if (R >= 10 && R <= 12) {
+              const isMismatchRow = R === 11 && stats.mismatchCount > 0;
+              const isDiffRow = R === 12 && Math.abs(stats.filteredTotalDiff) >= 1;
+              const warn = isMismatchRow || isDiffRow;
+
+              sumWs[addr].s = {
+                fill: { fgColor: { rgb: warn ? 'FEE2E2' : (R === 10 ? 'ECFDF5' : 'FFFFFF') } },
+                font: { name: '맑은 고딕', sz: 9, bold: true, color: { rgb: warn ? 'DC2626' : (R === 10 ? '065F46' : '0F172A') } },
+                alignment: { vertical: 'center', horizontal: C === 0 ? 'left' : 'right' },
+                border: thinBorder
+              };
+            }
+          }
+        }
+
         XLSX.utils.book_append_sheet(wb, sumWs, '정산 요약');
       }
 
