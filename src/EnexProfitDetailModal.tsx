@@ -119,20 +119,23 @@ export const EnexProfitDetailModal: React.FC<EnexProfitDetailModalProps> = ({
       }
     });
 
-    // 합계 행
+    // 합계 행 (수식 적용)
+    const dataStartRow = 4;
+    const dataEndRow = 3 + filteredItems.length;
+
     if (isInc) {
       rows.push([
         '합계',
         `${filteredItems.length}건`,
         '', '', '', '', '', '', '', '', '', '',
-        { v: filteredTotalAmount, t: 'n', z: '#,##0' }
+        filteredItems.length > 0 ? { f: `SUM(M${dataStartRow}:M${dataEndRow})`, v: filteredTotalAmount, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' }
       ]);
     } else {
       rows.push([
         '합계',
         `${filteredItems.length}건`,
         '', '', '', '', '', '', '', '',
-        { v: filteredTotalAmount, t: 'n', z: '#,##0' }
+        filteredItems.length > 0 ? { f: `SUM(K${dataStartRow}:K${dataEndRow})`, v: filteredTotalAmount, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' }
       ]);
     }
 
@@ -186,6 +189,10 @@ export const EnexProfitDetailModal: React.FC<EnexProfitDetailModalProps> = ({
 
     const cleanSheetName = (target.targetName || '상세명세').replace(/[\\/*?:[\]]/g, '').slice(0, 31);
     XLSX.utils.book_append_sheet(wb, ws, cleanSheetName);
+
+    if (!wb.Workbook) wb.Workbook = {};
+    if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+    wb.Workbook.CalcPr.fullCalcOnLoad = true;
 
     const fileName = `${target.targetName}_수수료상세명세_${payoutMonthDisplay.replace(/\s+/g, '')}.xlsx`;
     XLSX.writeFile(wb, fileName);

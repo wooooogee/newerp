@@ -1175,6 +1175,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     ];
 
     filteredAndSortedStats.forEach((stat, idx) => {
+      const excelRow = idx + 5; // 1-based row number in Excel (header is row 4)
       summaryRows.push([
         idx + 1,
         stat.hqName,
@@ -1182,32 +1183,34 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         { v: stat.count, t: 'n', z: '#,##0' },
         { v: stat.salesSum, t: 'n', z: '#,##0' },
         { v: stat.promoSum, t: 'n', z: '#,##0' },
-        { v: stat.generalSum, t: 'n', z: '#,##0' },
+        { f: `E${excelRow}+F${excelRow}`, v: stat.generalSum, t: 'n', z: '#,##0' },
         { v: stat.maintenanceSum, t: 'n', z: '#,##0' },
         { v: stat.specialSum, t: 'n', z: '#,##0' },
-        { v: stat.grossTotal, t: 'n', z: '#,##0' },
-        { v: stat.tax, t: 'n', z: '#,##0' },
-        { v: stat.netTotal, t: 'n', z: '#,##0' },
+        { f: `G${excelRow}+H${excelRow}+I${excelRow}`, v: stat.grossTotal, t: 'n', z: '#,##0' },
+        { f: `IF(C${excelRow}="사업자",0,ROUND(J${excelRow}*0.033,0))`, v: stat.tax, t: 'n', z: '#,##0' },
+        { f: `J${excelRow}-K${excelRow}`, v: stat.netTotal, t: 'n', z: '#,##0' },
         stat.bankName,
         stat.accountNumber,
         stat.accountHolder
       ]);
     });
 
-    // 총합계 행 추가
+    // 총합계 행 추가 (수식 적용)
+    const sumStartRow = 5;
+    const sumEndRow = 4 + filteredAndSortedStats.length;
     summaryRows.push([
       '총합계',
       `${filteredAndSortedStats.length}개 본부`,
       '-',
-      { v: summaryTotals.totalCount, t: 'n', z: '#,##0' },
-      { v: summaryTotals.totalSales, t: 'n', z: '#,##0' },
-      { v: summaryTotals.totalPromo, t: 'n', z: '#,##0' },
-      { v: summaryTotals.totalGeneral, t: 'n', z: '#,##0' },
-      { v: summaryTotals.totalMaintenance, t: 'n', z: '#,##0' },
-      { v: summaryTotals.totalSpecial, t: 'n', z: '#,##0' },
-      { v: summaryTotals.totalGross, t: 'n', z: '#,##0' },
-      { v: summaryTotals.totalTax, t: 'n', z: '#,##0' },
-      { v: summaryTotals.totalNet, t: 'n', z: '#,##0' },
+      filteredAndSortedStats.length > 0 ? { f: `SUM(D${sumStartRow}:D${sumEndRow})`, v: summaryTotals.totalCount, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      filteredAndSortedStats.length > 0 ? { f: `SUM(E${sumStartRow}:E${sumEndRow})`, v: summaryTotals.totalSales, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      filteredAndSortedStats.length > 0 ? { f: `SUM(F${sumStartRow}:F${sumEndRow})`, v: summaryTotals.totalPromo, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      filteredAndSortedStats.length > 0 ? { f: `SUM(G${sumStartRow}:G${sumEndRow})`, v: summaryTotals.totalGeneral, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      filteredAndSortedStats.length > 0 ? { f: `SUM(H${sumStartRow}:H${sumEndRow})`, v: summaryTotals.totalMaintenance, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      filteredAndSortedStats.length > 0 ? { f: `SUM(I${sumStartRow}:I${sumEndRow})`, v: summaryTotals.totalSpecial, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      filteredAndSortedStats.length > 0 ? { f: `SUM(J${sumStartRow}:J${sumEndRow})`, v: summaryTotals.totalGross, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      filteredAndSortedStats.length > 0 ? { f: `SUM(K${sumStartRow}:K${sumEndRow})`, v: summaryTotals.totalTax, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      filteredAndSortedStats.length > 0 ? { f: `SUM(L${sumStartRow}:L${sumEndRow})`, v: summaryTotals.totalNet, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
       '', '', ''
     ]);
 
@@ -1270,9 +1273,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       ['본부명', '지사명', '영업사원', '계약일자', '상태', '상품명', '회원명', '판매수수료', '촉진비', '총수수료', '지급일', '배송일자', '제품명']
     ];
 
+    let detailSumSales = 0;
+    let detailSumPromo = 0;
+    let detailSumTotal = 0;
+    let detailDataCount = 0;
+
     filteredAndSortedStats.forEach(stat => {
       stat.items.forEach(item => {
         const { totalCommission, salesComm } = calculateCommissionDetails(item, globalStatsMap);
+        const promo = totalCommission - salesComm;
+        detailDataCount++;
+        const rowNo = detailDataCount + 1; // 1-based row in Excel (header is row 1)
+        detailSumSales += salesComm;
+        detailSumPromo += promo;
+        detailSumTotal += totalCommission;
         detailRows.push([
           item.hq || stat.hqName || '-',
           item.branch || '-',
@@ -1282,14 +1296,27 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           item.prodName || '-',
           item.memName || '-',
           { v: salesComm, t: 'n', z: '#,##0' },
-          { v: totalCommission - salesComm, t: 'n', z: '#,##0' },
-          { v: totalCommission, t: 'n', z: '#,##0' },
+          { v: promo, t: 'n', z: '#,##0' },
+          { f: `H${rowNo}+I${rowNo}`, v: totalCommission, t: 'n', z: '#,##0' },
           item.payDate || '-',
           item.deliveryDate || '-',
           item.rentalProd && item.rentalProd !== '-' ? item.rentalProd : (item.prodName || '-')
         ]);
       });
     });
+
+    if (detailDataCount > 0) {
+      const lastRow = detailDataCount + 1;
+      detailRows.push([
+        '합계',
+        '', '', '', '', '',
+        `${detailDataCount}건`,
+        { f: `SUM(H2:H${lastRow})`, v: detailSumSales, t: 'n', z: '#,##0' },
+        { f: `SUM(I2:I${lastRow})`, v: detailSumPromo, t: 'n', z: '#,##0' },
+        { f: `SUM(J2:J${lastRow})`, v: detailSumTotal, t: 'n', z: '#,##0' },
+        '', '', ''
+      ]);
+    }
 
     const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
     const detailColWidths = detailRows.reduce((acc, row) => {
@@ -1306,11 +1333,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
     const rangeDetail = XLSX.utils.decode_range(wsDetail['!ref'] || 'A1:A1');
     for (let R = rangeDetail.s.r; R <= rangeDetail.e.r; ++R) {
+      const isTotalRow = R === rangeDetail.e.r && detailDataCount > 0;
       for (let C = rangeDetail.s.c; C <= rangeDetail.e.c; ++C) {
         const addr = XLSX.utils.encode_cell({ r: R, c: C });
         if (!wsDetail[addr]) continue;
         if (R === 0) {
           wsDetail[addr].s = headerStyle;
+        } else if (isTotalRow) {
+          wsDetail[addr].s = { ...graySubtotalStyle };
+          if (wsDetail[addr].t === 'n') {
+            wsDetail[addr].s.alignment = { vertical: 'center', horizontal: 'right' };
+          }
         } else {
           wsDetail[addr].s = { ...cellStyle };
           if (wsDetail[addr].t === 'n') {
@@ -1326,6 +1359,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       ['본부명', '지사명', '영업사원', '계약일자', '상태', '상품명', '회원명', '회차', '유지수수료금액', '지급일']
     ];
 
+    let totalMaintAmount = 0;
     filteredAndSortedStats.forEach(stat => {
       (stat.maintenanceItems || []).forEach(mItem => {
         const hq = mItem.hq || stat.hqName || '-';
@@ -1338,6 +1372,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         const installment = mItem.fromInstallment ? `${mItem.fromInstallment}회차` : (mItem.round ? `${mItem.round}회차` : '-');
         const amount = mItem.amount || 0;
         const payDate = mItem.payDate || selectedMonth || '-';
+        totalMaintAmount += amount;
 
         maintDetailRows.push([
           hq,
@@ -1355,6 +1390,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
 
     if (maintDetailRows.length > 1) {
+      const lastMaintRow = maintDetailRows.length;
+      maintDetailRows.push([
+        '합계',
+        '', '', '', '', '', '',
+        `${lastMaintRow - 1}건`,
+        { f: `SUM(I2:I${lastMaintRow})`, v: totalMaintAmount, t: 'n', z: '#,##0' },
+        ''
+      ]);
       const wsMaintDetail = XLSX.utils.aoa_to_sheet(maintDetailRows);
       const maintColWidths = maintDetailRows.reduce((acc, row) => {
         row.forEach((cell, i) => {
@@ -1370,6 +1413,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
       const rangeMaint = XLSX.utils.decode_range(wsMaintDetail['!ref'] || 'A1:A1');
       for (let R = rangeMaint.s.r; R <= rangeMaint.e.r; ++R) {
+        const isTotalRow = R === rangeMaint.e.r;
         for (let C = rangeMaint.s.c; C <= rangeMaint.e.c; ++C) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (!wsMaintDetail[addr]) continue;
@@ -1380,6 +1424,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               alignment: { vertical: "center", horizontal: "center" },
               border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
             };
+          } else if (isTotalRow) {
+            wsMaintDetail[addr].s = { ...graySubtotalStyle };
+            if (wsMaintDetail[addr].t === 'n') {
+              wsMaintDetail[addr].s.alignment = { vertical: 'center', horizontal: 'right' };
+            }
           } else {
             wsMaintDetail[addr].s = { ...cellStyle };
             if (wsMaintDetail[addr].t === 'n') {
@@ -1396,14 +1445,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       ['지급대상자', '수당명', '회원명', '상품명', '수당금액', '계약일자', '배송일자', '지급일자', '본부명', '지사명', '영업자명']
     ];
 
+    let totalSpecialAmount = 0;
     filteredAndSortedStats.forEach(stat => {
       (stat.specialItems || []).forEach(spItem => {
+        const amt = spItem.amount || 0;
+        totalSpecialAmount += amt;
         specialDetailRows.push([
           stat.hqName,
           spItem.incentiveName || '특수수당',
           spItem.memName || '-',
           spItem.prodName || '-',
-          { v: spItem.amount || 0, t: 'n', z: '#,##0' },
+          { v: amt, t: 'n', z: '#,##0' },
           spItem.contractDate || '-',
           spItem.deliveryDate || '-',
           spItem.payDate || '-',
@@ -1415,6 +1467,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
 
     if (specialDetailRows.length > 1) {
+      const lastSpRow = specialDetailRows.length;
+      specialDetailRows.push([
+        '합계',
+        '', '',
+        `${lastSpRow - 1}건`,
+        { f: `SUM(E2:E${lastSpRow})`, v: totalSpecialAmount, t: 'n', z: '#,##0' },
+        '', '', '', '', '', ''
+      ]);
       const wsSpecialDetail = XLSX.utils.aoa_to_sheet(specialDetailRows);
       const spColWidths = specialDetailRows.reduce((acc, row) => {
         row.forEach((cell, i) => {
@@ -1430,6 +1490,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
       const rangeSpecial = XLSX.utils.decode_range(wsSpecialDetail['!ref'] || 'A1:A1');
       for (let R = rangeSpecial.s.r; R <= rangeSpecial.e.r; ++R) {
+        const isTotalRow = R === rangeSpecial.e.r;
         for (let C = rangeSpecial.s.c; C <= rangeSpecial.e.c; ++C) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (!wsSpecialDetail[addr]) continue;
@@ -1440,6 +1501,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               alignment: { vertical: "center", horizontal: "center" },
               border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
             };
+          } else if (isTotalRow) {
+            wsSpecialDetail[addr].s = { ...graySubtotalStyle };
+            if (wsSpecialDetail[addr].t === 'n') {
+              wsSpecialDetail[addr].s.alignment = { vertical: 'center', horizontal: 'right' };
+            }
           } else {
             wsSpecialDetail[addr].s = { ...cellStyle };
             if (wsSpecialDetail[addr].t === 'n') {
@@ -1457,6 +1523,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       for (let i = 0; i !== s.length; ++i) view[i] = s.charCodeAt(i) & 0xFF;
       return buf;
     };
+
+    if (!wb.Workbook) wb.Workbook = {};
+    if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+    wb.Workbook.CalcPr.fullCalcOnLoad = true;
 
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
     const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });

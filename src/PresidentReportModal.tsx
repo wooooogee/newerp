@@ -1318,23 +1318,111 @@ export function PresidentReportModal({
       const totalProdSupplyComm = validProducts.reduce((acc, p) => acc + p.totalSupplyCommission, 0);
       const totalProdMargin = validProducts.reduce((acc, p) => acc + p.totalMargin, 0);
 
-      // 숫자 서식 헬퍼 (모든 숫자 셀에 천단위 콤마 #,##0 완벽 부여)
+      // 숫자 서식 헬퍼 (모든 숫자 및 수식 셀에 천단위 콤마 #,##0 완벽 부여)
       const formatSheetNumbers = (sheet: any) => {
         Object.keys(sheet).forEach(cellKey => {
           if (cellKey.startsWith('!')) return;
           const cell = sheet[cellKey];
-          if (cell && typeof cell.v === 'number') {
+          if (cell && (typeof cell.v === 'number' || cell.f)) {
             cell.t = 'n';
-            cell.z = '#,##0';
+            if (!cell.z) cell.z = '#,##0';
           }
         });
       };
 
-      // [Sheet 1: 월말보고서_종합]
-      // 1) 2행 기본값 정보 문구 제거
-      // 2) 산출 공식 및 세부설명 컬럼 제거
-      // 3) 4번 표에 [E] 에넥스 총 입금액을 공급사 위에 배치
-      // 4) 4번 표 결과에 [E - 공급사 지급 합계] 차감 잔액 표기
+      // [Sheet 1: 월말보고서_종합] 동적 행 인덱스 계산 및 수식 바인딩
+      // 1. 핵심 손익 요약: 헤더는 4행, 데이터는 5~13행
+      const d1Formula = { f: 'C5-C6-C7', v: metrics.d_operatingProfit, t: 'n', z: '#,##0' };
+      const h1Formula = { f: 'C9-C10-C11', v: metrics.h_supplyProfit, t: 'n', z: '#,##0' };
+      const i1Formula = { f: 'C8+C12', v: metrics.i_finalNetProfit, t: 'n', z: '#,##0' };
+
+      // 2. 영업실적 및 수수료: 17행부터 데이터 시작
+      const hqStartRow = 17;
+      const hqEndRow = hqStartRow + hqProductSalesList.length - 1;
+      const hqRowsData = hqProductSalesList.map((h, i) => {
+        const r = hqStartRow + i;
+        return [
+          h.hqName,
+          h.prodName,
+          h.count,
+          h.unitCommission,
+          { f: `C${r}*D${r}`, v: h.totalCommission, t: 'n', z: '#,##0' },
+          h.note
+        ];
+      });
+      const hqTotalRowIdx = hqEndRow + 1;
+      const hqTotalRow = [
+        '전체 본부 수수료 합계 ([B])',
+        '-',
+        hqProductSalesList.length > 0 ? { f: `SUM(C${hqStartRow}:C${hqEndRow})`, v: totalHqCount, t: 'n', z: '#,##0' } : 0,
+        '-',
+        hqProductSalesList.length > 0 ? { f: `SUM(E${hqStartRow}:E${hqEndRow})`, v: totalHqComm, t: 'n', z: '#,##0' } : 0,
+        '본부 수수료 총합'
+      ];
+
+      // 3. 특수수당 및 본사지출 요약
+      const spStartRow = hqTotalRowIdx + 4; // +1빈줄, +1제목, +1헤더, +1데이터시작
+      const spEndRow = spStartRow + specialExpenseList.length - 1;
+      const spTotalRowIdx = spEndRow + 1;
+      const spTotalRow = [
+        '본사 추가 지출 소계 ([C])',
+        '-',
+        specialExpenseList.length,
+        specialExpenseList.length > 0 ? { f: `SUM(D${spStartRow}:D${spEndRow})`, v: totalSpecialAmount, t: 'n', z: '#,##0' } : 0,
+        '특수수당 총합'
+      ];
+
+      // 4. 공급사 정산관리 총괄 요약
+      const suppEnexRow = spTotalRowIdx + 4; // [E] 에넥스 총 입금액 행
+      const suppStartRow = suppEnexRow + 1;
+      const suppEndRow = suppStartRow + validSuppliers.length - 1;
+      const suppSumRow = suppEndRow + 1;
+      const suppDiffRow = suppSumRow + 1;
+
+      const suppTotalRow = [
+        '공급사 지급 합계',
+        validSuppliers.length > 0 ? { f: `SUM(B${suppStartRow}:B${suppEndRow})`, v: totalSuppCount, t: 'n', z: '#,##0' } : 0,
+        validSuppliers.length > 0 ? { f: `SUM(C${suppStartRow}:C${suppEndRow})`, v: totalSuppPrice, t: 'n', z: '#,##0' } : 0,
+        '-'
+      ];
+      const suppDiffRowData = [
+        '에넥스 입금 차감 잔액 ([E] - 공급사 지급 합계)',
+        '-',
+        { f: `C${suppEnexRow}-C${suppSumRow}`, v: diffAfterSupply, t: 'n', z: '#,##0' },
+        '에넥스 총 입금액 - 공급사 지급 합계'
+      ];
+
+      // 5. 공급사 제품별 세부 정산
+      const prodStartRow = suppDiffRow + 4;
+      const prodEndRow = prodStartRow + validProducts.length - 1;
+      const prodRowsData = validProducts.map((p, i) => {
+        const r = prodStartRow + i;
+        return [
+          p.supplierName,
+          p.prodName,
+          p.count,
+          p.unitDeposit,
+          p.unitSupplyPrice,
+          p.unitCommission,
+          { f: `C${r}*E${r}`, v: p.totalSupplyPrice, t: 'n', z: '#,##0' },
+          { f: `C${r}*F${r}`, v: p.totalSupplyCommission, t: 'n', z: '#,##0' },
+          { f: `C${r}*(D${r}-E${r}-F${r})`, v: p.totalMargin, t: 'n', z: '#,##0' },
+          p.note
+        ];
+      });
+      const prodTotalRow = [
+        '제품별 정산 총합',
+        '-',
+        validProducts.length > 0 ? { f: `SUM(C${prodStartRow}:C${prodEndRow})`, v: totalProdCount, t: 'n', z: '#,##0' } : 0,
+        '-',
+        '-',
+        '-',
+        validProducts.length > 0 ? { f: `SUM(G${prodStartRow}:G${prodEndRow})`, v: totalProdSupplyPrice, t: 'n', z: '#,##0' } : 0,
+        validProducts.length > 0 ? { f: `SUM(H${prodStartRow}:H${prodEndRow})`, v: totalProdSupplyComm, t: 'n', z: '#,##0' } : 0,
+        validProducts.length > 0 ? { f: `SUM(I${prodStartRow}:I${prodEndRow})`, v: totalProdMargin, t: 'n', z: '#,##0' } : 0,
+        '전체 합계'
+      ];
+
       const summaryAoa: any[][] = [
         [`더좋은라이프 월말 종합 결산보고서 (${selectedMonth})`],
         [],
@@ -1343,34 +1431,34 @@ export function PresidentReportModal({
         ['렌탈 영업부문', '에넥스 총 입금액 [A]', metrics.a_enexDeposit],
         ['렌탈 영업부문', '영업본부 수수료 지급액 [B]', metrics.b_salesCommission],
         ['렌탈 영업부문', '특수수당 및 본사지출 [C]', metrics.c_specialAndMaintenance],
-        ['렌탈 영업부문', '영업 순이익 [D = A - B - C]', metrics.d_operatingProfit],
+        ['렌탈 영업부문', '영업 순이익 [D = A - B - C]', d1Formula],
         ['공급사 정산부문', '에넥스 공급가 입금액 [E]', metrics.e_richwelfareDeposit],
         ['공급사 정산부문', '공급사 지급 공급가액 [F]', metrics.f_richwelfareSupplyPrice],
         ['공급사 정산부문', '공급수수료 [G]', metrics.g_supplyCommission],
-        ['공급사 정산부문', '공급가 마진 순익 [H = E - F - G]', metrics.h_supplyProfit],
-        ['최종 결산', '당월 최종 순이익 [I = D + H]', metrics.i_finalNetProfit],
+        ['공급사 정산부문', '공급가 마진 순익 [H = E - F - G]', h1Formula],
+        ['최종 결산', '당월 최종 순이익 [I = D + H]', i1Formula],
         [],
         ['2. 본부·사업단별 / 상품별 영업실적 및 수수료 지급현황'],
         ['영업본부/사업단', '취급 상품명', '건수', '건당 수수료', '총 지급 수수료', '정산 비고'],
-        ...hqProductSalesList.map(h => [h.hqName, h.prodName, h.count, h.unitCommission, h.totalCommission, h.note]),
-        ['전체 본부 수수료 합계 ([B])', '-', totalHqCount, '-', totalHqComm, '본부 수수료 총합'],
+        ...hqRowsData,
+        hqTotalRow,
         [],
         ['3. 특수수당 및 본사 지출 내역 요약'],
         ['지출 구분', '지출 항목명 / 대상', '수량/인원', '총 지출액', '비고'],
         ...specialExpenseList.map(s => [s.category, s.name, s.count, s.amount, s.note]),
-        ['본사 추가 지출 소계 ([C])', '-', specialExpenseList.length, totalSpecialAmount, '특수수당 총합'],
+        spTotalRow,
         [],
         ['4. 공급사 정산관리 총괄 요약'],
         ['구분 / 공급사명', '정산 건수', '공급가액 / 금액', '정산조건 / 비고'],
         ['[E] 에넥스 총 입금액', '입금 총액', enexDeposit, '에넥스 본사 총 입금 승인액'],
         ...validSuppliers.map(s => [s.supplierName, s.count, s.supplyPrice, s.settlementCondition || '-']),
-        ['공급사 지급 합계', totalSuppCount, totalSuppPrice, '-'],
-        ['에넥스 입금 차감 잔액 ([E] - 공급사 지급 합계)', '-', diffAfterSupply, '에넥스 총 입금액 - 공급사 지급 합계'],
+        suppTotalRow,
+        suppDiffRowData,
         [],
         ['5. 공급사 제품별 세부 정산 내역'],
         ['공급사', '제품명', '건수', '에넥스 입금단가', '공급단가', '건당 공급수수료', '총 공급가액', '총 공급수수료', '총 공급마진', '비고'],
-        ...validProducts.map(p => [p.supplierName, p.prodName, p.count, p.unitDeposit, p.unitSupplyPrice, p.unitCommission, p.totalSupplyPrice, p.totalSupplyCommission, p.totalMargin, p.note]),
-        ['제품별 정산 총합', '-', totalProdCount, '-', '-', '-', totalProdSupplyPrice, totalProdSupplyComm, totalProdMargin, '전체 합계'],
+        ...prodRowsData,
+        prodTotalRow,
         [],
         ['6. 대표님 보고 종합 의견'],
         [monthEndMemo]
@@ -1384,69 +1472,139 @@ export function PresidentReportModal({
       ];
       XLSX.utils.book_append_sheet(wb, wsSummary, '월말보고서_종합');
 
-      // [Sheet 2: 1_핵심손익지표]
+      // [Sheet 2: 1_핵심손익지표] (수식 적용)
       const sheet1Aoa = [
         ['구분', '항목명', '금액'],
         ['렌탈 영업부문', '에넥스 총 입금액 [A]', metrics.a_enexDeposit],
         ['렌탈 영업부문', '영업본부 수수료 지급액 [B]', metrics.b_salesCommission],
         ['렌탈 영업부문', '특수수당 및 본사지출 [C]', metrics.c_specialAndMaintenance],
-        ['렌탈 영업부문', '영업 순이익 [D = A - B - C]', metrics.d_operatingProfit],
+        ['렌탈 영업부문', '영업 순이익 [D = A - B - C]', { f: 'C2-C3-C4', v: metrics.d_operatingProfit, t: 'n', z: '#,##0' }],
         ['공급사 정산부문', '에넥스 공급가 입금액 [E]', metrics.e_richwelfareDeposit],
         ['공급사 정산부문', '공급사 지급 공급가액 [F]', metrics.f_richwelfareSupplyPrice],
         ['공급사 정산부문', '공급수수료 [G]', metrics.g_supplyCommission],
-        ['공급사 정산부문', '공급가 마진 순익 [H = E - F - G]', metrics.h_supplyProfit],
-        ['최종 결산', '당월 최종 순이익 [I = D + H]', metrics.i_finalNetProfit]
+        ['공급사 정산부문', '공급가 마진 순익 [H = E - F - G]', { f: 'C6-C7-C8', v: metrics.h_supplyProfit, t: 'n', z: '#,##0' }],
+        ['최종 결산', '당월 최종 순이익 [I = D + H]', { f: 'C5+C9', v: metrics.i_finalNetProfit, t: 'n', z: '#,##0' }]
       ];
       const ws1 = XLSX.utils.aoa_to_sheet(sheet1Aoa);
       formatSheetNumbers(ws1);
       ws1['!cols'] = [{ wch: 20 }, { wch: 35 }, { wch: 22 }];
       XLSX.utils.book_append_sheet(wb, ws1, '1_핵심손익지표');
 
-      // [Sheet 3: 2_영업실적및수수료]
+      // [Sheet 3: 2_영업실적및수수료] (수식 적용)
+      const s2HqRows = hqProductSalesList.map((h, i) => {
+        const r = i + 2;
+        return [
+          h.hqName,
+          h.prodName,
+          h.count,
+          h.unitCommission,
+          { f: `C${r}*D${r}`, v: h.totalCommission, t: 'n', z: '#,##0' },
+          h.note
+        ];
+      });
+      const s2LastRow = hqProductSalesList.length + 1;
       const sheet2Aoa = [
         ['영업본부/사업단', '취급 상품명', '건수', '건당 수수료', '총 지급 수수료', '정산 비고'],
-        ...hqProductSalesList.map(h => [h.hqName, h.prodName, h.count, h.unitCommission, h.totalCommission, h.note]),
-        ['전체 본부 수수료 합계 ([B])', '-', totalHqCount, '-', totalHqComm, '본부 수수료 총합']
+        ...s2HqRows,
+        [
+          '전체 본부 수수료 합계 ([B])',
+          '-',
+          hqProductSalesList.length > 0 ? { f: `SUM(C2:C${s2LastRow})`, v: totalHqCount, t: 'n', z: '#,##0' } : 0,
+          '-',
+          hqProductSalesList.length > 0 ? { f: `SUM(E2:E${s2LastRow})`, v: totalHqComm, t: 'n', z: '#,##0' } : 0,
+          '본부 수수료 총합'
+        ]
       ];
       const ws2 = XLSX.utils.aoa_to_sheet(sheet2Aoa);
       formatSheetNumbers(ws2);
       ws2['!cols'] = [{ wch: 22 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 22 }, { wch: 30 }];
       XLSX.utils.book_append_sheet(wb, ws2, '2_영업실적및수수료');
 
-      // [Sheet 4: 3_특수수당및본사지출]
+      // [Sheet 4: 3_특수수당및본사지출] (수식 적용)
+      const s3LastRow = specialExpenseList.length + 1;
       const sheet3Aoa = [
         ['지출 구분', '지출 항목명 / 대상', '수량/인원', '총 지출액', '비고'],
         ...specialExpenseList.map(s => [s.category, s.name, s.count, s.amount, s.note]),
-        ['본사 추가 지출 소계 ([C])', '-', specialExpenseList.length, totalSpecialAmount, '특수수당 총합']
+        [
+          '본사 추가 지출 소계 ([C])',
+          '-',
+          specialExpenseList.length,
+          specialExpenseList.length > 0 ? { f: `SUM(D2:D${s3LastRow})`, v: totalSpecialAmount, t: 'n', z: '#,##0' } : 0,
+          '특수수당 총합'
+        ]
       ];
       const ws3 = XLSX.utils.aoa_to_sheet(sheet3Aoa);
       formatSheetNumbers(ws3);
       ws3['!cols'] = [{ wch: 20 }, { wch: 28 }, { wch: 14 }, { wch: 22 }, { wch: 35 }];
       XLSX.utils.book_append_sheet(wb, ws3, '3_특수수당및본사지출');
 
-      // [Sheet 5: 4_공급사정산총괄]
+      // [Sheet 5: 4_공급사정산총괄] (수식 적용)
+      const s4SuppStart = 3;
+      const s4SuppEnd = 2 + validSuppliers.length;
+      const s4SumRow = s4SuppEnd + 1;
       const sheet4Aoa = [
         ['구분 / 공급사명', '정산 건수', '공급가액 / 금액', '정산조건 / 비고'],
         ['[E] 에넥스 총 입금액', '입금 총액', enexDeposit, '에넥스 본사 총 입금 승인액'],
         ...validSuppliers.map(s => [s.supplierName, s.count, s.supplyPrice, s.settlementCondition || '-']),
-        ['공급사 지급 합계', totalSuppCount, totalSuppPrice, '-'],
-        ['에넥스 입금 차감 잔액 ([E] - 공급사 지급 합계)', '-', diffAfterSupply, '에넥스 총 입금액 - 공급사 지급 합계']
+        [
+          '공급사 지급 합계',
+          validSuppliers.length > 0 ? { f: `SUM(B${s4SuppStart}:B${s4SuppEnd})`, v: totalSuppCount, t: 'n', z: '#,##0' } : 0,
+          validSuppliers.length > 0 ? { f: `SUM(C${s4SuppStart}:C${s4SuppEnd})`, v: totalSuppPrice, t: 'n', z: '#,##0' } : 0,
+          '-'
+        ],
+        [
+          '에넥스 입금 차감 잔액 ([E] - 공급사 지급 합계)',
+          '-',
+          { f: `C2-C${s4SumRow}`, v: diffAfterSupply, t: 'n', z: '#,##0' },
+          '에넥스 총 입금액 - 공급사 지급 합계'
+        ]
       ];
       const ws4 = XLSX.utils.aoa_to_sheet(sheet4Aoa);
       formatSheetNumbers(ws4);
       ws4['!cols'] = [{ wch: 25 }, { wch: 16 }, { wch: 22 }, { wch: 35 }];
       XLSX.utils.book_append_sheet(wb, ws4, '4_공급사정산총괄');
 
-      // [Sheet 6: 5_제품별세부정산]
+      // [Sheet 6: 5_제품별세부정산] (수식 적용)
+      const s5ProdRows = validProducts.map((p, i) => {
+        const r = i + 2;
+        return [
+          p.supplierName,
+          p.prodName,
+          p.count,
+          p.unitDeposit,
+          p.unitSupplyPrice,
+          p.unitCommission,
+          { f: `C${r}*E${r}`, v: p.totalSupplyPrice, t: 'n', z: '#,##0' },
+          { f: `C${r}*F${r}`, v: p.totalSupplyCommission, t: 'n', z: '#,##0' },
+          { f: `C${r}*(D${r}-E${r}-F${r})`, v: p.totalMargin, t: 'n', z: '#,##0' },
+          p.note
+        ];
+      });
+      const s5LastRow = validProducts.length + 1;
       const sheet5Aoa = [
         ['공급사', '제품명', '건수', '에넥스 입금단가', '공급단가', '건당 공급수수료', '총 공급가액', '총 공급수수료', '총 공급마진', '비고'],
-        ...validProducts.map(p => [p.supplierName, p.prodName, p.count, p.unitDeposit, p.unitSupplyPrice, p.unitCommission, p.totalSupplyPrice, p.totalSupplyCommission, p.totalMargin, p.note]),
-        ['제품별 정산 총합', '-', totalProdCount, '-', '-', '-', totalProdSupplyPrice, totalProdSupplyComm, totalProdMargin, '전체 합계']
+        ...s5ProdRows,
+        [
+          '제품별 정산 총합',
+          '-',
+          validProducts.length > 0 ? { f: `SUM(C2:C${s5LastRow})`, v: totalProdCount, t: 'n', z: '#,##0' } : 0,
+          '-',
+          '-',
+          '-',
+          validProducts.length > 0 ? { f: `SUM(G2:G${s5LastRow})`, v: totalProdSupplyPrice, t: 'n', z: '#,##0' } : 0,
+          validProducts.length > 0 ? { f: `SUM(H2:H${s5LastRow})`, v: totalProdSupplyComm, t: 'n', z: '#,##0' } : 0,
+          validProducts.length > 0 ? { f: `SUM(I2:I${s5LastRow})`, v: totalProdMargin, t: 'n', z: '#,##0' } : 0,
+          '전체 합계'
+        ]
       ];
       const ws5 = XLSX.utils.aoa_to_sheet(sheet5Aoa);
       formatSheetNumbers(ws5);
       ws5['!cols'] = [{ wch: 18 }, { wch: 32 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 25 }];
       XLSX.utils.book_append_sheet(wb, ws5, '5_제품별세부정산');
+
+      if (!wb.Workbook) wb.Workbook = {};
+      if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+      wb.Workbook.CalcPr.fullCalcOnLoad = true;
 
       const filename = `더좋은라이프_월말보고서_${selectedMonth}.xlsx`;
       XLSX.writeFile(wb, filename);

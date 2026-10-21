@@ -144,6 +144,11 @@ export function exportCommissionStatementExcel(
   });
   const productSummaries = Array.from(prodMap.values());
 
+  const prodTableStartRow = 15;
+  const prodDataStartRow = 16;
+  const prodDataEndRow = prodDataStartRow + productSummaries.length - 1;
+  const prodTotalRowIdx = prodDataEndRow + 1;
+
   // 1. [정산 명세서 시트]
   const rows: any[][] = [
     [`공급 수수료(특수수당) 정산 명세서 (${selectedMonth})`],
@@ -159,9 +164,9 @@ export function exportCommissionStatementExcel(
     ['구분', '공급가액', '부가세 (10%)', '합계금액 (세금계산서 총액 / VAT 포함)', '비고 (한글 금액 표기)'],
     [
       '공급 수수료(특수수당)',
-      { v: totalSupply, t: 'n', z: '#,##0' },
-      { v: totalVat, t: 'n', z: '#,##0' },
-      { v: totalAmount, t: 'n', z: '#,##0' },
+      productSummaries.length > 0 ? { f: `F${prodTotalRowIdx}`, v: totalSupply, t: 'n', z: '#,##0' } : { v: totalSupply, t: 'n', z: '#,##0' },
+      productSummaries.length > 0 ? { f: `G${prodTotalRowIdx}`, v: totalVat, t: 'n', z: '#,##0' } : { v: totalVat, t: 'n', z: '#,##0' },
+      productSummaries.length > 0 ? { f: `H${prodTotalRowIdx}`, v: totalAmount, t: 'n', z: '#,##0' } : { v: totalAmount, t: 'n', z: '#,##0' },
       `일금 ${numberToKorean(totalAmount)} 원정`
     ],
     [],
@@ -170,17 +175,18 @@ export function exportCommissionStatementExcel(
   ];
 
   productSummaries.forEach((prod, idx) => {
+    const r = prodDataStartRow + idx;
     const pSupply = Math.round(prod.totalAmount / 1.1);
     const pVat = prod.totalAmount - pSupply;
     rows.push([
       idx + 1,
       prod.supplierName,
       prod.productName,
-      prod.quantity,
+      { v: prod.quantity, t: 'n', z: '#,##0' },
       { v: prod.unitPrice, t: 'n', z: '#,##0' },
-      { v: pSupply, t: 'n', z: '#,##0' },
-      { v: pVat, t: 'n', z: '#,##0' },
-      { v: prod.totalAmount, t: 'n', z: '#,##0' }
+      { f: `ROUND(H${r}/1.1,0)`, v: pSupply, t: 'n', z: '#,##0' },
+      { f: `H${r}-F${r}`, v: pVat, t: 'n', z: '#,##0' },
+      { f: `D${r}*E${r}`, v: prod.totalAmount, t: 'n', z: '#,##0' }
     ]);
   });
 
@@ -188,11 +194,11 @@ export function exportCommissionStatementExcel(
     '합계',
     '',
     '',
-    totalCount,
+    productSummaries.length > 0 ? { f: `SUM(D${prodDataStartRow}:D${prodDataEndRow})`, v: totalCount, t: 'n', z: '#,##0' } : 0,
     '',
-    { v: totalSupply, t: 'n', z: '#,##0' },
-    { v: totalVat, t: 'n', z: '#,##0' },
-    { v: totalAmount, t: 'n', z: '#,##0' }
+    productSummaries.length > 0 ? { f: `SUM(F${prodDataStartRow}:F${prodDataEndRow})`, v: totalSupply, t: 'n', z: '#,##0' } : 0,
+    productSummaries.length > 0 ? { f: `SUM(G${prodDataStartRow}:G${prodDataEndRow})`, v: totalVat, t: 'n', z: '#,##0' } : 0,
+    productSummaries.length > 0 ? { f: `SUM(H${prodDataStartRow}:H${prodDataEndRow})`, v: totalAmount, t: 'n', z: '#,##0' } : 0
   ]);
 
   rows.push([]);
@@ -211,6 +217,9 @@ export function exportCommissionStatementExcel(
     '수수료 단가 (VAT포함)',
     '지급 수수료 (VAT포함)'
   ]);
+
+  const detailStartRow = prodTotalRowIdx + 4;
+  const detailEndRow = detailStartRow + targetItems.length - 1;
 
   targetItems.forEach((item, idx) => {
     rows.push([
@@ -241,7 +250,7 @@ export function exportCommissionStatementExcel(
     '',
     `${targetItems.length}건`,
     '',
-    { v: totalAmount, t: 'n', z: '#,##0' }
+    targetItems.length > 0 ? { f: `SUM(L${detailStartRow}:L${detailEndRow})`, v: totalAmount, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' }
   ]);
 
   rows.push([]);
@@ -316,6 +325,10 @@ export function exportCommissionStatementExcel(
   }
 
   XLSX.utils.book_append_sheet(wb, ws, '정산명세서');
+
+  if (!wb.Workbook) wb.Workbook = {};
+  if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+  wb.Workbook.CalcPr.fullCalcOnLoad = true;
 
   const filePrefix = supplierFilterName ? `${recipientName}_${supplierFilterName}` : recipientName;
   const fileName = `리치웰페어_수수료명세서_${filePrefix}_${selectedMonth}.xlsx`;

@@ -18,14 +18,17 @@ import {
   Info,
   Lock,
   UserCheck,
-  Package
+  Package,
+  Calculator
 } from 'lucide-react';
+import { EnexReconciliationTab } from './components/EnexReconciliationTab';
 
 interface ExcelSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSyncSuccess: () => Promise<void>;
   currentUser?: any;
+  data?: any[];
 }
 
 interface SyncStats {
@@ -49,8 +52,10 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   isOpen,
   onClose,
   onSyncSuccess,
-  currentUser
+  currentUser,
+  data = []
 }) => {
+  const [activeTab, setActiveTab] = useState<'SYNC' | 'ENEX'>('SYNC');
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [contractRows, setContractRows] = useState<any[][] | null>(null);
   const [contractFileName, setContractFileName] = useState<string>('');
@@ -1019,7 +1024,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         initial={{ opacity: 0, scale: 0.96, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 15 }}
-        className="relative bg-white w-full max-w-4xl max-h-[92vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-slate-100 z-10"
+        className={`relative bg-white w-full ${activeTab === 'ENEX' ? 'max-w-7xl' : 'max-w-4xl'} max-h-[92vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-slate-100 z-10 transition-all duration-200`}
       >
         {/* 헤더 */}
         <div className="px-6 py-4 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
@@ -1038,6 +1043,39 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
           </button>
         </div>
 
+        {/* 상단 탭 전환 바 */}
+        <div className="flex border-b border-slate-200 bg-slate-100/70 px-6 pt-2 shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('SYNC')}
+            className={`py-2 px-3.5 text-xs font-black border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'SYNC'
+                ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-xl shadow-2xs'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <FileSpreadsheet size={14} />
+            <span>전산 엑셀 관리대장 동기화 (원장·배송·사원·수기)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('ENEX')}
+            className={`py-2 px-3.5 text-xs font-black border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'ENEX'
+                ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-xl shadow-2xs'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Calculator size={14} />
+            <span>에넥스 수수료 정산 대사 & 지급완료</span>
+            <span className="px-1.5 py-0.2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-black rounded-full shadow-2xs">
+              NEW
+            </span>
+          </button>
+        </div>
+
+        {activeTab === 'SYNC' ? (
+          <>
         {/* 바디 컨텐츠 */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* 4개 파일 업로드 2x2 그리드 */}
@@ -1611,6 +1649,12 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
             )}
           </div>
         </div>
+          </>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-5">
+            <EnexReconciliationTab erpData={data} currentUser={currentUser} />
+          </div>
+        )}
 
         {/* 로딩 인디케이터 오버레이 */}
         {isLoading && (

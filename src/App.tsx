@@ -3341,22 +3341,81 @@ const ERP_Dashboard = () => {
         '지급방식', '은행', '계좌번호', '예금주'
       ]);
 
-      excelData.forEach(r => {
+      let totalSettlementComm = 0;
+      let totalSettlementSales = 0;
+      let totalSettlementPromo = 0;
+      let totalSettlementGross = 0;
+      let totalSettlementNet = 0;
+
+      excelData.forEach((r, idx) => {
+        const rowNo = idx + 2; // Row 1 is header
+        totalSettlementComm += Number(r['전체수수료']) || 0;
+        totalSettlementSales += Number(r['판매수수료']) || 0;
+        totalSettlementPromo += Number(r['판매촉진비']) || 0;
+        totalSettlementGross += Number(r['정산금액(총액)']) || 0;
+        totalSettlementNet += Number(r['최종지급액']) || 0;
+
+        const taxCell = r['부가세(사업자용)'] === '포함'
+          ? '부가세포함'
+          : (typeof r['원천세(3.3%)'] === 'number' && r['원천세(3.3%)'] > 0
+              ? { f: `ROUND(N${rowNo}*0.033, 0)`, v: r['원천세(3.3%)'], t: 'n', z: '#,##0' }
+              : '-');
+
         sheetRows.push([
-          r['순번'], r['본부명'], r['고객명'], r['상품명'], r['계약일'], r['배송현황'], r['수수료지급일'], r['당월 실적(건)'],
-          r['적용단가'], r['전체수수료'], r['판매수수료'], r['판매촉진비'], r['정산유형'], r['정산금액(총액)'],
-          r['부가세(사업자용)'] === '포함' ? '부가세포함' : (r['원천세(3.3%)'] !== '-' ? r['원천세(3.3%)'] : '-'),
-          r['최종지급액'], r['영업사원분'], r['팀장분'], r['지점장분'], r['본부장분'],
-          r['지급방식'], r['은행'], r['계좌번호'], r['예금주']
+          r['순번'],
+          r['본부명'],
+          r['고객명'],
+          r['상품명'],
+          r['계약일'],
+          r['배송현황'],
+          r['수수료지급일'],
+          { v: r['당월 실적(건)'], t: 'n', z: '#,##0' },
+          { v: r['적용단가'], t: 'n', z: '#,##0' },
+          { f: `K${rowNo}+L${rowNo}`, v: r['전체수수료'], t: 'n', z: '#,##0' },
+          { v: r['판매수수료'], t: 'n', z: '#,##0' },
+          { v: r['판매촉진비'], t: 'n', z: '#,##0' },
+          r['정산유형'],
+          { f: `J${rowNo}`, v: r['정산금액(총액)'], t: 'n', z: '#,##0' },
+          taxCell,
+          { f: `IF(ISNUMBER(O${rowNo}), N${rowNo}-O${rowNo}, N${rowNo})`, v: r['최종지급액'], t: 'n', z: '#,##0' },
+          { v: r['영업사원분'], t: 'n', z: '#,##0' },
+          { v: r['팀장분'], t: 'n', z: '#,##0' },
+          { v: r['지점장분'], t: 'n', z: '#,##0' },
+          { v: r['본부장분'], t: 'n', z: '#,##0' },
+          r['지급방식'],
+          r['은행'],
+          r['계좌번호'],
+          r['예금주']
         ]);
       });
+
+      if (excelData.length > 0) {
+        const lastRow = excelData.length + 1;
+        sheetRows.push([
+          '합계',
+          '', '', '', '', '', '',
+          `${excelData.length}건`,
+          '',
+          { f: `SUM(J2:J${lastRow})`, v: totalSettlementComm, t: 'n', z: '#,##0' },
+          { f: `SUM(K2:K${lastRow})`, v: totalSettlementSales, t: 'n', z: '#,##0' },
+          { f: `SUM(L2:L${lastRow})`, v: totalSettlementPromo, t: 'n', z: '#,##0' },
+          '',
+          { f: `SUM(N2:N${lastRow})`, v: totalSettlementGross, t: 'n', z: '#,##0' },
+          '',
+          { f: `SUM(P2:P${lastRow})`, v: totalSettlementNet, t: 'n', z: '#,##0' },
+          '', '', '', '', '', '', '', ''
+        ]);
+      }
 
       // 유지수수료 지급 리스트 추가
       if (maintenancePayouts.length > 0) {
         sheetRows.push([]);
         sheetRows.push(['[ 유지수수료 정산 내역 ]']);
         sheetRows.push(['No', '렌탈계약번호', '본부명', '고객명', '상품명', '지급회차', '지급금액']);
+        const mMaintStart = sheetRows.length + 1;
+        let totalMaintSum = 0;
         maintenancePayouts.forEach((m, idx) => {
+          totalMaintSum += m.amount || 0;
           sheetRows.push([
             idx + 1,
             m.resNo,
@@ -3364,9 +3423,14 @@ const ERP_Dashboard = () => {
             m.customerName,
             m.productName,
             m.fromInstallment === m.toInstallment ? `${m.fromInstallment}회차` : `${m.fromInstallment}회차 ~ ${m.toInstallment}회차`,
-            m.amount
+            { v: m.amount, t: 'n', z: '#,##0' }
           ]);
         });
+        const mMaintEnd = sheetRows.length;
+        sheetRows.push([
+          '합계', '', '', '', '', `${maintenancePayouts.length}건`,
+          { f: `SUM(G${mMaintStart}:G${mMaintEnd})`, v: totalMaintSum, t: 'n', z: '#,##0' }
+        ]);
       }
 
       // 특수수당 지급 리스트 추가
@@ -3376,22 +3440,34 @@ const ERP_Dashboard = () => {
         sheetRows.push([]);
         sheetRows.push(['[ 특수수당 정산 내역 ]']);
         sheetRows.push(['수급자명', '수당 종류', '지급 수량(구좌)', '최종 수당 금액']);
+        const mSpStart = sheetRows.length + 1;
+        let totalSpSum = 0;
         specialIncentivesList.forEach(([name, amt]) => {
           const rule = globalIncentiveRules.find(r => r.targetName === name);
           const detail = rule?.incentiveName || (rule ? (rule.targetName === '조재윤' || rule.targetName === '조재은' ? '모델비' : (rule.targetName === '조민경' ? '컨설팅비' : '글로벌인센티브')) : '특수수당');
           const matchedCount = settlementStats.hqSummary[name]?.count || 0;
+          totalSpSum += Number(amt) || 0;
           sheetRows.push([
             name,
             detail,
             matchedCount,
-            amt
+            { v: amt, t: 'n', z: '#,##0' }
           ]);
         });
+        const mSpEnd = sheetRows.length;
+        sheetRows.push([
+          '합계', '', `${specialIncentivesList.length}건`,
+          { f: `SUM(D${mSpStart}:D${mSpEnd})`, v: totalSpSum, t: 'n', z: '#,##0' }
+        ]);
       }
 
       const ws = XLSX.utils.aoa_to_sheet(sheetRows);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "수수료정산");
+
+      if (!wb.Workbook) wb.Workbook = {};
+      if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+      wb.Workbook.CalcPr.fullCalcOnLoad = true;
 
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
@@ -5040,43 +5116,46 @@ const ERP_Dashboard = () => {
           { v: divTotalCount, t: 'n', z: '#,##0' },
           { v: divTotalSales, t: 'n', z: '#,##0' },
           { v: divTotalPromo, t: 'n', z: '#,##0' },
-          { v: divTotalGeneral, t: 'n', z: '#,##0' },
+          { f: 'C11+D11', v: divTotalGeneral, t: 'n', z: '#,##0' },
           { v: divTotalMaintenance, t: 'n', z: '#,##0' },
           { v: divTotalSpecial, t: 'n', z: '#,##0' },
-          { v: divTotalGross, t: 'n', z: '#,##0' },
-          { v: divTaxTotal, t: 'n', z: '#,##0' },
-          { v: divNetTotal, t: 'n', z: '#,##0' }
+          { f: 'E11+F11+G11', v: divTotalGross, t: 'n', z: '#,##0' },
+          isPersonal ? { f: 'ROUND(H11*0.033, 0)', v: divTaxTotal, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+          { f: 'H11-I11', v: divNetTotal, t: 'n', z: '#,##0' }
         ],
         [],
         ['[ 소속 본부별 실적 현황 ]'],
         ['번호', '본부명', '실적건수', '판매수수료', '촉진비', '수수료 소계', '유지수수료', '특수수당', '본부 정산합계']
       ];
 
+      const divHqStartRow = 15;
       hqSummaries.forEach((row, idx) => {
+        const r = divHqStartRow + idx;
         summarySheetData.push([
           idx + 1,
           row.hqName,
           { v: row.count, t: 'n', z: '#,##0' },
           { v: row.salesSum, t: 'n', z: '#,##0' },
           { v: row.promoSum, t: 'n', z: '#,##0' },
-          { v: row.generalSum, t: 'n', z: '#,##0' },
+          { f: `D${r}+E${r}`, v: row.generalSum, t: 'n', z: '#,##0' },
           { v: row.maintenanceSum, t: 'n', z: '#,##0' },
           { v: row.specialSum, t: 'n', z: '#,##0' },
-          { v: row.grossTotal, t: 'n', z: '#,##0' }
+          { f: `F${r}+G${r}+H${r}`, v: row.grossTotal, t: 'n', z: '#,##0' }
         ]);
       });
 
       // 소속 본부별 실적 현황 하단 총합계 행
+      const divHqEndRow = divHqStartRow + hqSummaries.length - 1;
       summarySheetData.push([
         '총합계',
         `${hqSummaries.length}개 본부`,
-        { v: divTotalCount, t: 'n', z: '#,##0' },
-        { v: divTotalSales, t: 'n', z: '#,##0' },
-        { v: divTotalPromo, t: 'n', z: '#,##0' },
-        { v: divTotalGeneral, t: 'n', z: '#,##0' },
-        { v: divTotalMaintenance, t: 'n', z: '#,##0' },
-        { v: divTotalSpecial, t: 'n', z: '#,##0' },
-        { v: divTotalGross, t: 'n', z: '#,##0' }
+        hqSummaries.length > 0 ? { f: `SUM(C${divHqStartRow}:C${divHqEndRow})`, v: divTotalCount, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        hqSummaries.length > 0 ? { f: `SUM(D${divHqStartRow}:D${divHqEndRow})`, v: divTotalSales, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        hqSummaries.length > 0 ? { f: `SUM(E${divHqStartRow}:E${divHqEndRow})`, v: divTotalPromo, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        hqSummaries.length > 0 ? { f: `SUM(F${divHqStartRow}:F${divHqEndRow})`, v: divTotalGeneral, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        hqSummaries.length > 0 ? { f: `SUM(G${divHqStartRow}:G${divHqEndRow})`, v: divTotalMaintenance, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        hqSummaries.length > 0 ? { f: `SUM(H${divHqStartRow}:H${divHqEndRow})`, v: divTotalSpecial, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        hqSummaries.length > 0 ? { f: `SUM(I${divHqStartRow}:I${divHqEndRow})`, v: divTotalGross, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' }
       ]);
 
       const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetData);
@@ -5340,6 +5419,10 @@ const ERP_Dashboard = () => {
 
       const cleanPayDate = payDateSample.replace(/[-./\s]/g, '');
       const fileName = `[사업단정산서]_${division.name}_${cleanPayDate || '정산'}.xlsx`;
+
+      if (!wb.Workbook) wb.Workbook = {};
+      if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+      wb.Workbook.CalcPr.fullCalcOnLoad = true;
 
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
@@ -6460,6 +6543,10 @@ const ERP_Dashboard = () => {
         XLSX.utils.book_append_sheet(wb, wsAppend, appendSheetData.name);
       }
 
+      if (!wb.Workbook) wb.Workbook = {};
+      if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+      wb.Workbook.CalcPr.fullCalcOnLoad = true;
+
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
       executeDownload(blob, `${payDateSample.substring(0, 7)}_통합정산보고서.xlsx`);
@@ -7213,6 +7300,10 @@ const ERP_Dashboard = () => {
 
       XLSX.utils.book_append_sheet(wb, ws, "정산내역");
 
+      if (!wb.Workbook) wb.Workbook = {};
+      if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+      wb.Workbook.CalcPr.fullCalcOnLoad = true;
+
       const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
       const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
       executeDownload(blob, `${hqName}_수수료정산서_${payDateDisplay.replace(/[\./]/g, '')}.xlsx`);
@@ -7239,7 +7330,8 @@ const ERP_Dashboard = () => {
           { v: x.totalCommission, t: 'n', z: '#,##0' }
         ];
       });
-      eligibleRows.push(['합계', '', '', '', '', '', '', '', '', { v: totalEligibleSum, t: 'n', z: '#,##0' }]);
+      const eligLastRow = eligibleItems.length + 4;
+      eligibleRows.push(['합계', '', '', '', '', '', '', '', '', eligibleItems.length > 0 ? { f: `SUM(J5:J${eligLastRow})`, v: totalEligibleSum, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' }]);
 
       const eligibleWorksheet = XLSX.utils.aoa_to_sheet([
         ['[ 헬스케어80 유지수수료 지급 대상 현황 ]'],
@@ -7258,7 +7350,8 @@ const ERP_Dashboard = () => {
           { v: x.pendingCommission, t: 'n', z: '#,##0' }
         ];
       });
-      overdueRows.push(['합계', '', '', '', '', '', '', '', '', '', { v: totalOverdueSum, t: 'n', z: '#,##0' }]);
+      const ovLastRow = overdueItems.length + 4;
+      overdueRows.push(['합계', '', '', '', '', '', '', '', '', '', overdueItems.length > 0 ? { f: `SUM(K5:K${ovLastRow})`, v: totalOverdueSum, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' }]);
 
       const overdueWorksheet = XLSX.utils.aoa_to_sheet([
         ['[ 헬스케어80 유지수수료 지급 보류(연체) 현황 ]'],
@@ -7288,6 +7381,10 @@ const ERP_Dashboard = () => {
 
       XLSX.utils.book_append_sheet(workbook, eligibleWorksheet, "유지수수료 지급대상");
       XLSX.utils.book_append_sheet(workbook, overdueWorksheet, "유지수수료 지급보류");
+
+      if (!workbook.Workbook) workbook.Workbook = {};
+      if (!workbook.Workbook.CalcPr) workbook.Workbook.CalcPr = {};
+      workbook.Workbook.CalcPr.fullCalcOnLoad = true;
 
       const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([wbout], { type: 'application/octet-stream' });
@@ -7722,6 +7819,11 @@ const ERP_Dashboard = () => {
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "수동정산보고서");
+
+    if (!wb.Workbook) wb.Workbook = {};
+    if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+    wb.Workbook.CalcPr.fullCalcOnLoad = true;
+
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
     const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
     executeDownload(blob, `${manualDate}_${manualHq}_수동정산.xlsx`);
@@ -13485,6 +13587,7 @@ const ERP_Dashboard = () => {
                 await loadData();
               }}
               currentUser={currentUser}
+              data={data}
             />
           )}
           {isSangjoInquiryModalOpen && (

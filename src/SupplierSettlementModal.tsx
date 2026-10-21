@@ -1001,11 +1001,13 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         s.accountNumber,
         s.accountHolder,
         `매월 ${s.settlementDay}일`,
-        s.productCount,
-        s.totalSupplyAmount
+        { v: s.productCount, t: 'n', z: '#,##0' },
+        { v: s.totalSupplyAmount, t: 'n', z: '#,##0' }
       ]);
     });
 
+    const sumStartRow = 5; // row 1-5: Title, Sub, Date, Blank, Header
+    const sumEndRow = 4 + targetSummaries.length;
     summaryRows.push([
       '합계',
       '',
@@ -1013,8 +1015,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       '',
       '',
       '',
-      subTotalCount,
-      subTotalAmount
+      targetSummaries.length > 0 ? { f: `SUM(G5:G${4 + targetSummaries.length})`, v: subTotalCount, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      targetSummaries.length > 0 ? { f: `SUM(H5:H${4 + targetSummaries.length})`, v: subTotalAmount, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' }
     ]);
 
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
@@ -1025,15 +1027,22 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       ? allSettlementItems.filter(i => i.matchedSupplierId === targetSupplierId && i.isSupplyPricePayable)
       : allSettlementItems.filter(i => i.isSupplyPricePayable);
 
-    const detailRows = [
+    const detailRows: any[][] = [
       [`공급 물품대금 상세 명세서 (${selectedMonth})`],
       ['렌탈계약번호', '계약일자', '배송완료일', '설치확인서/마감월', '공급사명', '고객명', '매칭 제품명', '상품개수', '공급단가 (VAT포함)', '공급 물품대금 (VAT포함)', '본부', '지사', '영업사원']
     ];
 
-    itemsToExport.forEach((item) => {
+    let totalDetailQty = 0;
+    let totalDetailAmount = 0;
+
+    itemsToExport.forEach((item, idx) => {
       const certInfo = item.isManualOrderTarget
         ? (item.installCertStatus === '등록' ? `등록완료 (${item.installCertMonth || '-'})` : '미등록 (보류)')
         : '-';
+
+      const r = idx + 3; // 1-based row index in Excel (Row 1: Title, Row 2: Header)
+      totalDetailQty += item.quantity || 1;
+      totalDetailAmount += item.totalSupplyPrice || 0;
 
       detailRows.push([
         item.rentalNo,
@@ -1043,14 +1052,26 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         item.matchedSupplierName,
         item.memName,
         item.matchedProductName,
-        item.quantity,
-        item.supplyPrice,
-        item.totalSupplyPrice,
+        { v: item.quantity, t: 'n', z: '#,##0' },
+        { v: item.supplyPrice, t: 'n', z: '#,##0' },
+        { f: `H${r}*I${r}`, v: item.totalSupplyPrice, t: 'n', z: '#,##0' },
         item.hq,
         item.branch,
         item.empName
       ]);
     });
+
+    if (itemsToExport.length > 0) {
+      const lastDetailRow = itemsToExport.length + 2;
+      detailRows.push([
+        '합계',
+        '', '', '', '', '', '',
+        { f: `SUM(H3:H${lastDetailRow})`, v: totalDetailQty, t: 'n', z: '#,##0' },
+        '',
+        { f: `SUM(J3:J${lastDetailRow})`, v: totalDetailAmount, t: 'n', z: '#,##0' },
+        '', '', ''
+      ]);
+    }
 
     const wsDetail = XLSX.utils.aoa_to_sheet(detailRows);
     XLSX.utils.book_append_sheet(wb, wsDetail, '물품대금상세명세');
@@ -1058,6 +1079,10 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     const fileName = targetSupplierId && targetSupplierId !== 'ALL'
       ? `${supplyPriceSummaries.find(s => s.supplierId === targetSupplierId)?.supplierName || '공급사'}_물품대금정산서_${selectedMonth}.xlsx`
       : `리치웰페어_공급물품대금정산서_${selectedMonth}.xlsx`;
+
+    if (!wb.Workbook) wb.Workbook = {};
+    if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+    wb.Workbook.CalcPr.fullCalcOnLoad = true;
 
     XLSX.writeFile(wb, fileName);
   };
@@ -1217,19 +1242,25 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     let prodSubAmount = 0;
     let totalSpecialCount = 0;
     let totalSpecialAmount = 0;
+    let groupStartRow = 2; // 1-based index (header is 1)
+    const subtotalRowNumbers: number[] = [];
 
     sortedPayableItems.forEach((sp, idx) => {
       const prodKey = sp.matchedProductName || sp.rentalProdRaw || sp.prodName || '기타제품';
 
       if (idx > 0 && currentProdKey !== prodKey) {
+        const subRowNo = specialRows.length + 1;
+        const subEndRow = subRowNo - 1;
+        subtotalRowNumbers.push(subRowNo);
         specialRows.push([
           `[${currentProdKey}] 소계`,
           '', '', '', '', '', '',
           `${prodSubCount}건`,
-          { v: prodSubAmount, t: 'n', z: '#,##0' }
+          { f: `SUM(I${groupStartRow}:I${subEndRow})`, v: prodSubAmount, t: 'n', z: '#,##0' }
         ]);
         prodSubCount = 0;
         prodSubAmount = 0;
+        groupStartRow = subRowNo + 1;
       }
 
       currentProdKey = prodKey;
@@ -1252,20 +1283,26 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     });
 
     if (prodSubCount > 0) {
+      const subRowNo = specialRows.length + 1;
+      const subEndRow = subRowNo - 1;
+      subtotalRowNumbers.push(subRowNo);
       specialRows.push([
         `[${currentProdKey}] 소계`,
         '', '', '', '', '', '',
         `${prodSubCount}건`,
-        { v: prodSubAmount, t: 'n', z: '#,##0' }
+        { f: `SUM(I${groupStartRow}:I${subEndRow})`, v: prodSubAmount, t: 'n', z: '#,##0' }
       ]);
     }
 
     if (totalSpecialCount > 0) {
+      const totalFormula = subtotalRowNumbers.length > 0
+        ? subtotalRowNumbers.map(r => `I${r}`).join('+')
+        : `SUM(I2:I${specialRows.length})`;
       specialRows.push([
         '총합계',
         '', '', '', '', '', '',
         `${totalSpecialCount}건`,
-        { v: totalSpecialAmount, t: 'n', z: '#,##0' }
+        { f: totalFormula, v: totalSpecialAmount, t: 'n', z: '#,##0' }
       ]);
     }
 
@@ -1287,6 +1324,10 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     const fileName = targetSupplierId && targetSupplierId !== 'ALL'
       ? `${suppliers.find(s => s.id === targetSupplierId)?.name || '공급사'}_공급수수료정산서_${selectedMonth}.xlsx`
       : `리치웰페어_공급수수료정산서_${selectedMonth}.xlsx`;
+
+    if (!wb.Workbook) wb.Workbook = {};
+    if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+    wb.Workbook.CalcPr.fullCalcOnLoad = true;
 
     XLSX.writeFile(wb, fileName);
   };
@@ -1338,7 +1379,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         { v: totDeposit, t: 'n', z: '#,##0' },
         { v: totSuppPrice, t: 'n', z: '#,##0' },
         { v: totComm, t: 'n', z: '#,##0' },
-        { v: totNet, t: 'n', z: '#,##0' },
+        { f: 'D6-E6-F6', v: totNet, t: 'n', z: '#,##0' },
         `영업이익률: ${totMarginRate}%`
       ],
       [],
@@ -1350,7 +1391,9 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       ? richwelfareProfitSummary.supplierProfitList.filter(s => s.supplierId === targetSupplierId)
       : richwelfareProfitSummary.supplierProfitList;
 
-    targetSupplierList.forEach(sp => {
+    const suppTableStartRow = 10;
+    targetSupplierList.forEach((sp, i) => {
+      const r = suppTableStartRow + i;
       summaryRows.push([
         sp.supplierName,
         sp.count,
@@ -1358,25 +1401,34 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         { v: sp.depositAmount, t: 'n', z: '#,##0' },
         { v: sp.supplyPriceAmount, t: 'n', z: '#,##0' },
         { v: sp.commissionAmount, t: 'n', z: '#,##0' },
-        { v: sp.netProfitAmount, t: 'n', z: '#,##0' },
+        { f: `D${r}-E${r}-F${r}`, v: sp.netProfitAmount, t: 'n', z: '#,##0' },
         `${sp.marginRate}%`
       ]);
     });
 
+    const suppTableEndRow = suppTableStartRow + targetSupplierList.length - 1;
+    const suppSubtotalRow = suppTableEndRow + 1;
     summaryRows.push([
       '공급사 소계',
       targetItems.length,
       targetItems.reduce((acc, i) => acc + i.quantity, 0),
-      { v: totDeposit, t: 'n', z: '#,##0' },
-      { v: totSuppPrice, t: 'n', z: '#,##0' },
-      { v: totComm, t: 'n', z: '#,##0' },
-      { v: totNet, t: 'n', z: '#,##0' },
+      targetSupplierList.length > 0 ? { f: `SUM(D${suppTableStartRow}:D${suppTableEndRow})`, v: totDeposit, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      targetSupplierList.length > 0 ? { f: `SUM(E${suppTableStartRow}:E${suppTableEndRow})`, v: totSuppPrice, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      targetSupplierList.length > 0 ? { f: `SUM(F${suppTableStartRow}:F${suppTableEndRow})`, v: totComm, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      targetSupplierList.length > 0 ? { f: `D${suppSubtotalRow}-E${suppSubtotalRow}-F${suppSubtotalRow}`, v: totNet, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
       `${totMarginRate}%`
     ]);
 
     summaryRows.push([]);
     summaryRows.push(['3. 최종 손익 정산 결산 종합']);
     summaryRows.push(['구분', '항목명', '금액', '비율(%)', '산출 공식 / 세부 내역', '비고']);
+    
+    const finalStartRow = suppSubtotalRow + 4; // Row of [A]
+    const rowA = finalStartRow;
+    const rowB = finalStartRow + 1;
+    const rowC = finalStartRow + 2;
+    const rowD = finalStartRow + 3;
+
     summaryRows.push([
       '[A] 총 입금액',
       '리치웰페어 결합원가 총 입금액',
@@ -1404,7 +1456,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     summaryRows.push([
       '[D] 최종 순이익',
       '더좋은라이프 실질 순이익',
-      { v: totNet, t: 'n', z: '#,##0' },
+      { f: `C${rowA}-C${rowB}-C${rowC}`, v: totNet, t: 'n', z: '#,##0' },
       `${totMarginRate}%`,
       '[A] 총 입금액 - [B] 물품대금 - [C] 공급수수료',
       '최종 실현 순익'
@@ -1424,7 +1476,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
     ];
     const detailRows: any[][] = [headers];
 
-    targetItems.forEach(item => {
+    targetItems.forEach((item, idx) => {
+      const r = idx + 2; // Row 1 is header
       const net = (item.richwelfareDeposit || 0) - (item.totalSupplyPrice || 0) - (item.totalCommission || 0);
       detailRows.push([
         item.contractDate || '-',
@@ -1441,18 +1494,19 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         { v: item.richwelfareDeposit || 0, t: 'n', z: '#,##0' },
         { v: item.totalSupplyPrice || 0, t: 'n', z: '#,##0' },
         { v: item.totalCommission || 0, t: 'n', z: '#,##0' },
-        { v: net, t: 'n', z: '#,##0' },
+        { f: `L${r}-M${r}-N${r}`, v: net, t: 'n', z: '#,##0' },
         item.installCertStatus === '등록' ? `정상 (${item.installCertMonth || '마감'})` : '확인서 미등록'
       ]);
     });
 
+    const detailLastRow = targetItems.length + 1;
     detailRows.push([
       '총계', '', '', '', '', `${targetItems.length}건`, '', '', '', '',
-      targetItems.reduce((acc, i) => acc + i.quantity, 0),
-      { v: totDeposit, t: 'n', z: '#,##0' },
-      { v: totSuppPrice, t: 'n', z: '#,##0' },
-      { v: totComm, t: 'n', z: '#,##0' },
-      { v: totNet, t: 'n', z: '#,##0' },
+      targetItems.length > 0 ? { f: `SUM(K2:K${detailLastRow})`, v: targetItems.reduce((acc, i) => acc + i.quantity, 0), t: 'n', z: '#,##0' } : 0,
+      targetItems.length > 0 ? { f: `SUM(L2:L${detailLastRow})`, v: totDeposit, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      targetItems.length > 0 ? { f: `SUM(M2:M${detailLastRow})`, v: totSuppPrice, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      targetItems.length > 0 ? { f: `SUM(N2:N${detailLastRow})`, v: totComm, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+      targetItems.length > 0 ? { f: `SUM(O2:O${detailLastRow})`, v: totNet, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
       `영업이익률: ${totMarginRate}%`
     ]);
 
@@ -1486,6 +1540,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       let subNet = 0;
 
       items.forEach((item, idx) => {
+        const r = idx + 5; // Rows 1-4 are Title, Info, Blank, Header
         const net = (item.richwelfareDeposit || 0) - (item.totalSupplyPrice || 0) - (item.totalCommission || 0);
         subDep += item.richwelfareDeposit || 0;
         subSupp += item.totalSupplyPrice || 0;
@@ -1504,19 +1559,20 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
           { v: item.richwelfareDeposit || 0, t: 'n', z: '#,##0' },
           { v: item.totalSupplyPrice || 0, t: 'n', z: '#,##0' },
           { v: item.totalCommission || 0, t: 'n', z: '#,##0' },
-          { v: net, t: 'n', z: '#,##0' },
+          { f: `I${r}-J${r}-K${r}`, v: net, t: 'n', z: '#,##0' },
           item.hq || '-',
           item.empName || '-'
         ]);
       });
 
+      const suppItemsEndRow = items.length + 4;
       suppRows.push([
         '합계', '', '', '', '', '', '',
-        items.reduce((acc, i) => acc + i.quantity, 0),
-        { v: subDep, t: 'n', z: '#,##0' },
-        { v: subSupp, t: 'n', z: '#,##0' },
-        { v: subComm, t: 'n', z: '#,##0' },
-        { v: subNet, t: 'n', z: '#,##0' },
+        items.length > 0 ? { f: `SUM(H5:H${suppItemsEndRow})`, v: items.reduce((acc, i) => acc + i.quantity, 0), t: 'n', z: '#,##0' } : 0,
+        items.length > 0 ? { f: `SUM(I5:I${suppItemsEndRow})`, v: subDep, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        items.length > 0 ? { f: `SUM(J5:J${suppItemsEndRow})`, v: subSupp, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        items.length > 0 ? { f: `SUM(K5:K${suppItemsEndRow})`, v: subComm, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        items.length > 0 ? { f: `SUM(L5:L${suppItemsEndRow})`, v: subNet, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
         '', ''
       ]);
 
@@ -1528,6 +1584,10 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       const safeTitle = `${suppName.slice(0, 20)}_상세`;
       XLSX.utils.book_append_sheet(wb, wsSupp, safeTitle);
     });
+
+    if (!wb.Workbook) wb.Workbook = {};
+    if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+    wb.Workbook.CalcPr.fullCalcOnLoad = true;
 
     const fileName = `리치웰페어_수기발주_손익결산보고서_${selectedMonth}.xlsx`;
     XLSX.writeFile(wb, fileName);

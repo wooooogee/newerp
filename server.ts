@@ -5757,6 +5757,171 @@ app.post('/api/sheets/reconciliation/save', async (req, res) => {
   }
 });
 
+
+// ==========================================
+// [에넥스 수수료 정산 및 지급완료 이력 API]
+// ==========================================
+app.get('/api/sheets/enex-settlements', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    const enexSheet = sheetsList.find(s => s.properties?.title === '에넥스정산내역');
+    if (!enexSheet) {
+      return res.json({ success: true, list: [] });
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: '에넥스정산내역!A:U',
+    });
+
+    const rows = response.data.values || [];
+    if (rows.length < 2) {
+      return res.json({ success: true, list: [] });
+    }
+
+    const headers = rows[0].map((h) => String(h || '').trim());
+    const list = rows.slice(1).map((r, idx) => {
+      const obj = { _rowIdx: idx + 2 };
+      headers.forEach((h, i) => {
+        obj[h] = r[i] !== undefined ? r[i] : '';
+      });
+      return obj;
+    });
+
+    return res.json({ success: true, list });
+  } catch (error) {
+    console.error('[Enex Settlements Load Error]', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/sheets/enex-settlements/save', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { title, periodStart, periodEnd, payoutDate, rows, worker } = req.body;
+
+  if (!rows || !Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: '저장할 데이터가 없습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let enexSheet = sheetsList.find(s => s.properties?.title === '에넥스정산내역');
+    let sheetInternalId = enexSheet?.properties?.sheetId;
+
+    const headers = [[
+      '정산명', '정산기간', '지급일자', '계약번호', '판매점', '제품명',
+      '배송일자', '매출액', '적용구좌', '금융수수료율', '구좌당공급가',
+      '금융수수료', '공급가합계', '계산수수료', '에넥스수수료', '차액',
+      '대조결과', '고객명', '본부명', '등록일시', '등록자'
+    ]];
+
+    if (!enexSheet) {
+      console.log("[EnexSettlement] Creating '에넥스정산내역' sheet...");
+      const addRes = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '에넥스정산내역' } } }]
+        }
+      });
+      sheetInternalId = addRes.data.replies?.[0]?.addSheet?.properties?.sheetId;
+
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: '에넥스정산내역!A1',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: headers }
+      });
+
+      if (sheetInternalId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.15, green: 0.25, blue: 0.4 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+    }
+
+    const nowStr = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+    const periodDisplay = (periodStart || '') + ' ~ ' + (periodEnd || '');
+
+    const formattedRows = rows.map(r => {
+      return [
+        title || '',
+        periodDisplay,
+        payoutDate || '',
+        r[0] || '', // 계약번호
+        r[1] || '', // 판매점
+        r[2] || '', // 제품명
+        r[3] || '', // 배송일자
+        r[4] ?? 0,  // 매출액
+        r[5] ?? 1,  // 적용구좌
+        r[6] ?? 0.26, // 금융수수료율
+        r[7] ?? 0,  // 구좌당공급가
+        r[8] ?? 0,  // 금융수수료
+        r[9] ?? 0,  // 공급가합계
+        r[10] ?? 0, // 계산수수료
+        r[11] ?? 0, // 에넥스수수료
+        r[12] ?? 0, // 차액
+        r[13] || '', // 대조결과
+        r[14] || '', // 고객명
+        r[15] || '', // 본부명
+        nowStr,
+        worker || '관리자'
+      ];
+    });
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: '에넥스정산내역!A1',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: formattedRows }
+    });
+
+    return res.json({ success: true, count: formattedRows.length });
+  } catch (error) {
+    console.error('[Enex Settlements Save Error]', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // === 영업조직 특이사항 및 보고사항 API ===
 app.get('/api/sheets/branch-notes', async (req, res) => {
   const { date } = req.query;
