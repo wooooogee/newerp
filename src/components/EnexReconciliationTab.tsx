@@ -61,13 +61,13 @@ export const DEFAULT_POLICY_SETTINGS: EnexPolicySettings = {
   baseFeeRate: 0.26,
   yellowFeeRate: 0.30,
   productRules: [
-    { id: 'p1', prodName: '더좋은하이브리드698', supplyPrice: 550000, keywords: ['698', '하이브리드698', '하이브리드'], memo: '1구좌당 55만원' },
-    { id: 'p2', prodName: '더좋은라이즈498', supplyPrice: 550000, keywords: ['498', '라이즈498', '라이즈'], memo: '1구좌당 55만원' },
-    { id: 'p3', prodName: '굿라이프헬스케어실버', supplyPrice: 550000, keywords: ['헬스케어실버', '실버'], memo: '1구좌당 55만원' },
+    { id: 'p6', prodName: '더좋은프리미엄540플러스', supplyPrice: 800000, keywords: ['540+', '540플러스', '프리미엄540플러스', '프리미엄540+'], memo: '1구좌당 80만원' },
+    { id: 'p7', prodName: '굿라이프헬스케어올인원', supplyPrice: 800000, keywords: ['올인원', '헬스케어올인원'], memo: '1구좌당 80만원' },
     { id: 'p4', prodName: '더좋은프리미엄540', supplyPrice: 750000, keywords: ['프리미엄540', '540'], memo: '1구좌당 75만원' },
     { id: 'p5', prodName: '굿라이프헬스케어골드', supplyPrice: 750000, keywords: ['헬스케어골드', '골드'], memo: '1구좌당 75만원' },
-    { id: 'p6', prodName: '더좋은프리미엄540플러스', supplyPrice: 800000, keywords: ['540+', '540플러스', '프리미엄540플러스'], memo: '1구좌당 80만원' },
-    { id: 'p7', prodName: '굿라이프헬스케어올인원', supplyPrice: 800000, keywords: ['올인원', '헬스케어올인원'], memo: '1구좌당 80만원' }
+    { id: 'p1', prodName: '더좋은하이브리드698', supplyPrice: 550000, keywords: ['698', '하이브리드698', '하이브리드'], memo: '1구좌당 55만원' },
+    { id: 'p2', prodName: '더좋은라이즈498', supplyPrice: 550000, keywords: ['498', '라이즈498', '라이즈'], memo: '1구좌당 55만원' },
+    { id: 'p3', prodName: '굿라이프헬스케어실버', supplyPrice: 550000, keywords: ['헬스케어실버', '실버'], memo: '1구좌당 55만원' }
   ]
 };
 
@@ -131,7 +131,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   // 정책 설정 상태 (금융수수료율 & 상품별 물품대금)
   const [policySettings, setPolicySettings] = useState<EnexPolicySettings>(() => {
     try {
-      const stored = localStorage.getItem('erp_enex_policy_settings_v2');
+      const stored = localStorage.getItem('erp_enex_policy_settings_v3');
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && Array.isArray(parsed.productRules)) {
@@ -212,13 +212,27 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     rules: EnexProductSupplyRule[]
   ): { price: number; matchedProdName: string } => {
     const combinedText = `${sangjoName} ${applianceName} ${modelName}`.replace(/\s+/g, '').toLowerCase();
+    const hasPlus = combinedText.includes('540+') || combinedText.includes('540플러스') || combinedText.includes('플러스') || combinedText.includes('plus');
 
-    // 1. 등록된 정책 규칙에서 키워드 매칭 탐색
+    // 키워드가 긴 순서(내림차순)로 정렬하여 '540플러스'(5글자), '540+'(4글자)가 단순 '540'(3글자)보다 항상 먼저 매칭되도록 보장
+    const allKeywordRules: Array<{ kw: string; rule: EnexProductSupplyRule }> = [];
     for (const rule of rules) {
-      const ruleKeywords = rule.keywords.map(k => k.replace(/\s+/g, '').toLowerCase());
-      const hasMatch = ruleKeywords.some(k => k && combinedText.includes(k));
-      if (hasMatch) {
-        return { price: rule.supplyPrice, matchedProdName: rule.prodName };
+      for (const kw of rule.keywords) {
+        const cleanKw = kw.replace(/\s+/g, '').toLowerCase();
+        if (cleanKw) {
+          allKeywordRules.push({ kw: cleanKw, rule });
+        }
+      }
+    }
+    allKeywordRules.sort((a, b) => b.kw.length - a.kw.length);
+
+    for (const item of allKeywordRules) {
+      if (combinedText.includes(item.kw)) {
+        // 텍스트에 540+ 또는 플러스가 있는 경우, 단순 540이나 프리미엄540 키워드는 스킵하여 80만원(플러스)으로 확정!
+        if (hasPlus && (item.kw === '540' || item.kw === '프리미엄540')) {
+          continue;
+        }
+        return { price: item.rule.supplyPrice, matchedProdName: item.rule.prodName };
       }
     }
 
@@ -536,7 +550,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     }
 
     try {
-      localStorage.setItem('erp_enex_policy_settings_v2', JSON.stringify(editingPolicy));
+      localStorage.setItem('erp_enex_policy_settings_v3', JSON.stringify(editingPolicy));
       setPolicySettings(editingPolicy);
 
       // 현재 테이블에 올라와 있는 데이터 전체에 새 정책 즉시 재계산 반영!
