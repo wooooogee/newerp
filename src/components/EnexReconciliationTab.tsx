@@ -47,6 +47,7 @@ export interface EnexProductSupplyRule {
   id: string;
   prodName: string;            // 상조 상품명
   supplyPrice: number;         // 1구좌당 물품대금 공급가 (원)
+  defaultPayoutFee: number;    // 1구좌당 지급수수료 기본값 (원, 판매점 등에 지급할 기준 수수료)
   keywords: string[];          // 자동 매칭 키워드 (쉼표 구분)
   memo?: string;               // 비고
 }
@@ -70,13 +71,13 @@ export const DEFAULT_POLICY_SETTINGS: EnexPolicySettings = {
   baseFeeRate: 0.26,
   yellowFeeRate: 0.30,
   productRules: [
-    { id: 'p6', prodName: '더좋은프리미엄540플러스', supplyPrice: 800000, keywords: ['540+', '540플러스', '프리미엄540플러스', '프리미엄540+'], memo: '1구좌당 80만원' },
-    { id: 'p7', prodName: '굿라이프헬스케어올인원', supplyPrice: 800000, keywords: ['올인원', '헬스케어올인원'], memo: '1구좌당 80만원' },
-    { id: 'p4', prodName: '더좋은프리미엄540', supplyPrice: 750000, keywords: ['프리미엄540', '540'], memo: '1구좌당 75만원' },
-    { id: 'p5', prodName: '굿라이프헬스케어골드', supplyPrice: 750000, keywords: ['헬스케어골드', '골드'], memo: '1구좌당 75만원' },
-    { id: 'p1', prodName: '더좋은하이브리드698', supplyPrice: 550000, keywords: ['698', '하이브리드698', '하이브리드'], memo: '1구좌당 55만원' },
-    { id: 'p2', prodName: '더좋은라이즈498', supplyPrice: 550000, keywords: ['498', '라이즈498', '라이즈'], memo: '1구좌당 55만원' },
-    { id: 'p3', prodName: '굿라이프헬스케어실버', supplyPrice: 550000, keywords: ['헬스케어실버', '굿라이프실버'], memo: '1구좌당 55만원' }
+    { id: 'p6', prodName: '더좋은프리미엄540플러스', supplyPrice: 800000, defaultPayoutFee: 740000, keywords: ['540+', '540플러스', '프리미엄540플러스', '프리미엄540+'], memo: '1구좌당 80만원 / 지급 74만원' },
+    { id: 'p7', prodName: '굿라이프헬스케어올인원', supplyPrice: 800000, defaultPayoutFee: 740000, keywords: ['올인원', '헬스케어올인원'], memo: '1구좌당 80만원 / 지급 74만원' },
+    { id: 'p4', prodName: '더좋은프리미엄540', supplyPrice: 750000, defaultPayoutFee: 750000, keywords: ['프리미엄540', '540'], memo: '1구좌당 75만원 / 지급 75만원' },
+    { id: 'p5', prodName: '굿라이프헬스케어골드', supplyPrice: 750000, defaultPayoutFee: 700000, keywords: ['헬스케어골드', '골드'], memo: '1구좌당 75만원 / 지급 70만원' },
+    { id: 'p1', prodName: '더좋은하이브리드698', supplyPrice: 550000, defaultPayoutFee: 500000, keywords: ['698', '하이브리드698', '하이브리드'], memo: '1구좌당 55만원 / 지급 50만원' },
+    { id: 'p2', prodName: '더좋은라이즈498', supplyPrice: 550000, defaultPayoutFee: 500000, keywords: ['498', '라이즈498', '라이즈'], memo: '1구좌당 55만원 / 지급 50만원' },
+    { id: 'p3', prodName: '굿라이프헬스케어실버', supplyPrice: 550000, defaultPayoutFee: 500000, keywords: ['헬스케어실버', '굿라이프실버'], memo: '1구좌당 55만원 / 지급 50만원' }
   ],
   specialProductFees: [
     {
@@ -109,6 +110,9 @@ export interface EnexReconciliationRow {
   enexFee: number;           // 13. 에넥스수수료 (O열 수수료 합계)
   diff: number;              // 14. 차액 (계산수수료 - 에넥스수수료)
   reconResult: '일치' | '확인필요'; // 15. 대조결과
+  unitPayoutFee: number;     // 16. 구좌당 지급수수료 (우리가 판매점/영업자에게 지급하는 단가)
+  totalPayoutFee: number;    // 17. 지급수수료 합계 (unitPayoutFee * accountCount)
+  netProfit: number;         // 18. 순익 (calculatedFee - totalPayoutFee)
   isYellow: boolean;         // 노란색 음영 여부
   erpMatched: boolean;       // 우리 ERP 데이터 매칭 여부
   erpData?: any;             // 매칭된 ERP 계약 원본
@@ -150,7 +154,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   // 정책 설정 상태 (금융수수료율 & 상품별 물품대금)
   const [policySettings, setPolicySettings] = useState<EnexPolicySettings>(() => {
     try {
-      const stored = localStorage.getItem('erp_enex_policy_settings_v9');
+      const stored = localStorage.getItem('erp_enex_policy_settings_v10');
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && Array.isArray(parsed.productRules) && Array.isArray(parsed.specialProductFees)) {
@@ -166,6 +170,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   // 정책 설정 모달 상태
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState<boolean>(false);
   const [editingPolicy, setEditingPolicy] = useState<EnexPolicySettings>(policySettings);
+
+  // 테이블 뷰 모드 ('ALL': 전체 통합 뷰, 'PROFIT': 지급수수료 & 순익 분석 뷰, 'RECON': 에넥스 대사 전용 뷰)
+  const [viewMode, setViewMode] = useState<'ALL' | 'PROFIT' | 'RECON'>('ALL');
 
   // 필터 및 검색 상태
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -235,7 +242,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     return { extraFee: 0 };
   };
 
-  // 구좌당 공급가 판정 헬퍼 (정책 설정 규칙 기반)
+  // 구좌당 공급가 및 기본 지급수수료 판정 헬퍼 (정책 설정 규칙 기반)
   const determineUnitSupplyPrice = (
     sangjoName: string,
     applianceName: string,
@@ -246,7 +253,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     accountCount: number,
     rules: EnexProductSupplyRule[],
     extraFee: number = 0
-  ): { price: number; matchedProdName: string } => {
+  ): { price: number; matchedProdName: string; defaultPayoutFee: number } => {
     const combinedText = `${sangjoName} ${applianceName} ${modelName}`.replace(/\s+/g, '').toLowerCase();
     const hasPlus = combinedText.includes('540+') || combinedText.includes('540플러스') || combinedText.includes('플러스') || combinedText.includes('plus');
 
@@ -269,7 +276,8 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         }
         return {
           price: item.rule.supplyPrice,
-          matchedProdName: item.rule.prodName
+          matchedProdName: item.rule.prodName,
+          defaultPayoutFee: item.rule.defaultPayoutFee || 700000
         };
       }
     }
@@ -280,7 +288,8 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         if (sClean.includes(rule.prodName.replace(/\s+/g, '').toLowerCase())) {
           return {
             price: rule.supplyPrice,
-            matchedProdName: rule.prodName
+            matchedProdName: rule.prodName,
+            defaultPayoutFee: rule.defaultPayoutFee || 700000
           };
         }
       }
@@ -302,25 +311,27 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       if (minDiff <= 60000 && bestRule) {
         return {
           price: bestRule.supplyPrice,
-          matchedProdName: bestRule.prodName
+          matchedProdName: bestRule.prodName,
+          defaultPayoutFee: bestRule.defaultPayoutFee || 700000
         };
       }
     }
 
     if (sales >= 2280000) {
-      return { price: 800000, matchedProdName: '더좋은프리미엄540플러스' };
+      return { price: 800000, matchedProdName: '더좋은프리미엄540플러스', defaultPayoutFee: 740000 };
     }
-    return { price: 550000, matchedProdName: '더좋은하이브리드698' };
+    return { price: 550000, matchedProdName: '더좋은하이브리드698', defaultPayoutFee: 500000 };
   };
 
-  // 단일 행 재계산 헬퍼 (추가 수수료 반영: 테라웨이브 +80만원)
+  // 단일 행 재계산 헬퍼 (계산수수료, 지급수수료합계, 순익 산출)
   const calculateRowMetrics = (
     sales: number,
     feeRate: number,
     unitPrice: number,
     accountCount: number,
     extraFee: number,
-    enexFee: number
+    enexFee: number,
+    unitPayoutFee: number = 0
   ) => {
     const financialFee = Math.round(sales * feeRate);
     const totalSupplyPrice = unitPrice * accountCount;
@@ -328,7 +339,13 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     const calculatedFee = sales - financialFee - totalSupplyPrice + (extraFee || 0);
     const diff = calculatedFee - enexFee;
     const reconResult: '일치' | '확인필요' = Math.abs(diff) < 1 ? '일치' : '확인필요';
-    return { financialFee, totalSupplyPrice, calculatedFee, diff, reconResult };
+
+    // 지급수수료 합계 = 구좌당 지급수수료 * 적용구좌
+    const totalPayoutFee = Math.round((unitPayoutFee || 0) * accountCount);
+    // 순익 = 계산수수료 - 지급수수료합계
+    const netProfit = calculatedFee - totalPayoutFee;
+
+    return { financialFee, totalSupplyPrice, calculatedFee, diff, reconResult, totalPayoutFee, netProfit };
   };
 
   // 엑셀 파일 업로드 및 파싱
@@ -614,8 +631,8 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           policySettings.specialProductFees
         );
 
-        // 구좌당 공급가 판정
-        const { price: unitSupplyPrice, matchedProdName } = determineUnitSupplyPrice(
+        // 구좌당 공급가 및 기본 지급수수료 판정
+        const { price: unitSupplyPrice, matchedProdName, defaultPayoutFee } = determineUnitSupplyPrice(
           initialSangjoName,
           applianceProdName,
           combineModel,
@@ -631,14 +648,28 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           initialSangjoName = matchedProdName;
         }
 
-        // 계산 산식: 계산수수료 = 매출액 - 금융수수료 - 공급가합계 + 추가수수료
-        const { financialFee, totalSupplyPrice, calculatedFee, diff, reconResult } = calculateRowMetrics(
+        // 구좌당 지급수수료 결정 (우리가 판매점/영업자에게 지급할 기준 수수료)
+        let unitPayoutFee = defaultPayoutFee;
+        if (matchedErp) {
+          if (typeof matchedErp.commission === 'number' && matchedErp.commission > 0) {
+            unitPayoutFee = matchedErp.commission;
+          } else if (typeof matchedErp.salesCommission === 'number' && matchedErp.salesCommission > 0) {
+            unitPayoutFee = matchedErp.salesCommission;
+          }
+        }
+
+        // 계산 산식:
+        // 1) 계산수수료 = 매출액 - 금융수수료 - 공급가합계 + 추가수수료
+        // 2) 지급수수료합계 = 구좌당지급수수료 * 적용구좌
+        // 3) 순익 = 계산수수료 - 지급수수료합계
+        const { financialFee, totalSupplyPrice, calculatedFee, diff, reconResult, totalPayoutFee, netProfit } = calculateRowMetrics(
           salesAmount,
           feeRate,
           unitSupplyPrice,
           accountCount,
           extraFee,
-          enexFee
+          enexFee,
+          unitPayoutFee
         );
 
         parsedReconRows.push({
@@ -661,6 +692,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           enexFee,
           diff,
           reconResult,
+          unitPayoutFee,
+          totalPayoutFee,
+          netProfit,
           isYellow,
           erpMatched: !!matchedErp,
           erpData: matchedErp,
@@ -709,7 +743,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     }
 
     try {
-      localStorage.setItem('erp_enex_policy_settings_v9', JSON.stringify(editingPolicy));
+      localStorage.setItem('erp_enex_policy_settings_v10', JSON.stringify(editingPolicy));
       setPolicySettings(editingPolicy);
 
       // 현재 테이블에 올라와 있는 데이터 전체에 새 정책 즉시 재계산 반영!
@@ -722,7 +756,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               row.combineModel,
               editingPolicy.specialProductFees
             );
-            const { price: newUnitPrice, matchedProdName } = determineUnitSupplyPrice(
+            const { price: newUnitPrice, matchedProdName, defaultPayoutFee } = determineUnitSupplyPrice(
               row.sangjoProdName,
               row.applianceProdName,
               row.combineModel,
@@ -733,18 +767,21 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               editingPolicy.productRules,
               newExtraFee
             );
+            const newUnitPayoutFee = row.unitPayoutFee > 0 ? row.unitPayoutFee : defaultPayoutFee;
             const metrics = calculateRowMetrics(
               row.salesAmount,
               newFeeRate,
               newUnitPrice,
               row.accountCount,
               newExtraFee,
-              row.enexFee
+              row.enexFee,
+              newUnitPayoutFee
             );
             return {
               ...row,
               feeRate: newFeeRate,
               unitSupplyPrice: newUnitPrice,
+              unitPayoutFee: newUnitPayoutFee,
               extraFee: newExtraFee,
               sangjoProdName: row.sangjoProdName || matchedProdName,
               ...metrics
@@ -753,7 +790,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         });
       }
 
-      alert('✅ 수수료율 및 물품대금 정책이 저장되었으며, 대사 테이블에 즉시 반영되었습니다!');
+      alert('✅ 수수료율 및 물품대금/지급수수료 정책이 저장되었으며, 대사 및 순익 테이블에 즉시 반영되었습니다!');
       setIsPolicyModalOpen(false);
     } catch (e: any) {
       alert('정책 저장 중 오류가 발생했습니다: ' + e.message);
@@ -772,6 +809,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       id: 'rule_' + Date.now(),
       prodName: '신규상품',
       supplyPrice: 800000,
+      defaultPayoutFee: 700000,
       keywords: ['신규키워드'],
       memo: '신규 등록 상품'
     };
@@ -833,7 +871,8 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         row.unitSupplyPrice,
         row.accountCount,
         row.extraFee || 0,
-        row.enexFee
+        row.enexFee,
+        row.unitPayoutFee || 0
       );
       Object.assign(row, metrics);
       copy[idx] = row;
@@ -853,7 +892,29 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         newPrice,
         row.accountCount,
         row.extraFee || 0,
-        row.enexFee
+        row.enexFee,
+        row.unitPayoutFee || 0
+      );
+      Object.assign(row, metrics);
+      copy[idx] = row;
+      return copy;
+    });
+  };
+
+  // 행별 구좌당 지급수수료 변경 (순익 자동 재계산)
+  const handleChangePayoutFee = (idx: number, newPayoutFee: number) => {
+    setReconRows(prev => {
+      const copy = [...prev];
+      const row = { ...copy[idx] };
+      row.unitPayoutFee = newPayoutFee;
+      const metrics = calculateRowMetrics(
+        row.salesAmount,
+        row.feeRate,
+        row.unitSupplyPrice,
+        row.accountCount,
+        row.extraFee || 0,
+        row.enexFee,
+        newPayoutFee
       );
       Object.assign(row, metrics);
       copy[idx] = row;
@@ -905,6 +966,11 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     const filteredTotalCalculatedFee = filteredRows.reduce((sum, r) => sum + r.calculatedFee, 0);
     const filteredTotalEnexFee = filteredRows.reduce((sum, r) => sum + r.enexFee, 0);
     const filteredTotalDiff = filteredRows.reduce((sum, r) => sum + r.diff, 0);
+    const filteredTotalPayoutFee = filteredRows.reduce((sum, r) => sum + (r.totalPayoutFee || 0), 0);
+    const filteredTotalNetProfit = filteredRows.reduce((sum, r) => sum + (r.netProfit || 0), 0);
+    const filteredProfitMargin = filteredTotalCalculatedFee > 0
+      ? (filteredTotalNetProfit / filteredTotalCalculatedFee) * 100
+      : 0;
 
     return {
       totalCount,
@@ -918,7 +984,10 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       filteredTotalSupplyPrice,
       filteredTotalCalculatedFee,
       filteredTotalEnexFee,
-      filteredTotalDiff
+      filteredTotalDiff,
+      filteredTotalPayoutFee,
+      filteredTotalNetProfit,
+      filteredProfitMargin
     };
   }, [reconRows, filteredRows, policySettings]);
 
@@ -949,14 +1018,17 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         '계산수수료',
         '에넥스수수료',
         '차액',
-        '대조결과'
+        '대조결과',
+        '지급수수료(구좌당)',
+        '지급수수료합계',
+        '순익(계산-지급)'
       ];
 
       const wsData: any[][] = [headers];
 
       filteredRows.forEach((r, idx) => {
         const rowNum = idx + 2; // 엑셀 행 번호 (1-based, 1행 헤더)
-        // H: 매출액, I: 적용구좌, J: 금융수수료율, K: 구좌당공급가, L: 금융수수료, M: 공급가합계, N: 계산수수료, O: 에넥스수수료, P: 차액, Q: 대조결과
+        // H: 매출액, I: 적용구좌, J: 금융수수료율, K: 구좌당공급가, L: 금융수수료, M: 공급가합계, N: 계산수수료, O: 에넥스수수료, P: 차액, Q: 대조결과, R: 구좌당지급수수료, S: 지급수수료합계, T: 순익
         wsData.push([
           r.contractNo,
           r.branchOffice,
@@ -980,7 +1052,13 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           // 차액 수식: 계산수수료 - 에넥스수수료
           { t: 'n', f: `N${rowNum}-O${rowNum}`, v: r.diff, z: '#,##0' },
           // 대조결과 수식: IF(차액=0, "일치", "확인필요")
-          { t: 's', f: `IF(P${rowNum}=0, "일치", "확인필요")`, v: r.reconResult }
+          { t: 's', f: `IF(P${rowNum}=0, "일치", "확인필요")`, v: r.reconResult },
+          // 지급수수료(구좌당)
+          { t: 'n', v: r.unitPayoutFee || 0, z: '#,##0' },
+          // 지급수수료합계 수식: 구좌당지급수수료 * 적용구좌
+          { t: 'n', f: `R${rowNum}*I${rowNum}`, v: r.totalPayoutFee || 0, z: '#,##0' },
+          // 순익 수식: 계산수수료 - 지급수수료합계
+          { t: 'n', f: `N${rowNum}-S${rowNum}`, v: r.netProfit || 0, z: '#,##0' }
         ]);
       });
 
@@ -1002,7 +1080,10 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         { t: 'n', f: `SUM(N2:N${totalRowNum - 1})`, v: stats.filteredTotalCalculatedFee, z: '#,##0' },
         { t: 'n', f: `SUM(O2:O${totalRowNum - 1})`, v: stats.filteredTotalEnexFee, z: '#,##0' },
         { t: 'n', f: `SUM(P2:P${totalRowNum - 1})`, v: stats.filteredTotalDiff, z: '#,##0' },
-        ''
+        '',
+        '',
+        { t: 'n', f: `SUM(S2:S${totalRowNum - 1})`, v: stats.filteredTotalPayoutFee, z: '#,##0' },
+        { t: 'n', f: `SUM(T2:T${totalRowNum - 1})`, v: stats.filteredTotalNetProfit, z: '#,##0' }
       ]);
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -1019,12 +1100,15 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         { wch: 9 },  // 적용구좌
         { wch: 12 }, // 금융수수료율
         { wch: 13 }, // 구좌당공급가
-        { wch: 13 }, // 금융수수료
-        { wch: 13 }, // 공급가합계
-        { wch: 13 }, // 계산수수료
-        { wch: 13 }, // 에넥스수수료
+        { wch: 14 }, // 금융수수료
+        { wch: 14 }, // 공급가합계
+        { wch: 14 }, // 계산수수료
+        { wch: 14 }, // 에넥스수수료
         { wch: 12 }, // 차액
-        { wch: 10 }  // 대조결과
+        { wch: 10 }, // 대조결과
+        { wch: 16 }, // 지급수수료(구좌당)
+        { wch: 16 }, // 지급수수료합계
+        { wch: 16 }  // 순익
       ];
 
       if (summaryData) {
@@ -1308,6 +1392,36 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                 <span className="text-sm font-black text-indigo-900">{summaryData.totalFee.toLocaleString()} 원</span>
               </div>
             </div>
+
+            {/* 정산 수수료 & 순익 분석 KPI 카드 */}
+            {reconRows.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-dashed border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-500 block">에넥스 계산 수수료 (입금)</span>
+                  <span className="text-sm font-black text-indigo-700">
+                    {stats.filteredTotalCalculatedFee.toLocaleString()} 원
+                  </span>
+                </div>
+                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-500 block">지급 수수료 합계 (출금)</span>
+                  <span className="text-sm font-black text-rose-700">
+                    {stats.filteredTotalPayoutFee.toLocaleString()} 원
+                  </span>
+                </div>
+                <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-2 rounded-xl border border-emerald-300 shadow-2xs">
+                  <span className="text-[10px] font-black text-emerald-900 block">더좋은라이프 최종 순익</span>
+                  <span className={`text-base font-black ${stats.filteredTotalNetProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {stats.filteredTotalNetProfit >= 0 ? '+' : ''}{stats.filteredTotalNetProfit.toLocaleString()} 원
+                  </span>
+                </div>
+                <div className="bg-white p-2 rounded-xl border border-slate-200 flex flex-col justify-center">
+                  <span className="text-[10px] font-bold text-slate-500 block">순마진율 (순익 / 입금수수료)</span>
+                  <span className="text-sm font-black text-slate-800">
+                    {stats.filteredProfitMargin.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1316,8 +1430,42 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       {reconRows.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
           <div className="flex flex-wrap items-center gap-2">
+            {/* 뷰 모드 토글 (전체 뷰 / 순익 분석 뷰 / 에넥스 대사 뷰) */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setViewMode('ALL')}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  viewMode === 'ALL' ? 'bg-indigo-600 text-white shadow-2xs font-black' : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="모든 대사 컬럼과 지급수수료/순익 컬럼을 한 화면에 표시합니다."
+              >
+                📊 전체 뷰
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('PROFIT')}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  viewMode === 'PROFIT' ? 'bg-emerald-600 text-white shadow-2xs font-black' : 'text-slate-600 hover:text-emerald-700'
+                }`}
+                title="계산수수료, 지급수수료(구좌당), 지급수수료합계, 순익에 집중하여 넓고 쾌적하게 봅니다."
+              >
+                💰 지급수수료 & 순익 분석
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('RECON')}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  viewMode === 'RECON' ? 'bg-blue-600 text-white shadow-2xs font-black' : 'text-slate-600 hover:text-blue-700'
+                }`}
+                title="금융수수료율, 구좌당공급가, 차액 대사 검증에 집중합니다."
+              >
+                🔍 에넥스 대사 전용
+              </button>
+            </div>
+
             {/* 검색창 */}
-            <div className="relative w-48 sm:w-56">
+            <div className="relative w-44 sm:w-52">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
@@ -1455,18 +1603,27 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                   <th className="py-2 px-2 text-center">계약번호</th>
                   <th className="py-2 px-2">판매점</th>
                   <th className="py-2 px-2.5 min-w-[130px]">상품명 (상조)</th>
-                  <th className="py-2 px-2.5 min-w-[220px]">제품명 (가전 모델)</th>
+                  <th className="py-2 px-2.5 min-w-[230px] max-w-[360px]">제품명 (가전)</th>
                   <th className="py-2 px-2 text-center">고객/본부</th>
                   <th className="py-2 px-2 text-center">배송일자</th>
-                  <th className="py-2 px-2 text-right">매출액</th>
+                  {viewMode !== 'PROFIT' && <th className="py-2 px-2 text-right">매출액</th>}
                   <th className="py-2 px-1 text-center">구좌</th>
-                  <th className="py-2 px-1.5 text-center">금융수수료율</th>
-                  <th className="py-2 px-2 text-right">구좌당공급가</th>
-                  <th className="py-2 px-2 text-right">금융수수료</th>
-                  <th className="py-2 px-2 text-right">공급가합계</th>
-                  <th className="py-2 px-2 text-right">계산수수료</th>
-                  <th className="py-2 px-2 text-right">에넥스수수료</th>
-                  <th className="py-2 px-2 text-right">차액</th>
+                  {viewMode !== 'PROFIT' && <th className="py-2 px-1.5 text-center">금융수수료율</th>}
+                  {viewMode !== 'PROFIT' && <th className="py-2 px-2 text-right">구좌당공급가</th>}
+                  {viewMode !== 'PROFIT' && <th className="py-2 px-2 text-right">금융수수료</th>}
+                  {viewMode !== 'PROFIT' && <th className="py-2 px-2 text-right">공급가합계</th>}
+                  <th className="py-2 px-2 text-right text-indigo-800">계산수수료(입금)</th>
+                  {viewMode !== 'PROFIT' && <th className="py-2 px-2 text-right">에넥스수수료</th>}
+                  {viewMode !== 'PROFIT' && <th className="py-2 px-2 text-right">차액</th>}
+                  {(viewMode === 'ALL' || viewMode === 'PROFIT') && (
+                    <th className="py-2 px-2 text-right text-rose-700 bg-rose-50/50">지급수수료(구좌당)</th>
+                  )}
+                  {(viewMode === 'ALL' || viewMode === 'PROFIT') && (
+                    <th className="py-2 px-2 text-right text-rose-800 bg-rose-50/50">지급수수료합계</th>
+                  )}
+                  {(viewMode === 'ALL' || viewMode === 'PROFIT') && (
+                    <th className="py-2 px-2.5 text-right text-emerald-900 bg-emerald-50/60 font-black">순익(계산-지급)</th>
+                  )}
                   <th className="py-2 px-2 text-center">대조결과</th>
                 </tr>
               </thead>
@@ -1510,26 +1667,17 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                           <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-bold rounded text-[11px] border border-indigo-100">
                             {r.sangjoProdName || '미지정'}
                           </span>
-                          {r.priceType === 'PER_UNIT' && (
-                            <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 font-black text-[9px] rounded border border-blue-200" title="구좌당이 아닌 제품 1대당 물품대금 적용">
-                              제품당
-                            </span>
-                          )}
                         </div>
                       </td>
 
-                      {/* 4. 제품명 (실제 가전 모델 원본) */}
-                      <td className="py-1.5 px-2.5 text-slate-900">
-                        <div className="flex flex-col">
-                          <span className="font-bold line-clamp-1" title={r.applianceProdName}>
-                            {r.applianceProdName || '-'}
-                          </span>
-                          {r.combineModel && r.combineModel !== r.applianceProdName && (
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {r.combineModel}
-                            </span>
-                          )}
-                        </div>
+                      {/* 4. 제품명 (실제 가전 모델 원본 - 2줄 전체 노출) */}
+                      <td className="py-2 px-2.5 text-slate-900 min-w-[230px] max-w-[360px]">
+                        <span
+                          className="font-bold text-xs text-slate-800 leading-snug line-clamp-2 block whitespace-normal break-keep"
+                          title={r.applianceProdName}
+                        >
+                          {r.applianceProdName || '-'}
+                        </span>
                       </td>
 
                       {/* 5. 고객명 / 본부 (ERP) */}
@@ -1550,57 +1698,67 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                       </td>
 
                       {/* 7. 매출액 */}
-                      <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
-                        {r.salesAmount.toLocaleString()}원
-                      </td>
+                      {viewMode !== 'PROFIT' && (
+                        <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                          {r.salesAmount.toLocaleString()}원
+                        </td>
+                      )}
 
                       {/* 8. 적용구좌 */}
                       <td className="py-1.5 px-1 text-center whitespace-nowrap">
-                        <span className="px-1 py-0.5 bg-slate-100 text-slate-700 rounded text-[10px] font-bold">
+                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded text-[10px] font-bold">
                           {r.accountCount}구좌
                         </span>
                       </td>
 
                       {/* 9. 금융수수료율 (클릭 시 26% <-> 30% 토글) */}
-                      <td className="py-1.5 px-1.5 text-center whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleFeeRate(idx)}
-                          className={`px-1.5 py-0.5 rounded text-[11px] font-black transition-all cursor-pointer border ${
-                            r.feeRate === policySettings.yellowFeeRate
-                              ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
-                              : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
-                          }`}
-                          title="클릭하여 금융수수료율(26% ↔ 30%)을 토글합니다."
-                        >
-                          {(r.feeRate * 100).toFixed(0)}%
-                        </button>
-                      </td>
+                      {viewMode !== 'PROFIT' && (
+                        <td className="py-1.5 px-1.5 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFeeRate(idx)}
+                            className={`px-1.5 py-0.5 rounded text-[11px] font-black transition-all cursor-pointer border ${
+                              r.feeRate === policySettings.yellowFeeRate
+                                ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                                : 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100'
+                            }`}
+                            title="클릭하여 금융수수료율(26% ↔ 30%)을 토글합니다."
+                          >
+                            {(r.feeRate * 100).toFixed(0)}%
+                          </button>
+                        </td>
+                      )}
 
                       {/* 10. 구좌당공급가 (드롭다운으로 등록된 단가 선택) */}
-                      <td className="py-1.5 px-2 text-right whitespace-nowrap">
-                        <select
-                          value={r.unitSupplyPrice}
-                          onChange={e => handleChangeSupplyPrice(idx, Number(e.target.value))}
-                          className="px-1 py-0.5 text-right font-mono text-xs font-bold bg-slate-50 border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                        >
-                          {availableSupplyPrices.map(p => (
-                            <option key={p} value={p}>
-                              {p.toLocaleString()}원
-                            </option>
-                          ))}
-                        </select>
-                      </td>
+                      {viewMode !== 'PROFIT' && (
+                        <td className="py-1.5 px-2 text-right whitespace-nowrap">
+                          <select
+                            value={r.unitSupplyPrice}
+                            onChange={e => handleChangeSupplyPrice(idx, Number(e.target.value))}
+                            className="px-1 py-0.5 text-right font-mono text-xs font-bold bg-slate-50 border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                          >
+                            {availableSupplyPrices.map(p => (
+                              <option key={p} value={p}>
+                                {p.toLocaleString()}원
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      )}
 
                       {/* 11. 금융수수료 */}
-                      <td className="py-1.5 px-2 text-right font-mono text-slate-600 whitespace-nowrap">
-                        {r.financialFee.toLocaleString()}원
-                      </td>
+                      {viewMode !== 'PROFIT' && (
+                        <td className="py-1.5 px-2 text-right font-mono text-slate-600 whitespace-nowrap">
+                          {r.financialFee.toLocaleString()}원
+                        </td>
+                      )}
 
                       {/* 12. 공급가합계 */}
-                      <td className="py-1.5 px-2 text-right font-mono text-slate-600 whitespace-nowrap">
-                        {r.totalSupplyPrice.toLocaleString()}원
-                      </td>
+                      {viewMode !== 'PROFIT' && (
+                        <td className="py-1.5 px-2 text-right font-mono text-slate-600 whitespace-nowrap">
+                          {r.totalSupplyPrice.toLocaleString()}원
+                        </td>
+                      )}
 
                       {/* 13. 계산수수료 */}
                       <td className="py-1.5 px-2 text-right whitespace-nowrap">
@@ -1617,22 +1775,71 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                       </td>
 
                       {/* 14. 에넥스수수료 */}
-                      <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
-                        {r.enexFee.toLocaleString()}원
-                      </td>
+                      {viewMode !== 'PROFIT' && (
+                        <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                          {r.enexFee.toLocaleString()}원
+                        </td>
+                      )}
 
                       {/* 15. 차액 */}
-                      <td className="py-1.5 px-2 text-right font-mono font-black whitespace-nowrap">
-                        {r.diff === 0 ? (
-                          <span className="text-slate-400">0원</span>
-                        ) : (
-                          <span className={r.diff > 0 ? 'text-indigo-600' : 'text-rose-600'}>
-                            {r.diff > 0 ? `+${r.diff.toLocaleString()}` : r.diff.toLocaleString()}원
-                          </span>
-                        )}
-                      </td>
+                      {viewMode !== 'PROFIT' && (
+                        <td className="py-1.5 px-2 text-right font-mono font-black whitespace-nowrap">
+                          {r.diff === 0 ? (
+                            <span className="text-slate-400">0원</span>
+                          ) : (
+                            <span className={r.diff > 0 ? 'text-indigo-600' : 'text-rose-600'}>
+                              {r.diff > 0 ? `+${r.diff.toLocaleString()}` : r.diff.toLocaleString()}원
+                            </span>
+                          )}
+                        </td>
+                      )}
 
-                      {/* 16. 대조결과 */}
+                      {/* 16. 지급수수료 (구좌당) */}
+                      {(viewMode === 'ALL' || viewMode === 'PROFIT') && (
+                        <td className="py-1.5 px-2 text-right whitespace-nowrap">
+                          <input
+                            type="number"
+                            step="10000"
+                            value={r.unitPayoutFee || 0}
+                            onChange={e => handleChangePayoutFee(idx, Number(e.target.value) || 0)}
+                            className="w-24 px-1.5 py-0.5 text-right font-mono text-xs font-bold text-slate-800 bg-rose-50/60 border border-rose-200 rounded focus:bg-white focus:ring-1 focus:ring-indigo-500"
+                            title="클릭하여 구좌당 지급수수료를 직접 수정할 수 있습니다."
+                          />
+                        </td>
+                      )}
+
+                      {/* 17. 지급수수료합계 */}
+                      {(viewMode === 'ALL' || viewMode === 'PROFIT') && (
+                        <td className="py-1.5 px-2 text-right font-mono font-bold text-rose-700 whitespace-nowrap">
+                          {(r.totalPayoutFee || 0).toLocaleString()}원
+                        </td>
+                      )}
+
+                      {/* 18. 순익 (계산수수료 - 지급수수료합계) */}
+                      {(viewMode === 'ALL' || viewMode === 'PROFIT') && (
+                        <td className="py-1.5 px-2.5 text-right whitespace-nowrap">
+                          <div className="flex flex-col items-end">
+                            <span
+                              className={`font-mono font-black text-xs px-2 py-0.5 rounded shadow-2xs ${
+                                (r.netProfit || 0) > 0
+                                  ? 'text-emerald-800 bg-emerald-50 border border-emerald-200'
+                                  : (r.netProfit || 0) < 0
+                                  ? 'text-rose-800 bg-rose-50 border border-rose-200'
+                                  : 'text-slate-600 bg-slate-100'
+                              }`}
+                            >
+                              {(r.netProfit || 0) > 0 ? '+' : ''}{(r.netProfit || 0).toLocaleString()}원
+                            </span>
+                            {r.calculatedFee > 0 && (
+                              <span className="text-[10px] text-slate-400 font-bold mt-0.5">
+                                {(((r.netProfit || 0) / r.calculatedFee) * 100).toFixed(1)}%
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      )}
+
+                      {/* 19. 대조결과 */}
                       <td className="py-1.5 px-2 text-center whitespace-nowrap">
                         {isMatch ? (
                           <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded inline-flex items-center gap-0.5 border border-emerald-200">
@@ -1654,30 +1861,62 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               {/* 하단 집계 행 */}
               <tfoot className="bg-slate-100 font-black text-slate-900 sticky bottom-0 z-10 border-t border-slate-300 whitespace-nowrap">
                 <tr>
-                  <td colSpan={7} className="py-2 px-3 text-center">
+                  <td colSpan={viewMode === 'PROFIT' ? 5 : 7} className="py-2 px-3 text-center">
                     합계 ({stats.filteredCount.toLocaleString()}건)
                   </td>
-                  <td className="py-2 px-2 text-right font-mono">
-                    {stats.filteredTotalSales.toLocaleString()}원
-                  </td>
-                  <td colSpan={3} className="py-2 px-1 text-center">-</td>
-                  <td className="py-2 px-2 text-right font-mono text-slate-600">
-                    {stats.filteredTotalFinancialFee.toLocaleString()}원
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono text-slate-600">
-                    {stats.filteredTotalSupplyPrice.toLocaleString()}원
-                  </td>
+                  {viewMode !== 'PROFIT' && (
+                    <td className="py-2 px-2 text-right font-mono">
+                      {stats.filteredTotalSales.toLocaleString()}원
+                    </td>
+                  )}
+                  {viewMode !== 'PROFIT' && (
+                    <td colSpan={3} className="py-2 px-1 text-center">-</td>
+                  )}
+                  {viewMode !== 'PROFIT' && (
+                    <td className="py-2 px-2 text-right font-mono text-slate-600">
+                      {stats.filteredTotalFinancialFee.toLocaleString()}원
+                    </td>
+                  )}
+                  {viewMode !== 'PROFIT' && (
+                    <td className="py-2 px-2 text-right font-mono text-slate-600">
+                      {stats.filteredTotalSupplyPrice.toLocaleString()}원
+                    </td>
+                  )}
+                  {/* 계산수수료 합계 */}
                   <td className="py-2 px-2 text-right font-mono text-indigo-700">
                     {stats.filteredTotalCalculatedFee.toLocaleString()}원
                   </td>
-                  <td className="py-2 px-2 text-right font-mono text-slate-900">
-                    {stats.filteredTotalEnexFee.toLocaleString()}원
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono">
-                    <span className={stats.filteredTotalDiff === 0 ? 'text-slate-500' : 'text-rose-600'}>
-                      {stats.filteredTotalDiff.toLocaleString()}원
-                    </span>
-                  </td>
+                  {/* 에넥스수수료 & 차액 */}
+                  {viewMode !== 'PROFIT' && (
+                    <td className="py-2 px-2 text-right font-mono text-slate-900">
+                      {stats.filteredTotalEnexFee.toLocaleString()}원
+                    </td>
+                  )}
+                  {viewMode !== 'PROFIT' && (
+                    <td className="py-2 px-2 text-right font-mono">
+                      <span className={stats.filteredTotalDiff === 0 ? 'text-slate-500' : 'text-rose-600'}>
+                        {stats.filteredTotalDiff.toLocaleString()}원
+                      </span>
+                    </td>
+                  )}
+                  {/* 지급수수료 및 순익 합계 */}
+                  {(viewMode === 'ALL' || viewMode === 'PROFIT') && (
+                    <td className="py-2 px-2 text-center text-slate-400 text-[11px]">-</td>
+                  )}
+                  {(viewMode === 'ALL' || viewMode === 'PROFIT') && (
+                    <td className="py-2 px-2 text-right font-mono text-rose-700">
+                      {stats.filteredTotalPayoutFee.toLocaleString()}원
+                    </td>
+                  )}
+                  {(viewMode === 'ALL' || viewMode === 'PROFIT') && (
+                    <td className="py-2 px-2 text-right font-mono">
+                      <span className={`text-xs px-2 py-0.5 rounded font-black ${
+                        stats.filteredTotalNetProfit >= 0 ? 'text-emerald-800 bg-emerald-100' : 'text-rose-800 bg-rose-100'
+                      }`}>
+                        {stats.filteredTotalNetProfit >= 0 ? '+' : ''}{stats.filteredTotalNetProfit.toLocaleString()}원
+                      </span>
+                    </td>
+                  )}
                   <td className="py-2 px-2 text-center">
                     {stats.filteredTotalDiff === 0 ? (
                       <span className="text-emerald-700 text-xs font-bold">100% 일치</span>
@@ -1812,8 +2051,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                     <table className="w-full text-left text-xs border-collapse">
                       <thead className="bg-slate-100/80 text-slate-700 font-black border-b border-slate-200">
                         <tr>
-                          <th className="py-2 px-3 w-1/3">상조 상품명</th>
-                          <th className="py-2 px-3 w-1/4">1구좌당 물품대금(원)</th>
+                          <th className="py-2 px-3 w-1/4">상조 상품명</th>
+                          <th className="py-2 px-2.5 w-1/5">1구좌당 물품대금(원)</th>
+                          <th className="py-2 px-2.5 w-1/5 text-rose-700">1구좌당 지급수수료(원)</th>
                           <th className="py-2 px-3">자동인식 키워드</th>
                           <th className="py-2 px-1 text-center w-10">삭제</th>
                         </tr>
@@ -1850,6 +2090,22 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                                   });
                                 }}
                                 className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded font-mono font-bold text-xs text-right"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2.5">
+                              <input
+                                type="number"
+                                step="10000"
+                                value={rule.defaultPayoutFee || 0}
+                                onChange={e => {
+                                  const val = parseInt(e.target.value, 10) || 0;
+                                  setEditingPolicy(prev => {
+                                    const copy = [...prev.productRules];
+                                    copy[idx] = { ...copy[idx], defaultPayoutFee: val };
+                                    return { ...prev, productRules: copy };
+                                  });
+                                }}
+                                className="w-full px-2 py-1 bg-rose-50/50 border border-rose-200 rounded font-mono font-bold text-xs text-right text-rose-800"
                               />
                             </td>
                             <td className="py-1.5 px-2.5">
