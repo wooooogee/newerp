@@ -143,11 +143,14 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   // 정책 설정 상태 (금융수수료율 & 상품별 물품대금)
   const [policySettings, setPolicySettings] = useState<EnexPolicySettings>(() => {
     try {
-      const stored = localStorage.getItem('erp_enex_policy_settings_v6');
+      const stored = localStorage.getItem('erp_enex_policy_settings_v7');
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && Array.isArray(parsed.productRules)) {
-          return parsed;
+          const tera = parsed.productRules.find((r: any) => r.id === 'p_terawave' || (r.prodName && r.prodName.includes('테라웨이브')));
+          if (tera && tera.priceType === 'PER_UNIT') {
+            return parsed;
+          }
         }
       }
     } catch (e) {
@@ -223,6 +226,19 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     accountCount: number,
     rules: EnexProductSupplyRule[]
   ): { price: number; priceType: SupplyPriceType; matchedProdName: string } => {
+    // [1순위 특수 제품]: 가전 제품명/모델명에 제품당 고정 단가(PER_UNIT: 테라웨이브 등) 키워드가 포함된 경우 상조 상품명과 무관하게 최우선 적용!
+    const applianceClean = `${applianceName} ${modelName}`.replace(/\s+/g, '').toLowerCase();
+    const perUnitRules = rules.filter(r => r.priceType === 'PER_UNIT');
+    for (const rule of perUnitRules) {
+      if (rule.keywords.some(k => applianceClean.includes(k.replace(/\s+/g, '').toLowerCase()))) {
+        return {
+          price: rule.supplyPrice,
+          priceType: 'PER_UNIT',
+          matchedProdName: rule.prodName
+        };
+      }
+    }
+
     const combinedText = `${sangjoName} ${applianceName} ${modelName}`.replace(/\s+/g, '').toLowerCase();
     const hasPlus = combinedText.includes('540+') || combinedText.includes('540플러스') || combinedText.includes('플러스') || combinedText.includes('plus');
 
@@ -576,7 +592,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     }
 
     try {
-      localStorage.setItem('erp_enex_policy_settings_v6', JSON.stringify(editingPolicy));
+      localStorage.setItem('erp_enex_policy_settings_v7', JSON.stringify(editingPolicy));
       setPolicySettings(editingPolicy);
 
       // 현재 테이블에 올라와 있는 데이터 전체에 새 정책 즉시 재계산 반영!
