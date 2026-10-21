@@ -402,27 +402,27 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       }
 
       // ==========================================
-      // 2. 세 번째 시트 (모델별상세) 파싱 및 대사
+      // 2. 세 번째 시트 (모델별상세) 스마트 탐색 및 파싱
       // ==========================================
-      let detailSheetName = wb.SheetNames.length >= 3 ? wb.SheetNames[2] : wb.SheetNames[0];
+      let detailSheetName = '';
+      // 1순위: '모델별상세', '모델별', '상세' 포함 시트
       const foundDetailSheet = wb.SheetNames.find(s => s.includes('모델별상세') || s.includes('모델별') || s.includes('상세'));
       if (foundDetailSheet) {
         detailSheetName = foundDetailSheet;
       }
-      const sheet3 = wb.Sheets[detailSheetName];
-
-      const range = XLSX.utils.decode_range(sheet3['!ref'] || 'A1:Q1');
-      const parsedReconRows: EnexReconciliationRow[] = [];
-
-      let headerRowIdx = 1;
-      for (let r = 0; r <= Math.min(range.e.r, 5); r++) {
-        const cellA = sheet3[XLSX.utils.encode_cell({ r, c: 0 })];
-        const valA = cellA ? String(cellA.v).replace(/\s+/g, '') : '';
-        if (valA.includes('계약번호') || valA.includes('계약id')) {
-          headerRowIdx = r;
-          break;
-        }
+      // 2순위: 3개 이상의 시트가 있다면 3번째 시트 (index 2)
+      else if (wb.SheetNames.length >= 3) {
+        detailSheetName = wb.SheetNames[2];
       }
+      // 3순위: '판매' 또는 '가입' 또는 '리스트' 포함 시트
+      else {
+        const foundAlt = wb.SheetNames.find(s => s.includes('판매') || s.includes('가입') || s.includes('리스트'));
+        detailSheetName = foundAlt || wb.SheetNames[wb.SheetNames.length - 1];
+      }
+
+      const sheet3 = wb.Sheets[detailSheetName];
+      const range = XLSX.utils.decode_range(sheet3['!ref'] || 'A1:Z100');
+      const parsedReconRows: EnexReconciliationRow[] = [];
 
       const getCell = (r: number, c: number) => sheet3[XLSX.utils.encode_cell({ r, c })];
       const getVal = (r: number, c: number) => {
@@ -430,8 +430,109 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         return cell ? cell.v : '';
       };
 
+      // [버그 수정 완료]: 헤더 행 동적 감지 (정산서별 상위 15개 행 검사)
+      let headerRowIdx = 1;
+      let maxMatches = 0;
+      for (let r = 0; r <= Math.min(range.e.r, 15); r++) {
+        let matches = 0;
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const val = String(getVal(r, c) || '').replace(/\s+/g, '').toLowerCase();
+          if (
+            val.includes('계약번호') ||
+            val.includes('계약id') ||
+            val.includes('결합매출') ||
+            val.includes('렌탈총액') ||
+            val.includes('수수료합계') ||
+            val.includes('판매점') ||
+            val.includes('대리점')
+          ) {
+            matches++;
+          }
+        }
+        if (matches > maxMatches) {
+          maxMatches = matches;
+          headerRowIdx = r;
+        }
+      }
+
+      // [핵심 버그 수정 완료]: 정산서 양식별 컬럼 인덱스 동적 자동 매핑!
+      // 10월 정산서 vs 9월/8월 정산서 ('기본정책 수수료율' 열 추가 여부 등) 컬럼 밀림 자동 해결
+      let colContractNo = -1;
+      let colSales = -1;
+      let colEnexFee = -1;
+      let colBranch = -1;
+      let colAppliance = -1;
+      let colModel = -1;
+      let colDelivery = -1;
+      let colRemark = -1;
+      const feeCandidateCols: number[] = [];
+
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const rawH = String(getVal(headerRowIdx, c) || '');
+        const hText = rawH.replace(/\s+/g, '').toLowerCase();
+        if (!hText) continue;
+
+        // 1. 계약번호 (계약번호, 계약ID 등)
+        if (colContractNo === -1 && (hText.includes('계약번호') || hText.includes('계약id') || hText === '계약')) {
+          colContractNo = c;
+        }
+        // 2. 매출액 (결합매출액, 렌탈총액, 월총매출액, 매출액 등)
+        else if (colSales === -1 && (hText.includes('결합매출') || hText.includes('렌탈총액') || hText.includes('매출액') || hText.includes('총매출'))) {
+          colSales = c;
+        }
+        // 3. 에넥스 수수료 합계 (수수료합계, 수수료(TOTAL), 수수료TOTAL 등)
+        else if (
+          hText.includes('수수료합계') ||
+          hText.includes('수수료(total)') ||
+          hText.includes('수수료total') ||
+          hText.includes('합계(total)') ||
+          (hText.includes('수수료') && hText.includes('합계'))
+        ) {
+          colEnexFee = c;
+        }
+        // 4. 판매점 (판매점, 대리점, 제휴사명 등)
+        else if (colBranch === -1 && (hText.includes('판매점') || hText.includes('대리점') || hText.includes('제휴사') || hText.includes('판매처'))) {
+          colBranch = c;
+        }
+        // 5. 가전 제품명 (상품명, 제품명 등 - 단, 상품구분 제외)
+        else if (colAppliance === -1 && (hText.includes('상품명') || hText.includes('제품명')) && !hText.includes('구분')) {
+          colAppliance = c;
+        }
+        // 6. 모델명 (결합모델명, 결합모델, 모델명 등)
+        else if (colModel === -1 && (hText.includes('결합모델') || hText.includes('모델명') || hText === '모델')) {
+          colModel = c;
+        }
+        // 7. 배송일자 (배송일, 배송일자 등 - 단, 배송등록일 제외)
+        else if (colDelivery === -1 && hText.includes('배송일') && !hText.includes('등록일')) {
+          colDelivery = c;
+        }
+        // 8. 비고 (비고, 구좌, 적용구좌 등)
+        else if (colRemark === -1 && (hText.includes('비고') || hText.includes('구좌') || hText.includes('적용구좌'))) {
+          colRemark = c;
+        }
+
+        if (hText.includes('수수료') && !hText.includes('수수료율')) {
+          feeCandidateCols.push(c);
+        }
+      }
+
+      // 만약 수수료 합계 컬럼을 명시적으로 못 찾았다면, '수수료' 컬럼 중 가장 마지막(오른쪽) 열을 선택
+      if (colEnexFee === -1 && feeCandidateCols.length > 0) {
+        colEnexFee = feeCandidateCols[feeCandidateCols.length - 1];
+      }
+
+      // Fallback 기본값 (10월 양식 기본 위치)
+      if (colContractNo === -1) colContractNo = 0;
+      if (colAppliance === -1) colAppliance = 3;
+      if (colModel === -1) colModel = 4;
+      if (colSales === -1) colSales = 7;
+      if (colDelivery === -1) colDelivery = 10;
+      if (colBranch === -1) colBranch = 13;
+      if (colEnexFee === -1) colEnexFee = 14;
+      if (colRemark === -1) colRemark = 16;
+
       for (let r = headerRowIdx + 1; r <= range.e.r; r++) {
-        const cellA = getCell(r, 0); // A열 계약번호
+        const cellA = getCell(r, colContractNo); // 계약번호 셀
         if (!cellA || cellA.v === undefined || cellA.v === null || String(cellA.v).trim() === '') {
           continue;
         }
@@ -441,13 +542,13 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           continue;
         }
 
-        const salesAmount = Number(getVal(r, 7)) || 0; // H열 결합매출액
-        const enexFee = Number(getVal(r, 14)) || 0;     // O열 수수료 합계
-        const branchOffice = String(getVal(r, 13) || '').trim(); // N열 판매점
-        const applianceProdName = String(getVal(r, 3) || '').trim(); // D열 가전 제품명 원본!
-        const combineModel = String(getVal(r, 4) || '').trim();      // E열 결합모델명
-        const deliveryDateExcel = String(getVal(r, 10) || '').trim(); // K열 배송일
-        const remark = String(getVal(r, 16) || '').trim();           // Q열 비고
+        const salesAmount = Number(getVal(r, colSales)) || 0;
+        const enexFee = Number(getVal(r, colEnexFee)) || 0;
+        const branchOffice = String(getVal(r, colBranch) || '').trim();
+        const applianceProdName = String(getVal(r, colAppliance) || '').trim();
+        const combineModel = String(getVal(r, colModel) || '').trim();
+        const deliveryDateExcel = String(getVal(r, colDelivery) || '').trim();
+        const remark = String(getVal(r, colRemark) || '').trim();
 
         // 구좌수 파악 (Q열 비고 우선, 없을 시 매출액 기반 추정)
         let accountCount = 1;
