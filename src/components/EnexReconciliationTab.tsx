@@ -343,25 +343,34 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           const tier3Count = Number(rule.tier3Count) || 0;
           const tier3Price = Number(rule.tier3Price) || 0;
 
+          // 피티엠에스는 구간 승급이 없는 단일 수수료 적용 거래처 (하이브리드698: 68만원 고정)
+          const isPtms = targetHq?.hqName?.includes('피티엠에스') || branchOffice?.includes('피티엠에스');
+
           let fee = basePrice;
           let isTierApplied = false;
 
           // [구간단가 엄격 판정]:
-          // 1) 구간 건수(예: 언바운드 300건, 피티엠에스 100건)를 충족할 때만 구간 단가(tierPrice) 적용!
-          // 2) 건수 미달 시 무조건 기본단가(totalAmount = 언바운드 71만원, 피티엠에스 68만원) 적용!
-          if (tier3Count > 0 && tier3Price > 0 && currentCount >= tier3Count) {
-            fee = tier3Price;
-            isTierApplied = true;
-          } else if (tier2Count > 0 && tier2Price > 0 && currentCount >= tier2Count) {
-            fee = tier2Price;
-            isTierApplied = true;
-          } else if (tier1Count > 0 && tier1Price > 0 && currentCount >= tier1Count) {
-            fee = tier1Price;
-            isTierApplied = true;
-          } else if (basePrice > 0) {
-            fee = basePrice;
-          } else if (tier1Price > 0) {
-            fee = tier1Price;
+          // 1) 구간 승급 설정이 있는 본부(예: 언바운드 300건 등)만 건수 충족 시 구간단가 적용!
+          // 2) 피티엠에스 등 구간단가가 없는 거래처이거나 건수 미달 시 무조건 기본단가(피티엠에스 68만원, 언바운드 71만원) 적용!
+          if (!isPtms) {
+            if (tier3Count > 0 && tier3Price > 0 && currentCount >= tier3Count) {
+              fee = tier3Price;
+              isTierApplied = true;
+            } else if (tier2Count > 0 && tier2Price > 0 && currentCount >= tier2Count) {
+              fee = tier2Price;
+              isTierApplied = true;
+            } else if (tier1Count > 0 && tier1Price > 0 && currentCount >= tier1Count) {
+              fee = tier1Price;
+              isTierApplied = true;
+            }
+          }
+
+          if (fee <= 0) {
+            if (basePrice > 0) {
+              fee = basePrice;
+            } else if (tier1Price > 0 && !isPtms) {
+              fee = tier1Price;
+            }
           }
 
           if (fee > 0) {
@@ -1166,7 +1175,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       });
     });
 
-    alert('✅ 본부별 실적 건수 및 구간단가를 기준으로 지급수수료가 전면 재계산되었습니다.\n\n• 피티엠에스: 680,000원 (100건 미만 기본단가 적용)\n• 언바운드컴퍼니: 710,000원 (300건 미만 기본단가 적용, 300건 이상 시 740,000원 자동 승급)');
+    alert('✅ 본부별 지급수수료가 전면 재계산되었습니다.\n\n• 피티엠에스: 680,000원 (수수료 68만원 고정 적용)\n• 언바운드컴퍼니: 710,000원 (300건 미만 기본 71만원, 300건 이상 시 74만원 승급 적용)');
   };
 
   // 정책 모달 열기
