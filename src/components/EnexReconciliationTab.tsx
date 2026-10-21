@@ -43,13 +43,15 @@ export interface EnexSummary {
   totalFee: number;
 }
 
+export type SupplyPriceType = 'PER_ACCOUNT' | 'PER_UNIT'; // 구좌당 vs 제품당
+
 export interface EnexProductSupplyRule {
   id: string;
-  prodName: string;      // 상조 상품명 (예: 더좋은하이브리드698, 더좋은프리미엄540, etc.)
-  supplyPrice: number;   // 1구좌당 물품대금 (원)
-  extraFee?: number;     // 물품대금 추가 수수료 (원, 예: 테라웨이브 800,000원 추가 수령)
-  keywords: string[];    // 자동 매칭 키워드 (쉼표 구분)
-  memo?: string;         // 비고
+  prodName: string;            // 상조 상품명
+  supplyPrice: number;         // 물품대금 (원)
+  priceType: SupplyPriceType;  // 'PER_ACCOUNT'(구좌당) | 'PER_UNIT'(제품당)
+  keywords: string[];          // 자동 매칭 키워드 (쉼표 구분)
+  memo?: string;               // 비고
 }
 
 export interface EnexPolicySettings {
@@ -66,17 +68,17 @@ export const DEFAULT_POLICY_SETTINGS: EnexPolicySettings = {
       id: 'p_terawave',
       prodName: '테라웨이브',
       supplyPrice: 800000,
-      extraFee: 800000,
+      priceType: 'PER_UNIT', // 구좌당이 아니라 제품당 80만원!
       keywords: ['테라웨이브', 'terawave'],
-      memo: '물품대금 수수료 80만원 추가 수령'
+      memo: '구좌수 무관 제품당 80만원 고정'
     },
-    { id: 'p6', prodName: '더좋은프리미엄540플러스', supplyPrice: 800000, extraFee: 0, keywords: ['540+', '540플러스', '프리미엄540플러스', '프리미엄540+'], memo: '1구좌당 80만원' },
-    { id: 'p7', prodName: '굿라이프헬스케어올인원', supplyPrice: 800000, extraFee: 0, keywords: ['올인원', '헬스케어올인원'], memo: '1구좌당 80만원' },
-    { id: 'p4', prodName: '더좋은프리미엄540', supplyPrice: 750000, extraFee: 0, keywords: ['프리미엄540', '540'], memo: '1구좌당 75만원' },
-    { id: 'p5', prodName: '굿라이프헬스케어골드', supplyPrice: 750000, extraFee: 0, keywords: ['헬스케어골드', '골드'], memo: '1구좌당 75만원' },
-    { id: 'p1', prodName: '더좋은하이브리드698', supplyPrice: 550000, extraFee: 0, keywords: ['698', '하이브리드698', '하이브리드'], memo: '1구좌당 55만원' },
-    { id: 'p2', prodName: '더좋은라이즈498', supplyPrice: 550000, extraFee: 0, keywords: ['498', '라이즈498', '라이즈'], memo: '1구좌당 55만원' },
-    { id: 'p3', prodName: '굿라이프헬스케어실버', supplyPrice: 550000, extraFee: 0, keywords: ['헬스케어실버', '굿라이프실버'], memo: '1구좌당 55만원' }
+    { id: 'p6', prodName: '더좋은프리미엄540플러스', supplyPrice: 800000, priceType: 'PER_ACCOUNT', keywords: ['540+', '540플러스', '프리미엄540플러스', '프리미엄540+'], memo: '1구좌당 80만원' },
+    { id: 'p7', prodName: '굿라이프헬스케어올인원', supplyPrice: 800000, priceType: 'PER_ACCOUNT', keywords: ['올인원', '헬스케어올인원'], memo: '1구좌당 80만원' },
+    { id: 'p4', prodName: '더좋은프리미엄540', supplyPrice: 750000, priceType: 'PER_ACCOUNT', keywords: ['프리미엄540', '540'], memo: '1구좌당 75만원' },
+    { id: 'p5', prodName: '굿라이프헬스케어골드', supplyPrice: 750000, priceType: 'PER_ACCOUNT', keywords: ['헬스케어골드', '골드'], memo: '1구좌당 75만원' },
+    { id: 'p1', prodName: '더좋은하이브리드698', supplyPrice: 550000, priceType: 'PER_ACCOUNT', keywords: ['698', '하이브리드698', '하이브리드'], memo: '1구좌당 55만원' },
+    { id: 'p2', prodName: '더좋은라이즈498', supplyPrice: 550000, priceType: 'PER_ACCOUNT', keywords: ['498', '라이즈498', '라이즈'], memo: '1구좌당 55만원' },
+    { id: 'p3', prodName: '굿라이프헬스케어실버', supplyPrice: 550000, priceType: 'PER_ACCOUNT', keywords: ['헬스케어실버', '굿라이프실버'], memo: '1구좌당 55만원' }
   ]
 };
 
@@ -92,8 +94,8 @@ export interface EnexReconciliationRow {
   salesAmount: number;       // 6. 매출액 (H열 결합매출액)
   accountCount: number;      // 7. 적용구좌 (Q열 또는 매출액 기반 1, 2, 3구좌)
   feeRate: number;           // 8. 금융수수료율 (기본 0.26, 노란색 음영이면 0.30)
-  unitSupplyPrice: number;   // 9. 구좌당공급가 (물품대금)
-  extraFee: number;          // 추가 수수료 (원, 테라웨이브 등)
+  unitSupplyPrice: number;   // 9. 공급가 (물품대금)
+  priceType: SupplyPriceType; // 적용 기준 ('PER_ACCOUNT' | 'PER_UNIT')
   financialFee: number;      // 10. 금융수수료 (매출액 * 금융수수료율)
   totalSupplyPrice: number;  // 11. 공급가합계 (구좌당공급가 * 적용구좌)
   calculatedFee: number;     // 12. 계산수수료 (매출액 - 금융수수료 - 공급가합계)
@@ -141,7 +143,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   // 정책 설정 상태 (금융수수료율 & 상품별 물품대금)
   const [policySettings, setPolicySettings] = useState<EnexPolicySettings>(() => {
     try {
-      const stored = localStorage.getItem('erp_enex_policy_settings_v5');
+      const stored = localStorage.getItem('erp_enex_policy_settings_v6');
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && Array.isArray(parsed.productRules)) {
@@ -220,11 +222,11 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     enexFee: number,
     accountCount: number,
     rules: EnexProductSupplyRule[]
-  ): { price: number; extraFee: number; matchedProdName: string } => {
+  ): { price: number; priceType: SupplyPriceType; matchedProdName: string } => {
     const combinedText = `${sangjoName} ${applianceName} ${modelName}`.replace(/\s+/g, '').toLowerCase();
     const hasPlus = combinedText.includes('540+') || combinedText.includes('540플러스') || combinedText.includes('플러스') || combinedText.includes('plus');
 
-    // 키워드가 긴 순서(내림차순)로 정렬
+    // 키워드 길이 내림차순 정렬
     const allKeywordRules: Array<{ kw: string; rule: EnexProductSupplyRule }> = [];
     for (const rule of rules) {
       for (const kw of rule.keywords) {
@@ -243,7 +245,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         }
         return {
           price: item.rule.supplyPrice,
-          extraFee: item.rule.extraFee || 0,
+          priceType: item.rule.priceType || 'PER_ACCOUNT',
           matchedProdName: item.rule.prodName
         };
       }
@@ -255,15 +257,15 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         if (sClean.includes(rule.prodName.replace(/\s+/g, '').toLowerCase())) {
           return {
             price: rule.supplyPrice,
-            extraFee: rule.extraFee || 0,
+            priceType: rule.priceType || 'PER_ACCOUNT',
             matchedProdName: rule.prodName
           };
         }
       }
     }
 
-    // 3. 역산 보조: extraFee가 없는 일반 규칙들만을 대상으로 매칭 (테라웨이브 등 특수 추가수수료 규칙 오매칭 방지)
-    const regularRules = rules.filter(r => !r.extraFee);
+    // 역산 보조: 제품당 단가가 아닌 일반 구좌당 규칙 대상
+    const regularRules = rules.filter(r => r.priceType !== 'PER_UNIT');
     if (sales > 0 && accountCount > 0 && regularRules.length > 0) {
       const estimatedSupplyTotal = sales - Math.round(sales * feeRate) - enexFee;
       const unitEst = estimatedSupplyTotal / accountCount;
@@ -279,16 +281,16 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       if (minDiff <= 60000 && bestRule) {
         return {
           price: bestRule.supplyPrice,
-          extraFee: 0,
+          priceType: 'PER_ACCOUNT',
           matchedProdName: bestRule.prodName
         };
       }
     }
 
     if (sales >= 2280000) {
-      return { price: 800000, extraFee: 0, matchedProdName: '더좋은프리미엄540플러스' };
+      return { price: 800000, priceType: 'PER_ACCOUNT', matchedProdName: '더좋은프리미엄540플러스' };
     }
-    return { price: 550000, extraFee: 0, matchedProdName: '더좋은하이브리드698' };
+    return { price: 550000, priceType: 'PER_ACCOUNT', matchedProdName: '더좋은하이브리드698' };
   };
 
   // 단일 행 재계산 헬퍼
@@ -297,13 +299,13 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     feeRate: number,
     unitPrice: number,
     accountCount: number,
-    extraFee: number,
+    priceType: SupplyPriceType,
     enexFee: number
   ) => {
     const financialFee = Math.round(sales * feeRate);
-    const totalSupplyPrice = unitPrice * accountCount;
-    // 계산수수료 = 매출액 - 금융수수료 - 공급가합계 + 추가수수료(물품대금 추가 지원금)
-    const calculatedFee = sales - financialFee - totalSupplyPrice + (extraFee || 0);
+    // 테라웨이브처럼 제품당 고정인 경우 구좌수를 곱하지 않고 단가 그대로 공급가에 반영
+    const totalSupplyPrice = priceType === 'PER_UNIT' ? unitPrice : unitPrice * accountCount;
+    const calculatedFee = sales - financialFee - totalSupplyPrice;
     const diff = calculatedFee - enexFee;
     const reconResult: '일치' | '확인필요' = Math.abs(diff) < 1 ? '일치' : '확인필요';
     return { financialFee, totalSupplyPrice, calculatedFee, diff, reconResult };
@@ -481,7 +483,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         const hqName = matchedErp?.hq || '';
 
         // 구좌당 공급가 판정 (정책 설정 기반)
-        const { price: unitSupplyPrice, extraFee, matchedProdName } = determineUnitSupplyPrice(
+        const { price: unitSupplyPrice, priceType, matchedProdName } = determineUnitSupplyPrice(
           initialSangjoName,
           applianceProdName,
           combineModel,
@@ -502,7 +504,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           feeRate,
           unitSupplyPrice,
           accountCount,
-          extraFee,
+          priceType,
           enexFee
         );
 
@@ -519,7 +521,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           accountCount,
           feeRate,
           unitSupplyPrice,
-          extraFee,
+          priceType,
           financialFee,
           totalSupplyPrice,
           calculatedFee,
@@ -574,7 +576,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     }
 
     try {
-      localStorage.setItem('erp_enex_policy_settings_v5', JSON.stringify(editingPolicy));
+      localStorage.setItem('erp_enex_policy_settings_v6', JSON.stringify(editingPolicy));
       setPolicySettings(editingPolicy);
 
       // 현재 테이블에 올라와 있는 데이터 전체에 새 정책 즉시 재계산 반영!
@@ -582,7 +584,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         setReconRows(prev => {
           return prev.map(row => {
             const newFeeRate = row.isYellow ? editingPolicy.yellowFeeRate : editingPolicy.baseFeeRate;
-            const { price: newUnitPrice, extraFee: newExtraFee, matchedProdName } = determineUnitSupplyPrice(
+            const { price: newUnitPrice, priceType: newPriceType, matchedProdName } = determineUnitSupplyPrice(
               row.sangjoProdName,
               row.applianceProdName,
               row.combineModel,
@@ -597,14 +599,14 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               newFeeRate,
               newUnitPrice,
               row.accountCount,
-              newExtraFee,
+              newPriceType,
               row.enexFee
             );
             return {
               ...row,
               feeRate: newFeeRate,
               unitSupplyPrice: newUnitPrice,
-              extraFee: newExtraFee,
+              priceType: newPriceType,
               sangjoProdName: row.sangjoProdName || matchedProdName,
               ...metrics
             };
@@ -631,7 +633,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       id: 'rule_' + Date.now(),
       prodName: '신규상품',
       supplyPrice: 800000,
-      extraFee: 0,
+      priceType: 'PER_ACCOUNT',
       keywords: ['신규키워드'],
       memo: '신규 등록 상품'
     };
@@ -669,7 +671,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         newRate,
         row.unitSupplyPrice,
         row.accountCount,
-        row.extraFee || 0,
+        row.priceType || 'PER_ACCOUNT',
         row.enexFee
       );
       Object.assign(row, metrics);
@@ -689,7 +691,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         row.feeRate,
         newPrice,
         row.accountCount,
-        row.extraFee || 0,
+        row.priceType || 'PER_ACCOUNT',
         row.enexFee
       );
       Object.assign(row, metrics);
@@ -809,9 +811,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           // 금융수수료 수식: ROUND(매출액 * 금융수수료율, 0)
           { t: 'n', f: `ROUND(H${rowNum}*J${rowNum}, 0)`, v: r.financialFee, z: '#,##0' },
           // 공급가합계 수식: 구좌당공급가 * 적용구좌
-          { t: 'n', f: `K${rowNum}*I${rowNum}`, v: r.totalSupplyPrice, z: '#,##0' },
+          { t: 'n', f: r.priceType === 'PER_UNIT' ? `K${rowNum}` : `K${rowNum}*I${rowNum}`, v: r.totalSupplyPrice, z: '#,##0' },
           // 계산수수료 수식: 매출액 - 금융수수료 - 공급가합계
-          { t: 'n', f: r.extraFee > 0 ? `H${rowNum}-L${rowNum}-M${rowNum}+${r.extraFee}` : `H${rowNum}-L${rowNum}-M${rowNum}`, v: r.calculatedFee, z: '#,##0' },
+          { t: 'n', f: `H${rowNum}-L${rowNum}-M${rowNum}`, v: r.calculatedFee, z: '#,##0' },
           // 에넥스수수료
           { t: 'n', v: r.enexFee, z: '#,##0' },
           // 차액 수식: 계산수수료 - 에넥스수수료
@@ -1347,9 +1349,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                           <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 font-bold rounded text-[11px] border border-indigo-100">
                             {r.sangjoProdName || '미지정'}
                           </span>
-                          {r.extraFee > 0 && (
-                            <span className="px-1 py-0.2 bg-emerald-100 text-emerald-800 font-bold text-[9px] rounded border border-emerald-200" title="물품대금 추가수수료 반영">
-                              +{(r.extraFee / 10000).toFixed(0)}만
+                          {r.priceType === 'PER_UNIT' && (
+                            <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 font-black text-[9px] rounded border border-blue-200" title="구좌당이 아닌 제품 1대당 물품대금 적용">
+                              제품당
                             </span>
                           )}
                         </div>
@@ -1640,9 +1642,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                     <table className="w-full text-left text-xs border-collapse">
                       <thead className="bg-slate-100/80 text-slate-700 font-black border-b border-slate-200">
                         <tr>
-                          <th className="py-2 px-2.5 w-1/5">상품명</th>
-                          <th className="py-2 px-2.5 w-1/5">1구좌당 공급가(원)</th>
-                          <th className="py-2 px-2.5 w-1/5 text-indigo-700">추가 수수료 (+원)</th>
+                          <th className="py-2 px-2.5 w-1/4">상품명</th>
+                          <th className="py-2 px-2.5 w-1/5">물품대금 공급가(원)</th>
+                          <th className="py-2 px-2.5 w-1/5 text-indigo-700">적용 기준</th>
                           <th className="py-2 px-2.5 w-1/4">자동인식 키워드</th>
                           <th className="py-2 px-1 text-center w-10">삭제</th>
                         </tr>
@@ -1682,22 +1684,21 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                               />
                             </td>
                             <td className="py-1.5 px-2.5">
-                              <input
-                                type="number"
-                                step="10000"
-                                value={rule.extraFee || 0}
-                                placeholder="0"
+                              <select
+                                value={rule.priceType || 'PER_ACCOUNT'}
                                 onChange={e => {
-                                  const val = parseInt(e.target.value, 10) || 0;
+                                  const val = e.target.value as SupplyPriceType;
                                   setEditingPolicy(prev => {
                                     const copy = [...prev.productRules];
-                                    copy[idx] = { ...copy[idx], extraFee: val };
+                                    copy[idx] = { ...copy[idx], priceType: val };
                                     return { ...prev, productRules: copy };
                                   });
                                 }}
-                                className="w-full px-2 py-1 bg-indigo-50/50 border border-indigo-200 rounded font-mono font-black text-xs text-right text-indigo-700"
-                                title="테라웨이브 등 물품대금 수수료 추가 지급액"
-                              />
+                                className="w-full px-2 py-1 bg-indigo-50/50 border border-indigo-200 rounded font-bold text-xs text-indigo-800"
+                              >
+                                <option value="PER_ACCOUNT">구좌당</option>
+                                <option value="PER_UNIT">제품당 (고정)</option>
+                              </select>
                             </td>
                             <td className="py-1.5 px-2.5">
                               <input
