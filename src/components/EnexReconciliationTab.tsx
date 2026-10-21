@@ -150,7 +150,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   // 정책 설정 상태 (금융수수료율 & 상품별 물품대금)
   const [policySettings, setPolicySettings] = useState<EnexPolicySettings>(() => {
     try {
-      const stored = localStorage.getItem('erp_enex_policy_settings_v8');
+      const stored = localStorage.getItem('erp_enex_policy_settings_v9');
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && Array.isArray(parsed.productRules) && Array.isArray(parsed.specialProductFees)) {
@@ -608,7 +608,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     }
 
     try {
-      localStorage.setItem('erp_enex_policy_settings_v8', JSON.stringify(editingPolicy));
+      localStorage.setItem('erp_enex_policy_settings_v9', JSON.stringify(editingPolicy));
       setPolicySettings(editingPolicy);
 
       // 현재 테이블에 올라와 있는 데이터 전체에 새 정책 즉시 재계산 반영!
@@ -685,6 +685,29 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     setEditingPolicy(prev => ({
       ...prev,
       productRules: prev.productRules.filter(r => r.id !== id)
+    }));
+  };
+
+  // 특수 제품 추가 수수료 행 추가
+  const handleAddSpecialFeeRule = () => {
+    const newRule: EnexSpecialProductFeeRule = {
+      id: 'sp_' + Date.now(),
+      productName: '신규제품',
+      extraFee: 800000,
+      keywords: ['신규키워드'],
+      memo: '신규 특수 제품 수수료'
+    };
+    setEditingPolicy(prev => ({
+      ...prev,
+      specialProductFees: [...(prev.specialProductFees || []), newRule]
+    }));
+  };
+
+  // 특수 제품 추가 수수료 행 삭제
+  const handleRemoveSpecialFeeRule = (id: string) => {
+    setEditingPolicy(prev => ({
+      ...prev,
+      specialProductFees: (prev.specialProductFees || []).filter(r => r.id !== id)
     }));
   };
 
@@ -1762,6 +1785,123 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
 
                   <p className="text-[11px] text-slate-400">
                     💡 정산서 업로드 시 결합모델명(E열)이나 가전명(D열)에 위 키워드가 포함되어 있으면 해당 물품대금이 자동 적용됩니다.
+                  </p>
+                </div>
+
+                {/* 3) 특수 제품 추가 수수료 설정 (테라웨이브 등 제품 수수료 가산) */}
+                <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles size={15} className="text-emerald-600" />
+                      <h5 className="text-xs font-black text-emerald-950">
+                        3. 특수 제품 추가 수수료 설정 (테라웨이브 등 제품 수수료 가산)
+                      </h5>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddSpecialFeeRule}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus size={12} />
+                      <span>새 특수 제품 추가</span>
+                    </button>
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-emerald-200 overflow-hidden shadow-2xs">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead className="bg-emerald-100/60 text-emerald-950 font-black border-b border-emerald-200">
+                        <tr>
+                          <th className="py-2 px-3 w-1/4">제품명</th>
+                          <th className="py-2 px-3 w-1/4">추가 수수료(+원)</th>
+                          <th className="py-2 px-3">자동인식 키워드</th>
+                          <th className="py-2 px-3 w-1/4">비고</th>
+                          <th className="py-2 px-1 text-center w-10">삭제</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-emerald-50 font-medium text-slate-800">
+                        {(editingPolicy.specialProductFees || []).map((sp, idx) => (
+                          <tr key={sp.id || idx} className="hover:bg-emerald-50/30">
+                            <td className="py-1.5 px-3">
+                              <input
+                                type="text"
+                                value={sp.productName}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setEditingPolicy(prev => {
+                                    const copy = [...(prev.specialProductFees || [])];
+                                    copy[idx] = { ...copy[idx], productName: val };
+                                    return { ...prev, specialProductFees: copy };
+                                  });
+                                }}
+                                className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded font-bold text-xs"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2.5">
+                              <input
+                                type="number"
+                                step="50000"
+                                value={sp.extraFee}
+                                onChange={e => {
+                                  const val = parseInt(e.target.value, 10) || 0;
+                                  setEditingPolicy(prev => {
+                                    const copy = [...(prev.specialProductFees || [])];
+                                    copy[idx] = { ...copy[idx], extraFee: val };
+                                    return { ...prev, specialProductFees: copy };
+                                  });
+                                }}
+                                className="w-full px-2 py-1 bg-emerald-50 border border-emerald-300 rounded font-mono font-bold text-xs text-right text-emerald-900"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2.5">
+                              <input
+                                type="text"
+                                value={sp.keywords.join(', ')}
+                                onChange={e => {
+                                  const val = e.target.value.split(',').map(k => k.trim()).filter(Boolean);
+                                  setEditingPolicy(prev => {
+                                    const copy = [...(prev.specialProductFees || [])];
+                                    copy[idx] = { ...copy[idx], keywords: val };
+                                    return { ...prev, specialProductFees: copy };
+                                  });
+                                }}
+                                placeholder="예: 테라웨이브, terawave"
+                                className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-slate-600 text-xs"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2.5">
+                              <input
+                                type="text"
+                                value={sp.memo || ''}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setEditingPolicy(prev => {
+                                    const copy = [...(prev.specialProductFees || [])];
+                                    copy[idx] = { ...copy[idx], memo: val };
+                                    return { ...prev, specialProductFees: copy };
+                                  });
+                                }}
+                                placeholder="비고 메모"
+                                className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-slate-500 text-[11px]"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSpecialFeeRule(sp.id)}
+                                className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                                title="이 특수 제품 정책 삭제"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <p className="text-[11px] text-emerald-700 font-medium">
+                    ✨ <strong>테라웨이브 등 특수 제품</strong>: 가전 제품명이나 결합모델명에 해당 키워드가 있으면 구좌수와 무관하게 <strong>제품 1건당 지정된 추가 수수료(+80만원 등)가 계산수수료에 그대로 가산</strong>되어 에넥스 지급 수수료와 일치하게 됩니다.
                   </p>
                 </div>
               </div>
