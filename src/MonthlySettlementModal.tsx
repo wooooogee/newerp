@@ -272,6 +272,87 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     return { name: divName, isDivision: true };
   }, [getDivisionForHq]);
 
+  // 거래처 / 지급대상별 계좌정보 및 정산유형 매핑 헬퍼 함수
+  const getPayoutAccountInfo = useCallback((targetName: string) => {
+    if (!targetName) {
+      return { settlementType: '사업자', bankName: '-', accountNumber: '-', accountHolder: '-' };
+    }
+    const cleanTarget = targetName.trim();
+    const normTarget = cleanTarget.replace(/[\s()대표]/g, '').toLowerCase();
+
+    // 1) 사업단 검색 (divisionSettings)
+    const matchedDiv = (divisionSettings || []).find(d => {
+      const normD = (d.name || '').replace(/[\s()]/g, '').toLowerCase();
+      return normD === normTarget || normD.includes(normTarget) || normTarget.includes(normD);
+    });
+    if (matchedDiv && (matchedDiv.accountNumber || matchedDiv.bankName)) {
+      return {
+        settlementType: '사업자',
+        bankName: matchedDiv.bankName || '-',
+        accountNumber: matchedDiv.accountNumber || '-',
+        accountHolder: matchedDiv.accountHolder || cleanTarget
+      };
+    }
+
+    // 2) 본부 검색 (hqSettings)
+    const matchedHq = (hqSettings || []).find(h => {
+      const normH = (h.hqName || '').replace(/[\s()본부대표]/g, '').toLowerCase();
+      return normH === normTarget || normH.includes(normTarget) || normTarget.includes(normH);
+    });
+    if (matchedHq) {
+      return {
+        settlementType: matchedHq.settlementType || '사업자',
+        bankName: matchedHq.bankName || '-',
+        accountNumber: matchedHq.accountNumber || '-',
+        accountHolder: matchedHq.accountHolder || cleanTarget
+      };
+    }
+
+    // 3) 글로벌 인센티브 / 특수수당 대상자 검색
+    const matchedRule = (globalIncentiveRules || []).find(r => {
+      const normR = (r.targetName || '').replace(/[\s()대표]/g, '').toLowerCase();
+      return normR === normTarget || normR.includes(normTarget) || normTarget.includes(normR);
+    });
+    if (matchedRule && (matchedRule as any).accountNumber) {
+      return {
+        settlementType: matchedRule.taxType === 'BUSINESS' ? '사업자' : '개인',
+        bankName: (matchedRule as any).bankName || '-',
+        accountNumber: (matchedRule as any).accountNumber || '-',
+        accountHolder: (matchedRule as any).accountHolder || cleanTarget
+      };
+    }
+
+    // 4) 특수 대상자 fallback
+    if (normTarget.includes('신동우')) {
+      return { settlementType: '사업자', bankName: '국민은행', accountNumber: '164501-04-161888', accountHolder: '김애숙(에스제이컨설팅)' };
+    }
+    if (normTarget.includes('조재윤')) {
+      return { settlementType: '개인', bankName: '수협', accountNumber: '206000673009', accountHolder: '조재윤' };
+    }
+    if (normTarget.includes('조민경')) {
+      return { settlementType: '개인', bankName: '카카오뱅크', accountNumber: '3333027476861', accountHolder: '조민경' };
+    }
+    if (normTarget.includes('이종연')) {
+      return { settlementType: '개인', bankName: '농협', accountNumber: '3020500290841', accountHolder: '이종연' };
+    }
+    if (normTarget.includes('권성훈')) {
+      return { settlementType: '개인', bankName: '신한', accountNumber: '110-323-031541', accountHolder: '권성훈' };
+    }
+    if (normTarget.includes('언바운드')) {
+      return { settlementType: '사업자', bankName: '하나은행', accountNumber: '285-910018-29104', accountHolder: '주식회사 언바운드컴퍼니' };
+    }
+    if (normTarget.includes('굿라이프')) {
+      return { settlementType: '사업자', bankName: '국민은행', accountNumber: '164501-04-161888', accountHolder: '김애숙(에스제이컨설팅)' };
+    }
+
+    return {
+      settlementType: '사업자',
+      bankName: '-',
+      accountNumber: '-',
+      accountHolder: cleanTarget
+    };
+  }, [divisionSettings, hqSettings, globalIncentiveRules]);
+
   // 사용자 지정 본부 순서 (순서 변경 지원 및 로컬 저장)
   const [customHqOrder, setCustomHqOrder] = useState<string[]>(() => {
     try {
@@ -1168,23 +1249,44 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     return result;
   }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data]);
 
-  // 상세 정산 내역 전체 합계 계산 (소계 행 제외)
+  // 상세 정산 내역 전체 합계 계산 (소계 행 제외하여 중복 방지 및 원천세/실지급액 계산)
   const detailedTotals = useMemo(() => {
     let totalCount = 0;
     let totalSalesComm = 0;
     let totalPromoComm = 0;
     let totalCommission = 0;
+    let totalTax = 0;
+
+    const targetsWithSubtotal = new Set(
+      detailedSettlementList.filter(r => r.isSubtotal).map(r => r.targetName)
+    );
 
     detailedSettlementList.forEach(row => {
-      if (row.isSubtotal) return;
+      if (row.isSubtotal) {
+        const acct = getPayoutAccountInfo(row.targetName);
+        if (acct.settlementType.includes('개인')) {
+          totalTax += Math.round((row.totalCommission || 0) * 0.033);
+        }
+        return;
+      }
+
+      if (row.isHeaderGroup && !targetsWithSubtotal.has(row.targetName)) {
+        const acct = getPayoutAccountInfo(row.targetName);
+        if (acct.settlementType.includes('개인')) {
+          totalTax += Math.round((row.totalCommission || 0) * 0.033);
+        }
+      }
+
       totalCount += (row.count || 0);
       totalSalesComm += (row.salesCommission || 0);
       totalPromoComm += (row.promoCommission || 0);
       totalCommission += (row.totalCommission || 0);
     });
 
-    return { totalCount, totalSalesComm, totalPromoComm, totalCommission };
-  }, [detailedSettlementList]);
+    const totalNet = totalCommission - totalTax;
+
+    return { totalCount, totalSalesComm, totalPromoComm, totalCommission, totalTax, totalNet };
+  }, [detailedSettlementList, getPayoutAccountInfo]);
 
   // 셀 값 수정 핸들러
   const handleUpdateDetailCell = (id: string, field: keyof DetailedSettlementRow, value: any) => {
@@ -1309,7 +1411,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
   };
 
-  // 사용자 제공 이미지 서식 100% 동일한 상세 정산 내역 엑셀 다운로드
+  // 사용자 제공 이미지 서식 100% 동일한 상세 정산 내역 엑셀 다운로드 (실지급액, 계좌정보, 세부명세 포함 종합 엑셀)
   const handleExportDetailedSettlementExcel = () => {
     if (!XLSX || !XLSX.utils) {
       alert('엑셀 라이브러리를 로드하지 못했습니다.');
@@ -1321,55 +1423,87 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       const monthNum = selectedMonth ? parseInt(selectedMonth.split('-')[1], 10) : 10;
       const titleText = `${monthNum}월 수수료 정산 내역`;
 
-      const wsData: any[][] = [
-        [titleText, '', '', '', '', '', '', ''],
-        ['', '', '', '', '', '', '', ''],
-        ['거래처 / 지급대상', '구분', '상품명 / 지급항목', '건수', '건별수수료', '판매수수료', '판매촉진비', '총수수료']
-      ];
-
-      detailedSettlementList.forEach(r => {
-        wsData.push([
-          r.isSubtotal ? '' : (r.isHeaderGroup ? r.targetName : ''),
-          r.division || '',
-          r.itemName || '',
-          r.isSubtotal ? { t: 'n', v: r.count, z: '#,##0' } : (r.count > 0 ? { t: 'n', v: r.count, z: '#,##0' } : ''),
-          (!r.isSubtotal && r.unitFee > 0) ? { t: 'n', v: r.unitFee, z: '#,##0' } : '',
-          (!r.isSubtotal && r.salesCommission > 0) ? { t: 'n', v: r.salesCommission, z: '#,##0' } : '',
-          (!r.isSubtotal && r.promoCommission > 0) ? { t: 'n', v: r.promoCommission, z: '#,##0' } : '',
-          { t: 'n', v: r.totalCommission, z: '#,##0' }
-        ]);
-      });
-
-      // 최하단 전체 지급수수료 합계 행
-      wsData.push([
-        '전체 지급수수료 합계',
-        '', '', '', '', '', '',
-        { t: 'n', v: detailedTotals.totalCommission, z: '#,##0' }
-      ]);
-
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      ws['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
-        { s: { r: wsData.length - 1, c: 0 }, e: { r: wsData.length - 1, c: 6 } }
-      ];
-
-      ws['!cols'] = [
-        { wch: 18 },
-        { wch: 10 },
-        { wch: 28 },
-        { wch: 10 },
-        { wch: 14 },
-        { wch: 16 },
-        { wch: 16 },
-        { wch: 18 }
-      ];
-
       const thinBorder = {
         top: { style: 'thin', color: { rgb: 'CBD5E1' } },
         bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
         left: { style: 'thin', color: { rgb: 'CBD5E1' } },
         right: { style: 'thin', color: { rgb: 'CBD5E1' } }
       };
+
+      // -------------------------------------------------------------
+      // 시트 1: 수수료 정산 내역 (상품별 + 소계 실지급/계좌정보 포함)
+      // -------------------------------------------------------------
+      const wsData: any[][] = [
+        [titleText, '', '', '', '', '', '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', '', '', '', '', '', ''],
+        [
+          '거래처 / 지급대상', '구분', '상품명 / 지급항목', '건수', '건별수수료',
+          '판매수수료', '판매촉진비', '총 발생수수료', '원천세(3.3%)', '최종 실지급액',
+          '입금은행', '계좌번호', '예금주'
+        ]
+      ];
+
+      const targetsWithSubtotal = new Set(
+        detailedSettlementList.filter(r => r.isSubtotal).map(r => r.targetName)
+      );
+
+      detailedSettlementList.forEach(r => {
+        const acct = getPayoutAccountInfo(r.targetName);
+        const isIndiv = acct.settlementType.includes('개인');
+        const isStandalone = r.isHeaderGroup && !targetsWithSubtotal.has(r.targetName);
+
+        let rowTax = 0;
+        let rowNet = 0;
+        let showAcct = false;
+
+        if (r.isSubtotal) {
+          rowTax = isIndiv ? Math.round((r.totalCommission || 0) * 0.033) : 0;
+          rowNet = (r.totalCommission || 0) - rowTax;
+          showAcct = true;
+        } else if (isStandalone) {
+          rowTax = isIndiv ? Math.round((r.totalCommission || 0) * 0.033) : 0;
+          rowNet = (r.totalCommission || 0) - rowTax;
+          showAcct = true;
+        }
+
+        wsData.push([
+          r.isSubtotal ? '' : (r.isHeaderGroup ? r.targetName : ''),
+          r.division || '',
+          r.itemName || '',
+          r.isSubtotal ? { t: 'n', v: r.count, z: '#,##0' } : (r.count > 0 ? { t: 'n', v: r.count, z: '#,##0' } : ''),
+          (!r.isSubtotal && r.unitFee > 0) ? { t: 'n', v: r.unitFee, z: '#,##0' } : '',
+          (!r.isSubtotal && r.salesCommission > 0) ? { t: 'n', v: r.salesCommission, z: '#,##0' } : (r.isSubtotal && r.salesCommission > 0 ? { t: 'n', v: r.salesCommission, z: '#,##0' } : ''),
+          (!r.isSubtotal && r.promoCommission > 0) ? { t: 'n', v: r.promoCommission, z: '#,##0' } : (r.isSubtotal && r.promoCommission > 0 ? { t: 'n', v: r.promoCommission, z: '#,##0' } : ''),
+          { t: 'n', v: r.totalCommission, z: '#,##0' },
+          showAcct ? (rowTax > 0 ? { t: 'n', v: rowTax, z: '#,##0' } : '-') : '',
+          showAcct ? { t: 'n', v: rowNet, z: '#,##0' } : '',
+          showAcct ? acct.bankName : '',
+          showAcct ? acct.accountNumber : '',
+          showAcct ? acct.accountHolder : ''
+        ]);
+      });
+
+      // 최하단 전체 합계 행
+      wsData.push([
+        '전체 지급수수료 합계',
+        '', '', '', '', '', '',
+        { t: 'n', v: detailedTotals.totalCommission, z: '#,##0' },
+        { t: 'n', v: detailedTotals.totalTax, z: '#,##0' },
+        { t: 'n', v: detailedTotals.totalNet, z: '#,##0' },
+        '', '', ''
+      ]);
+
+      const ws1 = XLSX.utils.aoa_to_sheet(wsData);
+      ws1['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 12 } },
+        { s: { r: wsData.length - 1, c: 0 }, e: { r: wsData.length - 1, c: 6 } }
+      ];
+
+      ws1['!cols'] = [
+        { wch: 18 }, { wch: 8 }, { wch: 28 }, { wch: 8 }, { wch: 12 },
+        { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 16 },
+        { wch: 14 }, { wch: 22 }, { wch: 18 }
+      ];
 
       for (let R = 0; R < wsData.length; R++) {
         const isTitle = R === 0;
@@ -1379,53 +1513,373 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         const rData = dataRowIdx >= 0 && dataRowIdx < detailedSettlementList.length ? detailedSettlementList[dataRowIdx] : null;
         const isSubtotal = rData?.isSubtotal;
 
-        for (let C = 0; C <= 7; C++) {
+        for (let C = 0; C <= 12; C++) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
-          if (!ws[addr]) continue;
+          if (!ws1[addr]) continue;
 
           if (isTitle) {
-            ws[addr].s = {
+            ws1[addr].s = {
               fill: { fgColor: { rgb: '0F172A' } },
               font: { name: '맑은 고딕', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
               alignment: { vertical: 'center', horizontal: 'center' }
             };
           } else if (isHeader) {
-            ws[addr].s = {
+            ws1[addr].s = {
               fill: { fgColor: { rgb: '1E293B' } },
               font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
-              alignment: { vertical: 'center', horizontal: C === 1 || C === 3 ? 'center' : (C >= 4 ? 'right' : 'left') },
+              alignment: { vertical: 'center', horizontal: C === 1 || C === 3 ? 'center' : (C >= 4 && C <= 9 ? 'right' : (C >= 10 ? 'center' : 'left')) },
               border: thinBorder
             };
           } else if (isTotalRow) {
-            ws[addr].s = {
+            ws1[addr].s = {
               fill: { fgColor: { rgb: '0F172A' } },
               font: { name: '맑은 고딕', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
-              alignment: { vertical: 'center', horizontal: C === 7 ? 'right' : 'left' }
+              alignment: { vertical: 'center', horizontal: C >= 7 && C <= 9 ? 'right' : 'center' }
             };
           } else if (isSubtotal) {
-            ws[addr].s = {
+            ws1[addr].s = {
               fill: { fgColor: { rgb: 'D9E1F2' } },
               font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '0F172A' } },
-              alignment: { vertical: 'center', horizontal: C === 1 || C === 3 ? 'center' : 'right' },
+              alignment: { vertical: 'center', horizontal: C === 1 || C === 3 ? 'center' : (C >= 4 && C <= 9 ? 'right' : (C >= 10 ? 'center' : 'left')) },
               border: thinBorder
             };
           } else {
-            ws[addr].s = {
+            ws1[addr].s = {
               fill: { fgColor: { rgb: 'FFFFFF' } },
-              font: { name: '맑은 고딕', sz: 9, color: { rgb: '0F172A' }, bold: C === 0 || C === 7 },
-              alignment: { vertical: 'center', horizontal: C === 1 || C === 3 ? 'center' : (C >= 4 ? 'right' : 'left') },
+              font: { name: '맑은 고딕', sz: 9, color: { rgb: '0F172A' }, bold: C === 0 || C === 7 || C === 9 },
+              alignment: { vertical: 'center', horizontal: C === 1 || C === 3 ? 'center' : (C >= 4 && C <= 9 ? 'right' : (C >= 10 ? 'center' : 'left')) },
               border: thinBorder
             };
           }
         }
       }
+      XLSX.utils.book_append_sheet(wb, ws1, `${monthNum}월 수수료 정산 내역`);
 
-      XLSX.utils.book_append_sheet(wb, ws, `${monthNum}월 수수료 정산 내역`);
+      // -------------------------------------------------------------
+      // 시트 2: 실지급 및 지급계좌 집계 (송금/자금집행용 1행 요약 시트)
+      // -------------------------------------------------------------
+      const payoutSummaryRows: any[][] = [
+        [`【 ${selectedMonth} 실지급 내역 및 지급 계좌정보 종합 집계 】`],
+        [`■ 조회 기준월: ${selectedMonth}  |  작성일시: ${new Date().toLocaleDateString('ko-KR')}`],
+        [],
+        [
+          '순번', '거래처 / 지급대상', '구분', '정산유형', '실적건수',
+          '총 발생수수료', '원천세(3.3%)', '최종 실지급액', '입금은행', '계좌번호', '예금주', '비고'
+        ]
+      ];
+
+      const payoutList: Array<{
+        targetName: string;
+        divisionType: string;
+        settlementType: string;
+        count: number;
+        totalComm: number;
+        tax: number;
+        netTotal: number;
+        bankName: string;
+        accountNumber: string;
+        accountHolder: string;
+        note: string;
+      }> = [];
+
+      const processedTargets = new Set<string>();
+
+      detailedSettlementList.forEach(r => {
+        if (r.isSubtotal) {
+          if (processedTargets.has(r.targetName)) return;
+          processedTargets.add(r.targetName);
+
+          const acct = getPayoutAccountInfo(r.targetName);
+          const isIndiv = acct.settlementType.includes('개인');
+          const tax = isIndiv ? Math.round((r.totalCommission || 0) * 0.033) : 0;
+          const netTotal = (r.totalCommission || 0) - tax;
+
+          payoutList.push({
+            targetName: r.targetName,
+            divisionType: groupByDivision ? '사업단/본부' : '본부',
+            settlementType: acct.settlementType,
+            count: r.count,
+            totalComm: r.totalCommission,
+            tax,
+            netTotal,
+            bankName: acct.bankName,
+            accountNumber: acct.accountNumber,
+            accountHolder: acct.accountHolder,
+            note: ''
+          });
+        }
+      });
+
+      // 소계가 없는 독립 지급대상(조재윤, 조민경, 이종연, 신동우, 권성훈 등) 추가
+      detailedSettlementList.forEach(r => {
+        if (!r.isSubtotal && r.isHeaderGroup && !processedTargets.has(r.targetName)) {
+          processedTargets.add(r.targetName);
+
+          const acct = getPayoutAccountInfo(r.targetName);
+          const isIndiv = acct.settlementType.includes('개인');
+          const tax = isIndiv ? Math.round((r.totalCommission || 0) * 0.033) : 0;
+          const netTotal = (r.totalCommission || 0) - tax;
+
+          payoutList.push({
+            targetName: r.targetName,
+            divisionType: '외주/인센티브',
+            settlementType: acct.settlementType,
+            count: r.count,
+            totalComm: r.totalCommission,
+            tax,
+            netTotal,
+            bankName: acct.bankName,
+            accountNumber: acct.accountNumber,
+            accountHolder: acct.accountHolder,
+            note: r.itemName
+          });
+        }
+      });
+
+      payoutList.forEach((item, pIdx) => {
+        const rowNo = pIdx + 5;
+        payoutSummaryRows.push([
+          pIdx + 1,
+          item.targetName,
+          item.divisionType,
+          item.settlementType,
+          { v: item.count, t: 'n', z: '#,##0' },
+          { v: item.totalComm, t: 'n', z: '#,##0' },
+          item.tax > 0 ? { v: item.tax, t: 'n', z: '#,##0' } : '-',
+          { f: `F${rowNo}-IF(G${rowNo}="-",0,G${rowNo})`, v: item.netTotal, t: 'n', z: '#,##0' },
+          item.bankName,
+          item.accountNumber,
+          item.accountHolder,
+          item.note
+        ]);
+      });
+
+      const startP = 5;
+      const endP = 4 + payoutList.length;
+      payoutSummaryRows.push([
+        '총합계',
+        `${payoutList.length}개 지급처`,
+        '-',
+        '-',
+        { f: `SUM(E${startP}:E${endP})`, v: detailedTotals.totalCount, t: 'n', z: '#,##0' },
+        { f: `SUM(F${startP}:F${endP})`, v: detailedTotals.totalCommission, t: 'n', z: '#,##0' },
+        { f: `SUM(G${startP}:G${endP})`, v: detailedTotals.totalTax, t: 'n', z: '#,##0' },
+        { f: `SUM(H${startP}:H${endP})`, v: detailedTotals.totalNet, t: 'n', z: '#,##0' },
+        '', '', '', ''
+      ]);
+
+      const ws2 = XLSX.utils.aoa_to_sheet(payoutSummaryRows);
+      ws2['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } }
+      ];
+      ws2['!cols'] = [
+        { wch: 8 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
+        { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 22 }, { wch: 18 }, { wch: 20 }
+      ];
+
+      for (let R = 0; R < payoutSummaryRows.length; R++) {
+        const isTitle = R === 0;
+        const isHeader = R === 3;
+        const isTotalRow = R === payoutSummaryRows.length - 1;
+
+        for (let C = 0; C <= 11; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws2[addr]) continue;
+
+          if (isTitle) {
+            ws2[addr].s = {
+              fill: { fgColor: { rgb: '1E3A8A' } },
+              font: { name: '맑은 고딕', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
+              alignment: { vertical: 'center', horizontal: 'center' }
+            };
+          } else if (isHeader) {
+            ws2[addr].s = {
+              fill: { fgColor: { rgb: '2563EB' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+              alignment: { vertical: 'center', horizontal: 'center' },
+              border: thinBorder
+            };
+          } else if (isTotalRow) {
+            ws2[addr].s = {
+              fill: { fgColor: { rgb: 'F1F5F9' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '0F172A' } },
+              alignment: { vertical: 'center', horizontal: C >= 4 && C <= 7 ? 'right' : 'center' },
+              border: thinBorder
+            };
+          } else {
+            ws2[addr].s = {
+              fill: { fgColor: { rgb: 'FFFFFF' } },
+              font: { name: '맑은 고딕', sz: 9, color: { rgb: '0F172A' }, bold: C === 1 || C === 7 },
+              alignment: { vertical: 'center', horizontal: C >= 4 && C <= 7 ? 'right' : (C >= 8 && C <= 10 ? 'center' : (C === 0 || C === 2 || C === 3 ? 'center' : 'left')) },
+              border: thinBorder
+            };
+          }
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, ws2, '실지급및지급계좌집계');
+
+      // -------------------------------------------------------------
+      // 시트 3: 계약 상세명세 (건별 계약 상세정보)
+      // -------------------------------------------------------------
+      const detailRows: any[][] = [
+        ['No', '본부명', '소속사업단', '회원명', '상품명', '렌탈계약번호', '실적구좌', '판매수수료', '촉진비', '총수수료', '수수료지급일', '배송완료일', '지사명', '영업자명']
+      ];
+      let detailCount = 0;
+      let sumSalesDetail = 0;
+      let sumPromoDetail = 0;
+      let sumTotalDetail = 0;
+
+      effectiveHqMonthlyStats.forEach(stat => {
+        const div = getDivisionForHq(stat.hqName);
+        (stat.items || []).forEach(item => {
+          detailCount++;
+          const rowNo = detailCount + 1;
+          const { totalCommission, salesComm } = calculateCommissionDetails(item, globalStatsMap);
+          const promo = totalCommission - salesComm;
+          sumSalesDetail += salesComm;
+          sumPromoDetail += promo;
+          sumTotalDetail += totalCommission;
+
+          detailRows.push([
+            detailCount,
+            stat.hqName,
+            div?.name || '-',
+            item.customerName || item.memName || '-',
+            item.rentalProd && item.rentalProd !== '-' ? item.rentalProd : (item.prodName || '-'),
+            item.rentalNo || item.resNo || '-',
+            getAccountCountFromItem(item),
+            { v: salesComm, t: 'n', z: '#,##0' },
+            { v: promo, t: 'n', z: '#,##0' },
+            { f: `H${rowNo}+I${rowNo}`, v: totalCommission, t: 'n', z: '#,##0' },
+            item.payDate || '-',
+            item.deliveryDate || '-',
+            item.branch || '-',
+            item.empName || '-'
+          ]);
+        });
+      });
+
+      if (detailCount > 0) {
+        const lastR = detailCount + 1;
+        detailRows.push([
+          '합계',
+          `${detailCount}건`,
+          '', '', '', '', '',
+          { f: `SUM(H2:H${lastR})`, v: sumSalesDetail, t: 'n', z: '#,##0' },
+          { f: `SUM(I2:I${lastR})`, v: sumPromoDetail, t: 'n', z: '#,##0' },
+          { f: `SUM(J2:J${lastR})`, v: sumTotalDetail, t: 'n', z: '#,##0' },
+          '', '', '', ''
+        ]);
+      }
+
+      const ws3 = XLSX.utils.aoa_to_sheet(detailRows);
+      ws3['!cols'] = [
+        { wch: 6 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 28 },
+        { wch: 16 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
+        { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws3, '계약상세명세');
+
+      // -------------------------------------------------------------
+      // 시트 4: 유지수수료명세 (상세정보)
+      // -------------------------------------------------------------
+      const maintRows: any[][] = [
+        ['No', '본부명', '지사명', '영업사원', '계약일자', '상태', '상품명', '회원명', '회차', '유지수수료금액', '지급일']
+      ];
+      let maintCount = 0;
+      let sumMaintAmt = 0;
+
+      effectiveHqMonthlyStats.forEach(stat => {
+        (stat.maintenanceItems || []).forEach(mItem => {
+          maintCount++;
+          const amt = mItem.amount || 0;
+          sumMaintAmt += amt;
+          maintRows.push([
+            maintCount,
+            mItem.hq || stat.hqName || '-',
+            mItem.branch || '-',
+            mItem.empName || '-',
+            mItem.contractDate || '-',
+            mItem.status || '-',
+            mItem.productName || mItem.prodName || '-',
+            mItem.customerName || mItem.memName || '-',
+            mItem.fromInstallment ? `${mItem.fromInstallment}회차` : (mItem.round ? `${mItem.round}회차` : '-'),
+            { v: amt, t: 'n', z: '#,##0' },
+            mItem.payDate || '-'
+          ]);
+        });
+      });
+
+      if (maintCount > 0) {
+        const lastM = maintCount + 1;
+        maintRows.push([
+          '합계',
+          `${maintCount}건`,
+          '', '', '', '', '', '', '',
+          { f: `SUM(J2:J${lastM})`, v: sumMaintAmt, t: 'n', z: '#,##0' },
+          ''
+        ]);
+      }
+      const ws4 = XLSX.utils.aoa_to_sheet(maintRows);
+      ws4['!cols'] = [
+        { wch: 6 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
+        { wch: 10 }, { wch: 24 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 12 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws4, '유지수수료명세');
+
+      // -------------------------------------------------------------
+      // 시트 5: 특수수당명세 (상세정보)
+      // -------------------------------------------------------------
+      const specialRows: any[][] = [
+        ['No', '지급대상자', '수당명', '회원명', '상품명', '수당금액', '계약일자', '배송일자', '지급일자', '본부명', '지사명', '영업자명']
+      ];
+      let spCount = 0;
+      let sumSpAmt = 0;
+
+      effectiveHqMonthlyStats.forEach(stat => {
+        (stat.specialItems || []).forEach(sp => {
+          spCount++;
+          const amt = sp.amount || 0;
+          sumSpAmt += amt;
+          specialRows.push([
+            spCount,
+            stat.hqName,
+            sp.incentiveName || '특수수당',
+            sp.memName || '-',
+            sp.prodName || '-',
+            { v: amt, t: 'n', z: '#,##0' },
+            sp.contractDate || '-',
+            sp.deliveryDate || '-',
+            sp.payDate || '-',
+            sp.contractHq || sp.hq || stat.hqName || '-',
+            sp.branch || '-',
+            sp.empName || '-'
+          ]);
+        });
+      });
+
+      if (spCount > 0) {
+        const lastSp = spCount + 1;
+        specialRows.push([
+          '합계',
+          `${spCount}건`,
+          '', '', '',
+          { f: `SUM(F2:F${lastSp})`, v: sumSpAmt, t: 'n', z: '#,##0' },
+          '', '', '', '', '', ''
+        ]);
+      }
+      const ws5 = XLSX.utils.aoa_to_sheet(specialRows);
+      ws5['!cols'] = [
+        { wch: 6 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 24 },
+        { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 14 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws5, '특수수당명세');
+
       if (!wb.Workbook) wb.Workbook = {};
       if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
       wb.Workbook.CalcPr.fullCalcOnLoad = true;
 
-      XLSX.writeFile(wb, `${selectedMonth}_수수료_정산_내역.xlsx`);
+      XLSX.writeFile(wb, `${selectedMonth}_수수료_정산_종합내역.xlsx`);
     } catch (err: any) {
       console.error(err);
       alert('엑셀 다운로드 중 오류가 발생했습니다: ' + err.message);
@@ -2723,17 +3177,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                   {selectedMonth ? `${parseInt(selectedMonth.split('-')[1] || '10', 10)}월 ` : ''}수수료 정산 내역
                 </div>
 
-                <table className="w-full text-xs text-left border-collapse min-w-[1000px]">
+                <table className="w-full text-xs text-left border-collapse min-w-[1300px]">
                   <thead className="bg-[#2b3a4a] text-slate-100 font-bold border-b border-slate-400 uppercase tracking-wider sticky top-[44px] z-10 shadow-xs">
                     <tr>
-                      <th className="px-4 py-3 text-center border-r border-slate-600 w-48">거래처 / 지급대상</th>
-                      <th className="px-3 py-3 text-center border-r border-slate-600 w-24">구분</th>
-                      <th className="px-4 py-3 text-left border-r border-slate-600 min-w-[200px]">상품명 / 지급항목</th>
-                      <th className="px-3 py-3 text-right border-r border-slate-600 w-24">건수</th>
-                      <th className="px-3 py-3 text-right border-r border-slate-600 w-32">건별수수료</th>
-                      <th className="px-3 py-3 text-right border-r border-slate-600 w-36">판매수수료</th>
-                      <th className="px-3 py-3 text-right border-r border-slate-600 w-36">판매촉진비</th>
-                      <th className="px-4 py-3 text-right border-r border-slate-600 w-40">총수수료</th>
+                      <th className="px-4 py-3 text-center border-r border-slate-600 w-44">거래처 / 지급대상</th>
+                      <th className="px-3 py-3 text-center border-r border-slate-600 w-20">구분</th>
+                      <th className="px-4 py-3 text-left border-r border-slate-600 min-w-[180px]">상품명 / 지급항목</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-20">건수</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-28">건별수수료</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-32">판매수수료</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-32">판매촉진비</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-36">총 발생수수료</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-28 text-rose-300">원천세(3.3%)</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-36 bg-blue-900/40 text-amber-300 font-black">최종 실지급액</th>
+                      <th className="px-4 py-3 text-left border-r border-slate-600 min-w-[220px]">지급 계좌정보</th>
                       {isDetailEditMode && (
                         <th className="px-2 py-3 text-center w-16">삭제</th>
                       )}
@@ -2742,12 +3199,33 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                   <tbody className="divide-y divide-slate-200 text-slate-700 font-sans">
                     {detailedSettlementList.length === 0 ? (
                       <tr>
-                        <td colSpan={isDetailEditMode ? 9 : 8} className="px-6 py-16 text-center text-slate-400 font-medium">
+                        <td colSpan={isDetailEditMode ? 12 : 11} className="px-6 py-16 text-center text-slate-400 font-medium">
                           등록된 상세 정산 내역이 없습니다. '항목 추가' 버튼을 눌러 내역을 등록해 주세요.
                         </td>
                       </tr>
                     ) : (
                       detailedSettlementList.map((row) => {
+                        const acct = getPayoutAccountInfo(row.targetName);
+                        const isIndiv = acct.settlementType.includes('개인');
+                        const targetsWithSubtotal = new Set(
+                          detailedSettlementList.filter(r => r.isSubtotal).map(r => r.targetName)
+                        );
+                        const isStandalone = row.isHeaderGroup && !targetsWithSubtotal.has(row.targetName);
+
+                        let rowTax = 0;
+                        let rowNet = 0;
+                        let showPayout = false;
+
+                        if (row.isSubtotal) {
+                          rowTax = isIndiv ? Math.round((row.totalCommission || 0) * 0.033) : 0;
+                          rowNet = (row.totalCommission || 0) - rowTax;
+                          showPayout = true;
+                        } else if (isStandalone) {
+                          rowTax = isIndiv ? Math.round((row.totalCommission || 0) * 0.033) : 0;
+                          rowNet = (row.totalCommission || 0) - rowTax;
+                          showPayout = true;
+                        }
+
                         // 소계 행 스타일링
                         if (row.isSubtotal) {
                           return (
@@ -2759,10 +3237,28 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                                 {row.count.toLocaleString()}
                               </td>
                               <td className="px-3 py-2.5 text-right border-r border-slate-300"></td>
-                              <td className="px-3 py-2.5 text-right border-r border-slate-300"></td>
-                              <td className="px-3 py-2.5 text-right border-r border-slate-300"></td>
-                              <td className="px-4 py-2.5 text-right font-mono font-black text-blue-900 border-r border-slate-300">
+                              <td className="px-3 py-2.5 text-right font-mono border-r border-slate-300 text-slate-700">
+                                {row.salesCommission > 0 ? row.salesCommission.toLocaleString() : ''}
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono border-r border-slate-300 text-slate-700">
+                                {row.promoCommission > 0 ? row.promoCommission.toLocaleString() : ''}
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono font-black text-blue-900 border-r border-slate-300">
                                 {row.totalCommission.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono font-bold text-rose-600 border-r border-slate-300">
+                                {rowTax > 0 ? `-${rowTax.toLocaleString()}` : '-'}
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono font-black text-indigo-950 bg-indigo-100/60 border-r border-slate-300">
+                                {rowNet.toLocaleString()}원
+                              </td>
+                              <td className="px-4 py-2.5 text-left border-r border-slate-300 text-xs">
+                                <span className="font-bold text-slate-800">
+                                  {acct.bankName} {acct.accountNumber}
+                                </span>
+                                {acct.accountHolder && (
+                                  <span className="text-slate-500 ml-1">({acct.accountHolder})</span>
+                                )}
                               </td>
                               {isDetailEditMode && <td className="px-2 py-2.5 text-center"></td>}
                             </tr>
@@ -2858,7 +3354,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                             </td>
 
                             {/* 총수수료 */}
-                            <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-900 border-r border-slate-200">
+                            <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900 border-r border-slate-200">
                               {isDetailEditMode ? (
                                 <input
                                   type="number"
@@ -2869,6 +3365,25 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                               ) : (
                                 row.totalCommission > 0 ? row.totalCommission.toLocaleString() : '0'
                               )}
+                            </td>
+
+                            {/* 원천세(3.3%) */}
+                            <td className="px-3 py-2.5 text-right font-mono text-rose-600 border-r border-slate-200">
+                              {showPayout ? (rowTax > 0 ? `-${rowTax.toLocaleString()}` : '-') : '-'}
+                            </td>
+
+                            {/* 최종 실지급액 */}
+                            <td className="px-3 py-2.5 text-right font-mono font-bold text-indigo-900 bg-indigo-50/40 border-r border-slate-200">
+                              {showPayout ? `${rowNet.toLocaleString()}원` : '-'}
+                            </td>
+
+                            {/* 지급 계좌정보 */}
+                            <td className="px-4 py-2.5 text-left border-r border-slate-200 text-xs text-slate-700">
+                              {showPayout ? (
+                                <span title={`${acct.bankName} ${acct.accountNumber} (${acct.accountHolder})`}>
+                                  <span className="font-bold">{acct.bankName}</span> {acct.accountNumber} <span className="text-slate-500">({acct.accountHolder})</span>
+                                </span>
+                              ) : '-'}
                             </td>
 
                             {/* 삭제 버튼 (인라인 편집 모드일 때만 표시) */}
@@ -2895,8 +3410,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       <td colSpan={7} className="px-6 py-3.5 text-center tracking-wider text-sm font-black">
                         전체 지급수수료 합계
                       </td>
-                      <td className="px-4 py-3.5 text-right font-mono text-base font-black text-amber-300 border-r border-slate-700">
+                      <td className="px-3 py-3.5 text-right font-mono text-base font-black text-amber-300 border-r border-slate-700">
                         {detailedTotals.totalCommission.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-3.5 text-right font-mono text-xs font-bold text-rose-300 border-r border-slate-700">
+                        {detailedTotals.totalTax > 0 ? `-${detailedTotals.totalTax.toLocaleString()}` : '-'}
+                      </td>
+                      <td className="px-3 py-3.5 text-right font-mono text-base font-black text-amber-300 bg-indigo-950/80 border-r border-slate-700">
+                        {detailedTotals.totalNet.toLocaleString()}원
+                      </td>
+                      <td className="px-4 py-3.5 text-center text-slate-400 font-normal">
+                        실지급 총 {detailedTotals.totalCount.toLocaleString()}건
                       </td>
                       {isDetailEditMode && <td className="px-2 py-3.5"></td>}
                     </tr>
