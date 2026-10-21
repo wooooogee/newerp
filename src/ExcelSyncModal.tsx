@@ -19,7 +19,9 @@ import {
   Lock,
   UserCheck,
   Package,
-  Calculator
+  Calculator,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { EnexReconciliationTab } from './components/EnexReconciliationTab';
 
@@ -56,6 +58,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   data = []
 }) => {
   const [activeTab, setActiveTab] = useState<'SYNC' | 'ENEX'>('SYNC');
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [contractRows, setContractRows] = useState<any[][] | null>(null);
   const [contractFileName, setContractFileName] = useState<string>('');
@@ -1024,7 +1027,13 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         initial={{ opacity: 0, scale: 0.96, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 15 }}
-        className={`relative bg-white w-full ${activeTab === 'ENEX' ? 'max-w-7xl' : 'max-w-4xl'} max-h-[92vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-slate-100 z-10 transition-all duration-200`}
+        className={`relative bg-white flex flex-col border border-slate-100 z-10 transition-all duration-200 ${
+          isFullscreen
+            ? 'fixed inset-0 w-screen h-screen max-w-none max-h-none rounded-none shadow-none'
+            : activeTab === 'ENEX'
+              ? 'w-[98vw] max-w-[1880px] h-[95vh] max-h-[95vh] rounded-3xl shadow-2xl'
+              : 'w-full max-w-4xl max-h-[92vh] rounded-3xl shadow-2xl'
+        }`}
       >
         {/* 헤더 */}
         <div className="px-6 py-4 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
@@ -1034,13 +1043,23 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
             </div>
             <h3 className="text-base font-black tracking-tight">전산 엑셀 직접 업로드 & 관리대장 동기화</h3>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors cursor-pointer"
-            title="닫기"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(prev => !prev)}
+              className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+              title={isFullscreen ? '창 크기 복원' : '전체화면으로 최대화'}
+            >
+              {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors cursor-pointer"
+              title="닫기"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* 상단 탭 전환 바 */}
