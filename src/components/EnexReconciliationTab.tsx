@@ -931,7 +931,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         });
       }
 
-      alert('✅ 수수료율 및 물품대금/지급수수료 정책이 저장되었으며, 대사 및 순익 테이블에 즉시 반영되었습니다!');
+      alert('✅ 금융수수료율 및 상품별 물품대금 정책이 저장되었으며, 대사 테이블에 즉시 반영되었습니다!');
       setIsPolicyModalOpen(false);
     } catch (e: any) {
       alert('정책 저장 중 오류가 발생했습니다: ' + e.message);
@@ -2202,9 +2202,8 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                     <table className="w-full text-left text-xs border-collapse">
                       <thead className="bg-slate-100/80 text-slate-700 font-black border-b border-slate-200">
                         <tr>
-                          <th className="py-2 px-3 w-1/4">상조 상품명</th>
-                          <th className="py-2 px-2.5 w-1/5">1구좌당 물품대금(원)</th>
-                          <th className="py-2 px-2.5 w-1/5 text-rose-700">1구좌당 지급수수료(원)</th>
+                          <th className="py-2 px-3 w-[28%]">상조 상품명</th>
+                          <th className="py-2 px-2.5 w-[24%]">1구좌당 물품대금(원)</th>
                           <th className="py-2 px-3">자동인식 키워드</th>
                           <th className="py-2 px-1 text-center w-10">삭제</th>
                         </tr>
@@ -2241,22 +2240,6 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                                   });
                                 }}
                                 className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded font-mono font-bold text-xs text-right"
-                              />
-                            </td>
-                            <td className="py-1.5 px-2.5">
-                              <input
-                                type="number"
-                                step="10000"
-                                value={rule.defaultPayoutFee || 0}
-                                onChange={e => {
-                                  const val = parseInt(e.target.value, 10) || 0;
-                                  setEditingPolicy(prev => {
-                                    const copy = [...prev.productRules];
-                                    copy[idx] = { ...copy[idx], defaultPayoutFee: val };
-                                    return { ...prev, productRules: copy };
-                                  });
-                                }}
-                                className="w-full px-2 py-1 bg-rose-50/50 border border-rose-200 rounded font-mono font-bold text-xs text-right text-rose-800"
                               />
                             </td>
                             <td className="py-1.5 px-2.5">
