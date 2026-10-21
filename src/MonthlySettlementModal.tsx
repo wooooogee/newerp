@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { X, Calendar, Download, Search, Building2, ChevronRight, ChevronDown, FileSpreadsheet, Layers, CreditCard, ArrowUpDown, Filter, Check, RotateCcw, Lock, Unlock, Sparkles, GripVertical } from 'lucide-react';
+import { X, Calendar, Download, Search, Building2, ChevronRight, ChevronDown, FileSpreadsheet, Layers, CreditCard, ArrowUpDown, Filter, Check, RotateCcw, Lock, Unlock, Sparkles, GripVertical, Plus, Trash2, Edit3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { checkInstallCertEligibility, isSupplyCommissionRule } from './manualOrderUtils';
 
@@ -48,6 +48,61 @@ interface HqMonthlyStat {
   specialItems: any[];
   maintenanceItems: any[];
 }
+
+export interface DetailedSettlementRow {
+  id: string;
+  targetName: string;      // 거래처 / 지급대상 (본부명 or 개인명)
+  division?: string;        // 구분 (소계 행이면 '소계')
+  itemName: string;        // 상품명 / 지급항목
+  count: number;           // 건수
+  unitFee: number;         // 건별수수료
+  salesCommission: number; // 판매수수료
+  promoCommission: number; // 판매촉진비
+  totalCommission: number; // 총수수료
+  isSubtotal?: boolean;    // 소계 행 여부
+  isHeaderGroup?: boolean; // 본부 첫 행 (거래처명 노출 여부)
+  isCustom?: boolean;      // 사용자 직접 추가 항목 여부
+}
+
+// 10월 수수료 정산 내역 기준 기본 데이터 (사용자 확정 양식)
+export const DEFAULT_OCTOBER_SETTLEMENT_ROWS: DetailedSettlementRow[] = [
+  // 1. 언바운드컴퍼니
+  { id: 'oct_unbound_1', targetName: '언바운드컴퍼니', itemName: '프리미엄540', count: 27, unitFee: 750000, salesCommission: 8100000, promoCommission: 12150000, totalCommission: 20250000, isHeaderGroup: true },
+  { id: 'oct_unbound_2', targetName: '언바운드컴퍼니', itemName: '프리미엄540플러스', count: 355, unitFee: 740000, salesCommission: 106500000, promoCommission: 156200000, totalCommission: 262700000 },
+  { id: 'oct_unbound_sub', targetName: '언바운드컴퍼니', division: '소계', itemName: '', count: 382, unitFee: 0, salesCommission: 114600000, promoCommission: 168350000, totalCommission: 282950000, isSubtotal: true },
+
+  // 2. 굿라이프
+  { id: 'oct_goodlife_1', targetName: '굿라이프', itemName: '올인원', count: 201, unitFee: 750000, salesCommission: 60300000, promoCommission: 90450000, totalCommission: 150750000, isHeaderGroup: true },
+  { id: 'oct_goodlife_2', targetName: '굿라이프', itemName: '골드', count: 8, unitFee: 750000, salesCommission: 2400000, promoCommission: 3600000, totalCommission: 6000000 },
+  { id: 'oct_goodlife_3', targetName: '굿라이프', itemName: '실버', count: 1, unitFee: 710000, salesCommission: 300000, promoCommission: 410000, totalCommission: 710000 },
+  { id: 'oct_goodlife_sub', targetName: '굿라이프', division: '소계', itemName: '', count: 210, unitFee: 0, salesCommission: 63000000, promoCommission: 94460000, totalCommission: 157460000, isSubtotal: true },
+
+  // 3. 피티엠에스
+  { id: 'oct_ptms_1', targetName: '피티엠에스', itemName: '하이브리드698', count: 2, unitFee: 680000, salesCommission: 600000, promoCommission: 760000, totalCommission: 1360000, isHeaderGroup: true },
+
+  // 4. 맥스
+  { id: 'oct_max_1', targetName: '맥스', itemName: '하이브리드698', count: 4, unitFee: 680000, salesCommission: 1200000, promoCommission: 1520000, totalCommission: 2720000, isHeaderGroup: true },
+  { id: 'oct_max_2', targetName: '맥스', itemName: '헬스케어580', count: 2, unitFee: 60000, salesCommission: 120000, promoCommission: 0, totalCommission: 120000 },
+  { id: 'oct_max_3', targetName: '맥스', itemName: '유지수수료(헬스케어580)', count: 6, unitFee: 10000, salesCommission: 60000, promoCommission: 0, totalCommission: 60000 },
+  { id: 'oct_max_sub', targetName: '맥스', division: '소계', itemName: '', count: 12, unitFee: 0, salesCommission: 1380000, promoCommission: 1520000, totalCommission: 2900000, isSubtotal: true },
+
+  // 5. 해랑인터내셔널
+  { id: 'oct_haerang_1', targetName: '해랑인터내셔널', itemName: '하이브리드698', count: 1, unitFee: 650000, salesCommission: 300000, promoCommission: 350000, totalCommission: 650000, isHeaderGroup: true },
+  { id: 'oct_haerang_2', targetName: '해랑인터내셔널', itemName: '프리미엄540', count: 2, unitFee: 600000, salesCommission: 600000, promoCommission: 600000, totalCommission: 1200000 },
+  { id: 'oct_haerang_sub', targetName: '해랑인터내셔널', division: '소계', itemName: '', count: 3, unitFee: 0, salesCommission: 900000, promoCommission: 950000, totalCommission: 1850000, isSubtotal: true },
+
+  // 6. 유지수수료 본부들
+  { id: 'oct_withus_1', targetName: '위더스앤씨', itemName: '유지수수료(좋은건강크루즈)', count: 1, unitFee: 10000, salesCommission: 10000, promoCommission: 0, totalCommission: 10000, isHeaderGroup: true },
+  { id: 'oct_direct_1', targetName: '다이렉트', itemName: '유지수수료(헬스케어580)', count: 2, unitFee: 14000, salesCommission: 28000, promoCommission: 0, totalCommission: 28000, isHeaderGroup: true },
+  { id: 'oct_thelife_1', targetName: '더라이프앤', itemName: '유지수수료(헬스케어580)', count: 1, unitFee: 10000, salesCommission: 10000, promoCommission: 0, totalCommission: 10000, isHeaderGroup: true },
+
+  // 7. 기타 수당 / 외주 지급대상 (컨설팅비, 모델비, 물품대금 수수료, 홈페이지 유지비)
+  { id: 'oct_etc_1', targetName: '조재윤', itemName: '모델비', count: 601, unitFee: 10000, salesCommission: 0, promoCommission: 0, totalCommission: 6010000, isHeaderGroup: true },
+  { id: 'oct_etc_2', targetName: '조민경', itemName: '컨설팅비', count: 601, unitFee: 5000, salesCommission: 0, promoCommission: 0, totalCommission: 3005000, isHeaderGroup: true },
+  { id: 'oct_etc_3', targetName: '이종연', itemName: '컨설팅비(해랑인터내셔널)', count: 3, unitFee: 30000, salesCommission: 0, promoCommission: 0, totalCommission: 90000, isHeaderGroup: true },
+  { id: 'oct_etc_4', targetName: '신동우', itemName: '물품대금 수수료(테라웨이브)', count: 2, unitFee: 500000, salesCommission: 0, promoCommission: 0, totalCommission: 1000000, isHeaderGroup: true },
+  { id: 'oct_etc_5', targetName: '권성훈', itemName: '홈페이지 유지비', count: 1, unitFee: 150000, salesCommission: 0, promoCommission: 0, totalCommission: 150000, isHeaderGroup: true }
+];
 
 // 구좌수 파싱 헬퍼 함수
 const getAccountCountFromItem = (item: any): number => {
@@ -137,6 +192,33 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   const [selectedHqDetail, setSelectedHqDetail] = useState<HqMonthlyStat | null>(null);
   const [sortField, setSortField] = useState<'netTotal' | 'count' | 'hqName' | 'custom'>('netTotal');
   const [sortAsc, setSortAsc] = useState(false);
+
+  // 뷰 모드 탭: 'summary' (본부별 총괄 집계) | 'detailed' (수수료 정산 상세 내역 - 사용자 요청 뷰)
+  const [settlementViewTab, setSettlementViewTab] = useState<'summary' | 'detailed'>('detailed');
+
+  // 상세 정산 내역 편집 모드
+  const [isDetailEditMode, setIsDetailEditMode] = useState<boolean>(false);
+
+  // 신규 항목 추가 모달 상태
+  const [isAddDetailModalOpen, setIsAddDetailModalOpen] = useState<boolean>(false);
+  const [newDetailTarget, setNewDetailTarget] = useState<string>('');
+  const [newDetailItem, setNewDetailItem] = useState<string>('');
+  const [newDetailCount, setNewDetailCount] = useState<number>(1);
+  const [newDetailUnitFee, setNewDetailUnitFee] = useState<number>(0);
+  const [newDetailSalesComm, setNewDetailSalesComm] = useState<number>(0);
+  const [newDetailPromoComm, setNewDetailPromoComm] = useState<number>(0);
+  const [newDetailTotalComm, setNewDetailTotalComm] = useState<number>(0);
+
+  // 로컬 스토리지에 저장된 월별 상세 정산 내역
+  const [customDetailedRowsMap, setCustomDetailedRowsMap] = useState<Record<string, DetailedSettlementRow[]>>(() => {
+    try {
+      const stored = localStorage.getItem('erp_monthly_detailed_rows_map_v2');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.error(e);
+    }
+    return {};
+  });
 
   // 사업단별 묶기 상태 (기본값 true로 설정하여 접속 시 바로 사업단별로 정돈되어 나타남)
   const [groupByDivision, setGroupByDivision] = useState<boolean>(() => {
@@ -744,6 +826,406 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
   const handleSelectAllHqs = () => {
     setSelectedHqs(allAvailableHqs);
+  };
+
+  // =========================================================================
+  // 3-0. 사용자 요청 뷰: 월별 수수료 정산 내역 (상품별 / 지급항목별 상세 집계)
+  // =========================================================================
+  const detailedSettlementList = useMemo<DetailedSettlementRow[]>(() => {
+    // 1) 로컬 스토리지에 사용자가 직접 편집/저장한 내역이 있는 경우 최우선 적용
+    if (customDetailedRowsMap[selectedMonth] && customDetailedRowsMap[selectedMonth].length > 0) {
+      return customDetailedRowsMap[selectedMonth];
+    }
+
+    // 2) 10월 기본 데이터 (사용자 확정 내역)
+    if (selectedMonth === '2026-10' || selectedMonth.endsWith('-10')) {
+      return DEFAULT_OCTOBER_SETTLEMENT_ROWS;
+    }
+
+    // 3) 다른 월: ERP 데이터(effectiveHqMonthlyStats)로부터 자동 집계 생성
+    const result: DetailedSettlementRow[] = [];
+
+    // (1) 본부별 영업 실적 및 유지수수료 집계
+    effectiveHqMonthlyStats.forEach((stat, hqIdx) => {
+      // 영업 실적 아이템 상품별 그룹화
+      const prodMap = new Map<string, { count: number; salesComm: number; promoComm: number; totalComm: number }>();
+      (stat.items || []).forEach(item => {
+        const { totalCommission, salesComm } = calculateCommissionDetails(item, globalStatsMap);
+        const promo = totalCommission - salesComm;
+        const prodName = item.prodName || '기본상품';
+
+        const cur = prodMap.get(prodName) || { count: 0, salesComm: 0, promoComm: 0, totalComm: 0 };
+        cur.count += 1;
+        cur.salesComm += salesComm;
+        cur.promoComm += promo;
+        cur.totalComm += totalCommission;
+        prodMap.set(prodName, cur);
+      });
+
+      // 유지수수료 항목
+      const maintMap = new Map<string, { count: number; amount: number }>();
+      (stat.maintenanceItems || []).forEach(mItem => {
+        const name = `유지수수료(${mItem.prodName || '헬스케어580'})`;
+        const cur = maintMap.get(name) || { count: 0, amount: 0 };
+        cur.count += (mItem.count || 1);
+        cur.amount += (mItem.amount || 0);
+        maintMap.set(name, cur);
+      });
+
+      const hasProds = prodMap.size > 0;
+      const hasMaint = maintMap.size > 0;
+      if (!hasProds && !hasMaint) return;
+
+      let isFirstItem = true;
+      let hqCountSum = 0;
+      let hqSalesSum = 0;
+      let hqPromoSum = 0;
+      let hqTotalSum = 0;
+
+      // 상품별 행 추가
+      prodMap.forEach((val, pName) => {
+        const unitFee = val.count > 0 ? Math.round(val.totalComm / val.count) : 0;
+        result.push({
+          id: `auto_${stat.hqName}_${pName}_${hqIdx}`,
+          targetName: stat.hqName,
+          itemName: pName,
+          count: val.count,
+          unitFee,
+          salesCommission: val.salesComm,
+          promoCommission: val.promoComm,
+          totalCommission: val.totalComm,
+          isHeaderGroup: isFirstItem
+        });
+        isFirstItem = false;
+        hqCountSum += val.count;
+        hqSalesSum += val.salesComm;
+        hqPromoSum += val.promoComm;
+        hqTotalSum += val.totalComm;
+      });
+
+      // 유지수수료 행 추가
+      maintMap.forEach((val, mName) => {
+        const unitFee = val.count > 0 ? Math.round(val.amount / val.count) : 0;
+        result.push({
+          id: `auto_${stat.hqName}_maint_${mName}_${hqIdx}`,
+          targetName: stat.hqName,
+          itemName: mName,
+          count: val.count,
+          unitFee,
+          salesCommission: val.amount,
+          promoCommission: 0,
+          totalCommission: val.amount,
+          isHeaderGroup: isFirstItem
+        });
+        isFirstItem = false;
+        hqCountSum += val.count;
+        hqSalesSum += val.amount;
+        hqTotalSum += val.amount;
+      });
+
+      // 본부 소계 행 추가
+      result.push({
+        id: `auto_${stat.hqName}_subtotal_${hqIdx}`,
+        targetName: stat.hqName,
+        division: '소계',
+        itemName: '',
+        count: hqCountSum,
+        unitFee: 0,
+        salesCommission: hqSalesSum,
+        promoCommission: hqPromoSum,
+        totalCommission: hqTotalSum,
+        isSubtotal: true
+      });
+    });
+
+    // (2) 기타 지급대상 (글로벌 인센티브 / 특수수당 대상자)
+    if (globalIncentiveRules && globalIncentiveRules.length > 0) {
+      globalIncentiveRules.forEach((rule, rIdx) => {
+        if (!rule.targetName || rule.targetName === 'SELF_HQ') return;
+        const targetStat = effectiveHqMonthlyStats.find(s => s.hqName === rule.targetName);
+        const count = targetStat ? (targetStat.count || targetStat.specialItems?.length || 1) : 1;
+        const total = targetStat?.specialSum || rule.minimumGuarantee || (count * (rule.commissionPerUnit || 0));
+        if (total > 0) {
+          result.push({
+            id: `auto_etc_${rule.targetName}_${rIdx}`,
+            targetName: rule.targetName,
+            itemName: rule.incentiveName || '특수수당',
+            count,
+            unitFee: rule.commissionPerUnit || (count > 0 ? Math.round(total / count) : 0),
+            salesCommission: 0,
+            promoCommission: 0,
+            totalCommission: total,
+            isHeaderGroup: true
+          });
+        }
+      });
+    }
+
+    return result;
+  }, [selectedMonth, customDetailedRowsMap, effectiveHqMonthlyStats, calculateCommissionDetails, globalStatsMap, globalIncentiveRules]);
+
+  // 상세 정산 내역 전체 합계 계산 (소계 행 제외)
+  const detailedTotals = useMemo(() => {
+    let totalCount = 0;
+    let totalSalesComm = 0;
+    let totalPromoComm = 0;
+    let totalCommission = 0;
+
+    detailedSettlementList.forEach(row => {
+      if (row.isSubtotal) return;
+      totalCount += (row.count || 0);
+      totalSalesComm += (row.salesCommission || 0);
+      totalPromoComm += (row.promoCommission || 0);
+      totalCommission += (row.totalCommission || 0);
+    });
+
+    return { totalCount, totalSalesComm, totalPromoComm, totalCommission };
+  }, [detailedSettlementList]);
+
+  // 셀 값 수정 핸들러
+  const handleUpdateDetailCell = (id: string, field: keyof DetailedSettlementRow, value: any) => {
+    const updated = detailedSettlementList.map(row => {
+      if (row.id !== id) return row;
+      const newRow = { ...row, [field]: value };
+      if (field === 'count' || field === 'unitFee') {
+        const count = field === 'count' ? Number(value) || 0 : row.count;
+        const unitFee = field === 'unitFee' ? Number(value) || 0 : row.unitFee;
+        if (unitFee > 0 && !row.isSubtotal) {
+          newRow.totalCommission = count * unitFee;
+          if (newRow.salesCommission > 0) {
+            newRow.promoCommission = Math.max(0, newRow.totalCommission - newRow.salesCommission);
+          }
+        }
+      }
+      return newRow;
+    });
+
+    // 소계 행 자동 재계산
+    let curCountSum = 0;
+    let curSalesSum = 0;
+    let curPromoSum = 0;
+    let curTotalSum = 0;
+
+    for (let i = 0; i < updated.length; i++) {
+      const r = updated[i];
+      if (r.isSubtotal) {
+        r.count = curCountSum;
+        r.salesCommission = curSalesSum;
+        r.promoCommission = curPromoSum;
+        r.totalCommission = curTotalSum;
+        curCountSum = 0;
+        curSalesSum = 0;
+        curPromoSum = 0;
+        curTotalSum = 0;
+      } else {
+        curCountSum += (r.count || 0);
+        curSalesSum += (r.salesCommission || 0);
+        curPromoSum += (r.promoCommission || 0);
+        curTotalSum += (r.totalCommission || 0);
+      }
+    }
+
+    setCustomDetailedRowsMap(prev => {
+      const next = { ...prev, [selectedMonth]: updated };
+      try {
+        localStorage.setItem('erp_monthly_detailed_rows_map_v2', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  // 상세 정산 내역 초기화
+  const handleResetDetailedRows = () => {
+    if (!window.confirm('정산 내역을 기본 상태로 초기화하시겠습니까?')) return;
+    setCustomDetailedRowsMap(prev => {
+      const copy = { ...prev };
+      delete copy[selectedMonth];
+      try {
+        localStorage.setItem('erp_monthly_detailed_rows_map_v2', JSON.stringify(copy));
+      } catch (e) {}
+      return copy;
+    });
+    alert('기본 정산 내역으로 복원되었습니다.');
+  };
+
+  // 신규 항목 추가
+  const handleAddNewDetailRow = () => {
+    if (!newDetailTarget.trim() || !newDetailItem.trim()) {
+      alert('거래처/지급대상과 상품명/지급항목을 입력해주세요.');
+      return;
+    }
+    const count = Number(newDetailCount) || 1;
+    const unitFee = Number(newDetailUnitFee) || 0;
+    const salesComm = Number(newDetailSalesComm) || 0;
+    const promoComm = Number(newDetailPromoComm) || 0;
+    const totalComm = Number(newDetailTotalComm) || (count * unitFee);
+
+    const newRow: DetailedSettlementRow = {
+      id: `custom_${Date.now()}`,
+      targetName: newDetailTarget.trim(),
+      itemName: newDetailItem.trim(),
+      count,
+      unitFee,
+      salesCommission: salesComm,
+      promoCommission: promoComm,
+      totalCommission: totalComm,
+      isHeaderGroup: true,
+      isCustom: true
+    };
+
+    const nextList = [...detailedSettlementList, newRow];
+    setCustomDetailedRowsMap(prev => {
+      const next = { ...prev, [selectedMonth]: nextList };
+      try {
+        localStorage.setItem('erp_monthly_detailed_rows_map_v2', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
+    setIsAddDetailModalOpen(false);
+    setNewDetailTarget('');
+    setNewDetailItem('');
+    setNewDetailCount(1);
+    setNewDetailUnitFee(0);
+    setNewDetailSalesComm(0);
+    setNewDetailPromoComm(0);
+    setNewDetailTotalComm(0);
+  };
+
+  // 항목 삭제
+  const handleRemoveDetailRow = (id: string) => {
+    if (!window.confirm('이 항목을 삭제하시겠습니까?')) return;
+    const nextList = detailedSettlementList.filter(r => r.id !== id);
+    setCustomDetailedRowsMap(prev => {
+      const next = { ...prev, [selectedMonth]: nextList };
+      try {
+        localStorage.setItem('erp_monthly_detailed_rows_map_v2', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  // 사용자 제공 이미지 서식 100% 동일한 상세 정산 내역 엑셀 다운로드
+  const handleExportDetailedSettlementExcel = () => {
+    if (!XLSX || !XLSX.utils) {
+      alert('엑셀 라이브러리를 로드하지 못했습니다.');
+      return;
+    }
+
+    try {
+      const wb = XLSX.utils.book_new();
+      const monthNum = selectedMonth ? parseInt(selectedMonth.split('-')[1], 10) : 10;
+      const titleText = `${monthNum}월 수수료 정산 내역`;
+
+      const wsData: any[][] = [
+        [titleText, '', '', '', '', '', '', ''],
+        ['', '', '', '', '', '', '', ''],
+        ['거래처 / 지급대상', '구분', '상품명 / 지급항목', '건수', '건별수수료', '판매수수료', '판매촉진비', '총수수료']
+      ];
+
+      detailedSettlementList.forEach(r => {
+        wsData.push([
+          r.isSubtotal ? '' : (r.isHeaderGroup ? r.targetName : ''),
+          r.division || '',
+          r.itemName || '',
+          r.isSubtotal ? { t: 'n', v: r.count, z: '#,##0' } : (r.count > 0 ? { t: 'n', v: r.count, z: '#,##0' } : ''),
+          (!r.isSubtotal && r.unitFee > 0) ? { t: 'n', v: r.unitFee, z: '#,##0' } : '',
+          (!r.isSubtotal && r.salesCommission > 0) ? { t: 'n', v: r.salesCommission, z: '#,##0' } : '',
+          (!r.isSubtotal && r.promoCommission > 0) ? { t: 'n', v: r.promoCommission, z: '#,##0' } : '',
+          { t: 'n', v: r.totalCommission, z: '#,##0' }
+        ]);
+      });
+
+      // 최하단 전체 지급수수료 합계 행
+      wsData.push([
+        '전체 지급수수료 합계',
+        '', '', '', '', '', '',
+        { t: 'n', v: detailedTotals.totalCommission, z: '#,##0' }
+      ]);
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
+        { s: { r: wsData.length - 1, c: 0 }, e: { r: wsData.length - 1, c: 6 } }
+      ];
+
+      ws['!cols'] = [
+        { wch: 18 },
+        { wch: 10 },
+        { wch: 28 },
+        { wch: 10 },
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 18 }
+      ];
+
+      const thinBorder = {
+        top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        right: { style: 'thin', color: { rgb: 'CBD5E1' } }
+      };
+
+      for (let R = 0; R < wsData.length; R++) {
+        const isTitle = R === 0;
+        const isHeader = R === 2;
+        const isTotalRow = R === wsData.length - 1;
+        const dataRowIdx = R - 3;
+        const rData = dataRowIdx >= 0 && dataRowIdx < detailedSettlementList.length ? detailedSettlementList[dataRowIdx] : null;
+        const isSubtotal = rData?.isSubtotal;
+
+        for (let C = 0; C <= 7; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws[addr]) continue;
+
+          if (isTitle) {
+            ws[addr].s = {
+              fill: { fgColor: { rgb: '0F172A' } },
+              font: { name: '맑은 고딕', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
+              alignment: { vertical: 'center', horizontal: 'center' }
+            };
+          } else if (isHeader) {
+            ws[addr].s = {
+              fill: { fgColor: { rgb: '1E293B' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+              alignment: { vertical: 'center', horizontal: C === 1 || C === 3 ? 'center' : (C >= 4 ? 'right' : 'left') },
+              border: thinBorder
+            };
+          } else if (isTotalRow) {
+            ws[addr].s = {
+              fill: { fgColor: { rgb: '0F172A' } },
+              font: { name: '맑은 고딕', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
+              alignment: { vertical: 'center', horizontal: C === 7 ? 'right' : 'left' }
+            };
+          } else if (isSubtotal) {
+            ws[addr].s = {
+              fill: { fgColor: { rgb: 'D9E1F2' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '0F172A' } },
+              alignment: { vertical: 'center', horizontal: C === 1 || C === 3 ? 'center' : 'right' },
+              border: thinBorder
+            };
+          } else {
+            ws[addr].s = {
+              fill: { fgColor: { rgb: 'FFFFFF' } },
+              font: { name: '맑은 고딕', sz: 9, color: { rgb: '0F172A' }, bold: C === 0 || C === 7 },
+              alignment: { vertical: 'center', horizontal: C === 1 || C === 3 ? 'center' : (C >= 4 ? 'right' : 'left') },
+              border: thinBorder
+            };
+          }
+        }
+      }
+
+      XLSX.utils.book_append_sheet(wb, ws, `${monthNum}월 수수료 정산 내역`);
+      if (!wb.Workbook) wb.Workbook = {};
+      if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+      wb.Workbook.CalcPr.fullCalcOnLoad = true;
+
+      XLSX.writeFile(wb, `${selectedMonth}_수수료_정산_내역.xlsx`);
+    } catch (err: any) {
+      console.error(err);
+      alert('엑셀 다운로드 중 오류가 발생했습니다: ' + err.message);
+    }
   };
 
   const handleDeselectAllHqs = () => {
@@ -1604,14 +2086,25 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                 </button>
               )}
 
-              <button
-                onClick={handleExportExcel}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
-                title="선택 월 집계표 엑셀 다운로드"
-              >
-                <FileSpreadsheet size={15} />
-                월별 집계 엑셀 다운로드
-              </button>
+              {settlementViewTab === 'detailed' ? (
+                <button
+                  onClick={handleExportDetailedSettlementExcel}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-md shadow-blue-600/20 cursor-pointer"
+                  title="월별 수수료 정산 내역서 서식 엑셀 다운로드"
+                >
+                  <FileSpreadsheet size={15} />
+                  수수료 정산 내역 엑셀 다운로드
+                </button>
+              ) : (
+                <button
+                  onClick={handleExportExcel}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                  title="선택 월 집계표 엑셀 다운로드"
+                >
+                  <FileSpreadsheet size={15} />
+                  월별 집계 엑셀 다운로드
+                </button>
+              )}
               <button
                 onClick={onClose}
                 className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-all cursor-pointer"
@@ -1621,9 +2114,42 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             </div>
           </div>
 
-          {/* Filter Bar */}
+          {/* Filter & View Mode Bar */}
           <div className="px-6 py-3 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
+              {/* 뷰 모드 전환 탭 */}
+              <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setSettlementViewTab('detailed')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    settlementViewTab === 'detailed'
+                      ? 'bg-blue-600 text-white shadow-2xs font-black'
+                      : 'text-slate-600 hover:text-blue-700'
+                  }`}
+                >
+                  <Layers size={13} />
+                  <span>{selectedMonth ? `${parseInt(selectedMonth.split('-')[1] || '10', 10)}월 ` : ''}수수료 정산 내역 (상세)</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                    settlementViewTab === 'detailed' ? 'bg-blue-900/60 text-white' : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {detailedTotals.totalCommission.toLocaleString()}원
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettlementViewTab('summary')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                    settlementViewTab === 'summary'
+                      ? 'bg-white text-slate-900 shadow-2xs font-black'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Building2 size={13} />
+                  <span>본부별 총괄 집계</span>
+                </button>
+              </div>
+
               {/* 월 선택 */}
               <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
                 <div className="flex items-center gap-1 pl-2 text-slate-600 font-bold">
@@ -1901,8 +2427,264 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             </div>
           )}
 
-          {/* KPI Dashboard Summary Cards */}
-          <div className="px-6 py-3.5 bg-slate-50/60 border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+          {settlementViewTab === 'detailed' ? (
+            <div className="flex-1 flex flex-col overflow-hidden bg-slate-100/60 p-4 md:p-6 custom-scrollbar">
+              {/* 상단 툴바 / 액션 바 */}
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                <div className="flex items-center gap-3">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse" />
+                  <div>
+                    <h3 className="text-sm font-black text-slate-800">
+                      {selectedMonth ? `${parseInt(selectedMonth.split('-')[1] || '10', 10)}월 ` : ''}수수료 정산 내역 보고서
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      거래처 및 지급대상별 수수료·촉진비·기타 정산금 상세 내역 (엑셀 서식 100% 동기화)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-1 text-xs text-blue-900 font-bold mr-2">
+                    총 정산 합계: <span className="font-mono text-sm font-black text-blue-700">{detailedTotals.totalCommission.toLocaleString()}</span>원
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsDetailEditMode(!isDetailEditMode)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                      isDetailEditMode 
+                        ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 shadow-xs' 
+                        : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                    }`}
+                    title="테이블 내 셀을 직접 클릭하여 금액과 건수를 수정합니다"
+                  >
+                    <Edit3 size={13} />
+                    <span>{isDetailEditMode ? '편집 완료 (저장)' : '인라인 수정 모드'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsAddDetailModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
+                    title="신규 정산 대상 또는 항목을 추가합니다"
+                  >
+                    <Plus size={13} />
+                    <span>항목 추가</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetDetailedRows}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-all cursor-pointer"
+                    title="원래 기본 정산 내역으로 복원합니다"
+                  >
+                    <RotateCcw size={12} />
+                    <span>초기화</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportDetailedSettlementExcel}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
+                    title="현재 서식 그대로 엑셀 다운로드"
+                  >
+                    <FileSpreadsheet size={13} />
+                    <span>엑셀 다운로드</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 상세 내역 테이블 컨테이너 */}
+              <div className="flex-1 overflow-auto rounded-xl border border-slate-300 shadow-sm bg-white custom-scrollbar">
+                {/* 엑셀 서식 상단 타이틀 바 */}
+                <div className="bg-[#1e293b] text-white py-3 px-4 text-center text-sm font-bold tracking-wider sticky top-0 z-20">
+                  {selectedMonth ? `${parseInt(selectedMonth.split('-')[1] || '10', 10)}월 ` : ''}수수료 정산 내역
+                </div>
+
+                <table className="w-full text-xs text-left border-collapse min-w-[1000px]">
+                  <thead className="bg-[#2b3a4a] text-slate-100 font-bold border-b border-slate-400 uppercase tracking-wider sticky top-[44px] z-10 shadow-xs">
+                    <tr>
+                      <th className="px-4 py-3 text-center border-r border-slate-600 w-48">거래처 / 지급대상</th>
+                      <th className="px-3 py-3 text-center border-r border-slate-600 w-24">구분</th>
+                      <th className="px-4 py-3 text-left border-r border-slate-600 min-w-[200px]">상품명 / 지급항목</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-24">건수</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-32">건별수수료</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-36">판매수수료</th>
+                      <th className="px-3 py-3 text-right border-r border-slate-600 w-36">판매촉진비</th>
+                      <th className="px-4 py-3 text-right border-r border-slate-600 w-40">총수수료</th>
+                      {isDetailEditMode && (
+                        <th className="px-2 py-3 text-center w-16">삭제</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-slate-700 font-sans">
+                    {detailedSettlementList.length === 0 ? (
+                      <tr>
+                        <td colSpan={isDetailEditMode ? 9 : 8} className="px-6 py-16 text-center text-slate-400 font-medium">
+                          등록된 상세 정산 내역이 없습니다. '항목 추가' 버튼을 눌러 내역을 등록해 주세요.
+                        </td>
+                      </tr>
+                    ) : (
+                      detailedSettlementList.map((row) => {
+                        // 소계 행 스타일링
+                        if (row.isSubtotal) {
+                          return (
+                            <tr key={row.id} className="bg-[#d9e1f2] hover:bg-[#c9d5ec] font-bold text-slate-900 border-y border-slate-300 transition-colors">
+                              <td className="px-4 py-2.5 border-r border-slate-300"></td>
+                              <td className="px-3 py-2.5 text-center border-r border-slate-300 font-black text-blue-900">소계</td>
+                              <td className="px-4 py-2.5 border-r border-slate-300"></td>
+                              <td className="px-3 py-2.5 text-right font-mono font-black border-r border-slate-300">
+                                {row.count.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2.5 text-right border-r border-slate-300"></td>
+                              <td className="px-3 py-2.5 text-right border-r border-slate-300"></td>
+                              <td className="px-3 py-2.5 text-right border-r border-slate-300"></td>
+                              <td className="px-4 py-2.5 text-right font-mono font-black text-blue-900 border-r border-slate-300">
+                                {row.totalCommission.toLocaleString()}
+                              </td>
+                              {isDetailEditMode && <td className="px-2 py-2.5 text-center"></td>}
+                            </tr>
+                          );
+                        }
+
+                        // 일반 행 스타일링
+                        return (
+                          <tr key={row.id} className="hover:bg-blue-50/30 transition-colors">
+                            {/* 거래처 / 지급대상 */}
+                            <td className="px-4 py-2.5 font-bold text-slate-900 border-r border-slate-200 whitespace-nowrap">
+                              {row.isHeaderGroup ? (
+                                <div className="flex items-center gap-1.5">
+                                  <span>{row.targetName}</span>
+                                </div>
+                              ) : ''}
+                            </td>
+
+                            {/* 구분 */}
+                            <td className="px-3 py-2.5 text-center text-slate-500 border-r border-slate-200">
+                              {row.division || ''}
+                            </td>
+
+                            {/* 상품명 / 지급항목 */}
+                            <td className="px-4 py-2.5 font-medium text-slate-800 border-r border-slate-200">
+                              {isDetailEditMode ? (
+                                <input
+                                  type="text"
+                                  value={row.itemName}
+                                  onChange={(e) => handleUpdateDetailCell(row.id, 'itemName', e.target.value)}
+                                  className="w-full px-2 py-1 text-xs border border-blue-300 rounded bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                />
+                              ) : (
+                                <span>{row.itemName}</span>
+                              )}
+                            </td>
+
+                            {/* 건수 */}
+                            <td className="px-3 py-2.5 text-right font-mono border-r border-slate-200">
+                              {isDetailEditMode ? (
+                                <input
+                                  type="number"
+                                  value={row.count}
+                                  onChange={(e) => handleUpdateDetailCell(row.id, 'count', Number(e.target.value) || 0)}
+                                  className="w-20 px-2 py-1 text-xs text-right border border-blue-300 rounded bg-white font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                />
+                              ) : (
+                                row.count > 0 ? row.count.toLocaleString() : '-'
+                              )}
+                            </td>
+
+                            {/* 건별수수료 */}
+                            <td className="px-3 py-2.5 text-right font-mono border-r border-slate-200 text-slate-600">
+                              {isDetailEditMode ? (
+                                <input
+                                  type="number"
+                                  value={row.unitFee}
+                                  onChange={(e) => handleUpdateDetailCell(row.id, 'unitFee', Number(e.target.value) || 0)}
+                                  className="w-24 px-2 py-1 text-xs text-right border border-blue-300 rounded bg-white font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                />
+                              ) : (
+                                row.unitFee > 0 ? row.unitFee.toLocaleString() : ''
+                              )}
+                            </td>
+
+                            {/* 판매수수료 */}
+                            <td className="px-3 py-2.5 text-right font-mono border-r border-slate-200 text-slate-600">
+                              {isDetailEditMode ? (
+                                <input
+                                  type="number"
+                                  value={row.salesCommission}
+                                  onChange={(e) => handleUpdateDetailCell(row.id, 'salesCommission', Number(e.target.value) || 0)}
+                                  className="w-28 px-2 py-1 text-xs text-right border border-blue-300 rounded bg-white font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                />
+                              ) : (
+                                row.salesCommission > 0 ? row.salesCommission.toLocaleString() : ''
+                              )}
+                            </td>
+
+                            {/* 판매촉진비 */}
+                            <td className="px-3 py-2.5 text-right font-mono border-r border-slate-200 text-slate-600">
+                              {isDetailEditMode ? (
+                                <input
+                                  type="number"
+                                  value={row.promoCommission}
+                                  onChange={(e) => handleUpdateDetailCell(row.id, 'promoCommission', Number(e.target.value) || 0)}
+                                  className="w-28 px-2 py-1 text-xs text-right border border-blue-300 rounded bg-white font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                />
+                              ) : (
+                                row.promoCommission > 0 ? row.promoCommission.toLocaleString() : ''
+                              )}
+                            </td>
+
+                            {/* 총수수료 */}
+                            <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-900 border-r border-slate-200">
+                              {isDetailEditMode ? (
+                                <input
+                                  type="number"
+                                  value={row.totalCommission}
+                                  onChange={(e) => handleUpdateDetailCell(row.id, 'totalCommission', Number(e.target.value) || 0)}
+                                  className="w-28 px-2 py-1 text-xs text-right font-bold border border-blue-300 rounded bg-white font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                />
+                              ) : (
+                                row.totalCommission > 0 ? row.totalCommission.toLocaleString() : '0'
+                              )}
+                            </td>
+
+                            {/* 삭제 버튼 (인라인 편집 모드일 때만 표시) */}
+                            {isDetailEditMode && (
+                              <td className="px-2 py-2.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveDetailRow(row.id)}
+                                  className="p-1 rounded text-rose-500 hover:text-white hover:bg-rose-600 transition-colors cursor-pointer"
+                                  title="항목 삭제"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                  {/* 최하단 전체 합계 바 */}
+                  <tfoot className="bg-[#0f172a] text-white font-black text-xs border-t-2 border-slate-700 sticky bottom-0 z-10">
+                    <tr>
+                      <td colSpan={7} className="px-6 py-3.5 text-center tracking-wider text-sm font-black">
+                        전체 지급수수료 합계
+                      </td>
+                      <td className="px-4 py-3.5 text-right font-mono text-base font-black text-amber-300 border-r border-slate-700">
+                        {detailedTotals.totalCommission.toLocaleString()}
+                      </td>
+                      {isDetailEditMode && <td className="px-2 py-3.5"></td>}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* KPI Dashboard Summary Cards */}
+              <div className="px-6 py-3.5 bg-slate-50/60 border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3.5">
             <div className="bg-white p-3.5 rounded-xl border border-blue-100 shadow-2xs">
               <div className="text-[11px] font-bold text-slate-400 flex items-center justify-between">
                 <span>총 실지급액 합계</span>
@@ -2316,6 +3098,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               </table>
             </div>
           </div>
+            </>
+          )}
 
           {/* 본부 상세 명세 드릴다운 모달/드로어 */}
           <AnimatePresence>
@@ -2534,6 +3318,156 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                         </div>
                       </div>
                     )}
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* 상세 정산 내역 신규 항목 추가 모달 */}
+          <AnimatePresence>
+            {isAddDetailModalOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-70 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4"
+              >
+                <motion.div
+                  initial={{ scale: 0.95, y: 10 }}
+                  animate={{ scale: 1, y: 0 }}
+                  exit={{ scale: 0.95, y: 10 }}
+                  className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col"
+                >
+                  <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+                        <Plus size={16} />
+                      </div>
+                      <h4 className="text-sm font-black text-slate-800">신규 수수료 정산 항목 추가</h4>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddDetailModalOpen(false)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div className="p-5 space-y-3.5 text-xs">
+                    <div>
+                      <label className="block text-slate-700 font-bold mb-1">
+                        거래처 / 지급대상 명 <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="예: 언바운드컴퍼니, 조재윤, 신동우 등"
+                        value={newDetailTarget}
+                        onChange={(e) => setNewDetailTarget(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 font-bold mb-1">
+                        상품명 / 지급항목 <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="예: 프리미엄540, 모델비, 컨설팅비 등"
+                        value={newDetailItem}
+                        onChange={(e) => setNewDetailItem(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:border-blue-500 focus:outline-hidden"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-700 font-bold mb-1">실적 건수</label>
+                        <input
+                          type="number"
+                          value={newDetailCount}
+                          onChange={(e) => {
+                            const cnt = Number(e.target.value) || 0;
+                            setNewDetailCount(cnt);
+                            if (newDetailUnitFee > 0) {
+                              setNewDetailTotalComm(cnt * newDetailUnitFee);
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono focus:border-blue-500 focus:outline-hidden text-right"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-700 font-bold mb-1">건별 수수료 (단가)</label>
+                        <input
+                          type="number"
+                          value={newDetailUnitFee}
+                          onChange={(e) => {
+                            const fee = Number(e.target.value) || 0;
+                            setNewDetailUnitFee(fee);
+                            setNewDetailTotalComm(newDetailCount * fee);
+                          }}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono focus:border-blue-500 focus:outline-hidden text-right"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-700 font-bold mb-1">판매수수료</label>
+                        <input
+                          type="number"
+                          value={newDetailSalesComm}
+                          onChange={(e) => {
+                            const s = Number(e.target.value) || 0;
+                            setNewDetailSalesComm(s);
+                            setNewDetailTotalComm(s + newDetailPromoComm);
+                          }}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono focus:border-blue-500 focus:outline-hidden text-right"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-700 font-bold mb-1">판매촉진비</label>
+                        <input
+                          type="number"
+                          value={newDetailPromoComm}
+                          onChange={(e) => {
+                            const p = Number(e.target.value) || 0;
+                            setNewDetailPromoComm(p);
+                            setNewDetailTotalComm(newDetailSalesComm + p);
+                          }}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono focus:border-blue-500 focus:outline-hidden text-right"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 font-bold mb-1">총 수수료</label>
+                      <input
+                        type="number"
+                        value={newDetailTotalComm}
+                        onChange={(e) => setNewDetailTotalComm(Number(e.target.value) || 0)}
+                        className="w-full px-3 py-2 border border-blue-400 bg-blue-50/50 rounded-xl font-mono font-black text-blue-900 focus:border-blue-600 focus:outline-hidden text-right"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-100 bg-slate-50">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddDetailModalOpen(false)}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-300 text-slate-600 hover:bg-slate-100 font-bold transition-colors cursor-pointer"
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddNewDetailRow}
+                      className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors cursor-pointer shadow-xs"
+                    >
+                      등록하기
+                    </button>
                   </div>
                 </motion.div>
               </motion.div>
