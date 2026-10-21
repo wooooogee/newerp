@@ -79,6 +79,7 @@ export const DEFAULT_OCTOBER_SETTLEMENT_ROWS: DetailedSettlementRow[] = [
 
   // 3. 피티엠에스
   { id: 'oct_ptms_1', targetName: '피티엠에스', itemName: '하이브리드698', count: 2, unitFee: 680000, salesCommission: 600000, promoCommission: 760000, totalCommission: 1360000, isHeaderGroup: true },
+  { id: 'oct_ptms_sub', targetName: '피티엠에스', division: '소계', itemName: '', count: 2, unitFee: 0, salesCommission: 600000, promoCommission: 760000, totalCommission: 1360000, isSubtotal: true },
 
   // 4. 맥스
   { id: 'oct_max_1', targetName: '맥스', itemName: '하이브리드698', count: 4, unitFee: 680000, salesCommission: 1200000, promoCommission: 1520000, totalCommission: 2720000, isHeaderGroup: true },
@@ -93,8 +94,13 @@ export const DEFAULT_OCTOBER_SETTLEMENT_ROWS: DetailedSettlementRow[] = [
 
   // 6. 유지수수료 본부들
   { id: 'oct_withus_1', targetName: '위더스앤씨', itemName: '유지수수료(좋은건강크루즈)', count: 1, unitFee: 10000, salesCommission: 10000, promoCommission: 0, totalCommission: 10000, isHeaderGroup: true },
+  { id: 'oct_withus_sub', targetName: '위더스앤씨', division: '소계', itemName: '', count: 1, unitFee: 0, salesCommission: 10000, promoCommission: 0, totalCommission: 10000, isSubtotal: true },
+
   { id: 'oct_direct_1', targetName: '다이렉트', itemName: '유지수수료(헬스케어580)', count: 2, unitFee: 14000, salesCommission: 28000, promoCommission: 0, totalCommission: 28000, isHeaderGroup: true },
+  { id: 'oct_direct_sub', targetName: '다이렉트', division: '소계', itemName: '', count: 2, unitFee: 0, salesCommission: 28000, promoCommission: 0, totalCommission: 28000, isSubtotal: true },
+
   { id: 'oct_thelife_1', targetName: '더라이프앤', itemName: '유지수수료(헬스케어580)', count: 1, unitFee: 10000, salesCommission: 10000, promoCommission: 0, totalCommission: 10000, isHeaderGroup: true },
+  { id: 'oct_thelife_sub', targetName: '더라이프앤', division: '소계', itemName: '', count: 1, unitFee: 0, salesCommission: 10000, promoCommission: 0, totalCommission: 10000, isSubtotal: true },
 
   // 7. 기타 수당 / 외주 지급대상 (컨설팅비, 모델비, 물품대금 수수료, 홈페이지 유지비)
   { id: 'oct_etc_1', targetName: '조재윤', itemName: '모델비', count: 601, unitFee: 10000, salesCommission: 0, promoCommission: 0, totalCommission: 6010000, isHeaderGroup: true },
@@ -2763,11 +2769,12 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                           );
                         }
 
-                        // 일반 행 스타일링
+                        // 일반 행 스타일링 (새로운 거래처/지급대상 시작 시 뚜렷한 상단 구분선 적용)
+                        const isNewGroup = row.isHeaderGroup;
                         return (
-                          <tr key={row.id} className="hover:bg-blue-50/30 transition-colors">
+                          <tr key={row.id} className={`hover:bg-blue-50/30 transition-colors ${isNewGroup ? 'border-t-2 border-slate-300' : ''}`}>
                             {/* 거래처 / 지급대상 */}
-                            <td className="px-4 py-2.5 font-bold text-slate-900 border-r border-slate-200 whitespace-nowrap">
+                            <td className={`px-4 py-2.5 font-bold text-slate-900 border-r border-slate-200 whitespace-nowrap ${isNewGroup ? 'bg-slate-50/70 font-black' : ''}`}>
                               {row.isHeaderGroup ? (
                                 <div className="flex items-center gap-1.5">
                                   <span>{row.targetName}</span>
