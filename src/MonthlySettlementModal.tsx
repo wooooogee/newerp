@@ -105,7 +105,7 @@ export const DEFAULT_OCTOBER_SETTLEMENT_ROWS: DetailedSettlementRow[] = [
   { id: 'oct_etc_1', targetName: '조재윤', itemName: '모델비', count: 601, unitFee: 10000, salesCommission: 0, promoCommission: 0, totalCommission: 6010000, isHeaderGroup: true },
   { id: 'oct_etc_2', targetName: '조민경', itemName: '컨설팅비', count: 601, unitFee: 5000, salesCommission: 0, promoCommission: 0, totalCommission: 3005000, isHeaderGroup: true },
   { id: 'oct_etc_3', targetName: '이종연', itemName: '컨설팅비(해랑인터내셔널)', count: 3, unitFee: 30000, salesCommission: 0, promoCommission: 0, totalCommission: 90000, isHeaderGroup: true },
-  { id: 'oct_etc_4_diff', targetName: '신동우', itemName: '굿라이프 오버라이딩 차액분', count: 210, unitFee: 0, salesCommission: 0, promoCommission: 0, totalCommission: 15320000, isHeaderGroup: true },
+  { id: 'oct_etc_4_diff', targetName: '신동우', itemName: '굿라이프 오버라이딩 차액분', count: 209, unitFee: 0, salesCommission: 0, promoCommission: 0, totalCommission: 15720000, isHeaderGroup: true },
   { id: 'oct_etc_4', targetName: '신동우', itemName: '물품대금 수수료(테라웨이브)', count: 2, unitFee: 500000, salesCommission: 0, promoCommission: 0, totalCommission: 1000000, isHeaderGroup: false },
   { id: 'oct_etc_5', targetName: '권성훈', itemName: '홈페이지 유지비', count: 1, unitFee: 150000, salesCommission: 0, promoCommission: 0, totalCommission: 150000, isHeaderGroup: true }
 ];
@@ -227,6 +227,26 @@ const getAccountCountFromItem = (item: any): number => {
     if (!isNaN(q) && q > 0) return q;
   }
   return 1;
+};
+
+// 굿라이프 상품군(올인원, 골드, 실버, 하이브리드) 정확한 판정 헬퍼 함수
+// (주의: 렌탈 제품명/모델명에 포함된 '프라임실버', '젠틀실버', '로즈골드' 등 가전 색상명으로 인한 오분류 원천 차단)
+const getGoodlifeProductType = (item: any): 'allinone' | 'gold' | 'silver' | 'hybrid' => {
+  if (!item) return 'allinone';
+  const pName = String(item.prodName || item['상품명'] || '').trim();
+  if (pName.includes('올인원')) return 'allinone';
+  if (pName.includes('골드')) return 'gold';
+  if (pName.includes('실버')) return 'silver';
+  if (pName.includes('698') || pName.includes('하이브리드')) return 'hybrid';
+
+  // 상조 상품명에 명시적 구분이 없을 때만 렌탈상품명 검사 (가전 색상명 배제)
+  const rProd = String(item.rentalProd || item['렌탈상품명'] || item.modelName || item.productModel || '').trim();
+  if (rProd.includes('올인원')) return 'allinone';
+  if (rProd.includes('골드') && !rProd.includes('로즈골드') && !rProd.includes('샴페인골드')) return 'gold';
+  if (rProd.includes('실버') && !rProd.includes('프라임실버') && !rProd.includes('젠틀실버') && !rProd.includes('다크실버')) return 'silver';
+  if (rProd.includes('698') || rProd.includes('하이브리드')) return 'hybrid';
+
+  return 'allinone';
 };
 
 // 특수수당 본부/사업단 매칭 헬퍼 함수
@@ -1152,14 +1172,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
         (stat.items || []).forEach(item => {
           detectedCount += 1;
-          const prodCombined = `${item.prodName || ''} ${item.rentalProd || ''} ${item.modelName || ''}`.trim();
-          if (prodCombined.includes('실버')) {
+          const pType = getGoodlifeProductType(item);
+          if (pType === 'silver') {
             cur.silver += 1;
             kkumTotalSilver += 1;
-          } else if (prodCombined.includes('골드')) {
+          } else if (pType === 'gold') {
             cur.gold += 1;
             kkumTotalGold += 1;
-          } else if (prodCombined.includes('698') || prodCombined.includes('하이브리드')) {
+          } else if (pType === 'hybrid') {
             cur.hybrid += 1;
             kkumTotalHybrid += 1;
           } else {
@@ -1174,14 +1194,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
         (stat.items || []).forEach(item => {
           detectedCount += 1;
-          const prodCombined = `${item.prodName || ''} ${item.rentalProd || ''} ${item.modelName || ''}`.trim();
-          if (prodCombined.includes('실버')) {
+          const pType = getGoodlifeProductType(item);
+          if (pType === 'silver') {
             cur.silver += 1;
             shinTotalSilver += 1;
-          } else if (prodCombined.includes('골드')) {
+          } else if (pType === 'gold') {
             cur.gold += 1;
             shinTotalGold += 1;
-          } else if (prodCombined.includes('698') || prodCombined.includes('하이브리드')) {
+          } else if (pType === 'hybrid') {
             cur.hybrid += 1;
             shinTotalHybrid += 1;
           } else {
