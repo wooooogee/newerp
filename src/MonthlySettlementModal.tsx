@@ -1317,6 +1317,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     saveGoodlifeSplitRows(newRows);
   }, [divisionHqStats, getPayoutAccountInfo]);
 
+  // 사업단 관리(divisionSettings) 소속 본부 목록이 변경되거나 새 본부가 추가되었을 때 자동 동기화
+  const prevHqHashRef = useRef<string>('');
+  useEffect(() => {
+    const currentHash = `${kkumHqNames.join(',')}|${shinHqNames.join(',')}`;
+    if (!prevHqHashRef.current) {
+      prevHqHashRef.current = currentHash;
+      return;
+    }
+    if (prevHqHashRef.current !== currentHash) {
+      prevHqHashRef.current = currentHash;
+      handleSyncGoodlifeWithDivisions();
+    }
+  }, [kkumHqNames, shinHqNames, handleSyncGoodlifeWithDivisions]);
+
   // 3-1. 현재 월의 전체 고유 본부 목록
   const allAvailableHqs = useMemo(() => {
     return Array.from<string>(new Set(effectiveHqMonthlyStats.map(s => s.hqName))).sort((a, b) => a.localeCompare(b, 'ko'));
