@@ -126,15 +126,15 @@ export interface GoodlifeSplitItem {
   memo?: string;
 }
 
-// 10월 굿라이프 사업단 기본 내부 분배 내역 (총 210건, 157,460,000원 기준: 꿈잇다 vs 신동우사업단 분배)
+// 10월 굿라이프 사업단 실제 소속 본부 집계 기준 내부 분배 내역 (총 210건, 157,460,000원 기준: 꿈잇다 164건 vs 신동우사업단 46건)
 export const DEFAULT_OCTOBER_GOODLIFE_SPLIT_ITEMS: GoodlifeSplitItem[] = [
-  // 1. 굿라이프(꿈잇다) 사업단: 직송금 71만원 / 신동우 대표 차액 4만원 (실버 0원)
+  // 1. 굿라이프(꿈잇다) 사업단 (15개 소속본부 합계 164건): 직송금 71만원 / 신동우 대표 차액 4만원 (실버 0원)
   {
     id: 'gl_split_kkum_1',
     category: '꿈잇다',
-    hqName: '꿈잇다',
+    hqName: '꿈잇다 사업단',
     itemName: '굿라이프헬스케어올인원',
-    count: 180,
+    count: 162,
     officialUnitFee: 750000,
     directRecipient: '(주)꿈잇다',
     directUnitFee: 710000,
@@ -146,9 +146,9 @@ export const DEFAULT_OCTOBER_GOODLIFE_SPLIT_ITEMS: GoodlifeSplitItem[] = [
   {
     id: 'gl_split_kkum_2',
     category: '꿈잇다',
-    hqName: '꿈잇다',
+    hqName: '꿈잇다 사업단',
     itemName: '굿라이프헬스케어골드',
-    count: 6,
+    count: 1,
     officialUnitFee: 750000,
     directRecipient: '(주)꿈잇다',
     directUnitFee: 710000,
@@ -160,7 +160,7 @@ export const DEFAULT_OCTOBER_GOODLIFE_SPLIT_ITEMS: GoodlifeSplitItem[] = [
   {
     id: 'gl_split_kkum_3',
     category: '꿈잇다',
-    hqName: '꿈잇다',
+    hqName: '꿈잇다 사업단',
     itemName: '굿라이프헬스케어실버',
     count: 1,
     officialUnitFee: 710000,
@@ -172,13 +172,13 @@ export const DEFAULT_OCTOBER_GOODLIFE_SPLIT_ITEMS: GoodlifeSplitItem[] = [
     memo: '꿈잇다 직송금 71만 / 신동우 차액 0원'
   },
 
-  // 2. 굿라이프(신동우) 사업단: 본부 직송금 55만원 / 신동우 대표 차액 20만원 (실버 16만원)
+  // 2. 굿라이프(신동우) 사업단 (7개 소속본부 합계 46건): 본부 직송금 55만원 / 신동우 대표 차액 20만원 (실버 16만원)
   {
     id: 'gl_split_shindw_1',
     category: '신동우사업단',
     hqName: '신동우사업단 산하본부',
     itemName: '굿라이프헬스케어올인원',
-    count: 21,
+    count: 39,
     officialUnitFee: 750000,
     directRecipient: '소속 본부',
     directUnitFee: 550000,
@@ -192,7 +192,7 @@ export const DEFAULT_OCTOBER_GOODLIFE_SPLIT_ITEMS: GoodlifeSplitItem[] = [
     category: '신동우사업단',
     hqName: '신동우사업단 산하본부',
     itemName: '굿라이프헬스케어골드',
-    count: 2,
+    count: 7,
     officialUnitFee: 750000,
     directRecipient: '소속 본부',
     directUnitFee: 550000,
@@ -338,7 +338,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   const [goodlifeSplitRows, setGoodlifeSplitRows] = useState<GoodlifeSplitItem[]>(() => {
     try {
       const stored = localStorage.getItem('erp_goodlife_split_rows_v1');
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // 구버전 하드코딩 180건(187건) 데이터인 경우 실제 본부 집계 실적(164건/46건) 기본값으로 즉시 리셋
+        if (Array.isArray(parsed) && parsed.some((it: any) => it.category === '꿈잇다' && it.count === 180)) {
+          return DEFAULT_OCTOBER_GOODLIFE_SPLIT_ITEMS;
+        }
+        return parsed;
+      }
     } catch (e) {}
     return DEFAULT_OCTOBER_GOODLIFE_SPLIT_ITEMS;
   });
@@ -467,6 +474,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     const cleanTarget = targetName.trim();
     const normalizeName = (s: string) => (s || '').replace(/[\s()주식회사유대표본부지사]/g, '').toLowerCase();
     const normTarget = normalizeName(cleanTarget);
+
+    // 거래처 / 지급대상별 계좌정보 및 정산유형 매핑 헬퍼 함수
+    // 0) (주)꿈잇다 계좌는 기업은행 115-131758-01-017 주식회사 꿈잇다 최우선 보호 (hqSettings에 신동우 계좌가 잘못 들어간 경우 원천 차단)
+    if (normTarget.includes('꿈잇다')) {
+      return {
+        settlementType: '사업자',
+        bankName: '기업은행',
+        accountNumber: '115-131758-01-017',
+        accountHolder: '주식회사 꿈잇다'
+      };
+    }
 
     // 1) [본부별 정산 설정 (hqSettings)] 최우선 검색
     const matchedHq = (hqSettings || []).find(h => {
@@ -1134,14 +1152,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
         (stat.items || []).forEach(item => {
           detectedCount += 1;
-          const pName = item.prodName || '';
-          if (pName.includes('골드')) {
-            cur.gold += 1;
-            kkumTotalGold += 1;
-          } else if (pName.includes('실버')) {
+          const prodCombined = `${item.prodName || ''} ${item.rentalProd || ''} ${item.modelName || ''}`.trim();
+          if (prodCombined.includes('실버')) {
             cur.silver += 1;
             kkumTotalSilver += 1;
-          } else if (pName.includes('698') || pName.includes('하이브리드')) {
+          } else if (prodCombined.includes('골드')) {
+            cur.gold += 1;
+            kkumTotalGold += 1;
+          } else if (prodCombined.includes('698') || prodCombined.includes('하이브리드')) {
             cur.hybrid += 1;
             kkumTotalHybrid += 1;
           } else {
@@ -1156,14 +1174,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
         (stat.items || []).forEach(item => {
           detectedCount += 1;
-          const pName = item.prodName || '';
-          if (pName.includes('골드')) {
-            cur.gold += 1;
-            shinTotalGold += 1;
-          } else if (pName.includes('실버')) {
+          const prodCombined = `${item.prodName || ''} ${item.rentalProd || ''} ${item.modelName || ''}`.trim();
+          if (prodCombined.includes('실버')) {
             cur.silver += 1;
             shinTotalSilver += 1;
-          } else if (pName.includes('698') || pName.includes('하이브리드')) {
+          } else if (prodCombined.includes('골드')) {
+            cur.gold += 1;
+            shinTotalGold += 1;
+          } else if (prodCombined.includes('698') || prodCombined.includes('하이브리드')) {
             cur.hybrid += 1;
             shinTotalHybrid += 1;
           } else {
@@ -1229,43 +1247,43 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       {
         id: 'gl_split_kkum_1',
         category: '꿈잇다',
-        hqName: '꿈잇다',
+        hqName: '꿈잇다 사업단',
         itemName: '굿라이프헬스케어올인원',
-        count: useDetected ? divisionHqStats.kkumTotals.allinone : 180,
+        count: useDetected ? divisionHqStats.kkumTotals.allinone : 162,
         officialUnitFee: 750000,
         directRecipient: '(주)꿈잇다',
         directUnitFee: 710000,
-        bankName: kkumAcc.bankName !== '-' ? kkumAcc.bankName : '기업은행',
-        accountNumber: kkumAcc.accountNumber !== '-' ? kkumAcc.accountNumber : '115-131758-01-017',
-        accountHolder: kkumAcc.accountHolder !== '-' ? kkumAcc.accountHolder : '주식회사 꿈잇다',
+        bankName: '기업은행',
+        accountNumber: '115-131758-01-017',
+        accountHolder: '주식회사 꿈잇다',
         memo: '꿈잇다 직송금 71만 / 신동우 차액 4만'
       },
       {
         id: 'gl_split_kkum_2',
         category: '꿈잇다',
-        hqName: '꿈잇다',
+        hqName: '꿈잇다 사업단',
         itemName: '굿라이프헬스케어골드',
-        count: useDetected ? divisionHqStats.kkumTotals.gold : 6,
+        count: useDetected ? divisionHqStats.kkumTotals.gold : 1,
         officialUnitFee: 750000,
         directRecipient: '(주)꿈잇다',
         directUnitFee: 710000,
-        bankName: kkumAcc.bankName !== '-' ? kkumAcc.bankName : '기업은행',
-        accountNumber: kkumAcc.accountNumber !== '-' ? kkumAcc.accountNumber : '115-131758-01-017',
-        accountHolder: kkumAcc.accountHolder !== '-' ? kkumAcc.accountHolder : '주식회사 꿈잇다',
+        bankName: '기업은행',
+        accountNumber: '115-131758-01-017',
+        accountHolder: '주식회사 꿈잇다',
         memo: '꿈잇다 직송금 71만 / 신동우 차액 4만'
       },
       {
         id: 'gl_split_kkum_3',
         category: '꿈잇다',
-        hqName: '꿈잇다',
+        hqName: '꿈잇다 사업단',
         itemName: '굿라이프헬스케어실버',
-        count: useDetected ? divisionHqStats.kkumTotals.silver : 1,
+        count: useDetected ? (divisionHqStats.kkumTotals.silver + divisionHqStats.kkumTotals.hybrid) : 1,
         officialUnitFee: 710000,
         directRecipient: '(주)꿈잇다',
         directUnitFee: 710000,
-        bankName: kkumAcc.bankName !== '-' ? kkumAcc.bankName : '기업은행',
-        accountNumber: kkumAcc.accountNumber !== '-' ? kkumAcc.accountNumber : '115-131758-01-017',
-        accountHolder: kkumAcc.accountHolder !== '-' ? kkumAcc.accountHolder : '주식회사 꿈잇다',
+        bankName: '기업은행',
+        accountNumber: '115-131758-01-017',
+        accountHolder: '주식회사 꿈잇다',
         memo: '꿈잇다 직송금 71만 / 신동우 차액 0원'
       },
 
@@ -1275,7 +1293,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         category: '신동우사업단',
         hqName: '신동우사업단 산하본부',
         itemName: '굿라이프헬스케어올인원',
-        count: useDetected ? divisionHqStats.shinTotals.allinone : 21,
+        count: useDetected ? divisionHqStats.shinTotals.allinone : 39,
         officialUnitFee: 750000,
         directRecipient: '소속 본부',
         directUnitFee: 550000,
@@ -1289,7 +1307,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         category: '신동우사업단',
         hqName: '신동우사업단 산하본부',
         itemName: '굿라이프헬스케어골드',
-        count: useDetected ? divisionHqStats.shinTotals.gold : 2,
+        count: useDetected ? divisionHqStats.shinTotals.gold : 7,
         officialUnitFee: 750000,
         directRecipient: '소속 본부',
         directUnitFee: 550000,
@@ -1303,7 +1321,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         category: '신동우사업단',
         hqName: '신동우사업단 산하본부',
         itemName: '굿라이프헬스케어실버',
-        count: useDetected ? divisionHqStats.shinTotals.silver : 0,
+        count: useDetected ? (divisionHqStats.shinTotals.silver + divisionHqStats.shinTotals.hybrid) : 0,
         officialUnitFee: 710000,
         directRecipient: '소속 본부',
         directUnitFee: 550000,
@@ -1317,19 +1335,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     saveGoodlifeSplitRows(newRows);
   }, [divisionHqStats, getPayoutAccountInfo]);
 
-  // 사업단 관리(divisionSettings) 소속 본부 목록이 변경되거나 새 본부가 추가되었을 때 자동 동기화
-  const prevHqHashRef = useRef<string>('');
+  // 사업단 관리(divisionSettings) 소속 본부 목록이 변경되거나 새 본부가 추가되었을 때, 또는 실적이 감지되었을 때 자동 동기화
+  const prevSyncKeyRef = useRef<string>('');
   useEffect(() => {
-    const currentHash = `${kkumHqNames.join(',')}|${shinHqNames.join(',')}`;
-    if (!prevHqHashRef.current) {
-      prevHqHashRef.current = currentHash;
-      return;
+    const currentKey = `${kkumHqNames.join(',')}|${shinHqNames.join(',')}|${divisionHqStats.detectedCount}|${selectedMonth}`;
+    if (prevSyncKeyRef.current !== currentKey) {
+      prevSyncKeyRef.current = currentKey;
+      if (divisionHqStats.detectedCount > 0) {
+        handleSyncGoodlifeWithDivisions();
+      }
     }
-    if (prevHqHashRef.current !== currentHash) {
-      prevHqHashRef.current = currentHash;
-      handleSyncGoodlifeWithDivisions();
-    }
-  }, [kkumHqNames, shinHqNames, handleSyncGoodlifeWithDivisions]);
+  }, [kkumHqNames, shinHqNames, divisionHqStats.detectedCount, selectedMonth, handleSyncGoodlifeWithDivisions]);
 
   // 3-1. 현재 월의 전체 고유 본부 목록
   const allAvailableHqs = useMemo(() => {
@@ -5406,28 +5422,55 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                         </div>
                       </div>
 
-                      {/* 소속 본부 태그 목록 */}
+                      {/* 소속 본부 실적 배정 목록 (실시간 건수 포함) */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100 text-xs">
-                        <div className="flex items-start gap-2 bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-200/60">
-                          <span className="font-bold text-emerald-900 shrink-0 whitespace-nowrap">
-                            굿라이프(꿈잇다) 소속 ({kkumHqNames.length}개):
-                          </span>
-                          <div className="flex flex-wrap gap-1">
-                            {kkumHqNames.map(name => (
-                              <span key={name} className="px-1.5 py-0.5 bg-white border border-emerald-200 text-emerald-800 rounded font-medium text-[11px] whitespace-nowrap">
-                                {name}
+                        <div className="bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-200/60 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-emerald-900 whitespace-nowrap">
+                              📁 굿라이프(꿈잇다) 소속 ({kkumHqNames.length}개 본부):
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-emerald-600 text-white font-mono font-black text-[11px]">
+                              소속 본부 실적 합계 {divisionHqStats.kkumTotals.total}건
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {divisionHqStats.kkumHqList.map(h => (
+                              <span
+                                key={h.hqName}
+                                className={`px-2 py-0.8 rounded text-[11px] font-bold border flex items-center gap-1 ${
+                                  h.count > 0 ? 'bg-emerald-100/80 border-emerald-300 text-emerald-950 font-black' : 'bg-white border-slate-200 text-slate-400'
+                                }`}
+                              >
+                                <span>{h.hqName}</span>
+                                <span className={`px-1.5 py-0.2 rounded text-[10px] ${h.count > 0 ? 'bg-emerald-700 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                                  {h.count}건
+                                </span>
                               </span>
                             ))}
                           </div>
                         </div>
-                        <div className="flex items-start gap-2 bg-blue-50/50 p-2.5 rounded-lg border border-blue-200/60">
-                          <span className="font-bold text-blue-900 shrink-0 whitespace-nowrap">
-                            굿라이프(신동우) 소속 ({shinHqNames.length}개):
-                          </span>
-                          <div className="flex flex-wrap gap-1">
-                            {shinHqNames.map(name => (
-                              <span key={name} className="px-1.5 py-0.5 bg-white border border-blue-200 text-blue-800 rounded font-medium text-[11px] whitespace-nowrap">
-                                {name}
+
+                        <div className="bg-blue-50/50 p-2.5 rounded-lg border border-blue-200/60 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-blue-900 whitespace-nowrap">
+                              📁 굿라이프(신동우) 소속 ({shinHqNames.length}개 본부):
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-mono font-black text-[11px]">
+                              소속 본부 실적 합계 {divisionHqStats.shinTotals.total}건
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {divisionHqStats.shinHqList.map(h => (
+                              <span
+                                key={h.hqName}
+                                className={`px-2 py-0.8 rounded text-[11px] font-bold border flex items-center gap-1 ${
+                                  h.count > 0 ? 'bg-blue-100/80 border-blue-300 text-blue-950 font-black' : 'bg-white border-slate-200 text-slate-400'
+                                }`}
+                              >
+                                <span>{h.hqName}</span>
+                                <span className={`px-1.5 py-0.2 rounded text-[10px] ${h.count > 0 ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                                  {h.count}건
+                                </span>
                               </span>
                             ))}
                           </div>
@@ -5799,6 +5842,31 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                                 );
                               })}
 
+                              {/* 굿라이프(꿈잇다) 사업단 소계 */}
+                              <tr className="bg-emerald-100 font-bold border-y-2 border-emerald-400 text-emerald-950">
+                                <td colSpan={7} className="px-4 py-2.5 text-center whitespace-nowrap">
+                                  [굿라이프(꿈잇다) 사업단 소속본부 합계]
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono font-black text-emerald-950 whitespace-nowrap">
+                                  {divisionHqStats.kkumTotals.total}건
+                                </td>
+                                <td className="px-4 py-2.5 text-center font-mono text-emerald-800 whitespace-nowrap">
+                                  건당 71만
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono font-black text-emerald-950 bg-emerald-200/60 whitespace-nowrap">
+                                  {(divisionHqStats.kkumTotals.total * 710000).toLocaleString()}
+                                </td>
+                                <td className="px-4 py-2.5 text-center font-mono text-amber-800 whitespace-nowrap">
+                                  건당 4만
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono font-black text-amber-950 bg-amber-200/60 whitespace-nowrap">
+                                  {((divisionHqStats.kkumTotals.allinone + divisionHqStats.kkumTotals.gold) * 40000).toLocaleString()}
+                                </td>
+                                <td className="px-4 py-2.5 text-emerald-900 text-xs whitespace-nowrap">
+                                  (주)꿈잇다 직송금 귀속
+                                </td>
+                              </tr>
+
                               {/* 2. 굿라이프(신동우) 소속 본부 7개 */}
                               <tr className="bg-blue-100/50 font-bold border-y border-blue-300 text-blue-950">
                                 <td colSpan={13} className="px-4 py-2 text-left whitespace-nowrap">
@@ -5831,6 +5899,31 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                                   </tr>
                                 );
                               })}
+
+                              {/* 굿라이프(신동우) 사업단 소계 */}
+                              <tr className="bg-blue-100 font-bold border-y-2 border-blue-400 text-blue-950">
+                                <td colSpan={7} className="px-4 py-2.5 text-center whitespace-nowrap">
+                                  [굿라이프(신동우) 사업단 소속본부 합계]
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono font-black text-blue-950 whitespace-nowrap">
+                                  {divisionHqStats.shinTotals.total}건
+                                </td>
+                                <td className="px-4 py-2.5 text-center font-mono text-blue-800 whitespace-nowrap">
+                                  건당 55만
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono font-black text-blue-950 bg-blue-200/60 whitespace-nowrap">
+                                  {(divisionHqStats.shinTotals.total * 550000).toLocaleString()}
+                                </td>
+                                <td className="px-4 py-2.5 text-center font-mono text-amber-800 whitespace-nowrap">
+                                  건당 16~20만
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono font-black text-amber-950 bg-amber-200/60 whitespace-nowrap">
+                                  {((divisionHqStats.shinTotals.allinone + divisionHqStats.shinTotals.gold) * 200000 + (divisionHqStats.shinTotals.silver + divisionHqStats.shinTotals.hybrid) * 160000).toLocaleString()}
+                                </td>
+                                <td className="px-4 py-2.5 text-blue-900 text-xs whitespace-nowrap">
+                                  소속 본부 계좌 직송금 귀속
+                                </td>
+                              </tr>
                             </tbody>
                           </table>
                         )}
