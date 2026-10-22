@@ -148,6 +148,30 @@ async function getAuthenticatedClient(req: express.Request, res?: express.Respon
   }
 }
 
+// Google API 일시적 오류(429 Rate Limit, 500, 502, 503 등)에 대한 지수 백오프 자동 재시도 헬퍼
+async function withGoogleRetry<T>(fn: () => Promise<T>, maxRetries = 3, baseDelayMs = 1200): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      attempt++;
+      const status = err?.status || err?.response?.status || err?.code;
+      const msg = err?.message || err?.response?.data?.error?.message || '';
+      const isRateLimit = status === 429 || msg.includes('Quota exceeded') || msg.includes('Rate limit') || msg.includes('RESOURCE_EXHAUSTED');
+      const isTransient = status === 500 || status === 502 || status === 503 || status === 504 || isRateLimit;
+      
+      if (attempt >= maxRetries || !isTransient) {
+        throw err;
+      }
+      
+      const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 500);
+      console.warn(`[GoogleRetry] Temporary API error (${isRateLimit ? '429 Rate Limit/Quota' : `status: ${status}`}, attempt: ${attempt}/${maxRetries}). Retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
 // Global error handler for Google API errors to clear cookies on auth failure
 const handleGoogleError = (error: any, res: express.Response) => {
   const errorMsg = error.response?.data?.error || error.message;
@@ -763,25 +787,28 @@ app.post('/api/sheets/settings/save', async (req, res) => {
   const runSaveTask = async () => {
     const sheets = google.sheets({ version: 'v4', auth: client });
     
-    // Check if '시스템설정' sheet exists, if not create it
-    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    // 1. 필요한 모든 시트 존재 여부 일괄 확인
+    const spreadsheet = await withGoogleRetry(() => sheets.spreadsheets.get({ spreadsheetId: sheetId }));
     const sheetsList = spreadsheet.data.sheets || [];
-    let settingsSheet = sheetsList.find(s => s.properties?.title === '시스템설정');
-    let sheetInternalId: number | null | undefined = settingsSheet?.properties?.sheetId;
     
-    if (!settingsSheet) {
-      console.log("[CloudSync] Creating '시스템설정' sheet...");
-      const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+    const neededTitles = ['시스템설정', '특수수당설정', '유지수수료설정', '수기발주및기타설정'];
+    const newSheetRequests: any[] = [];
+    
+    for (const title of neededTitles) {
+      if (!sheetsList.some(s => s.properties?.title === title)) {
+        newSheetRequests.push({ addSheet: { properties: { title } } });
+      }
+    }
+    
+    if (newSheetRequests.length > 0) {
+      console.log(`[CloudSync] Creating missing sheets: ${newSheetRequests.map((r: any) => r.addSheet.properties.title).join(', ')}`);
+      await withGoogleRetry(() => sheets.spreadsheets.batchUpdate({
         spreadsheetId: sheetId,
-        requestBody: {
-          requests: [{ addSheet: { properties: { title: '시스템설정' } } }]
-        }
-      });
-      sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+        requestBody: { requests: newSheetRequests }
+      }));
     }
 
-    // Flatten HQ settings into tabular data
-    // Header: ID, 본부명, 은행, 계좌, 예금주, 지급방식, 오버라이딩Y/N, 영업%, 팀장%, 지사%, 본부%, 상품명, 전체수수료, 판매수수료, 판매촉진비, 오버라이딩적용, 구간1건, 단가1, 구간2건, 단가2, 구간3건, 단가3, 상품영업, 상품팀장, 상품지사, 상품본부
+    // 2. 시스템설정 데이터 구성
     const headers = [
       '본부ID', '본부명', '정산유형', '운영여부', '은행', '계좌번호', '예금주', '지급방식', '오버라이딩활성', 
       '비율(영업)', '비율(팀장)', '비율(지사)', '비율(본부)', 
@@ -798,8 +825,8 @@ app.post('/api/sheets/settings/save', async (req, res) => {
         const baseInfo = [
           hq.id,
           hq.hqName,
-          hq.settlementType || '사업자',  // 정산유형 추가
-          hq.isActive !== false ? 'Y' : 'N', // 운영여부 추가
+          hq.settlementType || '사업자',
+          hq.isActive !== false ? 'Y' : 'N',
           hq.bankName,
           hq.accountNumber,
           hq.accountHolder,
@@ -820,7 +847,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
               p.productName,
               total,
               sales,
-              total - sales, // 판매촉진비
+              total - sales,
               p.applyOverriding !== false ? 'Y' : 'N',
               p.tier1Count || 0,
               p.tier1Price || 0,
@@ -839,7 +866,6 @@ app.post('/api/sheets/settings/save', async (req, res) => {
             ]);
           });
         } else {
-          // HQ with no products
           rows.push([
             ...baseInfo,
             '-', 0, 0, 0, 'Y', 0, 0, 0, 0, 0, 0,
@@ -849,67 +875,15 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           ]);
         }
       });
-
-      // Clear and update the sheet
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId: sheetId,
-        range: '시스템설정',
-      });
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: sheetId,
-        range: '시스템설정!A1',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: rows }
-      });
-
-      // Apply formatting to headers
-      if (sheetInternalId != null) {
-        await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: sheetId,
-          requestBody: {
-            requests: [
-              {
-                repeatCell: {
-                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
-                  cell: {
-                    userEnteredFormat: {
-                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
-                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                      horizontalAlignment: 'CENTER'
-                    }
-                  },
-                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
-                }
-              }
-            ]
-          }
-        });
-      }
-      console.log("[CloudSync] Beautiful settings saved successfully.");
     }
 
-    // -- Handle globalIncentives --
+    // 3. 특수수당설정 데이터 구성
+    const incentiveHeaders = [
+      'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰', '대상제품배열', '정산유형', '발행사업자명', '사업자번호', '대상사업단배열'
+    ];
+    
+    const incentiveRows: any[][] = [incentiveHeaders];
     if (globalIncentives && Array.isArray(globalIncentives)) {
-      let incentiveSheet = sheetsList.find(s => s.properties?.title === '특수수당설정');
-      let incentiveSheetId: number | null | undefined = incentiveSheet?.properties?.sheetId;
-      
-      if (!incentiveSheet) {
-        console.log("[CloudSync] Creating '특수수당설정' sheet...");
-        const newSheetResponse = await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: sheetId,
-          requestBody: {
-            requests: [{ addSheet: { properties: { title: '특수수당설정' } } }]
-          }
-        });
-        incentiveSheetId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
-      }
-
-      const incentiveHeaders = [
-        'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰', '대상제품배열', '정산유형', '발행사업자명', '사업자번호', '대상사업단배열'
-      ];
-      
-      const incentiveRows: any[][] = [incentiveHeaders];
       globalIncentives.forEach((rule: any) => {
         incentiveRows.push([
           rule.id || '',
@@ -931,65 +905,15 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           JSON.stringify(Array.isArray(rule.targetDivisions) ? rule.targetDivisions : [])
         ]);
       });
-
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId: sheetId,
-        range: '특수수당설정',
-      });
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: sheetId,
-        range: '특수수당설정!A1',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: incentiveRows }
-      });
-
-      if (incentiveSheetId != null) {
-        await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: sheetId,
-          requestBody: {
-            requests: [
-              {
-                repeatCell: {
-                  range: { sheetId: incentiveSheetId, startRowIndex: 0, endRowIndex: 1 },
-                  cell: {
-                    userEnteredFormat: {
-                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
-                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                      horizontalAlignment: 'CENTER'
-                    }
-                  },
-                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
-                }
-              }
-            ]
-          }
-        });
-      }
-      console.log("[CloudSync] Global incentives saved successfully.");
     }
 
-    // -- Handle maintenanceRules --
+    // 4. 유지수수료설정 데이터 구성
+    const mHeaders = [
+      'ID', '대상본부', '대상상품', '회차별구간', '적용시작일', '적용종료일'
+    ];
+    
+    const mRows: any[][] = [mHeaders];
     if (maintenanceRules && Array.isArray(maintenanceRules)) {
-      let mSheet = sheetsList.find(s => s.properties?.title === '유지수수료설정');
-      let mSheetId: number | null | undefined = mSheet?.properties?.sheetId;
-      
-      if (!mSheet) {
-        console.log("[CloudSync] Creating '유지수수료설정' sheet...");
-        const newSheetResponse = await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: sheetId,
-          requestBody: {
-            requests: [{ addSheet: { properties: { title: '유지수수료설정' } } }]
-          }
-        });
-        mSheetId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
-      }
-
-      const mHeaders = [
-        'ID', '대상본부', '대상상품', '회차별구간', '적용시작일', '적용종료일'
-      ];
-      
-      const mRows: any[][] = [mHeaders];
       maintenanceRules.forEach((rule: any) => {
         mRows.push([
           rule.id || '',
@@ -1000,52 +924,15 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           rule.applyEndDate || ''
         ]);
       });
-
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId: sheetId,
-        range: '유지수수료설정',
-      });
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: sheetId,
-        range: '유지수수료설정!A1',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: mRows }
-      });
-
-      if (mSheetId != null) {
-        await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: sheetId,
-          requestBody: {
-            requests: [
-              {
-                repeatCell: {
-                  range: { sheetId: mSheetId, startRowIndex: 0, endRowIndex: 1 },
-                  cell: {
-                    userEnteredFormat: {
-                      backgroundColor: { red: 0.2, green: 0.2, blue: 0.2 },
-                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                      horizontalAlignment: 'CENTER'
-                    }
-                  },
-                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
-                }
-              }
-            ]
-          }
-        });
-      }
-      console.log("[CloudSync] Maintenance rules saved successfully.");
     }
 
-    // -- Handle manualOrderProducts & manualOrderStores & reportSettings & divisions --
-    // 기존 구글 시트의 수기발주및기타설정 내용을 먼저 읽어와서 병합 보존 (어떤 항목이 누락되어 전달되어도 기존 데이터 보존!)
+    // 5. 수기발주및기타설정 데이터 구성
     let existingExtraMap: Record<string, string> = {};
     try {
-      const curExtraRes = await sheets.spreadsheets.values.get({
+      const curExtraRes = await withGoogleRetry(() => sheets.spreadsheets.values.get({
         spreadsheetId: sheetId,
         range: '수기발주및기타설정!A:C'
-      });
+      }));
       const curRows = curExtraRes.data.values || [];
       if (curRows.length >= 2) {
         curRows.slice(1).forEach(r => {
@@ -1054,14 +941,12 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       }
     } catch (e) {}
 
-    // 로컬 파일 캐시 백업도 확인
     const extraCachePath = path.join(process.cwd(), '.settings_cache.json');
     let extraCacheBackup: any = {};
     if (fs.existsSync(extraCachePath)) {
       try { extraCacheBackup = JSON.parse(fs.readFileSync(extraCachePath, 'utf8')); } catch(e){}
     }
 
-    // divisions 결정: 유효한 데이터 우선, 빈 배열이면 기존 시트 또는 캐시 백업 보존
     let targetDivisions = (divisions && Array.isArray(divisions) && divisions.length > 0) ? divisions : null;
     if (!targetDivisions && existingExtraMap['BUSINESS_DIVISIONS']) {
       try {
@@ -1073,14 +958,12 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       targetDivisions = extraCacheBackup.divisions;
     }
 
-    // manualOrderProducts 결정
     let targetManualProducts = manualOrderProducts;
     if (!targetManualProducts && existingExtraMap['MANUAL_ORDER_PRODUCTS']) {
       try { targetManualProducts = JSON.parse(existingExtraMap['MANUAL_ORDER_PRODUCTS']); } catch (e) {}
     }
     if (!targetManualProducts && extraCacheBackup.manualOrderProducts) targetManualProducts = extraCacheBackup.manualOrderProducts;
 
-    // manualOrderStores 결정 (비파괴 안전 Deep Merge: 기존 설치확인서 등록 상태 및 마감월 영구 보존)
     let baseStores: Record<string, any> = {};
     if (existingExtraMap['MANUAL_ORDER_STORES']) {
       try { baseStores = JSON.parse(existingExtraMap['MANUAL_ORDER_STORES']) || {}; } catch (e) {}
@@ -1109,7 +992,6 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           let certStatus = (inc as any).installCertStatus;
           let certDate = (inc as any).installCertDate;
           let certMonth = (inc as any).installCertMonth;
-          // 기존에 등록 완료된 확인서는 클라이언트가 미등록으로 보내더라도 절대 덮어써서 해제하지 않음
           if (!certStatus || certStatus === '미등록') {
             if (ex.installCertStatus === '등록' || ex.installCertDate || ex.installCertMonth) {
               certStatus = '등록';
@@ -1128,58 +1010,69 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       }
     }
 
-    // reportSettings 결정
     let targetReportSettings = reportSettings;
     if (!targetReportSettings && existingExtraMap['REPORT_SETTINGS']) {
       try { targetReportSettings = JSON.parse(existingExtraMap['REPORT_SETTINGS']); } catch (e) {}
     }
     if (!targetReportSettings && extraCacheBackup.reportSettings) targetReportSettings = extraCacheBackup.reportSettings;
 
-    if (targetManualProducts || targetManualStores || targetReportSettings || targetDivisions) {
-      let extraSheet = sheetsList.find(s => s.properties?.title === '수기발주및기타설정');
-      let extraSheetId: number | null | undefined = extraSheet?.properties?.sheetId;
-      
-      if (!extraSheet) {
-        console.log("[CloudSync] Creating '수기발주및기타설정' sheet...");
-        const newSheetResponse = await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: sheetId,
-          requestBody: {
-            requests: [{ addSheet: { properties: { title: '수기발주및기타설정' } } }]
-          }
-        });
-        extraSheetId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
-      }
+    const extraHeaders = ['Key', 'ValueJSON', '최종수정일'];
+    const extraRows: any[][] = [extraHeaders];
+    const nowStr = new Date().toISOString();
 
-      const extraHeaders = ['Key', 'ValueJSON', '최종수정일'];
-      const extraRows: any[][] = [extraHeaders];
-      const nowStr = new Date().toISOString();
-
-      if (targetManualProducts) {
-        extraRows.push(['MANUAL_ORDER_PRODUCTS', JSON.stringify(targetManualProducts), nowStr]);
-      }
-      if (targetManualStores) {
-        extraRows.push(['MANUAL_ORDER_STORES', JSON.stringify(targetManualStores), nowStr]);
-      }
-      if (targetReportSettings) {
-        extraRows.push(['REPORT_SETTINGS', JSON.stringify(targetReportSettings), nowStr]);
-      }
-      if (targetDivisions && targetDivisions.length > 0) {
-        extraRows.push(['BUSINESS_DIVISIONS', JSON.stringify(targetDivisions), nowStr]);
-      }
-
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId: sheetId,
-        range: '수기발주및기타설정',
-      });
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: sheetId,
-        range: '수기발주및기타설정!A1',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: { values: extraRows }
-      });
-      console.log("[CloudSync] Extra settings (manual orders, report, divisions) safely preserved and saved.");
+    if (targetManualProducts) {
+      extraRows.push(['MANUAL_ORDER_PRODUCTS', JSON.stringify(targetManualProducts), nowStr]);
     }
+    if (targetManualStores && Object.keys(targetManualStores).length > 0) {
+      extraRows.push(['MANUAL_ORDER_STORES', JSON.stringify(targetManualStores), nowStr]);
+    }
+    if (targetReportSettings) {
+      extraRows.push(['REPORT_SETTINGS', JSON.stringify(targetReportSettings), nowStr]);
+    }
+    if (targetDivisions && targetDivisions.length > 0) {
+      extraRows.push(['BUSINESS_DIVISIONS', JSON.stringify(targetDivisions), nowStr]);
+    }
+
+    // 6. 단 2회의 Google API 호출로 4개 탭 일괄 쓰기 (Batch Clear + Batch Update)
+    const clearRanges: string[] = [];
+    const updateData: { range: string; values: any[][] }[] = [];
+
+    if (settings && Array.isArray(settings)) {
+      clearRanges.push('시스템설정');
+      updateData.push({ range: '시스템설정!A1', values: rows });
+    }
+    if (globalIncentives && Array.isArray(globalIncentives)) {
+      clearRanges.push('특수수당설정');
+      updateData.push({ range: '특수수당설정!A1', values: incentiveRows });
+    }
+    if (maintenanceRules && Array.isArray(maintenanceRules)) {
+      clearRanges.push('유지수수료설정');
+      updateData.push({ range: '유지수수료설정!A1', values: mRows });
+    }
+    if (extraRows.length > 1) {
+      clearRanges.push('수기발주및기타설정');
+      updateData.push({ range: '수기발주및기타설정!A1', values: extraRows });
+    }
+
+    // 1단계: 기존 영역 일괄 초기화 (단 1회 API 호출)
+    if (clearRanges.length > 0) {
+      await withGoogleRetry(() => sheets.spreadsheets.values.batchClear({
+        spreadsheetId: sheetId,
+        requestBody: { ranges: clearRanges }
+      }));
+    }
+
+    // 2단계: 최신 데이터 일괄 업데이트 (단 1회 API 호출)
+    if (updateData.length > 0) {
+      await withGoogleRetry(() => sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          valueInputOption: 'USER_ENTERED',
+          data: updateData
+        }
+      }));
+    }
+    console.log(`[CloudSync] All settings batch updated successfully (${updateData.length} sheets in 1 batch).`);
   };
 
   // Google Sheets 동시 쓰기 경합 방지: 순차 큐잉 실행

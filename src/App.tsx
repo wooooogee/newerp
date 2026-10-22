@@ -1925,7 +1925,7 @@ const ERP_Dashboard = () => {
     };
   }, [hqSettings, divisionSettings, globalIncentiveRules, maintenanceRules, isAuthenticated]);
 
-  // 본부 설정 및 수수료 변경 시 디바운스 자동 동기화 (1.5초 후 실행)
+  // 본부 설정 및 수수료 변경 시 디바운스 자동 동기화 (3초 후 실행)
   const isFirstRender = React.useRef(true);
   useEffect(() => {
     if (isFirstRender.current) {
@@ -1935,7 +1935,7 @@ const ERP_Dashboard = () => {
     if (!isAuthenticated) return;
     const timer = setTimeout(() => {
       saveSettingsToCloud(true);
-    }, 1500);
+    }, 3000);
     return () => clearTimeout(timer);
   }, [hqSettings, divisionSettings, globalIncentiveRules, maintenanceRules]);
 
