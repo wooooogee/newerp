@@ -71,13 +71,13 @@ export const DEFAULT_POLICY_SETTINGS: EnexPolicySettings = {
   baseFeeRate: 0.26,
   yellowFeeRate: 0.30,
   productRules: [
-    { id: 'p6', prodName: '더좋은프리미엄540플러스', supplyPrice: 800000, defaultPayoutFee: 740000, keywords: ['540+', '540플러스', '프리미엄540플러스', '프리미엄540+'], memo: '1구좌당 80만원 / 지급 74만원' },
-    { id: 'p7', prodName: '굿라이프헬스케어올인원', supplyPrice: 800000, defaultPayoutFee: 740000, keywords: ['올인원', '헬스케어올인원'], memo: '1구좌당 80만원 / 지급 74만원' },
-    { id: 'p4', prodName: '더좋은프리미엄540', supplyPrice: 750000, defaultPayoutFee: 750000, keywords: ['프리미엄540', '540'], memo: '1구좌당 75만원 / 지급 75만원' },
-    { id: 'p5', prodName: '굿라이프헬스케어골드', supplyPrice: 750000, defaultPayoutFee: 700000, keywords: ['헬스케어골드', '골드'], memo: '1구좌당 75만원 / 지급 70만원' },
-    { id: 'p1', prodName: '더좋은하이브리드698', supplyPrice: 550000, defaultPayoutFee: 500000, keywords: ['698', '하이브리드698', '하이브리드'], memo: '1구좌당 55만원 / 지급 50만원' },
-    { id: 'p2', prodName: '더좋은라이즈498', supplyPrice: 550000, defaultPayoutFee: 500000, keywords: ['498', '라이즈498', '라이즈'], memo: '1구좌당 55만원 / 지급 50만원' },
-    { id: 'p3', prodName: '굿라이프헬스케어실버', supplyPrice: 550000, defaultPayoutFee: 500000, keywords: ['헬스케어실버', '굿라이프실버'], memo: '1구좌당 55만원 / 지급 50만원' }
+    { id: 'p6', prodName: '더좋은프리미엄540플러스', supplyPrice: 800000, defaultPayoutFee: 0, keywords: ['540+', '540플러스', '프리미엄540플러스', '프리미엄540+'], memo: '1구좌당 물품대금 80만원' },
+    { id: 'p7', prodName: '굿라이프헬스케어올인원', supplyPrice: 800000, defaultPayoutFee: 0, keywords: ['올인원', '헬스케어올인원'], memo: '1구좌당 물품대금 80만원' },
+    { id: 'p4', prodName: '더좋은프리미엄540', supplyPrice: 750000, defaultPayoutFee: 0, keywords: ['프리미엄540', '540'], memo: '1구좌당 물품대금 75만원' },
+    { id: 'p5', prodName: '굿라이프헬스케어골드', supplyPrice: 750000, defaultPayoutFee: 0, keywords: ['헬스케어골드', '골드'], memo: '1구좌당 물품대금 75만원' },
+    { id: 'p1', prodName: '더좋은하이브리드698', supplyPrice: 550000, defaultPayoutFee: 0, keywords: ['698', '하이브리드698', '하이브리드'], memo: '1구좌당 물품대금 55만원' },
+    { id: 'p2', prodName: '더좋은라이즈498', supplyPrice: 550000, defaultPayoutFee: 0, keywords: ['498', '라이즈498', '라이즈'], memo: '1구좌당 물품대금 55만원' },
+    { id: 'p3', prodName: '굿라이프헬스케어실버', supplyPrice: 550000, defaultPayoutFee: 0, keywords: ['헬스케어실버', '굿라이프실버'], memo: '1구좌당 물품대금 55만원' }
   ],
   specialProductFees: [
     {
@@ -154,14 +154,30 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   const [summaryData, setSummaryData] = useState<EnexSummary | null>(null);
   const [reconRows, setReconRows] = useState<EnexReconciliationRow[]>([]);
 
-  // 정책 설정 상태 (금융수수료율 & 상품별 물품대금)
+  // 정책 설정 상태 (금융수수료율 & 상품별 물품대금 및 구좌당 지급수수료)
   const [policySettings, setPolicySettings] = useState<EnexPolicySettings>(() => {
     try {
-      const stored = localStorage.getItem('erp_enex_policy_settings_v10');
-      if (stored) {
-        const parsed = JSON.parse(stored);
+      const storedV11 = localStorage.getItem('erp_enex_policy_settings_v11');
+      if (storedV11) {
+        const parsed = JSON.parse(storedV11);
         if (parsed && Array.isArray(parsed.productRules) && Array.isArray(parsed.specialProductFees)) {
           return parsed;
+        }
+      }
+      const storedV10 = localStorage.getItem('erp_enex_policy_settings_v10');
+      if (storedV10) {
+        const parsed = JSON.parse(storedV10);
+        if (parsed && Array.isArray(parsed.productRules) && Array.isArray(parsed.specialProductFees)) {
+          // v10 -> v11 안전 마이그레이션: 기존 하드코딩된 수수료를 0으로 초기화하여 본부별 설정값 우선 계산 보장
+          const migrated: EnexPolicySettings = {
+            ...parsed,
+            productRules: parsed.productRules.map((r: any) => ({
+              ...r,
+              defaultPayoutFee: 0
+            }))
+          };
+          localStorage.setItem('erp_enex_policy_settings_v11', JSON.stringify(migrated));
+          return migrated;
         }
       }
     } catch (e) {
@@ -445,7 +461,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         return {
           price: item.rule.supplyPrice,
           matchedProdName: item.rule.prodName,
-          defaultPayoutFee: item.rule.defaultPayoutFee || 700000
+          defaultPayoutFee: item.rule.defaultPayoutFee || 0
         };
       }
     }
@@ -457,7 +473,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           return {
             price: rule.supplyPrice,
             matchedProdName: rule.prodName,
-            defaultPayoutFee: rule.defaultPayoutFee || 700000
+            defaultPayoutFee: rule.defaultPayoutFee || 0
           };
         }
       }
@@ -480,15 +496,15 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         return {
           price: bestRule.supplyPrice,
           matchedProdName: bestRule.prodName,
-          defaultPayoutFee: bestRule.defaultPayoutFee || 700000
+          defaultPayoutFee: bestRule.defaultPayoutFee || 0
         };
       }
     }
 
     if (sales >= 2280000) {
-      return { price: 800000, matchedProdName: '더좋은프리미엄540플러스', defaultPayoutFee: 740000 };
+      return { price: 800000, matchedProdName: '더좋은프리미엄540플러스', defaultPayoutFee: 0 };
     }
-    return { price: 550000, matchedProdName: '더좋은하이브리드698', defaultPayoutFee: 500000 };
+    return { price: 550000, matchedProdName: '더좋은하이브리드698', defaultPayoutFee: 0 };
   };
 
   // 단일 행 재계산 헬퍼 (계산수수료, 지급수수료합계, 순익 산출)
@@ -883,8 +899,10 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           }
         }
 
-        // [본부별 지급 수수료 연동 (구간단가 건수 충족 여부 반영)]:
-        // ERP 본부 설정(hqSettings)에 등록된 해당 본부의 상조 상품 수수료를 1순위로 조회!
+        // [지급 수수료 우선순위 산정]:
+        // 1순위: 에넥스 상품 자체 설정의 1구좌당 지급수수료 (defaultPayoutFee > 0) -> 최우선 적용!
+        // 2순위: 본부별 수수료 설정(hqPayoutFee > 0) (구간단가 건수 충족 여부 반영)
+        // 3순위: ERP 매칭 원장 수수료
         const { payoutFee: hqPayoutFee, matchedHqName } = getHqPayoutFee(
           item.hqName,
           item.branchOffice,
@@ -896,16 +914,20 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           effectiveCount
         );
 
-        let unitPayoutFee = hqPayoutFee;
-        if (unitPayoutFee <= 0 && item.matchedErp) {
+        let unitPayoutFee = 0;
+        let finalPayoutHqName = matchedHqName;
+
+        if (defaultPayoutFee && defaultPayoutFee > 0) {
+          unitPayoutFee = defaultPayoutFee;
+          finalPayoutHqName = '상품자체설정';
+        } else if (hqPayoutFee > 0) {
+          unitPayoutFee = hqPayoutFee;
+        } else if (item.matchedErp) {
           if (typeof item.matchedErp.commission === 'number' && item.matchedErp.commission > 0) {
             unitPayoutFee = item.matchedErp.commission;
           } else if (typeof item.matchedErp.salesCommission === 'number' && item.matchedErp.salesCommission > 0) {
             unitPayoutFee = item.matchedErp.salesCommission;
           }
-        }
-        if (unitPayoutFee <= 0) {
-          unitPayoutFee = defaultPayoutFee;
         }
 
         // 계산 산식:
@@ -945,7 +967,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           unitPayoutFee,
           totalPayoutFee,
           netProfit,
-          payoutHqName: matchedHqName,
+          payoutHqName: finalPayoutHqName,
           isYellow: item.isYellow,
           erpMatched: !!item.matchedErp,
           erpData: item.matchedErp,
@@ -994,6 +1016,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     }
 
     try {
+      localStorage.setItem('erp_enex_policy_settings_v11', JSON.stringify(editingPolicy));
       localStorage.setItem('erp_enex_policy_settings_v10', JSON.stringify(editingPolicy));
       setPolicySettings(editingPolicy);
 
@@ -1067,7 +1090,21 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               defaultPayoutFee,
               effectiveCount
             );
-            const newUnitPayoutFee = newHqPayoutFee > 0 ? newHqPayoutFee : (row.unitPayoutFee || defaultPayoutFee);
+
+            // [지급 수수료 우선순위 산정]:
+            // 1순위: 에넥스 상품 자체 설정의 1구좌당 지급수수료 (defaultPayoutFee > 0) -> 최우선 적용!
+            // 2순위: 본부별 수수료 설정(newHqPayoutFee > 0)
+            // 3순위: 기존 row 수수료
+            let newUnitPayoutFee = 0;
+            let finalHqName = newHqName || row.payoutHqName;
+            if (defaultPayoutFee && defaultPayoutFee > 0) {
+              newUnitPayoutFee = defaultPayoutFee;
+              finalHqName = '상품자체설정';
+            } else if (newHqPayoutFee > 0) {
+              newUnitPayoutFee = newHqPayoutFee;
+            } else {
+              newUnitPayoutFee = row.unitPayoutFee || 0;
+            }
 
             const metrics = calculateRowMetrics(
               row.salesAmount,
@@ -1083,7 +1120,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               feeRate: newFeeRate,
               unitSupplyPrice: newUnitPrice,
               unitPayoutFee: newUnitPayoutFee,
-              payoutHqName: newHqName || row.payoutHqName,
+              payoutHqName: finalHqName,
               extraFee: newExtraFee,
               sangjoProdName: row.sangjoProdName || matchedProdName,
               ...metrics
@@ -1143,6 +1180,18 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           }
         }
 
+        const { defaultPayoutFee } = determineUnitSupplyPrice(
+          row.sangjoProdName,
+          row.applianceProdName,
+          row.combineModel,
+          row.salesAmount,
+          row.feeRate,
+          row.enexFee,
+          row.accountCount,
+          policySettings.productRules,
+          row.extraFee || 0
+        );
+
         const { payoutFee: newHqPayoutFee, matchedHqName: newHqName } = getHqPayoutFee(
           row.hqName,
           row.branchOffice,
@@ -1150,11 +1199,20 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           row.applianceProdName,
           row.combineModel,
           effectiveHqSettings,
-          row.unitPayoutFee || 700000,
+          defaultPayoutFee,
           effectiveCount
         );
 
-        const newUnitPayoutFee = newHqPayoutFee > 0 ? newHqPayoutFee : row.unitPayoutFee;
+        let newUnitPayoutFee = 0;
+        let finalHqName = newHqName || row.payoutHqName;
+        if (defaultPayoutFee && defaultPayoutFee > 0) {
+          newUnitPayoutFee = defaultPayoutFee;
+          finalHqName = '상품자체설정';
+        } else if (newHqPayoutFee > 0) {
+          newUnitPayoutFee = newHqPayoutFee;
+        } else {
+          newUnitPayoutFee = row.unitPayoutFee || 0;
+        }
 
         const metrics = calculateRowMetrics(
           row.salesAmount,
@@ -1169,13 +1227,13 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         return {
           ...row,
           unitPayoutFee: newUnitPayoutFee,
-          payoutHqName: newHqName || row.payoutHqName,
+          payoutHqName: finalHqName,
           ...metrics
         };
       });
     });
 
-    alert('✅ 본부별 지급수수료가 전면 재계산되었습니다.\n\n• 피티엠에스: 680,000원 (수수료 68만원 고정 적용)\n• 언바운드컴퍼니: 710,000원 (300건 미만 기본 71만원, 300건 이상 시 74만원 승급 적용)');
+    alert('✅ 본부별 지급수수료가 전면 재계산되었습니다.\n\n• 상품 자체 설정 수수료가 지정된 상품: 해당 금액 최우선 적용\n• 수수료 미지정 상품: 본부별 설정 수수료(구간단가 등) 자동 적용');
   };
 
   // 정책 모달 열기
@@ -1190,7 +1248,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       id: 'rule_' + Date.now(),
       prodName: '신규상품',
       supplyPrice: 800000,
-      defaultPayoutFee: 700000,
+      defaultPayoutFee: 0,
       keywords: ['신규키워드'],
       memo: '신규 등록 상품'
     };
@@ -2594,7 +2652,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="relative bg-white w-full max-w-3xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col z-10 border border-slate-100"
+              className="relative bg-white w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col z-10 border border-slate-100"
             >
               {/* 모달 헤더 */}
               <div className="px-6 py-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between shrink-0">
@@ -2603,9 +2661,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                     <Settings size={18} />
                   </div>
                   <div>
-                    <h4 className="text-sm font-black">에넥스 금융수수료율 & 상품별 물품대금 자체 설정</h4>
+                    <h4 className="text-sm font-black">에넥스 금융수수료율 & 상품별 물품대금/지급수수료 자체 설정</h4>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      금융사 수수료율 변경 및 상품 추가 시 여기서 직접 수정하면 대사작업에 즉시 자동 반영됩니다.
+                      금융사 수수료율 및 상품별 물품대금·지급수수료를 직접 지정하면 대사작업에 최우선 자동 반영됩니다.
                     </p>
                   </div>
                 </div>
@@ -2678,12 +2736,12 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                   </div>
                 </div>
 
-                {/* 2) 상품별 1구좌당 물품대금(공급가) 설정 테이블 */}
+                {/* 2) 상품별 1구좌당 물품대금(공급가) & 지급수수료 설정 테이블 */}
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <DollarSign size={15} className="text-emerald-600" />
-                      <h5 className="text-xs font-black text-slate-800">2. 상품별 구좌당 물품대금 (공급가) 설정</h5>
+                      <h5 className="text-xs font-black text-slate-800">2. 상품별 구좌당 물품대금 (공급가) & 지급수수료 설정</h5>
                     </div>
                     <button
                       type="button"
@@ -2699,8 +2757,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                     <table className="w-full text-left text-xs border-collapse">
                       <thead className="bg-slate-100/80 text-slate-700 font-black border-b border-slate-200">
                         <tr>
-                          <th className="py-2 px-3 w-[28%]">상조 상품명</th>
-                          <th className="py-2 px-2.5 w-[24%]">1구좌당 물품대금(원)</th>
+                          <th className="py-2 px-3 w-[23%]">상조 상품명</th>
+                          <th className="py-2 px-2.5 w-[19%]">1구좌당 물품대금(원)</th>
+                          <th className="py-2 px-2.5 w-[21%] text-rose-700">1구좌당 지급수수료(원)</th>
                           <th className="py-2 px-3">자동인식 키워드</th>
                           <th className="py-2 px-1 text-center w-10">삭제</th>
                         </tr>
@@ -2741,6 +2800,24 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                             </td>
                             <td className="py-1.5 px-2.5">
                               <input
+                                type="number"
+                                step="10000"
+                                value={rule.defaultPayoutFee ? rule.defaultPayoutFee : ''}
+                                onChange={e => {
+                                  const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0;
+                                  setEditingPolicy(prev => {
+                                    const copy = [...prev.productRules];
+                                    copy[idx] = { ...copy[idx], defaultPayoutFee: val };
+                                    return { ...prev, productRules: copy };
+                                  });
+                                }}
+                                placeholder="본부설정값 사용"
+                                className="w-full px-2 py-1 bg-rose-50/60 border border-rose-200 rounded font-mono font-bold text-xs text-right text-rose-900 placeholder:text-slate-400 placeholder:font-normal placeholder:text-[10px] focus:bg-white focus:ring-1 focus:ring-rose-500"
+                                title="입력 시 해당 금액이 최우선 적용되며, 비워두면 본부별 설정 수수료로 자동 계산됩니다."
+                              />
+                            </td>
+                            <td className="py-1.5 px-2.5">
+                              <input
                                 type="text"
                                 value={rule.keywords.join(', ')}
                                 onChange={e => {
@@ -2771,9 +2848,16 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                     </table>
                   </div>
 
-                  <p className="text-[11px] text-slate-400">
-                    💡 정산서 업로드 시 결합모델명(E열)이나 가전명(D열)에 위 키워드가 포함되어 있으면 해당 물품대금이 자동 적용됩니다.
-                  </p>
+                  <div className="space-y-1 text-[11px] text-slate-500 bg-white/60 p-2.5 rounded-lg border border-slate-200">
+                    <p className="flex items-center gap-1.5">
+                      <span className="text-emerald-700 font-bold shrink-0">💡 물품대금 자동인식:</span>
+                      <span>정산서 업로드 시 결합모델명(E열)이나 가전명(D열)에 위 키워드가 포함되어 있으면 해당 물품대금이 자동 적용됩니다.</span>
+                    </p>
+                    <p className="flex items-center gap-1.5">
+                      <span className="text-rose-700 font-bold shrink-0">⭐ 지급수수료 우선순위:</span>
+                      <span>위 표에서 <strong>1구좌당 지급수수료를 입력한 상품은 해당 금액이 최우선 적용</strong>되며, 비워두거나 0원인 상품은 <strong>[본부별 지급수수료 설정]</strong>에 등록된 본부별/구간별 단가로 자동 계산됩니다.</span>
+                    </p>
+                  </div>
                 </div>
 
                 {/* 3) 특수 제품 추가 수수료 설정 (테라웨이브 등 제품 수수료 가산) */}
