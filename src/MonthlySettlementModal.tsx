@@ -2771,6 +2771,37 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         { wch: 16 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
         { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 }
       ];
+
+      for (let R = 0; R < detailRows.length; R++) {
+        const isHeader = R === 0;
+        const isTotal = R === detailRows.length - 1;
+        for (let C = 0; C <= 13; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws3[addr]) continue;
+          if (isHeader) {
+            ws3[addr].s = {
+              fill: { fgColor: { rgb: '2563EB' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+              alignment: { vertical: 'center', horizontal: 'center' },
+              border: thinBorder
+            };
+          } else if (isTotal) {
+            ws3[addr].s = {
+              fill: { fgColor: { rgb: 'D9E1F2' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '0F172A' } },
+              alignment: { vertical: 'center', horizontal: C >= 7 && C <= 9 ? 'right' : 'center' },
+              border: thinBorder
+            };
+          } else {
+            ws3[addr].s = {
+              fill: { fgColor: { rgb: R % 2 === 0 ? 'F8FAFC' : 'FFFFFF' } },
+              font: { name: '맑은 고딕', sz: 9, color: { rgb: '0F172A' }, bold: C === 9 },
+              alignment: { vertical: 'center', horizontal: C >= 7 && C <= 9 ? 'right' : (C === 0 || C === 6 || C === 10 || C === 11 ? 'center' : 'left') },
+              border: thinBorder
+            };
+          }
+        }
+      }
       XLSX.utils.book_append_sheet(wb, ws3, '계약상세명세');
 
       // -------------------------------------------------------------
@@ -2818,6 +2849,37 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         { wch: 6 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
         { wch: 10 }, { wch: 24 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 12 }
       ];
+
+      for (let R = 0; R < maintRows.length; R++) {
+        const isHeader = R === 0;
+        const isTotal = R === maintRows.length - 1;
+        for (let C = 0; C <= 10; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws4[addr]) continue;
+          if (isHeader) {
+            ws4[addr].s = {
+              fill: { fgColor: { rgb: '2563EB' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+              alignment: { vertical: 'center', horizontal: 'center' },
+              border: thinBorder
+            };
+          } else if (isTotal) {
+            ws4[addr].s = {
+              fill: { fgColor: { rgb: 'D9E1F2' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '0F172A' } },
+              alignment: { vertical: 'center', horizontal: C === 9 ? 'right' : 'center' },
+              border: thinBorder
+            };
+          } else {
+            ws4[addr].s = {
+              fill: { fgColor: { rgb: R % 2 === 0 ? 'F8FAFC' : 'FFFFFF' } },
+              font: { name: '맑은 고딕', sz: 9, color: { rgb: '0F172A' }, bold: C === 9 },
+              alignment: { vertical: 'center', horizontal: C === 9 ? 'right' : (C === 0 || C === 4 || C === 5 || C === 8 || C === 10 ? 'center' : 'left') },
+              border: thinBorder
+            };
+          }
+        }
+      }
       XLSX.utils.book_append_sheet(wb, ws4, '유지수수료명세');
 
       // -------------------------------------------------------------
@@ -2866,6 +2928,37 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         { wch: 6 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 24 },
         { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 14 }
       ];
+
+      for (let R = 0; R < specialRows.length; R++) {
+        const isHeader = R === 0;
+        const isTotal = R === specialRows.length - 1;
+        for (let C = 0; C <= 11; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws5[addr]) continue;
+          if (isHeader) {
+            ws5[addr].s = {
+              fill: { fgColor: { rgb: '2563EB' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+              alignment: { vertical: 'center', horizontal: 'center' },
+              border: thinBorder
+            };
+          } else if (isTotal) {
+            ws5[addr].s = {
+              fill: { fgColor: { rgb: 'D9E1F2' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '0F172A' } },
+              alignment: { vertical: 'center', horizontal: C === 5 ? 'right' : 'center' },
+              border: thinBorder
+            };
+          } else {
+            ws5[addr].s = {
+              fill: { fgColor: { rgb: R % 2 === 0 ? 'F8FAFC' : 'FFFFFF' } },
+              font: { name: '맑은 고딕', sz: 9, color: { rgb: '0F172A' }, bold: C === 5 },
+              alignment: { vertical: 'center', horizontal: C === 5 ? 'right' : (C === 0 || C === 6 || C === 7 || C === 8 ? 'center' : 'left') },
+              border: thinBorder
+            };
+          }
+        }
+      }
       XLSX.utils.book_append_sheet(wb, ws5, '특수수당명세');
 
       if (!wb.Workbook) wb.Workbook = {};

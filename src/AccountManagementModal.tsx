@@ -12,6 +12,42 @@ import { customConfirm } from './CustomDialog';
 
 const XLSX = (window as any).XLSX;
 
+
+/**
+ * 지사 소속 본부 및 지사명 파싱 헬퍼 함수
+ */
+export const parseBranchScope = (orgName: string): { hq: string | null; branch: string } => {
+  if (!orgName) return { hq: null, branch: '' };
+  const trimmed = orgName.trim();
+  if (trimmed.includes('>')) {
+    const parts = trimmed.split('>');
+    const hq = parts[0].trim();
+    const branch = parts.slice(1).join('>').trim();
+    return { hq: hq || null, branch: branch || trimmed };
+  }
+  if (trimmed.includes('/')) {
+    const parts = trimmed.split('/');
+    const hq = parts[0].trim();
+    const branch = parts.slice(1).join('/').trim();
+    return { hq: hq || null, branch: branch || trimmed };
+  }
+  const parenMatch = trimmed.match(/^(.+?)\s*\((.+?)\)$/);
+  if (parenMatch) {
+    const first = parenMatch[1].trim();
+    const second = parenMatch[2].trim();
+    if (second.includes('본부')) return { hq: second, branch: first };
+    if (first.includes('본부')) return { hq: first, branch: second };
+    return { hq: second, branch: first };
+  }
+  if (trimmed.includes(' - ')) {
+    const parts = trimmed.split(' - ');
+    const hq = parts[0].trim();
+    const branch = parts.slice(1).join(' - ').trim();
+    return { hq: hq || null, branch: branch || trimmed };
+  }
+  return { hq: null, branch: trimmed };
+};
+
 export interface MemberAccount {
   role: string;
   orgName: string;
@@ -362,11 +398,51 @@ export function AccountManagementModal({
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko-KR'));
   }, [empSheetHqs, hqSettings, availableHqs, members]);
 
-  // 지사 목록 정제 (사원리스트의 전체 지사 + availableBranches + members)
+  // 동명 지사(여러 본부에 걸쳐 존재하는 동일 지사명) 판별 맵: branchName -> hqNames[]
+  const branchToHqsMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    Object.entries(empSheetHqToBranches).forEach(([hq, branches]) => {
+      (branches as string[]).forEach(b => {
+        const cleanB = (b || '').trim();
+        if (!cleanB || cleanB === '-' || cleanB === '지사') return;
+        if (!map.has(cleanB)) map.set(cleanB, []);
+        if (!map.get(cleanB)!.includes(hq)) map.get(cleanB)!.push(hq);
+      });
+    });
+    return map;
+  }, [empSheetHqToBranches]);
+
+  // 동명 지사 소속 본부 빠른 해결 모달 상태
+  const [dupResolveTarget, setDupResolveTarget] = useState<{ username: string; orgName: string; possibleHqs: string[] } | null>(null);
+
+  // 동명 지사 소속 본부 해결 핸들러: orgName을 '본부명 > 지사명'으로 즉시 변경
+  const handleResolveDuplicateBranch = (username: string, oldOrgName: string, selectedHq: string) => {
+    const { branch } = parseBranchScope(oldOrgName);
+    const newOrgName = `${selectedHq} > ${branch}`;
+    setMembers(prev => prev.map(m => {
+      if (m.username.toLowerCase() === username.toLowerCase() && m.orgName === oldOrgName) {
+        return { ...m, orgName: newOrgName };
+      }
+      return m;
+    }));
+    setHasChanges(true);
+    setDupResolveTarget(null);
+  };
+
+  // 지사 목록 정제 (사원리스트의 전체 지사 + 동명 지사의 경우 '본부 > 지사' 옵션 포함 + availableBranches + members)
   const cleanBranches = useMemo(() => {
     const set = new Set<string>();
-    (Object.values(empSheetHqToBranches) as string[][]).forEach(brs => {
-      (brs || []).forEach(b => { if (b && b.trim()) set.add(b.trim()); });
+    Object.entries(empSheetHqToBranches).forEach(([hq, brs]) => {
+      (brs as string[]).forEach(b => {
+        const cleanB = (b || '').trim();
+        if (!cleanB || cleanB === '-' || cleanB === '지사') return;
+        set.add(cleanB);
+        // 만약 해당 지사명이 2개 이상의 본부에 존재하면 '본부 > 지사' 형태도 선택할 수 있게 자동 추가
+        const hqs = branchToHqsMap.get(cleanB) || [];
+        if (hqs.length > 1) {
+          set.add(`${hq} > ${cleanB}`);
+        }
+      });
     });
     availableBranches.forEach(b => {
       if (b && b !== '전체' && b.trim()) set.add(b.trim());
@@ -377,7 +453,7 @@ export function AccountManagementModal({
       }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko-KR'));
-  }, [empSheetHqToBranches, availableBranches, members]);
+  }, [empSheetHqToBranches, branchToHqsMap, availableBranches, members]);
 
   // 운영중 / 미운영 본부 개수 통계
   const activeHqCount = useMemo(() => cleanHqs.filter(h => isHqActive(h)).length, [cleanHqs, hqStatusMap]);
@@ -1333,14 +1409,43 @@ export function AccountManagementModal({
                           {/* 관리 권한 (소속 본부/지사 뱃지들) */}
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap items-center gap-1.5">
-                              {acc.orgEntries.map((entry, eIdx) => (
+                              {acc.orgEntries.map((entry, eIdx) => {
+                                const isBranchRole = entry.role === '지사' || entry.role === '지사모바일' || entry.role === '지점';
+                                const { hq: scopeHq, branch: scopeBranch } = parseBranchScope(entry.orgName);
+                                const possibleHqs = branchToHqsMap.get(scopeBranch) || [];
+                                const isDuplicateWithoutScope = isBranchRole && !scopeHq && possibleHqs.length > 1;
+
+                                return (
                                 <span
                                   key={`${entry.role}-${entry.orgName}-${eIdx}`}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg shadow-2xs text-xs font-bold text-slate-700 group hover:border-slate-300 whitespace-nowrap shrink-0"
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border rounded-lg shadow-2xs text-xs font-bold text-slate-700 group hover:border-slate-300 whitespace-nowrap shrink-0 ${
+                                    isDuplicateWithoutScope ? 'border-amber-300 bg-amber-50/40 ring-1 ring-amber-300/60' : 'border-slate-200'
+                                  }`}
                                 >
                                   <Building2 size={11} className="text-slate-400 shrink-0" />
                                   <span className="text-[10px] text-blue-600 font-black whitespace-nowrap shrink-0">[{entry.role}]</span>
-                                  <span className="whitespace-nowrap">{entry.orgName}</span>
+                                  {scopeHq ? (
+                                    <span className="inline-flex items-center gap-1">
+                                      <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded text-[10px] font-black">{scopeHq}</span>
+                                      <span className="whitespace-nowrap font-bold text-slate-800">{scopeBranch}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="whitespace-nowrap">{entry.orgName}</span>
+                                  )}
+                                  {isDuplicateWithoutScope && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setDupResolveTarget({ username: acc.username, orgName: entry.orgName, possibleHqs });
+                                      }}
+                                      className="px-1.5 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all shadow-2xs ml-1"
+                                      title="여러 본부에 존재하는 동명 지사입니다. 소속 본부를 지정해 주세요."
+                                    >
+                                      <AlertTriangle size={10} />
+                                      <span>본부지정 필요</span>
+                                    </button>
+                                  )}
                                   {acc.orgEntries.length > 1 && (
                                     <button
                                       type="button"
@@ -1355,7 +1460,8 @@ export function AccountManagementModal({
                                     </button>
                                   )}
                                 </span>
-                              ))}
+                              );
+                              })}
 
                               {/* 다중 권한 추가 버튼 */}
                               <button
@@ -1536,6 +1642,84 @@ export function AccountManagementModal({
         </div>
 
       </motion.div>
+
+      {/* 동명 지사 소속 본부 빠른 지정 팝업 모달 (dupResolveTarget) */}
+      <AnimatePresence>
+        {dupResolveTarget && (
+          <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDupResolveTarget(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 z-10"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                    <AlertTriangle size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-black text-slate-900">동명 지사 소속 본부 지정</h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      지사 <span className="font-bold text-amber-700">[{dupResolveTarget.orgName}]</span> 계정이 조회할 본부를 선택해 주세요.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDupResolveTarget(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-all cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="bg-amber-50/80 p-3.5 rounded-xl border border-amber-200 text-xs text-amber-900 leading-relaxed">
+                지사명 <b>'{dupResolveTarget.orgName}'</b>이(가) 여러 본부에 각각 등록되어 있습니다.<br />
+                소속 본부를 지정하시면 해당 본부의 계약건만 정확히 조회되며, 다른 본부의 계약건은 완전히 차단됩니다.
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-700 block">소속 본부 선택:</span>
+                <div className="grid grid-cols-1 gap-2">
+                  {dupResolveTarget.possibleHqs.map(hq => (
+                    <button
+                      key={hq}
+                      type="button"
+                      onClick={() => handleResolveDuplicateBranch(dupResolveTarget.username, dupResolveTarget.orgName, hq)}
+                      className="w-full px-4 py-3 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-400 rounded-xl text-left text-xs font-black text-slate-800 hover:text-blue-700 flex items-center justify-between transition-all group cursor-pointer shadow-2xs"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Building2 size={14} className="text-blue-600" />
+                        <span>{hq} &gt; {dupResolveTarget.orgName}</span>
+                      </span>
+                      <span className="text-[11px] font-bold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                        이 본부로 지정 →
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setDupResolveTarget(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  닫기
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* 다중 본부/지사 할당 전용 팝업 모달 */}
       <AnimatePresence>

@@ -72,6 +72,58 @@ interface ERPDataItem {
   hcPaidCount?: number;
 }
 
+/**
+ * 지사 소속 본부 및 지사명 파싱 헬퍼 함수
+ * 지원 형식:
+ * 1) "가치온본부 > 이성희" or "가치온본부>이성희"
+ * 2) "가치온본부 / 이성희" or "가치온본부/이성희"
+ * 3) "이성희 (가치온본부)" or "가치온본부(이성희)"
+ * 4) "가치온본부 - 이성희"
+ * 5) "이성희" (단일 지사명)
+ */
+export const parseBranchScope = (orgName: string): { hq: string | null; branch: string } => {
+  if (!orgName) return { hq: null, branch: '' };
+  const trimmed = orgName.trim();
+
+  // 1) "가치온본부 > 이성희"
+  if (trimmed.includes('>')) {
+    const parts = trimmed.split('>');
+    const hq = parts[0].trim();
+    const branch = parts.slice(1).join('>').trim();
+    return { hq: hq || null, branch: branch || trimmed };
+  }
+  // 2) "가치온본부 / 이성희"
+  if (trimmed.includes('/')) {
+    const parts = trimmed.split('/');
+    const hq = parts[0].trim();
+    const branch = parts.slice(1).join('/').trim();
+    return { hq: hq || null, branch: branch || trimmed };
+  }
+  // 3) "이성희 (가치온본부)" or "가치온본부(이성희)"
+  const parenMatch = trimmed.match(/^(.+?)\s*\((.+?)\)$/);
+  if (parenMatch) {
+    const first = parenMatch[1].trim();
+    const second = parenMatch[2].trim();
+    if (second.includes('본부')) {
+      return { hq: second, branch: first };
+    }
+    if (first.includes('본부')) {
+      return { hq: first, branch: second };
+    }
+    return { hq: second, branch: first };
+  }
+  // 4) "가치온본부 - 이성희"
+  if (trimmed.includes(' - ')) {
+    const parts = trimmed.split(' - ');
+    const hq = parts[0].trim();
+    const branch = parts.slice(1).join(' - ').trim();
+    return { hq: hq || null, branch: branch || trimmed };
+  }
+
+  // 5) 일반 단일 지사명
+  return { hq: null, branch: trimmed };
+};
+
 interface SyncNotification {
   message: string;
   type: 'success' | 'info';
@@ -676,9 +728,13 @@ const ERP_Dashboard = () => {
     if (currentUser.orgs && currentUser.orgs.length > 0) {
       return currentUser.orgs
         .filter(o => o.role === '지사' || o.role === '지점' || o.role === '지사모바일')
-        .map(o => (o.orgName || '').replace(/[\s()지사지점]/g, ''));
+        .map(o => {
+          const { branch } = parseBranchScope(o.orgName || '');
+          return (branch || '').replace(/[\s()지사지점]/g, '');
+        });
     }
-    return [(currentUser.orgName || '').replace(/[\s()지사지점]/g, '')];
+    const { branch } = parseBranchScope(currentUser.orgName || '');
+    return [(branch || '').replace(/[\s()지사지점]/g, '')];
   }, [currentUser]);
 
   // '의전' 권한 판별: 계정관리에서 구분(role)이나 소속(orgName)에 '의전'이 포함된 사용자 또는 관리자
@@ -2366,10 +2422,20 @@ const ERP_Dashboard = () => {
                   const itemHqNorm = normOrg(item.hq);
                   return itemHqNorm === normOrgName || (normOrgName !== '' && itemHqNorm.includes(normOrgName)) || (itemHqNorm !== '' && normOrgName.includes(itemHqNorm));
                 } else if (org.role === '지사' || org.role === '지점' || org.role === '지사모바일') {
+                  const { hq: scopeHq, branch: scopeBranch } = parseBranchScope(org.orgName || '');
+                  const normScopeBranch = normOrg(scopeBranch);
                   const itemBranchNorm = normOrg(item.branch);
-                  const isBranchMatch = itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
-                  const isSelfMatch = isEmpSelfMatch(item, normOrgName);
-                  return isBranchMatch || isSelfMatch;
+                  const isBranchMatch = itemBranchNorm === normScopeBranch || (normScopeBranch !== '' && itemBranchNorm.includes(normScopeBranch)) || (itemBranchNorm !== '' && normScopeBranch.includes(itemBranchNorm));
+                  const isSelfMatch = isEmpSelfMatch(item, normScopeBranch);
+                  const branchMatched = isBranchMatch || isSelfMatch;
+
+                  if (scopeHq) {
+                    const normScopeHq = normOrg(scopeHq);
+                    const itemHqNorm = normOrg(item.hq);
+                    const isHqMatch = itemHqNorm === normScopeHq || (normScopeHq !== '' && itemHqNorm.includes(normScopeHq)) || (itemHqNorm !== '' && normScopeHq.includes(itemHqNorm));
+                    return isHqMatch && branchMatched;
+                  }
+                  return branchMatched;
                 } else {
                   return isSalesPersonMatch(item, org.orgName || '');
                 }
@@ -2384,11 +2450,21 @@ const ERP_Dashboard = () => {
                 return itemHqNorm === normOrgName || (normOrgName !== '' && itemHqNorm.includes(normOrgName)) || (itemHqNorm !== '' && normOrgName.includes(itemHqNorm));
               });
             } else if (currentUser.role === '지사' || currentUser.role === '지점' || currentUser.role === '지사모바일') {
+              const { hq: scopeHq, branch: scopeBranch } = parseBranchScope(currentUser.orgName || '');
+              const normScopeBranch = normOrg(scopeBranch);
               finalData = initialData.filter(item => {
                 const itemBranchNorm = normOrg(item.branch);
-                const isBranchMatch = itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
-                const isSelfMatch = isEmpSelfMatch(item, normOrgName);
-                return isBranchMatch || isSelfMatch;
+                const isBranchMatch = itemBranchNorm === normScopeBranch || (normScopeBranch !== '' && itemBranchNorm.includes(normScopeBranch)) || (itemBranchNorm !== '' && normScopeBranch.includes(itemBranchNorm));
+                const isSelfMatch = isEmpSelfMatch(item, normScopeBranch);
+                const branchMatched = isBranchMatch || isSelfMatch;
+
+                if (scopeHq) {
+                  const normScopeHq = normOrg(scopeHq);
+                  const itemHqNorm = normOrg(item.hq);
+                  const isHqMatch = itemHqNorm === normScopeHq || (normScopeHq !== '' && itemHqNorm.includes(normScopeHq)) || (itemHqNorm !== '' && normScopeHq.includes(itemHqNorm));
+                  return isHqMatch && branchMatched;
+                }
+                return branchMatched;
               });
             } else {
               finalData = initialData.filter(item => isSalesPersonMatch(item, currentUser.orgName || ''));
@@ -2626,10 +2702,20 @@ const ERP_Dashboard = () => {
                 const itemHqNorm = normOrg(item.hq);
                 return itemHqNorm === normOrgName || (normOrgName !== '' && itemHqNorm.includes(normOrgName)) || (itemHqNorm !== '' && normOrgName.includes(itemHqNorm));
               } else if (org.role === '지사' || org.role === '지점' || org.role === '지사모바일') {
+                const { hq: scopeHq, branch: scopeBranch } = parseBranchScope(org.orgName || '');
+                const normScopeBranch = normOrg(scopeBranch);
                 const itemBranchNorm = normOrg(item.branch);
-                const isBranchMatch = itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
-                const isSelfMatch = isEmpSelfMatch(item, normOrgName);
-                return isBranchMatch || isSelfMatch;
+                const isBranchMatch = itemBranchNorm === normScopeBranch || (normScopeBranch !== '' && itemBranchNorm.includes(normScopeBranch)) || (itemBranchNorm !== '' && normScopeBranch.includes(itemBranchNorm));
+                const isSelfMatch = isEmpSelfMatch(item, normScopeBranch);
+                const branchMatched = isBranchMatch || isSelfMatch;
+
+                if (scopeHq) {
+                  const normScopeHq = normOrg(scopeHq);
+                  const itemHqNorm = normOrg(item.hq);
+                  const isHqMatch = itemHqNorm === normScopeHq || (normScopeHq !== '' && itemHqNorm.includes(normScopeHq)) || (itemHqNorm !== '' && normScopeHq.includes(itemHqNorm));
+                  return isHqMatch && branchMatched;
+                }
+                return branchMatched;
               } else {
                 return isSalesPersonMatch(item, org.orgName || '');
               }
@@ -2644,11 +2730,21 @@ const ERP_Dashboard = () => {
               return itemHqNorm === normOrgName || (normOrgName !== '' && itemHqNorm.includes(normOrgName)) || (itemHqNorm !== '' && normOrgName.includes(itemHqNorm));
             });
           } else if (currentUser.role === '지사' || currentUser.role === '지점' || currentUser.role === '지사모바일') {
+            const { hq: scopeHq, branch: scopeBranch } = parseBranchScope(currentUser.orgName || '');
+            const normScopeBranch = normOrg(scopeBranch);
             finalData = formatted.filter(item => {
               const itemBranchNorm = normOrg(item.branch);
-              const isBranchMatch = itemBranchNorm === normOrgName || (normOrgName !== '' && itemBranchNorm.includes(normOrgName)) || (itemBranchNorm !== '' && normOrgName.includes(itemBranchNorm));
-              const isSelfMatch = isEmpSelfMatch(item, normOrgName);
-              return isBranchMatch || isSelfMatch;
+              const isBranchMatch = itemBranchNorm === normScopeBranch || (normScopeBranch !== '' && itemBranchNorm.includes(normScopeBranch)) || (itemBranchNorm !== '' && normScopeBranch.includes(itemBranchNorm));
+              const isSelfMatch = isEmpSelfMatch(item, normScopeBranch);
+              const branchMatched = isBranchMatch || isSelfMatch;
+
+              if (scopeHq) {
+                const normScopeHq = normOrg(scopeHq);
+                const itemHqNorm = normOrg(item.hq);
+                const isHqMatch = itemHqNorm === normScopeHq || (normScopeHq !== '' && itemHqNorm.includes(normScopeHq)) || (itemHqNorm !== '' && normScopeHq.includes(itemHqNorm));
+                return isHqMatch && branchMatched;
+              }
+              return branchMatched;
             });
           } else {
             finalData = formatted.filter(item => isSalesPersonMatch(item, currentUser.orgName || ''));
