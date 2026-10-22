@@ -105,7 +105,7 @@ export const DEFAULT_OCTOBER_SETTLEMENT_ROWS: DetailedSettlementRow[] = [
   { id: 'oct_etc_1', targetName: '조재윤', itemName: '모델비', count: 601, unitFee: 10000, salesCommission: 0, promoCommission: 0, totalCommission: 6010000, isHeaderGroup: true },
   { id: 'oct_etc_2', targetName: '조민경', itemName: '컨설팅비', count: 601, unitFee: 5000, salesCommission: 0, promoCommission: 0, totalCommission: 3005000, isHeaderGroup: true },
   { id: 'oct_etc_3', targetName: '이종연', itemName: '컨설팅비(해랑인터내셔널)', count: 3, unitFee: 30000, salesCommission: 0, promoCommission: 0, totalCommission: 90000, isHeaderGroup: true },
-  { id: 'oct_etc_4_diff', targetName: '신동우', itemName: '굿라이프 오버라이딩 차액분', count: 209, unitFee: 0, salesCommission: 0, promoCommission: 0, totalCommission: 15720000, isHeaderGroup: true },
+  { id: 'oct_etc_4_diff', targetName: '신동우', itemName: '굿라이프 오버라이딩 차액분', count: 210, unitFee: 0, salesCommission: 0, promoCommission: 0, totalCommission: 15320000, isHeaderGroup: true },
   { id: 'oct_etc_4', targetName: '신동우', itemName: '물품대금 수수료(테라웨이브)', count: 2, unitFee: 500000, salesCommission: 0, promoCommission: 0, totalCommission: 1000000, isHeaderGroup: false },
   { id: 'oct_etc_5', targetName: '권성훈', itemName: '홈페이지 유지비', count: 1, unitFee: 150000, salesCommission: 0, promoCommission: 0, totalCommission: 150000, isHeaderGroup: true }
 ];
@@ -1430,12 +1430,46 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   const detailedSettlementList = useMemo<DetailedSettlementRow[]>(() => {
     const isOct = selectedMonth === '2026-10' || selectedMonth.endsWith('-10');
 
-    // 1) 10월이고 사업단 묶기 모드일 때: 사용자 확정 10월 데이터 (456,823,000원) 제공 (수정된 커스텀이 있으면 우선)
+    // 1) 10월이고 사업단 묶기 모드일 때: 사용자 확정 10월 데이터 제공 (굿라이프 사업단 내부 분배 명세와 100% 실시간 동기화)
     if (isOct && groupByDivision) {
       if (customDetailedRowsMap[selectedMonth] && customDetailedRowsMap[selectedMonth].length > 0) {
         return customDetailedRowsMap[selectedMonth];
       }
-      return DEFAULT_OCTOBER_SETTLEMENT_ROWS;
+      return DEFAULT_OCTOBER_SETTLEMENT_ROWS.map(r => {
+        if (r.id === 'oct_goodlife_kkum') {
+          return {
+            ...r,
+            count: goodlifeSplitSummary.kkumCount,
+            totalCommission: goodlifeSplitSummary.kkumDirect,
+            salesCommission: Math.round(goodlifeSplitSummary.kkumDirect * (49200000 / 116440000)),
+            promoCommission: goodlifeSplitSummary.kkumDirect - Math.round(goodlifeSplitSummary.kkumDirect * (49200000 / 116440000))
+          };
+        }
+        if (r.id === 'oct_goodlife_shin_hq') {
+          return {
+            ...r,
+            count: goodlifeSplitSummary.hqCount,
+            totalCommission: goodlifeSplitSummary.hqDirect,
+            salesCommission: Math.round(goodlifeSplitSummary.hqDirect * (13800000 / 25300000)),
+            promoCommission: goodlifeSplitSummary.hqDirect - Math.round(goodlifeSplitSummary.hqDirect * (13800000 / 25300000))
+          };
+        }
+        if (r.id === 'oct_goodlife_sub') {
+          return {
+            ...r,
+            count: goodlifeSplitSummary.totalCount,
+            totalCommission: goodlifeSplitSummary.totalDirect
+          };
+        }
+        if (r.id === 'oct_etc_4_diff') {
+          return {
+            ...r,
+            count: goodlifeSplitSummary.totalCount,
+            totalCommission: goodlifeSplitSummary.totalOverride
+          };
+        }
+        return r;
+      });
     }
 
     // 2) 로컬 스토리지에 사용자가 직접 편집/저장한 내역이 있는 경우 (특정 모드 캐시)
@@ -1695,8 +1729,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     }
 
     // 신동우 굿라이프 오버라이딩 차액분 (사업단 분배 명세 기준 귀속)
-    const glOverrideAmount = isOct ? 15720000 : (goodlifeSplitSummary.totalOverride || 0);
-    const glOverrideCount = isOct ? 209 : (goodlifeSplitSummary.totalCount || 0);
+    const glOverrideAmount = goodlifeSplitSummary.totalOverride;
+    const glOverrideCount = goodlifeSplitSummary.totalCount;
     if (glOverrideAmount > 0) {
       result.push({
         id: `auto_goodlife_diff_shin_${selectedMonth}`,
@@ -1761,7 +1795,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
 
     return result;
-  }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data]);
+  }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data, goodlifeSplitSummary]);
 
   // 상세 정산 내역 전체 합계 계산 (소계 행 제외하여 중복 방지 및 원천세/실지급액 계산)
   const detailedTotals = useMemo(() => {
