@@ -4910,19 +4910,19 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                   initial={{ scale: 0.95, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 0.95, opacity: 0 }}
-                  className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden"
+                  className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-[1550px] w-[96vw] max-h-[92vh] flex flex-col overflow-hidden"
                 >
                   {/* 모달 헤더 */}
-                  <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-900 text-white">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-400/30">
-                        <Layers size={18} />
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-900 text-white shrink-0">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-400/30">
+                        <Layers size={20} />
                       </div>
                       <div>
-                        <h4 className="text-base font-black">
+                        <h4 className="text-base font-black tracking-tight whitespace-nowrap">
                           굿라이프 사업단 내부 실송금 및 신동우 대표 오버라이딩 차액 분배 명세
                         </h4>
-                        <p className="text-xs text-slate-400 mt-0.5">
+                        <p className="text-xs text-slate-400 mt-0.5 whitespace-nowrap">
                           본사 보고용 총수수료(71만/75만)와 내부 계좌별 직송금(꿈잇다 71만, 신동우 산하 본부 55만, 신동우 대표 차액 귀속) 분배 구조
                         </p>
                       </div>
@@ -4932,91 +4932,91 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       onClick={() => setIsGoodlifeSplitModalOpen(false)}
                       className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
                     >
-                      <X size={18} />
+                      <X size={20} />
                     </button>
                   </div>
 
                   {/* 모달 본문 */}
                   <div className="p-6 overflow-y-auto space-y-5 custom-scrollbar flex-1 bg-slate-50/50">
                     {/* 상단 5대 핵심 지표 요약 카드 */}
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
-                      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-                        <span className="text-xs text-slate-500 font-bold">본사 총 발생수수료</span>
-                        <div className="mt-1 text-base font-black text-slate-900 font-mono">
-                          {goodlifeSplitSummary.totalOfficial.toLocaleString()}<span className="text-[11px] font-normal text-slate-500 ml-0.5">원</span>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs whitespace-nowrap">
+                        <span className="text-xs text-slate-500 font-bold block">본사 총 발생수수료</span>
+                        <div className="mt-1 text-lg font-black text-slate-900 font-mono">
+                          {goodlifeSplitSummary.totalOfficial.toLocaleString()}<span className="text-xs font-normal text-slate-500 ml-0.5">원</span>
                         </div>
                         <span className="text-[11px] text-blue-600 font-bold mt-0.5 block">총 {goodlifeSplitSummary.totalCount}건 집계</span>
                       </div>
 
-                      <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-200 shadow-2xs">
-                        <span className="text-xs text-emerald-800 font-bold">(주)꿈잇다 직송금</span>
-                        <div className="mt-1 text-base font-black text-emerald-700 font-mono">
-                          {goodlifeSplitSummary.kkumDirect.toLocaleString()}<span className="text-[11px] font-normal text-emerald-600 ml-0.5">원</span>
+                      <div className="bg-emerald-50/60 p-4 rounded-xl border border-emerald-200 shadow-2xs whitespace-nowrap">
+                        <span className="text-xs text-emerald-800 font-bold block">(주)꿈잇다 직송금</span>
+                        <div className="mt-1 text-lg font-black text-emerald-700 font-mono">
+                          {goodlifeSplitSummary.kkumDirect.toLocaleString()}<span className="text-xs font-normal text-emerald-600 ml-0.5">원</span>
                         </div>
-                        <span className="text-[11px] text-emerald-600 font-medium mt-0.5 block">전 상품 건당 710,000원</span>
+                        <span className="text-[11px] text-emerald-600 font-medium mt-0.5 block">전 상품 건당 710,000원 ({goodlifeSplitSummary.kkumCount}건)</span>
                       </div>
 
-                      <div className="bg-blue-50/60 p-3.5 rounded-xl border border-blue-200 shadow-2xs">
-                        <span className="text-xs text-blue-800 font-bold">신동우 산하 본부 직송금</span>
-                        <div className="mt-1 text-base font-black text-blue-700 font-mono">
-                          {goodlifeSplitSummary.hqDirect.toLocaleString()}<span className="text-[11px] font-normal text-blue-600 ml-0.5">원</span>
+                      <div className="bg-blue-50/60 p-4 rounded-xl border border-blue-200 shadow-2xs whitespace-nowrap">
+                        <span className="text-xs text-blue-800 font-bold block">신동우 산하 본부 직송금</span>
+                        <div className="mt-1 text-lg font-black text-blue-700 font-mono">
+                          {goodlifeSplitSummary.hqDirect.toLocaleString()}<span className="text-xs font-normal text-blue-600 ml-0.5">원</span>
                         </div>
-                        <span className="text-[11px] text-blue-600 font-medium mt-0.5 block">소속 본부 건당 550,000원</span>
+                        <span className="text-[11px] text-blue-600 font-medium mt-0.5 block">소속 본부 건당 550,000원 ({goodlifeSplitSummary.hqCount}건)</span>
                       </div>
 
-                      <div className="bg-amber-50/60 p-3.5 rounded-xl border border-amber-200 shadow-2xs">
-                        <span className="text-xs text-amber-800 font-bold">신동우 대표 차액분</span>
-                        <div className="mt-1 text-base font-black text-amber-700 font-mono">
-                          {goodlifeSplitSummary.totalOverride.toLocaleString()}<span className="text-[11px] font-normal text-amber-600 ml-0.5">원</span>
+                      <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200 shadow-2xs whitespace-nowrap">
+                        <span className="text-xs text-amber-800 font-bold block">신동우 대표 차액분</span>
+                        <div className="mt-1 text-lg font-black text-amber-700 font-mono">
+                          {goodlifeSplitSummary.totalOverride.toLocaleString()}<span className="text-xs font-normal text-amber-600 ml-0.5">원</span>
                         </div>
                         <span className="text-[11px] text-amber-600 font-medium mt-0.5 block">꿈잇다 4만 / 사업단 16~20만</span>
                       </div>
 
-                      <div className="bg-purple-50/60 p-3.5 rounded-xl border border-purple-200 shadow-2xs">
-                        <span className="text-xs text-purple-800 font-bold">신동우 대표 최종 실송금</span>
-                        <div className="mt-1 text-base font-black text-purple-700 font-mono">
-                          {(goodlifeSplitSummary.totalOverride + 1000000).toLocaleString()}<span className="text-[11px] font-normal text-purple-600 ml-0.5">원</span>
+                      <div className="bg-purple-50/60 p-4 rounded-xl border border-purple-200 shadow-2xs whitespace-nowrap">
+                        <span className="text-xs text-purple-800 font-bold block">신동우 대표 최종 실송금</span>
+                        <div className="mt-1 text-lg font-black text-purple-700 font-mono">
+                          {(goodlifeSplitSummary.totalOverride + 1000000).toLocaleString()}<span className="text-xs font-normal text-purple-600 ml-0.5">원</span>
                         </div>
                         <span className="text-[11px] text-purple-600 font-medium mt-0.5 block">차액 + 테라웨이브(100만)</span>
                       </div>
                     </div>
 
                     {/* 검증 배너 */}
-                    <div className="px-4 py-2.5 rounded-xl bg-emerald-100/70 border border-emerald-300 flex items-center justify-between text-xs">
+                    <div className="px-5 py-3 rounded-xl bg-emerald-100/70 border border-emerald-300 flex items-center justify-between text-xs whitespace-nowrap">
                       <div className="flex items-center gap-2 text-emerald-900 font-bold">
-                        <CheckCircle size={15} className="text-emerald-600" />
+                        <CheckCircle size={16} className="text-emerald-600 shrink-0" />
                         <span>정산 합계 일치 검증:</span>
                         <span className="font-mono text-emerald-800">
-                          본사 수수료({goodlifeSplitSummary.totalOfficial.toLocaleString()}원) = 꿈잇다/본부 직송금({goodlifeSplitSummary.totalDirect.toLocaleString()}원) + 신동우 대표 차액({goodlifeSplitSummary.totalOverride.toLocaleString()}원)
+                          본사 수수료({goodlifeSplitSummary.totalOfficial.toLocaleString()}원) = 직송금합계({goodlifeSplitSummary.totalDirect.toLocaleString()}원) + 신동우 대표 차액({goodlifeSplitSummary.totalOverride.toLocaleString()}원)
                         </span>
                       </div>
-                      <span className="px-2.5 py-0.5 bg-emerald-600 text-white font-black rounded-md text-[11px]">
+                      <span className="px-3 py-1 bg-emerald-600 text-white font-black rounded-lg text-xs shadow-2xs">
                         오차 0원 정상 일치
                       </span>
                     </div>
 
                     {/* 분배 상세 테이블 */}
                     <div className="bg-white rounded-xl border border-slate-300 overflow-hidden shadow-2xs">
-                      <div className="px-4 py-2.5 bg-slate-800 text-white font-bold text-xs flex items-center justify-between">
-                        <span>상품별 실송금 및 오버라이딩 차액 분배 세부 명세표</span>
-                        <span className="text-[11px] text-slate-300 font-normal">건수를 수정하시면 직송금과 차액이 실시간으로 재계산됩니다.</span>
+                      <div className="px-5 py-3 bg-slate-800 text-white font-bold text-xs flex items-center justify-between whitespace-nowrap">
+                        <span className="text-sm">상품별 실송금 및 오버라이딩 차액 분배 세부 명세표</span>
+                        <span className="text-xs text-slate-300 font-normal">건수를 수정하시면 직송금과 차액이 실시간으로 재계산됩니다.</span>
                       </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs text-left border-collapse min-w-[850px]">
+                      <div className="overflow-x-auto custom-scrollbar">
+                        <table className="w-full text-xs text-left border-collapse min-w-[1320px]">
                           <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
                             <tr>
-                              <th className="px-3 py-2.5 text-center border-r border-slate-200 w-24">구분</th>
-                              <th className="px-3 py-2.5 text-center border-r border-slate-200 w-28">소속본부</th>
-                              <th className="px-3 py-2.5 text-left border-r border-slate-200 min-w-[120px]">상품명</th>
-                              <th className="px-3 py-2.5 text-right border-r border-slate-200 w-20">건수</th>
-                              <th className="px-3 py-2.5 text-right border-r border-slate-200 w-28">본사단가</th>
-                              <th className="px-3 py-2.5 text-right border-r border-slate-200 w-32">본사 총수수료</th>
-                              <th className="px-3 py-2.5 text-center border-r border-slate-200 w-28">직송금대상</th>
-                              <th className="px-3 py-2.5 text-right border-r border-slate-200 w-28">직송금단가</th>
-                              <th className="px-3 py-2.5 text-right border-r border-slate-200 w-32 bg-emerald-50/50 text-emerald-800">직송금합계</th>
-                              <th className="px-3 py-2.5 text-right border-r border-slate-200 w-28 text-amber-700">신동우 차액단가</th>
-                              <th className="px-3 py-2.5 text-right border-r border-slate-200 w-32 bg-amber-50/50 text-amber-800 font-bold">신동우 차액합계</th>
-                              <th className="px-3 py-2.5 text-left min-w-[160px]">비고</th>
+                              <th className="px-4 py-3 text-center border-r border-slate-200 whitespace-nowrap min-w-[90px]">구분</th>
+                              <th className="px-4 py-3 text-center border-r border-slate-200 whitespace-nowrap min-w-[120px]">소속본부</th>
+                              <th className="px-4 py-3 text-left border-r border-slate-200 whitespace-nowrap min-w-[180px]">상품명</th>
+                              <th className="px-4 py-3 text-right border-r border-slate-200 whitespace-nowrap min-w-[95px]">건수</th>
+                              <th className="px-4 py-3 text-right border-r border-slate-200 whitespace-nowrap min-w-[110px]">본사단가</th>
+                              <th className="px-4 py-3 text-right border-r border-slate-200 whitespace-nowrap min-w-[130px]">본사 총수수료</th>
+                              <th className="px-4 py-3 text-center border-r border-slate-200 whitespace-nowrap min-w-[130px]">직송금대상</th>
+                              <th className="px-4 py-3 text-right border-r border-slate-200 whitespace-nowrap min-w-[115px]">직송금단가</th>
+                              <th className="px-4 py-3 text-right border-r border-slate-200 whitespace-nowrap min-w-[130px] bg-emerald-50/50 text-emerald-800">직송금합계</th>
+                              <th className="px-4 py-3 text-right border-r border-slate-200 whitespace-nowrap min-w-[120px] text-amber-700">신동우 차액단가</th>
+                              <th className="px-4 py-3 text-right border-r border-slate-200 whitespace-nowrap min-w-[130px] bg-amber-50/50 text-amber-800 font-bold">신동우 차액합계</th>
+                              <th className="px-4 py-3 text-left whitespace-nowrap min-w-[220px]">비고</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200 text-slate-700 font-sans">
@@ -5033,16 +5033,16 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
                               return (
                                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                  <td className="px-3 py-2 text-center border-r border-slate-200 font-bold text-slate-600">
+                                  <td className="px-4 py-2.5 text-center border-r border-slate-200 font-bold text-slate-600 whitespace-nowrap">
                                     {item.category}
                                   </td>
-                                  <td className="px-3 py-2 text-center border-r border-slate-200 font-bold">
+                                  <td className="px-4 py-2.5 text-center border-r border-slate-200 font-bold whitespace-nowrap">
                                     {item.hqName}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 font-bold text-slate-800">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 font-bold text-slate-800 whitespace-nowrap">
                                     {item.itemName}
                                   </td>
-                                  <td className="px-2 py-1.5 border-r border-slate-200 text-right">
+                                  <td className="px-3 py-2 border-r border-slate-200 text-right whitespace-nowrap">
                                     <input
                                       type="number"
                                       value={item.count}
@@ -5052,61 +5052,61 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                                         next[globalIdx] = { ...next[globalIdx], count: val };
                                         saveGoodlifeSplitRows(next);
                                       }}
-                                      className="w-16 px-1 py-0.5 text-right font-mono font-bold border border-slate-300 rounded bg-white focus:border-indigo-500 focus:outline-hidden"
+                                      className="w-18 px-2 py-1 text-right font-mono font-bold border border-slate-300 rounded-lg bg-white focus:border-indigo-500 focus:outline-hidden"
                                     />
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono whitespace-nowrap">
                                     {offFee.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono font-bold text-slate-900">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
                                     {offTotal.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-center font-bold text-emerald-700">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-center font-bold text-emerald-700 whitespace-nowrap">
                                     {item.directRecipient}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono text-emerald-700">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono text-emerald-700 whitespace-nowrap">
                                     {dirFee.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono font-bold text-emerald-800 bg-emerald-50/30">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono font-bold text-emerald-800 bg-emerald-50/30 whitespace-nowrap">
                                     {dirTotal.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono text-amber-700">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono text-amber-700 whitespace-nowrap">
                                     {diffFee.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono font-bold text-amber-800 bg-amber-50/30">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono font-bold text-amber-800 bg-amber-50/30 whitespace-nowrap">
                                     {diffTotal.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 text-slate-500 text-[11px]">
+                                  <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">
                                     {item.memo}
                                   </td>
                                 </tr>
                               );
                             })}
                             {/* 꿈잇다 소계 행 */}
-                            <tr className="bg-emerald-50/50 font-bold border-y border-emerald-200 text-emerald-950">
-                              <td colSpan={3} className="px-3 py-2 text-center border-r border-emerald-200 font-black">
+                            <tr className="bg-emerald-50/60 font-bold border-y-2 border-emerald-300 text-emerald-950">
+                              <td colSpan={3} className="px-4 py-3 text-center border-r border-emerald-300 font-black whitespace-nowrap">
                                 [꿈잇다 사업단 소계]
                               </td>
-                              <td className="px-3 py-2 text-right font-mono font-black border-r border-emerald-200">
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-emerald-300 whitespace-nowrap">
                                 {goodlifeSplitSummary.kkumCount.toLocaleString()}
                               </td>
-                              <td className="px-3 py-2 text-center border-r border-emerald-200">-</td>
-                              <td className="px-3 py-2 text-right font-mono font-black border-r border-emerald-200">
+                              <td className="px-4 py-3 text-center border-r border-emerald-300 whitespace-nowrap">-</td>
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-emerald-300 whitespace-nowrap">
                                 {goodlifeSplitSummary.kkumOfficial.toLocaleString()}
                               </td>
-                              <td colSpan={2} className="px-3 py-2 text-center border-r border-emerald-200 text-emerald-800 text-[11px]">
+                              <td colSpan={2} className="px-4 py-3 text-center border-r border-emerald-300 text-emerald-800 text-xs font-bold whitespace-nowrap">
                                 (주)꿈잇다 직송금
                               </td>
-                              <td className="px-3 py-2 text-right font-mono font-black border-r border-emerald-200 text-emerald-700 bg-emerald-100/60">
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-emerald-300 text-emerald-700 bg-emerald-100/70 whitespace-nowrap">
                                 {goodlifeSplitSummary.kkumDirect.toLocaleString()}
                               </td>
-                              <td className="px-3 py-2 text-center border-r border-emerald-200 text-amber-800 text-[11px]">
-                                차액(4만)
+                              <td className="px-4 py-3 text-center border-r border-emerald-300 text-amber-800 text-xs font-bold whitespace-nowrap">
+                                차액(건당 4만)
                               </td>
-                              <td className="px-3 py-2 text-right font-mono font-black border-r border-emerald-200 text-amber-800 bg-amber-100/60">
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-emerald-300 text-amber-800 bg-amber-100/70 whitespace-nowrap">
                                 {goodlifeSplitSummary.kkumOverride.toLocaleString()}
                               </td>
-                              <td className="px-3 py-2 text-emerald-800 text-[11px]">
+                              <td className="px-4 py-3 text-emerald-800 text-xs whitespace-nowrap">
                                 꿈잇다 71만 직송금 / 신동우 4만 차액
                               </td>
                             </tr>
@@ -5124,16 +5124,16 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
                               return (
                                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                  <td className="px-3 py-2 text-center border-r border-slate-200 font-bold text-slate-600">
+                                  <td className="px-4 py-2.5 text-center border-r border-slate-200 font-bold text-slate-600 whitespace-nowrap">
                                     {item.category}
                                   </td>
-                                  <td className="px-3 py-2 text-center border-r border-slate-200 font-bold">
+                                  <td className="px-4 py-2.5 text-center border-r border-slate-200 font-bold whitespace-nowrap">
                                     {item.hqName}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 font-bold text-slate-800">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 font-bold text-slate-800 whitespace-nowrap">
                                     {item.itemName}
                                   </td>
-                                  <td className="px-2 py-1.5 border-r border-slate-200 text-right">
+                                  <td className="px-3 py-2 border-r border-slate-200 text-right whitespace-nowrap">
                                     <input
                                       type="number"
                                       value={item.count}
@@ -5143,88 +5143,88 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                                         next[globalIdx] = { ...next[globalIdx], count: val };
                                         saveGoodlifeSplitRows(next);
                                       }}
-                                      className="w-16 px-1 py-0.5 text-right font-mono font-bold border border-slate-300 rounded bg-white focus:border-indigo-500 focus:outline-hidden"
+                                      className="w-18 px-2 py-1 text-right font-mono font-bold border border-slate-300 rounded-lg bg-white focus:border-indigo-500 focus:outline-hidden"
                                     />
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono whitespace-nowrap">
                                     {offFee.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono font-bold text-slate-900">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
                                     {offTotal.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-center font-bold text-blue-700">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-center font-bold text-blue-700 whitespace-nowrap">
                                     {item.directRecipient}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono text-blue-700">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono text-blue-700 whitespace-nowrap">
                                     {dirFee.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono font-bold text-blue-800 bg-blue-50/30">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono font-bold text-blue-800 bg-blue-50/30 whitespace-nowrap">
                                     {dirTotal.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono text-amber-700">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono text-amber-700 whitespace-nowrap">
                                     {diffFee.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono font-bold text-amber-800 bg-amber-50/30">
+                                  <td className="px-4 py-2.5 border-r border-slate-200 text-right font-mono font-bold text-amber-800 bg-amber-50/30 whitespace-nowrap">
                                     {diffTotal.toLocaleString()}
                                   </td>
-                                  <td className="px-3 py-2 text-slate-500 text-[11px]">
+                                  <td className="px-4 py-2.5 text-slate-500 text-xs whitespace-nowrap">
                                     {item.memo}
                                   </td>
                                 </tr>
                               );
                             })}
                             {/* 신동우사업단 소계 행 */}
-                            <tr className="bg-blue-50/50 font-bold border-y border-blue-200 text-blue-950">
-                              <td colSpan={3} className="px-3 py-2 text-center border-r border-blue-200 font-black">
+                            <tr className="bg-blue-50/60 font-bold border-y-2 border-blue-300 text-blue-950">
+                              <td colSpan={3} className="px-4 py-3 text-center border-r border-blue-300 font-black whitespace-nowrap">
                                 [신동우 사업단 산하본부 소계]
                               </td>
-                              <td className="px-3 py-2 text-right font-mono font-black border-r border-blue-200">
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-blue-300 whitespace-nowrap">
                                 {goodlifeSplitSummary.hqCount.toLocaleString()}
                               </td>
-                              <td className="px-3 py-2 text-center border-r border-blue-200">-</td>
-                              <td className="px-3 py-2 text-right font-mono font-black border-r border-blue-200">
+                              <td className="px-4 py-3 text-center border-r border-blue-300 whitespace-nowrap">-</td>
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-blue-300 whitespace-nowrap">
                                 {goodlifeSplitSummary.hqOfficial.toLocaleString()}
                               </td>
-                              <td colSpan={2} className="px-3 py-2 text-center border-r border-blue-200 text-blue-800 text-[11px]">
+                              <td colSpan={2} className="px-4 py-3 text-center border-r border-blue-300 text-blue-800 text-xs font-bold whitespace-nowrap">
                                 소속 본부 직송금
                               </td>
-                              <td className="px-3 py-2 text-right font-mono font-black border-r border-blue-200 text-blue-700 bg-blue-100/60">
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-blue-300 text-blue-700 bg-blue-100/70 whitespace-nowrap">
                                 {goodlifeSplitSummary.hqDirect.toLocaleString()}
                               </td>
-                              <td className="px-3 py-2 text-center border-r border-blue-200 text-amber-800 text-[11px]">
+                              <td className="px-4 py-3 text-center border-r border-blue-300 text-amber-800 text-xs font-bold whitespace-nowrap">
                                 차액(16~20만)
                               </td>
-                              <td className="px-3 py-2 text-right font-mono font-black border-r border-blue-200 text-amber-800 bg-amber-100/60">
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-blue-300 text-amber-800 bg-amber-100/70 whitespace-nowrap">
                                 {goodlifeSplitSummary.hqOverride.toLocaleString()}
                               </td>
-                              <td className="px-3 py-2 text-blue-800 text-[11px]">
+                              <td className="px-4 py-3 text-blue-800 text-xs whitespace-nowrap">
                                 본부 55만 직송금 / 신동우 16~20만 차액
                               </td>
                             </tr>
                           </tbody>
                           <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900">
                             <tr>
-                              <td colSpan={3} className="px-4 py-2.5 text-center border-r border-slate-300 font-black">
+                              <td colSpan={3} className="px-5 py-3 text-center border-r border-slate-300 font-black whitespace-nowrap">
                                 굿라이프 정산 분배 총계
                               </td>
-                              <td className="px-3 py-2.5 text-right font-mono font-black border-r border-slate-300">
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-slate-300 whitespace-nowrap">
                                 {goodlifeSplitSummary.totalCount.toLocaleString()}
                               </td>
-                              <td className="px-3 py-2.5 text-center border-r border-slate-300">-</td>
-                              <td className="px-3 py-2.5 text-right font-mono font-black border-r border-slate-300 text-blue-900">
+                              <td className="px-4 py-3 text-center border-r border-slate-300 whitespace-nowrap">-</td>
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-slate-300 text-blue-900 whitespace-nowrap">
                                 {goodlifeSplitSummary.totalOfficial.toLocaleString()}
                               </td>
-                              <td colSpan={2} className="px-3 py-2.5 text-center border-r border-slate-300 text-emerald-800">
+                              <td colSpan={2} className="px-4 py-3 text-center border-r border-slate-300 text-emerald-800 whitespace-nowrap">
                                 직송금 합계
                               </td>
-                              <td className="px-3 py-2.5 text-right font-mono font-black border-r border-slate-300 text-emerald-800 bg-emerald-100/50">
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-slate-300 text-emerald-800 bg-emerald-100/60 whitespace-nowrap">
                                 {goodlifeSplitSummary.totalDirect.toLocaleString()}
                               </td>
-                              <td className="px-3 py-2.5 text-center border-r border-slate-300 text-amber-800">차액 합계</td>
-                              <td className="px-3 py-2.5 text-right font-mono font-black border-r border-slate-300 text-amber-800 bg-amber-100/50">
+                              <td className="px-4 py-3 text-center border-r border-slate-300 text-amber-800 whitespace-nowrap">차액 합계</td>
+                              <td className="px-4 py-3 text-right font-mono font-black border-r border-slate-300 text-amber-800 bg-amber-100/60 whitespace-nowrap">
                                 {goodlifeSplitSummary.totalOverride.toLocaleString()}
                               </td>
-                              <td className="px-3 py-2.5 text-slate-600 text-[11px]">합계 일치 확인</td>
+                              <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">합계 일치 확인</td>
                             </tr>
                           </tfoot>
                         </table>
@@ -5232,31 +5232,31 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                     </div>
 
                     {/* 실제 송금 계좌정보 카드 3개 (꿈잇다, 신동우 산하본부, 신동우 대표) */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {/* 1. (주)꿈잇다 직송금 */}
-                      <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40">
+                      <div className="p-4.5 rounded-xl border border-emerald-200 bg-emerald-50/40 whitespace-nowrap">
                         <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
-                          <CheckCircle size={14} className="text-emerald-600" />
+                          <CheckCircle size={15} className="text-emerald-600 shrink-0" />
                           1. (주)꿈잇다 직송금 계좌
                         </span>
-                        <div className="mt-2 space-y-1 text-xs">
-                          <div className="flex justify-between">
+                        <div className="mt-2.5 space-y-1.5 text-xs">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">입금은행:</span>
                             <span className="font-bold text-slate-800">기업은행</span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">계좌번호:</span>
                             <span className="font-mono font-bold text-slate-800">115-131758-01-017</span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">예금주:</span>
                             <span className="font-bold text-slate-800">주식회사 꿈잇다</span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">실적건수:</span>
                             <span className="font-mono text-slate-700">{goodlifeSplitSummary.kkumCount}건 (건당 71만)</span>
                           </div>
-                          <div className="flex justify-between pt-1.5 border-t border-emerald-200 text-sm">
+                          <div className="flex justify-between items-center pt-2 border-t border-emerald-200 text-sm">
                             <span className="font-bold text-emerald-900">최종 송금액:</span>
                             <span className="font-mono font-black text-emerald-700">{goodlifeSplitSummary.kkumDirect.toLocaleString()}원</span>
                           </div>
@@ -5264,29 +5264,29 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       </div>
 
                       {/* 2. 신동우사업단 산하본부 직송금 */}
-                      <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40">
+                      <div className="p-4.5 rounded-xl border border-blue-200 bg-blue-50/40 whitespace-nowrap">
                         <span className="text-xs font-bold text-blue-800 flex items-center gap-1.5">
-                          <CheckCircle size={14} className="text-blue-600" />
+                          <CheckCircle size={15} className="text-blue-600 shrink-0" />
                           2. 신동우 산하 본부 직송금
                         </span>
-                        <div className="mt-2 space-y-1 text-xs">
-                          <div className="flex justify-between">
+                        <div className="mt-2.5 space-y-1.5 text-xs">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">수취대상:</span>
                             <span className="font-bold text-slate-800">신동우사업단 소속 본부</span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">입금계좌:</span>
                             <span className="font-bold text-slate-800">각 소속본부 지정계좌</span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">정산기준:</span>
                             <span className="text-slate-700">본부 직송금 건당 550,000원</span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">실적건수:</span>
                             <span className="font-mono text-slate-700">{goodlifeSplitSummary.hqCount}건 (건당 55만)</span>
                           </div>
-                          <div className="flex justify-between pt-1.5 border-t border-blue-200 text-sm">
+                          <div className="flex justify-between items-center pt-2 border-t border-blue-200 text-sm">
                             <span className="font-bold text-blue-900">최종 송금액:</span>
                             <span className="font-mono font-black text-blue-700">{goodlifeSplitSummary.hqDirect.toLocaleString()}원</span>
                           </div>
@@ -5294,29 +5294,29 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       </div>
 
                       {/* 3. 신동우 대표 실송금 */}
-                      <div className="p-4 rounded-xl border border-purple-200 bg-purple-50/40">
+                      <div className="p-4.5 rounded-xl border border-purple-200 bg-purple-50/40 whitespace-nowrap">
                         <span className="text-xs font-bold text-purple-800 flex items-center gap-1.5">
-                          <DollarSign size={14} className="text-purple-600" />
+                          <DollarSign size={15} className="text-purple-600 shrink-0" />
                           3. 신동우 대표 최종 실송금
                         </span>
-                        <div className="mt-2 space-y-1 text-xs">
-                          <div className="flex justify-between">
+                        <div className="mt-2.5 space-y-1.5 text-xs">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">입금은행:</span>
                             <span className="font-bold text-slate-800">국민은행</span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">계좌번호:</span>
                             <span className="font-mono font-bold text-slate-800">164501-04-161888</span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">예금주:</span>
                             <span className="font-bold text-slate-800">김애숙(에스제이컨설팅)</span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between items-center gap-2">
                             <span className="text-slate-500">세부내역:</span>
                             <span className="text-slate-700">차액 {goodlifeSplitSummary.totalOverride.toLocaleString()}원 + 테라 100만</span>
                           </div>
-                          <div className="flex justify-between pt-1.5 border-t border-purple-200 text-sm">
+                          <div className="flex justify-between items-center pt-2 border-t border-purple-200 text-sm">
                             <span className="font-bold text-purple-900">최종 송금액:</span>
                             <span className="font-mono font-black text-purple-700">{(goodlifeSplitSummary.totalOverride + 1000000).toLocaleString()}원</span>
                           </div>
