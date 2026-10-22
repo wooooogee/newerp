@@ -123,14 +123,15 @@ export interface GoodlifeSplitItem {
   memo?: string;
 }
 
-// 10월 굿라이프 사업단 기본 내부 분배 내역 (210건, 157,460,000원 기준)
+// 10월 굿라이프 사업단 기본 내부 분배 내역 (총 210건, 157,460,000원 기준: 꿈잇다 vs 신동우사업단 분배)
 export const DEFAULT_OCTOBER_GOODLIFE_SPLIT_ITEMS: GoodlifeSplitItem[] = [
+  // 1. 굿라이프(꿈잇다) 사업단: 직송금 71만원 / 신동우 대표 차액 4만원 (실버 0원)
   {
     id: 'gl_split_kkum_1',
     category: '꿈잇다',
     hqName: '꿈잇다',
-    itemName: '올인원',
-    count: 201,
+    itemName: '굿라이프헬스케어올인원',
+    count: 180,
     officialUnitFee: 750000,
     directRecipient: '(주)꿈잇다',
     directUnitFee: 710000,
@@ -140,8 +141,8 @@ export const DEFAULT_OCTOBER_GOODLIFE_SPLIT_ITEMS: GoodlifeSplitItem[] = [
     id: 'gl_split_kkum_2',
     category: '꿈잇다',
     hqName: '꿈잇다',
-    itemName: '골드',
-    count: 8,
+    itemName: '굿라이프헬스케어골드',
+    count: 6,
     officialUnitFee: 750000,
     directRecipient: '(주)꿈잇다',
     directUnitFee: 710000,
@@ -151,12 +152,47 @@ export const DEFAULT_OCTOBER_GOODLIFE_SPLIT_ITEMS: GoodlifeSplitItem[] = [
     id: 'gl_split_kkum_3',
     category: '꿈잇다',
     hqName: '꿈잇다',
-    itemName: '실버',
+    itemName: '굿라이프헬스케어실버',
     count: 1,
     officialUnitFee: 710000,
     directRecipient: '(주)꿈잇다',
     directUnitFee: 710000,
     memo: '꿈잇다 직송금 71만 / 신동우 차액 0원'
+  },
+
+  // 2. 굿라이프(신동우) 사업단: 본부 직송금 55만원 / 신동우 대표 차액 20만원 (실버 16만원)
+  {
+    id: 'gl_split_shindw_1',
+    category: '신동우사업단',
+    hqName: '신동우사업단 산하본부',
+    itemName: '굿라이프헬스케어올인원',
+    count: 21,
+    officialUnitFee: 750000,
+    directRecipient: '소속 본부',
+    directUnitFee: 550000,
+    memo: '본부 직송금 55만 / 신동우 차액 20만'
+  },
+  {
+    id: 'gl_split_shindw_2',
+    category: '신동우사업단',
+    hqName: '신동우사업단 산하본부',
+    itemName: '굿라이프헬스케어골드',
+    count: 2,
+    officialUnitFee: 750000,
+    directRecipient: '소속 본부',
+    directUnitFee: 550000,
+    memo: '본부 직송금 55만 / 신동우 차액 20만'
+  },
+  {
+    id: 'gl_split_shindw_3',
+    category: '신동우사업단',
+    hqName: '신동우사업단 산하본부',
+    itemName: '굿라이프헬스케어실버',
+    count: 0,
+    officialUnitFee: 710000,
+    directRecipient: '소속 본부',
+    directUnitFee: 550000,
+    memo: '본부 직송금 55만 / 신동우 차액 16만'
   }
 ];
 
@@ -294,14 +330,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     } catch (e) {}
   };
 
-  // 굿라이프 분배 집계 메트릭
+  // 굿라이프 분배 집계 메트릭 (꿈잇다 vs 신동우사업단 산하본부 분리 집계)
   const goodlifeSplitSummary = useMemo(() => {
     let totalCount = 0;
     let totalOfficial = 0;
     let totalDirect = 0;
     let totalOverride = 0;
+    let kkumCount = 0;
+    let kkumOfficial = 0;
     let kkumDirect = 0;
+    let kkumOverride = 0;
+    let hqCount = 0;
+    let hqOfficial = 0;
     let hqDirect = 0;
+    let hqOverride = 0;
 
     goodlifeSplitRows.forEach(item => {
       const count = Number(item.count) || 0;
@@ -315,9 +357,15 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       totalOverride += diff;
 
       if (item.category === '꿈잇다') {
+        kkumCount += count;
+        kkumOfficial += official;
         kkumDirect += direct;
+        kkumOverride += diff;
       } else {
+        hqCount += count;
+        hqOfficial += official;
         hqDirect += direct;
+        hqOverride += diff;
       }
     });
 
@@ -328,8 +376,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       totalOfficial,
       totalDirect,
       totalOverride,
+      kkumCount,
+      kkumOfficial,
       kkumDirect,
+      kkumOverride,
+      hqCount,
+      hqOfficial,
       hqDirect,
+      hqOverride,
       isMatch
     };
   }, [goodlifeSplitRows]);
@@ -1555,9 +1609,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         detailedSettlementList.filter(r => r.isSubtotal).map(r => r.targetName)
       );
 
-      // 소계 및 단독 행의 Excel 1-based Row 번호 추적 (최하단 전체합계 수식용)
+      // 소계 및 단독 행의 Excel 1-based Row 번호 추적 (최하단 전체합계 수식 및 시트3 참조용)
       const subtotalRowNumbers: number[] = [];
       const standaloneRowNumbers: number[] = [];
+      const targetToRowMap = new Map<string, number>();
       let currentGroupStartRow = 4;
 
       detailedSettlementList.forEach((r, idx) => {
@@ -1571,11 +1626,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         let showAcct = false;
 
         if (r.isSubtotal) {
+          targetToRowMap.set(r.targetName, rowNum);
           rowTax = isIndiv ? Math.round((r.totalCommission || 0) * 0.033) : 0;
           rowNet = (r.totalCommission || 0) - rowTax;
           showAcct = true;
           subtotalRowNumbers.push(rowNum);
         } else if (isStandalone) {
+          targetToRowMap.set(r.targetName, rowNum);
           rowTax = isIndiv ? Math.round((r.totalCommission || 0) * 0.033) : 0;
           rowNet = (r.totalCommission || 0) - rowTax;
           showAcct = true;
@@ -1719,11 +1776,12 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       XLSX.utils.book_append_sheet(wb, ws1, '1. 본사보고용_수수료정산서');
 
       // =============================================================
-      // [시트 2] 내부실송금_정산서(굿라이프) (꿈잇다 71만 직송금 / 신동우 대표 차액 분배)
+      // [시트 2] 내부실송금_정산서(굿라이프)
+      // 굿라이프(꿈잇다) 직송금 71만 / 4만 차액 & 굿라이프(신동우) 본부 직송금 55만 / 20만·16만 차액
       // =============================================================
       const glSplitData: any[][] = [
         ['【 굿라이프 사업단 내부 실송금 및 신동우 대표 오버라이딩 차액 분배 명세 】'],
-        [`■ 기준월: ${selectedMonth}  |  본사 총수수료: 157,460,000원  |  꿈잇다 직송금: 710,000원  |  신동우 산하 본부 직송금: 550,000원  |  잔여 차액: 신동우 대표 귀속`],
+        [`■ 기준월: ${selectedMonth}  |  본사 총수수료: 157,460,000원  |  꿈잇다 직송금: 710,000원(차액 4만)  |  신동우 산하 본부 직송금: 550,000원(차액 20만/16만)  |  잔여 차액: 신동우 대표 귀속`],
         [],
         [
           '구분', '소속본부', '상품명 / 지급항목', '건수', '본사단가',
@@ -1732,92 +1790,160 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         ]
       ];
 
-      goodlifeSplitRows.forEach((glItem, glIdx) => {
-        const glRowNo = glIdx + 5; // 5행부터 데이터 시작
-        const cnt = Number(glItem.count) || 0;
-        const offFee = Number(glItem.officialUnitFee) || 0;
-        const dirFee = Number(glItem.directUnitFee) || 0;
+      const kkumRows = goodlifeSplitRows.filter(r => r.category === '꿈잇다');
+      const shindwRows = goodlifeSplitRows.filter(r => r.category !== '꿈잇다');
+
+      // 1. 꿈잇다 상품 행들 추가
+      const kkumStartRow = 5;
+      kkumRows.forEach((item, idx) => {
+        const rowNo = kkumStartRow + idx;
+        const cnt = Number(item.count) || 0;
+        const offFee = Number(item.officialUnitFee) || 0;
+        const dirFee = Number(item.directUnitFee) || 0;
         const diffFee = offFee - dirFee;
         const offTotal = cnt * offFee;
         const dirTotal = cnt * dirFee;
         const diffTotal = cnt * diffFee;
 
         glSplitData.push([
-          glItem.category,
-          glItem.hqName,
-          glItem.itemName,
+          item.category,
+          item.hqName,
+          item.itemName,
           { v: cnt, t: 'n', z: '#,##0' },
           { v: offFee, t: 'n', z: '#,##0' },
-          { f: `D${glRowNo}*E${glRowNo}`, v: offTotal, t: 'n', z: '#,##0' },
-          glItem.directRecipient,
+          { f: `D${rowNo}*E${rowNo}`, v: offTotal, t: 'n', z: '#,##0' },
+          item.directRecipient,
           { v: dirFee, t: 'n', z: '#,##0' },
-          { f: `D${glRowNo}*H${glRowNo}`, v: dirTotal, t: 'n', z: '#,##0' },
-          { f: `E${glRowNo}-H${glRowNo}`, v: diffFee, t: 'n', z: '#,##0' },
-          { f: `D${glRowNo}*J${glRowNo}`, v: diffTotal, t: 'n', z: '#,##0' },
-          glItem.memo || ''
+          { f: `D${rowNo}*H${rowNo}`, v: dirTotal, t: 'n', z: '#,##0' },
+          { f: `E${rowNo}-H${rowNo}`, v: diffFee, t: 'n', z: '#,##0' },
+          { f: `D${rowNo}*J${rowNo}`, v: diffTotal, t: 'n', z: '#,##0' },
+          item.memo || '꿈잇다 직송금 71만 / 차액 4만'
         ]);
       });
+      const kkumEndRow = kkumStartRow + kkumRows.length - 1;
+      const kkumSubRowNo = kkumEndRow + 1;
 
-      const glStartR = 5;
-      const glEndR = 4 + goodlifeSplitRows.length;
-      const glSubtotalRowNo = glEndR + 1;
-
-      // 굿라이프 내부 분배 소계 행
+      // 꿈잇다 소계 행
       glSplitData.push([
-        '굿라이프 합계',
-        '전체 소계',
-        `${goodlifeSplitRows.length}개 상품군`,
-        { f: `SUM(D${glStartR}:D${glEndR})`, v: goodlifeSplitSummary.totalCount, t: 'n', z: '#,##0' },
+        '꿈잇다',
+        '사업단 소계',
+        `꿈잇다 ${kkumRows.length}개 상품 소계`,
+        { f: `SUM(D${kkumStartRow}:D${kkumEndRow})`, v: goodlifeSplitSummary.kkumCount, t: 'n', z: '#,##0' },
         '-',
-        { f: `SUM(F${glStartR}:F${glEndR})`, v: goodlifeSplitSummary.totalOfficial, t: 'n', z: '#,##0' },
-        '꿈잇다/본부 직송금 합계',
+        { f: `SUM(F${kkumStartRow}:F${kkumEndRow})`, v: goodlifeSplitSummary.kkumOfficial, t: 'n', z: '#,##0' },
+        '(주)꿈잇다 직송금',
         '-',
-        { f: `SUM(I${glStartR}:I${glEndR})`, v: goodlifeSplitSummary.totalDirect, t: 'n', z: '#,##0' },
-        '신동우 대표 차액합계',
-        { f: `SUM(K${glStartR}:K${glEndR})`, v: goodlifeSplitSummary.totalOverride, t: 'n', z: '#,##0' },
-        '분배 합계'
+        { f: `SUM(I${kkumStartRow}:I${kkumEndRow})`, v: goodlifeSplitSummary.kkumDirect, t: 'n', z: '#,##0' },
+        '신동우 차액(건당4만)',
+        { f: `SUM(K${kkumStartRow}:K${kkumEndRow})`, v: goodlifeSplitSummary.kkumOverride, t: 'n', z: '#,##0' },
+        '꿈잇다 직송금 71만 / 신동우 차액 4만원 귀속'
       ]);
 
-      // 분배 검증 행
-      const glCheckRowNo = glSubtotalRowNo + 1;
+      // 2. 신동우사업단 상품 행들 추가
+      const shindwStartRow = kkumSubRowNo + 1;
+      shindwRows.forEach((item, idx) => {
+        const rowNo = shindwStartRow + idx;
+        const cnt = Number(item.count) || 0;
+        const offFee = Number(item.officialUnitFee) || 0;
+        const dirFee = Number(item.directUnitFee) || 0;
+        const diffFee = offFee - dirFee;
+        const offTotal = cnt * offFee;
+        const dirTotal = cnt * dirFee;
+        const diffTotal = cnt * diffFee;
+
+        glSplitData.push([
+          item.category,
+          item.hqName,
+          item.itemName,
+          { v: cnt, t: 'n', z: '#,##0' },
+          { v: offFee, t: 'n', z: '#,##0' },
+          { f: `D${rowNo}*E${rowNo}`, v: offTotal, t: 'n', z: '#,##0' },
+          item.directRecipient,
+          { v: dirFee, t: 'n', z: '#,##0' },
+          { f: `D${rowNo}*H${rowNo}`, v: dirTotal, t: 'n', z: '#,##0' },
+          { f: `E${rowNo}-H${rowNo}`, v: diffFee, t: 'n', z: '#,##0' },
+          { f: `D${rowNo}*J${rowNo}`, v: diffTotal, t: 'n', z: '#,##0' },
+          item.memo || '본부 직송금 55만 / 차액 16~20만'
+        ]);
+      });
+      const shindwEndRow = shindwStartRow + shindwRows.length - 1;
+      const shindwOrgSubRowNo = shindwEndRow + 1;
+
+      // 신동우사업단 산하본부 소계 행
+      glSplitData.push([
+        '신동우사업단',
+        '산하본부 소계',
+        `사업단 본부 ${shindwRows.length}개 상품 소계`,
+        { f: `SUM(D${shindwStartRow}:D${shindwEndRow})`, v: goodlifeSplitSummary.hqCount, t: 'n', z: '#,##0' },
+        '-',
+        { f: `SUM(F${shindwStartRow}:F${shindwEndRow})`, v: goodlifeSplitSummary.hqOfficial, t: 'n', z: '#,##0' },
+        '소속 본부 직송금',
+        '550,000',
+        { f: `SUM(I${shindwStartRow}:I${shindwEndRow})`, v: goodlifeSplitSummary.hqDirect, t: 'n', z: '#,##0' },
+        '신동우 차액(16~20만)',
+        { f: `SUM(K${shindwStartRow}:K${shindwEndRow})`, v: goodlifeSplitSummary.hqOverride, t: 'n', z: '#,##0' },
+        '본부 직송금 55만 / 신동우 차액 16~20만원 귀속'
+      ]);
+
+      // 3. 굿라이프 전체 합계 행
+      const glTotalRowNo = shindwOrgSubRowNo + 1;
+      glSplitData.push([
+        '굿라이프 합계',
+        '전체 총합계',
+        `전체 ${goodlifeSplitRows.length}개 품목 총계`,
+        { f: `D${kkumSubRowNo}+D${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalCount, t: 'n', z: '#,##0' },
+        '-',
+        { f: `F${kkumSubRowNo}+F${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalOfficial, t: 'n', z: '#,##0' },
+        '꿈잇다 + 본부 직송금 합계',
+        '-',
+        { f: `I${kkumSubRowNo}+I${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalDirect, t: 'n', z: '#,##0' },
+        '신동우 차액 전체합계',
+        { f: `K${kkumSubRowNo}+K${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalOverride, t: 'n', z: '#,##0' },
+        '본사 보고용 합계와 100% 일치'
+      ]);
+
+      // 4. 분배 검증 행
+      const glCheckRowNo = glTotalRowNo + 1;
       glSplitData.push([
         '【분배 검증】',
         '본사 총수수료 - (직송금합계 + 신동우 차액합계)',
         '', '', '',
-        { f: `F${glSubtotalRowNo}-(I${glSubtotalRowNo}+K${glSubtotalRowNo})`, v: 0, t: 'n', z: '#,##0' },
+        { f: `F${glTotalRowNo}-(I${glTotalRowNo}+K${glTotalRowNo})`, v: 0, t: 'n', z: '#,##0' },
         '차액 검증 결과',
         '', '', '', '',
         '✅ 정상 일치 (오차 0원)'
       ]);
 
-      // 신동우 대표 최종 정산 수령 명세 블록
+      // 5. 신동우 대표 최종 정산 수령 명세 블록
       glSplitData.push([]);
       glSplitData.push(['【 신동우 대표 최종 실송금액 종합 산출 명세 】', '', '', '', '', '', '', '', '', '', '', '']);
       glSplitData.push(['항목 구분', '세부 내역 및 산출 근거', '계산 수식', '금액', '', '', '', '', '', '', '', '']);
 
-      const shindwRow1 = glCheckRowNo + 4;
-      const shindwRow2 = shindwRow1 + 1;
-      const shindwTotalRow = shindwRow2 + 1;
+      const shindwDiffRowNo = glCheckRowNo + 4;
+      const shindwItemRowNo = shindwDiffRowNo + 1;
+      const shindwTotalRowNo = shindwItemRowNo + 1;
+
+      const shindwEtcRow = targetToRowMap.get('신동우') || 29;
 
       glSplitData.push([
         '1. 굿라이프 오버라이딩 차액',
-        '꿈잇다(건당 4만원) 및 사업단 본부 차액 합산',
-        `=K${glSubtotalRowNo}`,
-        { f: `K${glSubtotalRowNo}`, v: goodlifeSplitSummary.totalOverride, t: 'n', z: '#,##0' },
+        '꿈잇다(건당 4만원) + 신동우사업단(건당 16~20만원) 차액 합산',
+        `=K${glTotalRowNo}`,
+        { f: `K${glTotalRowNo}`, v: goodlifeSplitSummary.totalOverride, t: 'n', z: '#,##0' },
         '', '', '', '', '', '', '', ''
       ]);
       glSplitData.push([
         '2. 개인 특수수당(테라웨이브)',
         '물품대금 수수료 2건 (건당 500,000원)',
-        "='1. 본사보고용_수수료정산서'!H33",
-        { v: 1000000, t: 'n', z: '#,##0' },
+        `='1. 본사보고용_수수료정산서'!H${shindwEtcRow}`,
+        { f: `'1. 본사보고용_수수료정산서'!H${shindwEtcRow}`, v: 1000000, t: 'n', z: '#,##0' },
         '', '', '', '', '', '', '', ''
       ]);
       glSplitData.push([
         '신동우 대표 최종 실송금액 합계',
         '에스제이컨설팅 (국민은행 164501-04-161888 김애숙)',
-        `=D${shindwRow1}+D${shindwRow2}`,
-        { f: `D${shindwRow1}+D${shindwRow2}`, v: goodlifeSplitSummary.totalOverride + 1000000, t: 'n', z: '#,##0' },
+        `=D${shindwDiffRowNo}+D${shindwItemRowNo}`,
+        { f: `D${shindwDiffRowNo}+D${shindwItemRowNo}`, v: goodlifeSplitSummary.totalOverride + 1000000, t: 'n', z: '#,##0' },
         '', '', '', '', '', '', '', ''
       ]);
 
@@ -1827,7 +1953,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         { s: { r: 1, c: 0 }, e: { r: 1, c: 11 } },
         { s: { r: glCheckRowNo - 1, c: 1 }, e: { r: glCheckRowNo - 1, c: 4 } },
         { s: { r: glCheckRowNo - 1, c: 6 }, e: { r: glCheckRowNo - 1, c: 10 } },
-        { s: { r: shindwRow1 - 3, c: 0 }, e: { r: shindwRow1 - 3, c: 11 } }
+        { s: { r: shindwDiffRowNo - 3, c: 0 }, e: { r: shindwDiffRowNo - 3, c: 11 } }
       ];
 
       wsGlSplit['!cols'] = [
@@ -1838,10 +1964,12 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       for (let R = 0; R < glSplitData.length; R++) {
         const isTitle = R === 0;
         const isHeader = R === 3;
-        const isSubtotal = R === glSubtotalRowNo - 1;
+        const isKkumSubtotal = R === kkumSubRowNo - 1;
+        const isShindwOrgSubtotal = R === shindwOrgSubRowNo - 1;
+        const isGlTotal = R === glTotalRowNo - 1;
         const isCheckRow = R === glCheckRowNo - 1;
-        const isShindwHeader = R === shindwRow1 - 2;
-        const isShindwTotal = R === shindwTotalRow - 1;
+        const isShindwHeader = R === shindwDiffRowNo - 2;
+        const isShindwTotal = R === shindwTotalRowNo - 1;
 
         for (let C = 0; C <= 11; C++) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
@@ -1860,7 +1988,21 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               alignment: { vertical: 'center', horizontal: 'center' },
               border: thinBorder
             };
-          } else if (isSubtotal) {
+          } else if (isKkumSubtotal) {
+            wsGlSplit[addr].s = {
+              fill: { fgColor: { rgb: 'E8F5E9' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '166534' } },
+              alignment: { vertical: 'center', horizontal: C >= 3 && C <= 10 ? 'right' : 'center' },
+              border: thinBorder
+            };
+          } else if (isShindwOrgSubtotal) {
+            wsGlSplit[addr].s = {
+              fill: { fgColor: { rgb: 'E0F2FE' } },
+              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '075985' } },
+              alignment: { vertical: 'center', horizontal: C >= 3 && C <= 10 ? 'right' : 'center' },
+              border: thinBorder
+            };
+          } else if (isGlTotal) {
             wsGlSplit[addr].s = {
               fill: { fgColor: { rgb: 'D9E1F2' } },
               font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '0F172A' } },
@@ -1908,7 +2050,19 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         ]
       ];
 
-      // 송금 대상 목록 빌드 (굿라이프는 꿈잇다 직송금과 신동우 대표 차액으로 분리)
+      // 송금 대상 목록 빌드 (굿라이프는 꿈잇다 직송금, 신동우 산하본부 직송금, 신동우 대표 차액으로 분리)
+      const unboundRow = targetToRowMap.get('언바운드컴퍼니') || 6;
+      const ptmsRow = targetToRowMap.get('피티엠에스') || 12;
+      const maxRow = targetToRowMap.get('맥스') || 16;
+      const haerangRow = targetToRowMap.get('해랑인터내셔널') || 19;
+      const withusRow = targetToRowMap.get('위더스앤씨') || 21;
+      const directRow = targetToRowMap.get('다이렉트') || 23;
+      const thelifeRow = targetToRowMap.get('더라이프앤') || 25;
+      const choJaeYoonRow = targetToRowMap.get('조재윤') || 26;
+      const choMinKyungRow = targetToRowMap.get('조민경') || 27;
+      const leeJongYeonRow = targetToRowMap.get('이종연') || 28;
+      const kwonSeongHunRow = targetToRowMap.get('권성훈') || 30;
+
       const payoutList: Array<{
         targetName: string;
         divisionType: string;
@@ -1933,7 +2087,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 282950000,
         tax: 0,
         netTotal: 282950000,
-        formula: "='1. 본사보고용_수수료정산서'!J6",
+        formula: `='1. 본사보고용_수수료정산서'!J${unboundRow}`,
         bankName: '하나은행',
         accountNumber: '285-910018-29104',
         accountHolder: '주식회사 언바운드컴퍼니',
@@ -1945,18 +2099,34 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         targetName: '주식회사 꿈잇다',
         divisionType: '사업단/본부',
         settlementType: '사업자',
-        count: goodlifeSplitSummary.totalCount,
+        count: goodlifeSplitSummary.kkumCount,
         totalComm: goodlifeSplitSummary.kkumDirect,
         tax: 0,
         netTotal: goodlifeSplitSummary.kkumDirect,
-        formula: `='2. 내부실송금_정산서(굿라이프)'!I${glSubtotalRowNo}`,
+        formula: `='2. 내부실송금_정산서(굿라이프)'!I${kkumSubRowNo}`,
         bankName: '기업은행',
         accountNumber: '115-131758-01-017',
         accountHolder: '주식회사 꿈잇다',
-        note: '굿라이프 건당 71만원 직송금'
+        note: '굿라이프(꿈잇다) 건당 71만원 직송금'
       });
 
-      // 3. 피티엠에스
+      // 3. 굿라이프(신동우) 사업단 산하 본부 (본부 직송금: 건당 55만원)
+      payoutList.push({
+        targetName: '굿라이프(신동우) 사업단 산하본부',
+        divisionType: '사업단/본부',
+        settlementType: '사업자',
+        count: goodlifeSplitSummary.hqCount,
+        totalComm: goodlifeSplitSummary.hqDirect,
+        tax: 0,
+        netTotal: goodlifeSplitSummary.hqDirect,
+        formula: `='2. 내부실송금_정산서(굿라이프)'!I${shindwOrgSubRowNo}`,
+        bankName: '소속본부 지정계좌',
+        accountNumber: '-',
+        accountHolder: '소속 본부',
+        note: '굿라이프(신동우) 건당 55만원 본부 직송금'
+      });
+
+      // 4. 피티엠에스
       payoutList.push({
         targetName: '주식회사피티엠에스',
         divisionType: '사업단/본부',
@@ -1965,14 +2135,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 1360000,
         tax: 0,
         netTotal: 1360000,
-        formula: "='1. 본사보고용_수수료정산서'!J13",
+        formula: `='1. 본사보고용_수수료정산서'!J${ptmsRow}`,
         bankName: '신한은행',
         accountNumber: '100016632698',
         accountHolder: '주식회사피티엠에스',
         note: '하이브리드698 2건 (건당 68만원)'
       });
 
-      // 4. 맥스
+      // 5. 맥스
       payoutList.push({
         targetName: '맥스',
         divisionType: '사업단/본부',
@@ -1981,14 +2151,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 2900000,
         tax: 0,
         netTotal: 2900000,
-        formula: "='1. 본사보고용_수수료정산서'!J18",
+        formula: `='1. 본사보고용_수수료정산서'!J${maxRow}`,
         bankName: '기업은행',
         accountNumber: '542-031267-01-011',
         accountHolder: '맥스(김용태)',
         note: '맥스 본부 정산'
       });
 
-      // 5. 해랑인터내셔널
+      // 6. 해랑인터내셔널
       payoutList.push({
         targetName: '해랑인터내셔널',
         divisionType: '사업단/본부',
@@ -1997,14 +2167,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 1850000,
         tax: 0,
         netTotal: 1850000,
-        formula: "='1. 본사보고용_수수료정산서'!J22",
+        formula: `='1. 본사보고용_수수료정산서'!J${haerangRow}`,
         bankName: '기업은행',
         accountNumber: '480-058866-01-011',
         accountHolder: '해랑인터내셔널',
         note: '해랑인터내셔널 정산'
       });
 
-      // 6. 유지수수료 본부들 (위더스앤씨, 다이렉트, 더라이프앤)
+      // 7. 유지수수료 본부들 (위더스앤씨, 다이렉트, 더라이프앤)
       payoutList.push({
         targetName: '위더스앤씨',
         divisionType: '사업단/본부',
@@ -2013,7 +2183,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 10000,
         tax: 0,
         netTotal: 10000,
-        formula: "='1. 본사보고용_수수료정산서'!J25",
+        formula: `='1. 본사보고용_수수료정산서'!J${withusRow}`,
         bankName: '신한은행',
         accountNumber: '140-013-149883',
         accountHolder: '주식회사위더스앤씨',
@@ -2027,7 +2197,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 28000,
         tax: 0,
         netTotal: 28000,
-        formula: "='1. 본사보고용_수수료정산서'!J28",
+        formula: `='1. 본사보고용_수수료정산서'!J${directRow}`,
         bankName: '국민은행',
         accountNumber: '822401-04-142270',
         accountHolder: '다이렉트',
@@ -2041,14 +2211,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 10000,
         tax: 0,
         netTotal: 10000,
-        formula: "='1. 본사보고용_수수료정산서'!J31",
+        formula: `='1. 본사보고용_수수료정산서'!J${thelifeRow}`,
         bankName: '국민은행',
         accountNumber: '816901-04-206774',
         accountHolder: '주식회사 더라이프앤',
         note: '유지수수료(헬스케어580)'
       });
 
-      // 7. 개인 수당 및 외주 (조재윤, 조민경, 이종연, 권성훈)
+      // 8. 개인 수당 및 외주 (조재윤, 조민경, 이종연, 권성훈)
       payoutList.push({
         targetName: '조재윤',
         divisionType: '외주/인센티브',
@@ -2057,7 +2227,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 6010000,
         tax: 198330,
         netTotal: 5811670,
-        formula: "='1. 본사보고용_수수료정산서'!J33",
+        formula: `='1. 본사보고용_수수료정산서'!J${choJaeYoonRow}`,
         bankName: '수협',
         accountNumber: '206000673009',
         accountHolder: '조재윤',
@@ -2071,7 +2241,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 3005000,
         tax: 99165,
         netTotal: 2905835,
-        formula: "='1. 본사보고용_수수료정산서'!J34",
+        formula: `='1. 본사보고용_수수료정산서'!J${choMinKyungRow}`,
         bankName: '카카오뱅크',
         accountNumber: '3333027476861',
         accountHolder: '조민경',
@@ -2085,7 +2255,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 90000,
         tax: 2970,
         netTotal: 87030,
-        formula: "='1. 본사보고용_수수료정산서'!J35",
+        formula: `='1. 본사보고용_수수료정산서'!J${leeJongYeonRow}`,
         bankName: '농협',
         accountNumber: '3020500290841',
         accountHolder: '이종연',
@@ -2099,14 +2269,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: 150000,
         tax: 4950,
         netTotal: 145050,
-        formula: "='1. 본사보고용_수수료정산서'!J37",
+        formula: `='1. 본사보고용_수수료정산서'!J${kwonSeongHunRow}`,
         bankName: '신한은행',
         accountNumber: '110-323-031541',
         accountHolder: '권성훈',
         note: '홈페이지 유지비'
       });
 
-      // 8. 신동우 대표 (굿라이프 차액 합계 + 테라웨이브 물품대금 수수료 1,000,000원 합산)
+      // 9. 신동우 대표 (에스제이컨설팅: 굿라이프 차액 합계 + 테라웨이브 물품대금 수수료 1,000,000원 합산)
       const shindwNetTotal = goodlifeSplitSummary.totalOverride + 1000000;
       payoutList.push({
         targetName: '신동우 대표 (에스제이컨설팅)',
@@ -2116,11 +2286,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: shindwNetTotal,
         tax: 0,
         netTotal: shindwNetTotal,
-        formula: `='2. 내부실송금_정산서(굿라이프)'!D${shindwTotalRow}`,
+        formula: `='2. 내부실송금_정산서(굿라이프)'!D${shindwTotalRowNo}`,
         bankName: '국민은행',
         accountNumber: '164501-04-161888',
         accountHolder: '김애숙(에스제이컨설팅)',
-        note: '굿라이프 차액분(836만) + 물품대금수수료(100만)'
+        note: `굿라이프 차액분(${Math.round(goodlifeSplitSummary.totalOverride / 10000).toLocaleString()}만) + 테라웨이브 물품대금수수료(100만)`
       });
 
       payoutList.forEach((item, pIdx) => {
@@ -4768,38 +4938,46 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
                   {/* 모달 본문 */}
                   <div className="p-6 overflow-y-auto space-y-5 custom-scrollbar flex-1 bg-slate-50/50">
-                    {/* 상단 4대 핵심 지표 카드 */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
+                    {/* 상단 5대 핵심 지표 요약 카드 */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+                      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
                         <span className="text-xs text-slate-500 font-bold">본사 총 발생수수료</span>
-                        <div className="mt-1 text-lg font-black text-slate-900 font-mono">
-                          {goodlifeSplitSummary.totalOfficial.toLocaleString()}<span className="text-xs font-normal text-slate-500 ml-1">원</span>
+                        <div className="mt-1 text-base font-black text-slate-900 font-mono">
+                          {goodlifeSplitSummary.totalOfficial.toLocaleString()}<span className="text-[11px] font-normal text-slate-500 ml-0.5">원</span>
                         </div>
                         <span className="text-[11px] text-blue-600 font-bold mt-0.5 block">총 {goodlifeSplitSummary.totalCount}건 집계</span>
                       </div>
 
-                      <div className="bg-emerald-50/60 p-4 rounded-xl border border-emerald-200 shadow-2xs">
-                        <span className="text-xs text-emerald-800 font-bold">(주)꿈잇다 직송금 합계</span>
-                        <div className="mt-1 text-lg font-black text-emerald-700 font-mono">
-                          {goodlifeSplitSummary.kkumDirect.toLocaleString()}<span className="text-xs font-normal text-emerald-600 ml-1">원</span>
+                      <div className="bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-200 shadow-2xs">
+                        <span className="text-xs text-emerald-800 font-bold">(주)꿈잇다 직송금</span>
+                        <div className="mt-1 text-base font-black text-emerald-700 font-mono">
+                          {goodlifeSplitSummary.kkumDirect.toLocaleString()}<span className="text-[11px] font-normal text-emerald-600 ml-0.5">원</span>
                         </div>
-                        <span className="text-[11px] text-emerald-600 font-medium mt-0.5 block">전 상품 건당 710,000원 입금</span>
+                        <span className="text-[11px] text-emerald-600 font-medium mt-0.5 block">전 상품 건당 710,000원</span>
                       </div>
 
-                      <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200 shadow-2xs">
-                        <span className="text-xs text-amber-800 font-bold">신동우 대표 차액분 합계</span>
-                        <div className="mt-1 text-lg font-black text-amber-700 font-mono">
-                          {goodlifeSplitSummary.totalOverride.toLocaleString()}<span className="text-xs font-normal text-amber-600 ml-1">원</span>
+                      <div className="bg-blue-50/60 p-3.5 rounded-xl border border-blue-200 shadow-2xs">
+                        <span className="text-xs text-blue-800 font-bold">신동우 산하 본부 직송금</span>
+                        <div className="mt-1 text-base font-black text-blue-700 font-mono">
+                          {goodlifeSplitSummary.hqDirect.toLocaleString()}<span className="text-[11px] font-normal text-blue-600 ml-0.5">원</span>
+                        </div>
+                        <span className="text-[11px] text-blue-600 font-medium mt-0.5 block">소속 본부 건당 550,000원</span>
+                      </div>
+
+                      <div className="bg-amber-50/60 p-3.5 rounded-xl border border-amber-200 shadow-2xs">
+                        <span className="text-xs text-amber-800 font-bold">신동우 대표 차액분</span>
+                        <div className="mt-1 text-base font-black text-amber-700 font-mono">
+                          {goodlifeSplitSummary.totalOverride.toLocaleString()}<span className="text-[11px] font-normal text-amber-600 ml-0.5">원</span>
                         </div>
                         <span className="text-[11px] text-amber-600 font-medium mt-0.5 block">꿈잇다 4만 / 사업단 16~20만</span>
                       </div>
 
-                      <div className="bg-purple-50/60 p-4 rounded-xl border border-purple-200 shadow-2xs">
-                        <span className="text-xs text-purple-800 font-bold">신동우 대표 최종 실송금액</span>
-                        <div className="mt-1 text-lg font-black text-purple-700 font-mono">
-                          {(goodlifeSplitSummary.totalOverride + 1000000).toLocaleString()}<span className="text-xs font-normal text-purple-600 ml-1">원</span>
+                      <div className="bg-purple-50/60 p-3.5 rounded-xl border border-purple-200 shadow-2xs">
+                        <span className="text-xs text-purple-800 font-bold">신동우 대표 최종 실송금</span>
+                        <div className="mt-1 text-base font-black text-purple-700 font-mono">
+                          {(goodlifeSplitSummary.totalOverride + 1000000).toLocaleString()}<span className="text-[11px] font-normal text-purple-600 ml-0.5">원</span>
                         </div>
-                        <span className="text-[11px] text-purple-600 font-medium mt-0.5 block">차액 + 테라웨이브 물품대금(100만)</span>
+                        <span className="text-[11px] text-purple-600 font-medium mt-0.5 block">차액 + 테라웨이브(100만)</span>
                       </div>
                     </div>
 
@@ -4812,7 +4990,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                           본사 수수료({goodlifeSplitSummary.totalOfficial.toLocaleString()}원) = 꿈잇다/본부 직송금({goodlifeSplitSummary.totalDirect.toLocaleString()}원) + 신동우 대표 차액({goodlifeSplitSummary.totalOverride.toLocaleString()}원)
                         </span>
                       </div>
-                      <span className="px-2 py-0.5 bg-emerald-600 text-white font-black rounded-md text-[11px]">
+                      <span className="px-2.5 py-0.5 bg-emerald-600 text-white font-black rounded-md text-[11px]">
                         오차 0원 정상 일치
                       </span>
                     </div>
@@ -4842,7 +5020,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200 text-slate-700 font-sans">
-                            {goodlifeSplitRows.map((item, idx) => {
+                            {/* 1. 꿈잇다 상품군 */}
+                            {goodlifeSplitRows.filter(r => r.category === '꿈잇다').map((item) => {
+                              const globalIdx = goodlifeSplitRows.findIndex(r => r.id === item.id);
                               const cnt = Number(item.count) || 0;
                               const offFee = Number(item.officialUnitFee) || 0;
                               const dirFee = Number(item.directUnitFee) || 0;
@@ -4869,7 +5049,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                                       onChange={(e) => {
                                         const val = Number(e.target.value) || 0;
                                         const next = [...goodlifeSplitRows];
-                                        next[idx] = { ...next[idx], count: val };
+                                        next[globalIdx] = { ...next[globalIdx], count: val };
                                         saveGoodlifeSplitRows(next);
                                       }}
                                       className="w-16 px-1 py-0.5 text-right font-mono font-bold border border-slate-300 rounded bg-white focus:border-indigo-500 focus:outline-hidden"
@@ -4902,11 +5082,130 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                                 </tr>
                               );
                             })}
+                            {/* 꿈잇다 소계 행 */}
+                            <tr className="bg-emerald-50/50 font-bold border-y border-emerald-200 text-emerald-950">
+                              <td colSpan={3} className="px-3 py-2 text-center border-r border-emerald-200 font-black">
+                                [꿈잇다 사업단 소계]
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono font-black border-r border-emerald-200">
+                                {goodlifeSplitSummary.kkumCount.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-center border-r border-emerald-200">-</td>
+                              <td className="px-3 py-2 text-right font-mono font-black border-r border-emerald-200">
+                                {goodlifeSplitSummary.kkumOfficial.toLocaleString()}
+                              </td>
+                              <td colSpan={2} className="px-3 py-2 text-center border-r border-emerald-200 text-emerald-800 text-[11px]">
+                                (주)꿈잇다 직송금
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono font-black border-r border-emerald-200 text-emerald-700 bg-emerald-100/60">
+                                {goodlifeSplitSummary.kkumDirect.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-center border-r border-emerald-200 text-amber-800 text-[11px]">
+                                차액(4만)
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono font-black border-r border-emerald-200 text-amber-800 bg-amber-100/60">
+                                {goodlifeSplitSummary.kkumOverride.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-emerald-800 text-[11px]">
+                                꿈잇다 71만 직송금 / 신동우 4만 차액
+                              </td>
+                            </tr>
+
+                            {/* 2. 신동우사업단 상품군 */}
+                            {goodlifeSplitRows.filter(r => r.category !== '꿈잇다').map((item) => {
+                              const globalIdx = goodlifeSplitRows.findIndex(r => r.id === item.id);
+                              const cnt = Number(item.count) || 0;
+                              const offFee = Number(item.officialUnitFee) || 0;
+                              const dirFee = Number(item.directUnitFee) || 0;
+                              const diffFee = offFee - dirFee;
+                              const offTotal = cnt * offFee;
+                              const dirTotal = cnt * dirFee;
+                              const diffTotal = cnt * diffFee;
+
+                              return (
+                                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-3 py-2 text-center border-r border-slate-200 font-bold text-slate-600">
+                                    {item.category}
+                                  </td>
+                                  <td className="px-3 py-2 text-center border-r border-slate-200 font-bold">
+                                    {item.hqName}
+                                  </td>
+                                  <td className="px-3 py-2 border-r border-slate-200 font-bold text-slate-800">
+                                    {item.itemName}
+                                  </td>
+                                  <td className="px-2 py-1.5 border-r border-slate-200 text-right">
+                                    <input
+                                      type="number"
+                                      value={item.count}
+                                      onChange={(e) => {
+                                        const val = Number(e.target.value) || 0;
+                                        const next = [...goodlifeSplitRows];
+                                        next[globalIdx] = { ...next[globalIdx], count: val };
+                                        saveGoodlifeSplitRows(next);
+                                      }}
+                                      className="w-16 px-1 py-0.5 text-right font-mono font-bold border border-slate-300 rounded bg-white focus:border-indigo-500 focus:outline-hidden"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono">
+                                    {offFee.toLocaleString()}
+                                  </td>
+                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono font-bold text-slate-900">
+                                    {offTotal.toLocaleString()}
+                                  </td>
+                                  <td className="px-3 py-2 border-r border-slate-200 text-center font-bold text-blue-700">
+                                    {item.directRecipient}
+                                  </td>
+                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono text-blue-700">
+                                    {dirFee.toLocaleString()}
+                                  </td>
+                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono font-bold text-blue-800 bg-blue-50/30">
+                                    {dirTotal.toLocaleString()}
+                                  </td>
+                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono text-amber-700">
+                                    {diffFee.toLocaleString()}
+                                  </td>
+                                  <td className="px-3 py-2 border-r border-slate-200 text-right font-mono font-bold text-amber-800 bg-amber-50/30">
+                                    {diffTotal.toLocaleString()}
+                                  </td>
+                                  <td className="px-3 py-2 text-slate-500 text-[11px]">
+                                    {item.memo}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {/* 신동우사업단 소계 행 */}
+                            <tr className="bg-blue-50/50 font-bold border-y border-blue-200 text-blue-950">
+                              <td colSpan={3} className="px-3 py-2 text-center border-r border-blue-200 font-black">
+                                [신동우 사업단 산하본부 소계]
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono font-black border-r border-blue-200">
+                                {goodlifeSplitSummary.hqCount.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-center border-r border-blue-200">-</td>
+                              <td className="px-3 py-2 text-right font-mono font-black border-r border-blue-200">
+                                {goodlifeSplitSummary.hqOfficial.toLocaleString()}
+                              </td>
+                              <td colSpan={2} className="px-3 py-2 text-center border-r border-blue-200 text-blue-800 text-[11px]">
+                                소속 본부 직송금
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono font-black border-r border-blue-200 text-blue-700 bg-blue-100/60">
+                                {goodlifeSplitSummary.hqDirect.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-center border-r border-blue-200 text-amber-800 text-[11px]">
+                                차액(16~20만)
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono font-black border-r border-blue-200 text-amber-800 bg-amber-100/60">
+                                {goodlifeSplitSummary.hqOverride.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-blue-800 text-[11px]">
+                                본부 55만 직송금 / 신동우 16~20만 차액
+                              </td>
+                            </tr>
                           </tbody>
                           <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900">
                             <tr>
                               <td colSpan={3} className="px-4 py-2.5 text-center border-r border-slate-300 font-black">
-                                굿라이프 정산 분배 소계
+                                굿라이프 정산 분배 총계
                               </td>
                               <td className="px-3 py-2.5 text-right font-mono font-black border-r border-slate-300">
                                 {goodlifeSplitSummary.totalCount.toLocaleString()}
@@ -4932,12 +5231,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       </div>
                     </div>
 
-                    {/* 실제 송금 계좌정보 카드 */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* 실제 송금 계좌정보 카드 3개 (꿈잇다, 신동우 산하본부, 신동우 대표) */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                      {/* 1. (주)꿈잇다 직송금 */}
                       <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40">
                         <span className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
                           <CheckCircle size={14} className="text-emerald-600" />
-                          (주)꿈잇다 실제 직송금 계좌정보
+                          1. (주)꿈잇다 직송금 계좌
                         </span>
                         <div className="mt-2 space-y-1 text-xs">
                           <div className="flex justify-between">
@@ -4952,6 +5252,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                             <span className="text-slate-500">예금주:</span>
                             <span className="font-bold text-slate-800">주식회사 꿈잇다</span>
                           </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">실적건수:</span>
+                            <span className="font-mono text-slate-700">{goodlifeSplitSummary.kkumCount}건 (건당 71만)</span>
+                          </div>
                           <div className="flex justify-between pt-1.5 border-t border-emerald-200 text-sm">
                             <span className="font-bold text-emerald-900">최종 송금액:</span>
                             <span className="font-mono font-black text-emerald-700">{goodlifeSplitSummary.kkumDirect.toLocaleString()}원</span>
@@ -4959,10 +5263,41 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                         </div>
                       </div>
 
+                      {/* 2. 신동우사업단 산하본부 직송금 */}
+                      <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40">
+                        <span className="text-xs font-bold text-blue-800 flex items-center gap-1.5">
+                          <CheckCircle size={14} className="text-blue-600" />
+                          2. 신동우 산하 본부 직송금
+                        </span>
+                        <div className="mt-2 space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">수취대상:</span>
+                            <span className="font-bold text-slate-800">신동우사업단 소속 본부</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">입금계좌:</span>
+                            <span className="font-bold text-slate-800">각 소속본부 지정계좌</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">정산기준:</span>
+                            <span className="text-slate-700">본부 직송금 건당 550,000원</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">실적건수:</span>
+                            <span className="font-mono text-slate-700">{goodlifeSplitSummary.hqCount}건 (건당 55만)</span>
+                          </div>
+                          <div className="flex justify-between pt-1.5 border-t border-blue-200 text-sm">
+                            <span className="font-bold text-blue-900">최종 송금액:</span>
+                            <span className="font-mono font-black text-blue-700">{goodlifeSplitSummary.hqDirect.toLocaleString()}원</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. 신동우 대표 실송금 */}
                       <div className="p-4 rounded-xl border border-purple-200 bg-purple-50/40">
                         <span className="text-xs font-bold text-purple-800 flex items-center gap-1.5">
                           <DollarSign size={14} className="text-purple-600" />
-                          신동우 대표 실제 실송금 계좌정보
+                          3. 신동우 대표 최종 실송금
                         </span>
                         <div className="mt-2 space-y-1 text-xs">
                           <div className="flex justify-between">
@@ -4979,7 +5314,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                           </div>
                           <div className="flex justify-between">
                             <span className="text-slate-500">세부내역:</span>
-                            <span className="text-slate-700">차액분 {goodlifeSplitSummary.totalOverride.toLocaleString()}원 + 테라웨이브 1,000,000원</span>
+                            <span className="text-slate-700">차액 {goodlifeSplitSummary.totalOverride.toLocaleString()}원 + 테라 100만</span>
                           </div>
                           <div className="flex justify-between pt-1.5 border-t border-purple-200 text-sm">
                             <span className="font-bold text-purple-900">최종 송금액:</span>
