@@ -71,11 +71,10 @@ export const DEFAULT_OCTOBER_SETTLEMENT_ROWS: DetailedSettlementRow[] = [
   { id: 'oct_unbound_2', targetName: '언바운드컴퍼니', itemName: '프리미엄540플러스', count: 355, unitFee: 740000, salesCommission: 106500000, promoCommission: 156200000, totalCommission: 262700000 },
   { id: 'oct_unbound_sub', targetName: '언바운드컴퍼니', division: '소계', itemName: '', count: 382, unitFee: 0, salesCommission: 114600000, promoCommission: 168350000, totalCommission: 282950000, isSubtotal: true },
 
-  // 2. 굿라이프
-  { id: 'oct_goodlife_1', targetName: '굿라이프', itemName: '올인원', count: 201, unitFee: 750000, salesCommission: 60300000, promoCommission: 90450000, totalCommission: 150750000, isHeaderGroup: true },
-  { id: 'oct_goodlife_2', targetName: '굿라이프', itemName: '골드', count: 8, unitFee: 750000, salesCommission: 2400000, promoCommission: 3600000, totalCommission: 6000000 },
-  { id: 'oct_goodlife_3', targetName: '굿라이프', itemName: '실버', count: 1, unitFee: 710000, salesCommission: 300000, promoCommission: 410000, totalCommission: 710000 },
-  { id: 'oct_goodlife_sub', targetName: '굿라이프', division: '소계', itemName: '', count: 210, unitFee: 0, salesCommission: 63000000, promoCommission: 94460000, totalCommission: 157460000, isSubtotal: true },
+  // 2. 굿라이프 (내부 직송금 기준: 꿈잇다 164건 @ 71만, 신동우 산하 본부 46건 @ 55만)
+  { id: 'oct_goodlife_kkum', targetName: '굿라이프(꿈잇다)', itemName: '직송금 (15개 본부)', count: 164, unitFee: 710000, salesCommission: 49200000, promoCommission: 67240000, totalCommission: 116440000, isHeaderGroup: true },
+  { id: 'oct_goodlife_shin_hq', targetName: '굿라이프(신동우)', itemName: '직송금 (7개 본부)', count: 46, unitFee: 550000, salesCommission: 13800000, promoCommission: 11500000, totalCommission: 25300000 },
+  { id: 'oct_goodlife_sub', targetName: '굿라이프', division: '소계', itemName: '', count: 210, unitFee: 0, salesCommission: 63000000, promoCommission: 78740000, totalCommission: 141740000, isSubtotal: true },
 
   // 3. 피티엠에스
   { id: 'oct_ptms_1', targetName: '피티엠에스', itemName: '하이브리드698', count: 2, unitFee: 680000, salesCommission: 600000, promoCommission: 760000, totalCommission: 1360000, isHeaderGroup: true },
@@ -102,11 +101,12 @@ export const DEFAULT_OCTOBER_SETTLEMENT_ROWS: DetailedSettlementRow[] = [
   { id: 'oct_thelife_1', targetName: '더라이프앤', itemName: '유지수수료(헬스케어580)', count: 1, unitFee: 10000, salesCommission: 10000, promoCommission: 0, totalCommission: 10000, isHeaderGroup: true },
   { id: 'oct_thelife_sub', targetName: '더라이프앤', division: '소계', itemName: '', count: 1, unitFee: 0, salesCommission: 10000, promoCommission: 0, totalCommission: 10000, isSubtotal: true },
 
-  // 7. 기타 수당 / 외주 지급대상 (컨설팅비, 모델비, 물품대금 수수료, 홈페이지 유지비)
+  // 7. 기타 수당 / 외주 지급대상 (컨설팅비, 모델비, 신동우 대표 귀속분, 물품대금 수수료, 홈페이지 유지비)
   { id: 'oct_etc_1', targetName: '조재윤', itemName: '모델비', count: 601, unitFee: 10000, salesCommission: 0, promoCommission: 0, totalCommission: 6010000, isHeaderGroup: true },
   { id: 'oct_etc_2', targetName: '조민경', itemName: '컨설팅비', count: 601, unitFee: 5000, salesCommission: 0, promoCommission: 0, totalCommission: 3005000, isHeaderGroup: true },
   { id: 'oct_etc_3', targetName: '이종연', itemName: '컨설팅비(해랑인터내셔널)', count: 3, unitFee: 30000, salesCommission: 0, promoCommission: 0, totalCommission: 90000, isHeaderGroup: true },
-  { id: 'oct_etc_4', targetName: '신동우', itemName: '물품대금 수수료(테라웨이브)', count: 2, unitFee: 500000, salesCommission: 0, promoCommission: 0, totalCommission: 1000000, isHeaderGroup: true },
+  { id: 'oct_etc_4_diff', targetName: '신동우', itemName: '굿라이프 오버라이딩 차액분', count: 209, unitFee: 0, salesCommission: 0, promoCommission: 0, totalCommission: 15720000, isHeaderGroup: true },
+  { id: 'oct_etc_4', targetName: '신동우', itemName: '물품대금 수수료(테라웨이브)', count: 2, unitFee: 500000, salesCommission: 0, promoCommission: 0, totalCommission: 1000000, isHeaderGroup: false },
   { id: 'oct_etc_5', targetName: '권성훈', itemName: '홈페이지 유지비', count: 1, unitFee: 150000, salesCommission: 0, promoCommission: 0, totalCommission: 150000, isHeaderGroup: true }
 ];
 
@@ -1694,8 +1694,26 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       });
     }
 
-    // 신동우 물품대금 수수료(테라웨이브)
+    // 신동우 굿라이프 오버라이딩 차액분 (사업단 분배 명세 기준 귀속)
+    const glOverrideAmount = isOct ? 15720000 : (goodlifeSplitSummary.totalOverride || 0);
+    const glOverrideCount = isOct ? 209 : (goodlifeSplitSummary.totalCount || 0);
+    if (glOverrideAmount > 0) {
+      result.push({
+        id: `auto_goodlife_diff_shin_${selectedMonth}`,
+        targetName: '신동우',
+        itemName: '굿라이프 오버라이딩 차액분',
+        count: glOverrideCount,
+        unitFee: 0,
+        salesCommission: 0,
+        promoCommission: 0,
+        totalCommission: glOverrideAmount,
+        isHeaderGroup: true
+      });
+    }
+
+    // 신동우 물품대금 수수료(테라웨이브) - 계약번호 중복 제거 및 10월 2건(1,000,000원) 고정 보장
     let therawaveCount = 0;
+    const seenTherawaveKeys = new Set<string>();
     (data || []).forEach(item => {
       const pDate = item.payDate || '';
       const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
@@ -1703,11 +1721,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       if (itemMonth !== selectedMonth) return;
       const prodText = `${item.rentalProd || ''} ${item.prodName || ''} ${item.modelName || ''}`.toLowerCase();
       if (prodText.includes('테라웨이브') || prodText.includes('therawave')) {
-        therawaveCount += 1;
+        const key = item.rentalNo || item.resNo || item.contractNo;
+        if (key && !seenTherawaveKeys.has(String(key))) {
+          seenTherawaveKeys.add(String(key));
+          therawaveCount += 1;
+        } else if (!key) {
+          therawaveCount += 1;
+        }
       }
     });
     if (isOct) {
-      therawaveCount = Math.max(therawaveCount, 2);
+      therawaveCount = 2; // 10월 확정: 2건, 1,000,000원 고정 (사업단 묶음 ON/OFF 관계없이 물품대금수수료 동일 유지)
     }
     if (therawaveCount > 0) {
       result.push({
@@ -1719,7 +1743,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         salesCommission: 0,
         promoCommission: 0,
         totalCommission: therawaveCount * 500000,
-        isHeaderGroup: true
+        isHeaderGroup: glOverrideAmount <= 0
       });
     }
 
@@ -4521,24 +4545,27 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                     )}
                   </tbody>
                   {/* 최하단 전체 합계 바 */}
-                  <tfoot className="bg-[#0f172a] text-white font-black text-xs border-t-2 border-slate-700 sticky bottom-0 z-10">
+                  <tfoot className="bg-[#0f172a] text-white font-black text-xs border-t-2 border-slate-700 sticky bottom-0 z-10 whitespace-nowrap">
                     <tr>
-                      <td colSpan={7} className="px-6 py-3.5 text-center tracking-wider text-sm font-black">
+                      <td colSpan={7} className="px-6 py-3.5 text-center tracking-wider text-sm font-black whitespace-nowrap">
                         전체 지급수수료 합계
                       </td>
-                      <td className="px-3 py-3.5 text-right font-mono text-base font-black text-amber-300 border-r border-slate-700">
+                      <td className="px-3 py-3.5 text-right font-mono text-base font-black text-amber-300 border-r border-slate-700 whitespace-nowrap">
                         {detailedTotals.totalCommission.toLocaleString()}
                       </td>
-                      <td className="px-3 py-3.5 text-right font-mono text-xs font-bold text-rose-300 border-r border-slate-700">
+                      <td className="px-3 py-3.5 text-right font-mono text-xs font-bold text-rose-300 border-r border-slate-700 whitespace-nowrap">
                         {detailedTotals.totalTax > 0 ? `-${detailedTotals.totalTax.toLocaleString()}` : '-'}
                       </td>
-                      <td className="px-3 py-3.5 text-right font-mono text-base font-black text-amber-300 bg-indigo-950/80 border-r border-slate-700">
-                        {detailedTotals.totalNet.toLocaleString()}원
+                      <td className="px-3 py-3.5 text-right font-mono text-base font-black text-amber-300 bg-indigo-950/80 border-r border-slate-700 whitespace-nowrap">
+                        <div className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap">
+                          <span>{detailedTotals.totalNet.toLocaleString()}</span>
+                          <span className="text-xs font-bold text-amber-400">원</span>
+                        </div>
                       </td>
-                      <td className="px-4 py-3.5 text-center text-slate-400 font-normal">
+                      <td className="px-4 py-3.5 text-center text-slate-400 font-normal whitespace-nowrap">
                         실지급 총 {detailedTotals.totalCount.toLocaleString()}건
                       </td>
-                      {isDetailEditMode && <td className="px-2 py-3.5"></td>}
+                      {isDetailEditMode && <td className="px-2 py-3.5 whitespace-nowrap"></td>}
                     </tr>
                   </tfoot>
                 </table>
