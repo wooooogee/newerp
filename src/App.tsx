@@ -8509,7 +8509,7 @@ const ERP_Dashboard = () => {
                 </AnimatePresence>
               </section>
 
-              {/* 회원가입신청서 */}
+              {/* 회원가입신청서 및 CMS 관리 */}
               <section className="mt-1">
                 <button
                   type="button"
@@ -8520,7 +8520,7 @@ const ERP_Dashboard = () => {
                     <div className="p-1 bg-purple-100 text-purple-600 rounded-lg group-hover:scale-105 transition-transform">
                       <Users size={18} />
                     </div>
-                    <span className="text-sm font-bold text-slate-800 tracking-tight">회원가입신청서</span>
+                    <span className="text-sm font-bold text-slate-800 tracking-tight">회원가입 및 CMS</span>
                   </div>
                   <ChevronDown
                     size={18}
@@ -8539,6 +8539,7 @@ const ERP_Dashboard = () => {
                       <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
                         {[
                           { dot: 'bg-purple-500', label: '회원가입신청서 대장', action: () => setIsMembershipApplicationModalOpen(true) },
+                          { dot: 'bg-blue-600', label: 'CMS 등록 대장', action: () => setIsCmsRegistrationModalOpen(true) },
                         ].map((item, idx) => (
                           <motion.button
                             key={idx}
@@ -8741,7 +8742,7 @@ const ERP_Dashboard = () => {
                 )}
               </div>
               
-              <div className="flex-1 max-w-4xl md:ml-auto flex items-center justify-end gap-1.5 w-full pr-2">
+              <div className="flex-1 max-w-4xl md:ml-auto flex flex-wrap items-center justify-end gap-1.5 w-full pr-2">
                 <TopSearchBar searchTerm={searchTerm} onSearch={setSearchTerm} />
                 <button
                   onClick={() => setIsAdvancedSearchModalOpen(true)}

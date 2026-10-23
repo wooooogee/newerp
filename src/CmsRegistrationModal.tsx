@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -8,9 +8,6 @@ import {
   Search,
   Download,
   Calendar,
-  User,
-  Hash,
-  Building2,
   AlertCircle,
   RefreshCw,
   Sparkles,
@@ -18,7 +15,8 @@ import {
   ChevronLeft,
   ArrowUp,
   ArrowDown,
-  ArrowUpDown
+  ArrowUpDown,
+  Database
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -98,8 +96,6 @@ export const verifyAndCorrectNhBankCode = (
   // 1. 하이픈 기준 과목코드 탐색 (-51-, -52-, -56- 등)
   if (rawAcc.includes('-')) {
     const parts = rawAcc.split('-');
-    // 구계좌 3-2-6 구조 (중앙회): parts[1] === '01' | '02' | '12'
-    // 구계좌 6-2-6 구조 (지역농협): parts[1] === '51' | '52' | '56'
     if (parts.length >= 2) {
       const subjectCode = parts[1].trim();
       if (['51', '52', '56', '53', '54', '55'].includes(subjectCode)) {
@@ -112,12 +108,9 @@ export const verifyAndCorrectNhBankCode = (
 
   // 2. 신계좌 (13자리 계좌): 앞 3자리로 판별
   if (!detected) {
-    // 351, 352, 356 등 35X번대 = 지역농·축협(012)
     if (/^35[0-9]/.test(cleanAcc)) {
       detected = '012';
-    } 
-    // 301, 302, 312 등 30X, 31X번대 = 농협은행(중앙회, 011)
-    else if (/^3[0-1][0-9]/.test(cleanAcc)) {
+    } else if (/^3[0-1][0-9]/.test(cleanAcc)) {
       detected = '011';
     }
   }
@@ -125,12 +118,10 @@ export const verifyAndCorrectNhBankCode = (
   // 3. 구계좌 (숫자 자릿수 기반 과목코드 추출)
   if (!detected) {
     if (cleanAcc.length === 11) {
-      // 3자리(지점) + 2자리(과목) + 6자리(일련)
       const sub = cleanAcc.substring(3, 5);
       if (['51', '52', '56', '53', '54', '55'].includes(sub)) detected = '012';
       else if (['01', '02', '12', '03', '04'].includes(sub)) detected = '011';
     } else if (cleanAcc.length === 14) {
-      // 6자리(지점) + 2자리(과목) + 6자리(일련)
       const sub = cleanAcc.substring(6, 8);
       if (['51', '52', '56', '53', '54', '55'].includes(sub)) detected = '012';
       else if (['01', '02', '12', '03', '04'].includes(sub)) detected = '011';
@@ -163,11 +154,9 @@ const extractBirth6 = (rawVal: any): string => {
   const digits = str.replace(/[^0-9]/g, '');
 
   if (digits.length === 13) {
-    // 9501011234567 -> 950101
     return digits.slice(0, 6);
   }
   if (digits.length === 8) {
-    // 19950101 -> 950101
     return digits.slice(2, 8);
   }
   if (digits.length === 6) {
@@ -197,21 +186,18 @@ const normalizeAccountNumber = (rawAcc: any, bankCode: string, bankName?: string
 
   // 13자리 순수 숫자인 경우 주요 은행의 14자리 신계좌 앞자리 0 누락 자동 복원
   if (/^[0-9]{13}$/.test(str)) {
-    // 국민은행(004): 신계좌 14자리 (예: 08950104336789)
     if (bankCode === '004' || bankCode === '4' || bankName?.includes('국민')) {
       return '0' + str;
     }
-    // 우체국(071): 신계좌 14자리
     if (bankCode === '071' || bankCode === '71' || bankName?.includes('우체국')) {
       return '0' + str;
     }
-    // 하나은행(081): 신계좌 14자리
     if (bankCode === '081' || bankCode === '81' || bankName?.includes('하나')) {
       return '0' + str;
     }
   }
 
-  // 10자리 순수 숫자인 경우 대구은행(031) 등 11자리 계좌 앞자리 0 누락 자동 복원 (예: 4413057278 -> 04413057278)
+  // 10자리 순수 숫자인 경우 대구은행(031) 등 11자리 계좌 앞자리 0 누락 자동 복원
   if (/^[0-9]{10}$/.test(str)) {
     if (bankCode === '031' || bankCode === '31' || bankName?.includes('대구')) {
       return '0' + str;
@@ -227,7 +213,7 @@ const parseContractDate = (val: any): { dateStr: string; monthStr: string } => {
   const str = String(val).trim();
   if (!str) return { dateStr: '', monthStr: '' };
 
-  // 1. YYYY-MM-DD 또는 YYYY.MM.DD 포맷 (예: '2001-09-26', '2026-09-22', '2026.09.22')
+  // 1. YYYY-MM-DD 또는 YYYY.MM.DD 포맷 (예: '2026-09-22', '2026.09.22')
   const ymdDashMatch = str.match(/^(\d{4})[-.](\d{1,2})[-.](\d{1,2})/);
   if (ymdDashMatch) {
     const yyyy = ymdDashMatch[1];
@@ -245,7 +231,6 @@ const parseContractDate = (val: any): { dateStr: string; monthStr: string } => {
     if (parts.length === 3) {
       const p0 = parseInt(parts[0], 10);
       if (p0 > 12) {
-        // 첫 번째 숫자가 12 초과이면 Y/M/D (예: '2026/09/22', '26/09/22')
         const yyyy = parts[0].length === 2 ? `20${parts[0]}` : parts[0];
         const mm = parts[1].padStart(2, '0');
         const dd = parts[2].padStart(2, '0');
@@ -254,7 +239,6 @@ const parseContractDate = (val: any): { dateStr: string; monthStr: string } => {
           monthStr: `${yyyy}-${mm}`
         };
       }
-      // 미국식 M/D/YY (전산 엑셀 표준, 예: '2/26/26' -> 2026년 2월 26일, '9/22/26' -> 2026년 9월 22일)
       const rawYear = parts[2];
       const yyyy = rawYear.length === 2 ? `20${rawYear}` : rawYear;
       const mm = parts[0].padStart(2, '0');
@@ -311,6 +295,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
 }) => {
   const [sheet1Rows, setSheet1Rows] = useState<any[][]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [dataSourceInfo, setDataSourceInfo] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   const [monthInput, setMonthInput] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -326,35 +311,69 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
     } else {
       setSortField(field);
-      setSortOrder('desc'); // 새로운 필드 클릭 시 기본 최신순/내림차순
+      setSortOrder('desc');
     }
   };
 
-  // 시트1 데이터 로드 함수
-  const fetchSheet1Data = async () => {
+  // 🌟 [2단계 초안정 데이터 로드] 로컬 캐시 + 통합원장 + 시트1 3단계 폴백
+  const fetchSheet1Data = useCallback(async (forceSync = false) => {
     setIsLoading(true);
     try {
       const timestamp = Date.now();
-      const res = await fetch(`/api/sheets/sheetData?sheetName=시트1&fresh=true&t=${timestamp}`);
-      if (!res.ok) {
-        throw new Error('시트1 데이터를 가져오는데 실패했습니다.');
+      let loadedRows: any[][] = [];
+      let sourceName = '';
+
+      // 1순위: /api/sheets/unified-ledger/data?cms=true 호출 (캐시 및 원장 초고속 로드)
+      try {
+        if (forceSync) {
+          await fetch('/api/sheets/unified-ledger/sync-from-sheet', { method: 'POST' }).catch(() => null);
+        }
+        const uRes = await fetch(`/api/sheets/unified-ledger/data?cms=true&t=${timestamp}`);
+        if (uRes.ok) {
+          const uJson = await uRes.json();
+          const rows = uJson.data || uJson.ledgerRows || uJson.rows;
+          if (Array.isArray(rows) && rows.length > 1) {
+            loadedRows = rows;
+            sourceName = uJson.source === 'cache' ? '원장 캐시 (초고속)' : '통합원장 (구글시트)';
+          }
+        }
+      } catch (uErr) {
+        console.warn('[CmsRegistrationModal] unified-ledger fallback:', uErr);
       }
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setSheet1Rows(data);
+
+      // 2순위: 1순위 결과가 없거나 부족하면 /api/sheets/sheetData?sheetName=시트1 직접 호출
+      if (!loadedRows || loadedRows.length < 2) {
+        const sRes = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('시트1')}&fresh=true&t=${timestamp}`);
+        if (sRes.ok) {
+          const sJson = await sRes.json();
+          if (Array.isArray(sJson) && sJson.length > 1) {
+            loadedRows = sJson;
+            sourceName = '시트1 (구글시트)';
+          }
+        }
+      }
+
+      if (loadedRows && loadedRows.length > 0) {
+        setSheet1Rows(loadedRows);
+        setDataSourceInfo(sourceName || '구글 시트 연동');
+      } else {
+        setSheet1Rows([]);
+        setDataSourceInfo('');
       }
     } catch (err: any) {
       console.error('[CmsRegistrationModal Error]', err);
-      alert(err.message || '시트1 데이터를 불러오는 중 오류가 발생했습니다.');
+      alert(err.message || 'CMS 대상자 데이터를 불러오는 중 오류가 발생했습니다.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
+  // 모달 오픈 시 데이터 로드 및 검색창 초기화
   useEffect(() => {
     if (!isOpen) return;
+    setSearchQuery('');
     fetchSheet1Data();
-  }, [isOpen]);
+  }, [isOpen, fetchSheet1Data]);
 
   // 클립보드 복사 헬퍼
   const handleCopy = (text: string, label: string, cellKey: string) => {
@@ -385,9 +404,9 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
   }, [managementData]);
 
   // 시트1에서 CMS 대상자 레코드 파싱 및 필터링
-  const { records, availableMonths } = useMemo(() => {
+  const { records, availableMonths, cancelledCount } = useMemo(() => {
     if (!sheet1Rows || sheet1Rows.length < 2) {
-      return { records: [], availableMonths: [] };
+      return { records: [], availableMonths: [], cancelledCount: 0 };
     }
 
     const headers = (sheet1Rows[0] || []).map(h => String(h || '').trim());
@@ -403,27 +422,37 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
     };
 
     // B=1, C=2, F=5, I=8, T=19, W=22, Y=24, AA=26
-    const idxMemberNo = findCol(['회원번호'], 1);
-    const idxContractDate = findCol(['계약일자'], 2);
-    const idxMemberName = findCol(['회원명'], 5);
-    const idxStatus = findCol(['회원상태', '계약상태'], 8);
-    const idxPayMethod = findCol(['수납방법', '결제방법'], 19);
-    const idxBankCode = findCol(['은행코드'], 22);
-    const idxAccountNo = findCol(['계좌번호'], 24);
-    const idxOwnerResNo = findCol(['예금주주민번호', '예금주주민등록번호', '주민등록번호'], 26);
+    const idxMemberNo = findCol(['회원번호', '계약번호', '회원코드', '계약NO', '고객번호'], 1);
+    const idxContractDate = findCol(['계약일자', '가입일자', '계약일', '접수일자', '등록일자'], 2);
+    const idxMemberName = findCol(['회원명', '성명', '고객명', '이름', '계약자'], 5);
+    const idxStatus = findCol(['회원상태', '계약상태', '진행상태', '상태', '가입상태', '계약구분'], 8);
+    const idxPayMethod = findCol(['수납방법', '수납구분', '결제방법', '결제수단', '납입방법', '이체방법', '결제구분', '납입방식'], 19);
+    const idxBankCode = findCol(['은행코드', '금융기관코드', '기관코드', '은행'], 22);
+    const idxAccountNo = findCol(['계좌번호', '출금계좌', '계좌'], 24);
+    const idxOwnerResNo = findCol(['예금주주민번호', '예금주주민등록번호', '주민등록번호', '주민번호', '생년월일'], 26);
 
     const parsedList: CmsRecord[] = [];
     const monthSet = new Set<string>();
+    let manualExcludeCount = 0;
 
     for (let r = 1; r < sheet1Rows.length; r++) {
       const row = sheet1Rows[r];
       if (!row || row.length === 0) continue;
 
-      // 1. T열 수납방법이 "CMS"인 건만 필터
-      const payMethodVal = String(row[idxPayMethod] || '').trim().toUpperCase();
-      if (payMethodVal !== 'CMS') continue;
+      // 1. T열 수납방법이 "CMS"인 건만 필터 (스마트 fallback: 지정 인덱스에 없으면 행 전체에서 CMS 탐색)
+      let payMethodVal = String(row[idxPayMethod] || '').trim().toUpperCase();
+      if (!payMethodVal || (!payMethodVal.includes('CMS') && !payMethodVal.includes('자동이체'))) {
+        // 스마트 감지: 다른 열에 'CMS'가 표기된 경우 찾아냄
+        const cmsIdx = row.findIndex(c => String(c || '').trim().toUpperCase() === 'CMS');
+        if (cmsIdx !== -1) {
+          payMethodVal = 'CMS';
+        }
+      }
 
-      // 2. 계약상태 "가입"된 값만 필터 (해약/취소/탈퇴 등 제외)
+      const isCms = payMethodVal === 'CMS' || payMethodVal.includes('CMS') || payMethodVal.includes('자동이체');
+      if (!isCms) continue;
+
+      // 2. 계약상태 필터: 해약/취소/탈퇴/철회/만기 건 제외
       const statusVal = String(row[idxStatus] || '').trim();
       const isCancelled = statusVal.includes('해약') || 
                           statusVal.includes('취소') || 
@@ -432,15 +461,14 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                           statusVal.includes('철회');
       if (isCancelled) continue;
 
-      // '가입' 또는 '정상' 키워드가 있거나 상태가 비어있지 않은 정상 건
-      const isRegistered = statusVal.includes('가입') || statusVal.includes('정상') || statusVal === '';
-      if (!isRegistered) continue;
-
       const memberNo = String(row[idxMemberNo] || '').trim();
       if (!memberNo) continue;
 
-      // 관리대장 상에서 수기로 취소/해약 처리된 건도 배제
-      if (manualCancelledMap.has(memberNo.toUpperCase())) continue;
+      // 관리대장 상에서 수기로 취소/해약 처리된 건 배제
+      if (manualCancelledMap.has(memberNo.toUpperCase())) {
+        manualExcludeCount++;
+        continue;
+      }
 
       const memberName = String(row[idxMemberName] || '').trim();
       const rawContractDate = row[idxContractDate];
@@ -491,17 +519,24 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
 
     return {
       records: parsedList,
-      availableMonths: sortedMonths
+      availableMonths: sortedMonths,
+      cancelledCount: manualExcludeCount
     };
   }, [sheet1Rows, manualCancelledMap]);
 
-  // 모달 오픈 시 최신 월을 기본 선택
+  // 🌟 [스마트 월 선택] 데이터가 존재하는 실제 최신 월을 안전하게 기본 선택
   useEffect(() => {
-    if (availableMonths.length > 0 && (selectedMonth === 'ALL' || !monthInput)) {
-      setSelectedMonth(availableMonths[0]);
-      setMonthInput(availableMonths[0]);
+    if (availableMonths.length > 0) {
+      if (selectedMonth === 'ALL' && !monthInput) {
+        // 실제 데이터가 존재하는 최근 월 탐색
+        const activeMonth = availableMonths.find(m => records.some(r => r.monthStr === m));
+        if (activeMonth) {
+          setSelectedMonth(activeMonth);
+          setMonthInput(activeMonth);
+        }
+      }
     }
-  }, [availableMonths]);
+  }, [availableMonths, records, selectedMonth, monthInput]);
 
   // 현재 선택된 월의 availableMonths 인덱스
   const currentMonthIdx = useMemo(() => {
@@ -547,11 +582,9 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       if (selectedMonth !== 'ALL') {
         const cleanInput = (monthInput || selectedMonth).trim().replace(/[^0-9]/g, '');
         if (cleanInput.length === 6) {
-          // YYYYMM 형태 (예: 202609)
           const itemCleanMonth = (item.monthStr || '').replace(/[^0-9]/g, '');
           if (itemCleanMonth !== cleanInput) return false;
         } else if (cleanInput.length === 4) {
-          // YYMM 또는 YYYY 형태
           const itemCleanMonth = (item.monthStr || '').replace(/[^0-9]/g, '');
           const itemCleanDate = (item.contractDate || '').replace(/[^0-9]/g, '');
           if (!itemCleanMonth.includes(cleanInput) && !itemCleanDate.includes(cleanInput)) return false;
@@ -585,7 +618,6 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
           cmp = (a.memberNo || '').localeCompare(b.memberNo || '', undefined, { numeric: true });
         }
       } else {
-        // memberNo 기준
         cmp = (a.memberNo || '').localeCompare(b.memberNo || '', undefined, { numeric: true });
         if (cmp === 0) {
           cmp = (a.contractDate || '').localeCompare(b.contractDate || '');
@@ -609,6 +641,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       회원번호: item.memberNo,
       '예금주 생년월일(6자리)': item.ownerBirth6,
       은행코드: item.bankCode,
+      은행명: item.bankName,
       계좌번호: item.accountNo,
       수납방법: item.payMethod,
       상태: item.status
@@ -642,9 +675,17 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-black tracking-tight text-white">CMS 등록 대장</h3>
-                <span className="px-2 py-0.5 bg-blue-500/40 text-blue-100 rounded-full text-[11px] font-bold border border-blue-400/30">
-                  시트1 자동 연동
-                </span>
+                {dataSourceInfo && (
+                  <span className="px-2 py-0.5 bg-blue-500/40 text-blue-100 rounded-full text-[11px] font-bold border border-blue-400/30 flex items-center gap-1">
+                    <Database size={10} />
+                    {dataSourceInfo}
+                  </span>
+                )}
+                {cancelledCount > 0 && (
+                  <span className="px-2 py-0.5 bg-rose-500/40 text-rose-100 rounded-full text-[11px] font-bold border border-rose-400/30" title="관리대장 취소/해약건 자동 제외">
+                    취소제외 {cancelledCount}건
+                  </span>
+                )}
               </div>
               <p className="text-xs text-blue-100/80 mt-0.5">
                 수납방법이 CMS이며 가입 상태인 건들의 회원번호, 생년월일, 은행코드, 계좌번호를 원클릭으로 복사하여 등록할 수 있습니다.
@@ -654,10 +695,10 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={fetchSheet1Data}
+              onClick={() => fetchSheet1Data(true)}
               disabled={isLoading}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 border border-white/20 rounded-xl text-xs font-bold text-white transition-all cursor-pointer disabled:opacity-50 shadow-2xs"
-              title="구글 시트 '시트1' 데이터를 즉시 새로고침합니다"
+              title="구글 시트 최신 데이터를 즉시 새로고침합니다"
             >
               <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
               <span>새로고침</span>
@@ -782,7 +823,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
 
           {/* 검색 및 액션 버튼 */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* 🌟 정렬 선택 버튼 (계약일자 / 회원번호, 내림차순 / 올림차순) */}
+            {/* 정렬 선택 버튼 */}
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
               <button
                 type="button"
@@ -869,13 +910,32 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
           {isLoading ? (
             <div className="h-64 flex flex-col items-center justify-center gap-3 text-slate-500">
               <RefreshCw size={28} className="animate-spin text-blue-600" />
-              <p className="text-sm font-semibold">시트1에서 CMS 대상자 데이터를 불러오는 중입니다...</p>
+              <p className="text-sm font-semibold">CMS 대상자 데이터를 안전하게 불러오는 중입니다...</p>
             </div>
           ) : filteredRecords.length === 0 ? (
-            <div className="h-64 flex flex-col items-center justify-center gap-3 text-slate-400 bg-white rounded-2xl border border-dashed border-slate-300 p-8">
-              <AlertCircle size={36} className="text-slate-300" />
-              <p className="text-sm font-bold text-slate-600">선택된 조건에 해당하는 CMS 등록 건이 없습니다.</p>
-              <p className="text-xs text-slate-400">시트1의 T열(수납방법)이 "CMS"이고 회원상태가 "가입"인 데이터를 확인해 주세요.</p>
+            <div className="h-64 flex flex-col items-center justify-center gap-3 text-slate-500 bg-white rounded-2xl border border-dashed border-slate-300 p-8">
+              <AlertCircle size={36} className="text-amber-500" />
+              <p className="text-base font-bold text-slate-700">
+                {selectedMonth !== 'ALL'
+                  ? `선택하신 '${selectedMonth}'월 조건에 해당하는 CMS 등록 건이 없습니다.`
+                  : '조건에 해당하는 CMS 등록 건이 없습니다.'}
+              </p>
+              <p className="text-xs text-slate-400">
+                수납방법이 "CMS"이고 회원상태가 "가입/정상"인 계약 데이터가 기준입니다.
+              </p>
+              {selectedMonth !== 'ALL' && records.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedMonth('ALL');
+                    setMonthInput('');
+                  }}
+                  className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
+                >
+                  <Calendar size={14} />
+                  <span>전체 계약건 보기 ({records.length}건)</span>
+                </button>
+              )}
             </div>
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
@@ -960,17 +1020,17 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                           {idx + 1}
                         </td>
 
-                        {/* C열 계약일자 */}
+                        {/* 계약일자 */}
                         <td className="py-2.5 px-3 font-mono text-slate-600">
                           {item.contractDate || '-'}
                         </td>
 
-                        {/* F열 회원명 */}
+                        {/* 회원명 */}
                         <td className="py-2.5 px-3 font-bold text-slate-900">
                           {item.memberName || '-'}
                         </td>
 
-                        {/* B열 회원번호 (원클릭 복사) */}
+                        {/* 회원번호 (원클릭 복사) */}
                         <td className="py-2.5 px-3">
                           <button
                             type="button"
@@ -991,7 +1051,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                           </button>
                         </td>
 
-                        {/* AA열 예금주주민번호(생년월일 6자리) (원클릭 복사) */}
+                        {/* 예금주 생년월일 6자리 (원클릭 복사) */}
                         <td className="py-2.5 px-3">
                           <button
                             type="button"
@@ -1012,7 +1072,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                           </button>
                         </td>
 
-                        {/* W열 은행코드 (3자리 패딩 포맷 및 011/012 정밀 자동 검증) (원클릭 복사) */}
+                        {/* 은행코드 (3자리 패딩 및 011/012 정밀 자동 검증) (원클릭 복사) */}
                         <td className="py-2.5 px-3">
                           <button
                             type="button"
@@ -1022,7 +1082,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                                 ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300'
                                 : 'bg-slate-100 text-slate-800 hover:bg-blue-100 hover:text-blue-900'
                             }`}
-                            title={`클릭하여 은행코드(${item.bankCode}) 복사`}
+                            title={`클릭하여 은행코드(${item.bankCode}${item.bankName ? ' ' + item.bankName : ''}) 복사`}
                           >
                             {copiedKey === bankKey ? (
                               <Check size={12} className="text-emerald-600 shrink-0" />
@@ -1030,10 +1090,13 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                               <Copy size={11} className="text-slate-400 group-hover:text-blue-600 shrink-0" />
                             )}
                             <span>{item.bankCode || '-'}</span>
+                            {item.bankName && (
+                              <span className="text-[10px] font-normal text-slate-500">({item.bankName})</span>
+                            )}
                           </button>
                         </td>
 
-                        {/* Y열 계좌번호 (원클릭 복사) */}
+                        {/* 계좌번호 (원클릭 복사) */}
                         <td className="py-2.5 px-3">
                           <button
                             type="button"

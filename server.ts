@@ -2309,12 +2309,43 @@ app.get('/api/sheets/sheetData', async (req, res) => {
     const sheets = google.sheets({ version: 'v4', auth: client });
     
     const safeSheetName = sheetName.replace(/'/g, '');
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: sheetId,
-      range: `'${safeSheetName}'!A:ZZ`,
-    });
+    let rows: any[][] | undefined;
 
-    const rows = response.data.values;
+    try {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: `'${safeSheetName}'!A:ZZ`,
+      });
+      rows = response.data.values;
+    } catch (readErr: any) {
+      console.warn(`[sheetData] Read failed for ${safeSheetName}:`, readErr.message);
+    }
+
+    // 🌟 [안전 복구] 시트1 요청 시 비어있거나 실패하면 통합원장 및 로컬 캐시 폴백
+    if ((!rows || rows.length === 0) && (safeSheetName === '시트1' || safeSheetName === '통합원장')) {
+      const altSheetName = safeSheetName === '시트1' ? '통합원장' : '시트1';
+      try {
+        const altResponse = await sheets.spreadsheets.values.get({
+          spreadsheetId: sheetId,
+          range: `'${altSheetName}'!A:ZZ`,
+        });
+        if (altResponse.data.values && altResponse.data.values.length > 0) {
+          rows = altResponse.data.values;
+        }
+      } catch {}
+
+      if (!rows || rows.length === 0) {
+        if (fs.existsSync(UNIFIED_LEDGER_PATH)) {
+          try {
+            const raw = JSON.parse(fs.readFileSync(UNIFIED_LEDGER_PATH, 'utf-8'));
+            if (Array.isArray(raw) && raw.length > 0) {
+              rows = raw;
+            }
+          } catch {}
+        }
+      }
+    }
+
     if (!rows || rows.length === 0) {
       sheetDataCache.set(sheetName, { timestamp: now, data: [] });
       return res.json([]);
@@ -4380,7 +4411,11 @@ app.get('/api/sheets/unified-ledger/data', async (req, res) => {
 
     // 4. 대용량 데이터 시 상조 조회 필수 컬럼만 슬림하게 추출하여 6MB 제한 회피 및 전송 속도 향상
     let optimizedData: any[][] = [];
-    if (ledgerRows && ledgerRows.length > 0) {
+    const isFullRequested = req.query.full === 'true' || req.query.cms === 'true';
+
+    if (isFullRequested && ledgerRows && ledgerRows.length > 0) {
+      optimizedData = ledgerRows;
+    } else if (ledgerRows && ledgerRows.length > 0) {
       const origHeaders = (ledgerRows[0] || []).map((h: any) => String(h || '').trim());
       const neededKeywords = [
         '회원번호', '계약번호', '회원코드',
@@ -4395,7 +4430,8 @@ app.get('/api/sheets/unified-ledger/data', async (req, res) => {
         '입금차', '납입회차', '입금회차',
         '입금액', '총입금액', '납입금액',
         '본부', '지사', '사원', '사원코드',
-        '전화번호', '핸드폰', '휴대전화', '주소', '비고'
+        '전화번호', '핸드폰', '휴대전화', '주소', '비고',
+        '수납방법', '결제방법', '은행코드', '은행명', '계좌번호', '예금주', '예금주주민번호'
       ];
       const targetIndices: number[] = [];
       const newHeaderRow: string[] = [];
