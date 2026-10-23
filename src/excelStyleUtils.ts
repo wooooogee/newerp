@@ -64,31 +64,63 @@ export function applyTableExcelStyle(
   const range = XLSX.utils.decode_range(ws['!ref']);
   const rowHeights: { hpt: number }[] = [];
 
+  const headerKeywords = [
+    '공급사명', '공급사', '수수료 수령처', '수령처', '관련 공급사 (기준)', '관련 공급사 (나열)', '관련 공급사', 
+    '렌탈계약번호', '계약ID', '구분', '순번', 'No', '본부', '본부명', '지사', '사원명', '영업사원', '항목명', '수령처명',
+    '계약일자', '배송일자', '배송완료일', '설치확인일자', '설치확인서 등록여부', '설치확인일자/마감월', '고객명', '회원명', '회원번호',
+    '상품명', '제품명', '매칭 제품명', '구좌수', '수량', '상품개수', '입금월', '세금계산서작성일(W열)',
+    '리치웰페어입금액', '리치웰페어입금액(I열)', '공급물품대금', '공급단가 (VAT포함)', '물품공급가',
+    '공급수수료', '수수료 단가 (VAT포함)', '지급 수수료 (VAT포함)', '총 지급 수수료 (VAT포함)', '공급가액', '부가세 (10%)',
+    '최종순수익', '실질 순수익 [D]', '건별순익', '비고'
+  ];
+
+  let headerEncountered = false;
+
   for (let R = range.s.r; R <= range.e.r; ++R) {
     let rowH = 21; // 기본 데이터 행 높이
 
     let isHeader = false;
     let isTotal = false;
     let isSection = false;
+    let filledCellCount = 0;
 
     // 행 내의 셀들 검사하여 헤더/합계 여부 확인
     for (let C = range.s.c; C <= range.e.c; ++C) {
       const addr = XLSX.utils.encode_cell({ r: R, c: C });
       const val = ws[addr] ? String(ws[addr].v || '').trim() : '';
-      if (['공급사명', '수수료 수령처', '관련 공급사 (기준)', '관련 공급사 (나열)', '관련 공급사', '렌탈계약번호', '구분', '순번', 'No', '본부', '항목명', '수령처명'].includes(val)) {
+      if (val !== '') filledCellCount++;
+
+      if (headerKeywords.includes(val)) {
         isHeader = true;
-        break;
       }
       if (val === '합계' || val === '총합계' || val === '총계' || val.includes('소계') || val === '공급사 소계' || val.includes('합계금액')) {
         isTotal = true;
-        break;
       }
       if (val.startsWith('[') && (val.endsWith(']') || val.includes(']'))) {
         isSection = true;
       }
     }
 
-    if (R === 0) {
+    // 만약 1개 셀만 헤더 키워드와 우연히 같고 전체 행에 셀이 1개뿐이면 타이틀이나 섹션일 수 있음
+    if (isHeader && filledCellCount <= 1 && !headerEncountered && R === 0) {
+      isHeader = false;
+    }
+
+    if (isHeader) {
+      // 헤더 행
+      headerEncountered = true;
+      rowH = 26;
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+        if (!ws[addr]) continue;
+        ws[addr].s = {
+          font: headerFont,
+          fill: headerFill,
+          alignment: { vertical: "center", horizontal: "center", wrapText: true },
+          border: headerBorder
+        };
+      }
+    } else if (R === 0 && !headerEncountered) {
       // 대제목 (타이틀)
       rowH = 28;
       for (let C = range.s.c; C <= range.e.c; ++C) {
@@ -99,8 +131,8 @@ export function applyTableExcelStyle(
           alignment: { vertical: "center", horizontal: "left" }
         };
       }
-    } else if (R <= 3 && !isHeader) {
-      // 서브 안내 정보
+    } else if (R <= 3 && !headerEncountered && !isSection && !isTotal) {
+      // 서브 안내 정보 (헤더 행이 나타나기 전 상단 안내문)
       rowH = 18;
       for (let C = range.s.c; C <= range.e.c; ++C) {
         const addr = XLSX.utils.encode_cell({ r: R, c: C });
@@ -121,19 +153,6 @@ export function applyTableExcelStyle(
           fill: { fgColor: { rgb: curTheme.subBg } },
           alignment: { vertical: "center", horizontal: "left" },
           border: cellBorder
-        };
-      }
-    } else if (isHeader) {
-      // 헤더 행
-      rowH = 26;
-      for (let C = range.s.c; C <= range.e.c; ++C) {
-        const addr = XLSX.utils.encode_cell({ r: R, c: C });
-        if (!ws[addr]) continue;
-        ws[addr].s = {
-          font: headerFont,
-          fill: headerFill,
-          alignment: { vertical: "center", horizontal: "center", wrapText: true },
-          border: headerBorder
         };
       }
     } else if (isTotal) {

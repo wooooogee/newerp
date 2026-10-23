@@ -112,14 +112,23 @@ export function exportCommissionStatementExcel(
 
   const wb = XLSX.utils.book_new();
 
+  // 공급사별(가나다순) -> 제품명 -> 계약번호 순 정렬
+  const sortedTargetItems = [...targetItems].sort((a, b) => {
+    const suppDiff = (a.matchedSupplierName || '').localeCompare(b.matchedSupplierName || '', 'ko');
+    if (suppDiff !== 0) return suppDiff;
+    const prodDiff = (a.matchedProductName || '').localeCompare(b.matchedProductName || '', 'ko');
+    if (prodDiff !== 0) return prodDiff;
+    return (b.rentalNo || '').localeCompare(a.rentalNo || '');
+  });
+
   // 계산
-  const totalAmount = targetItems.reduce((acc, cur) => acc + (cur.totalCommission || 0), 0);
+  const totalAmount = sortedTargetItems.reduce((acc, cur) => acc + (cur.totalCommission || 0), 0);
   const totalSupply = Math.round(totalAmount / 1.1);
   const totalVat = totalAmount - totalSupply;
-  const totalCount = targetItems.reduce((acc, cur) => acc + (cur.quantity || 1), 0);
+  const totalCount = sortedTargetItems.reduce((acc, cur) => acc + (cur.quantity || 1), 0);
 
   // 관련 공급사 목록
-  const suppNames = Array.from(new Set(targetItems.map(i => i.matchedSupplierName))).filter(Boolean).join(', ');
+  const suppNames = Array.from(new Set(sortedTargetItems.map(i => i.matchedSupplierName))).filter(Boolean).join(', ');
 
   // 상품별 집계
   const prodMap = new Map<string, {
@@ -130,7 +139,7 @@ export function exportCommissionStatementExcel(
     totalAmount: number;
   }>();
 
-  targetItems.forEach(item => {
+  sortedTargetItems.forEach(item => {
     const prodKey = `${item.matchedSupplierName}_${item.matchedProductName || item.prodName}`;
     const cur = prodMap.get(prodKey) || {
       supplierName: item.matchedSupplierName,
@@ -220,9 +229,9 @@ export function exportCommissionStatementExcel(
   ]);
 
   const detailStartRow = prodTotalRowIdx + 4;
-  const detailEndRow = detailStartRow + targetItems.length - 1;
+  const detailEndRow = detailStartRow + sortedTargetItems.length - 1;
 
-  targetItems.forEach((item, idx) => {
+  sortedTargetItems.forEach((item, idx) => {
     rows.push([
       idx + 1,
       item.rentalNo,
@@ -304,14 +313,20 @@ export const CommissionSettlementDetailModal: React.FC<CommissionSettlementDetai
 
   const hasMultipleSuppliers = availableSuppliers.length > 1;
 
-  // 2. 현재 선택된 스코프에 따른 대상 데이터
+  // 2. 현재 선택된 스코프에 따른 대상 데이터 (공급사별 가나다순 -> 제품명 -> 계약번호 순 정렬)
   const activeItems = useMemo<SettlementDetailItem[]>(() => {
     if (!target) return [];
-    if (scope === 'ALL_RECIPIENT') {
-      return allRecipientItems.length > 0 ? allRecipientItems : target.items;
-    }
-    // CURRENT_SUPPLIER
-    return target.items || [];
+    const raw = scope === 'ALL_RECIPIENT'
+      ? (allRecipientItems.length > 0 ? allRecipientItems : target.items)
+      : (target.items || []);
+
+    return [...raw].sort((a, b) => {
+      const suppDiff = (a.matchedSupplierName || '').localeCompare(b.matchedSupplierName || '', 'ko');
+      if (suppDiff !== 0) return suppDiff;
+      const prodDiff = (a.matchedProductName || '').localeCompare(b.matchedProductName || '', 'ko');
+      if (prodDiff !== 0) return prodDiff;
+      return (b.rentalNo || '').localeCompare(a.rentalNo || '');
+    });
   }, [target, allRecipientItems, scope]);
 
   // 3. 검색 필터 적용된 건별 리스트
