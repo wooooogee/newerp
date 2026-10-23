@@ -1094,9 +1094,6 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
                               <Copy size={11} className="text-slate-400 group-hover:text-blue-600 shrink-0" />
                             )}
                             <span>{item.bankCode || '-'}</span>
-                            {item.bankName && (
-                              <span className="text-[10px] font-normal text-slate-500">({item.bankName})</span>
-                            )}
                           </button>
                         </td>
 
