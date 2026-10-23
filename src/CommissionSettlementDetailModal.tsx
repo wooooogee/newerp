@@ -4,6 +4,7 @@ import {
   Package, Search, FileText, CheckCircle, ExternalLink, Calendar, Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { autoFitColWidths, applyTableExcelStyle } from './excelStyleUtils';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -258,71 +259,8 @@ export function exportCommissionStatementExcel(
   rows.push(['발행처: (주)리치웰페어 (직인생략)']);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-
-  // 열 너비 자동 계산
-  const colWidths = rows.reduce((acc, row) => {
-    row.forEach((cell, i) => {
-      let str = '';
-      if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
-      else if (cell !== null && cell !== undefined) str = cell.toString();
-      const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.1 : 1.1), 0);
-      if (!acc[i] || len > acc[i]) acc[i] = len;
-    });
-    return acc;
-  }, [] as number[]);
-  ws['!cols'] = colWidths.map(w => ({ wch: Math.min(Math.max(w + 3, 11), 38) }));
-
-  // 스타일 적용
-  try {
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
-    const headerFill = { fgColor: { rgb: "2F5597" } };
-    const subheaderFill = { fgColor: { rgb: "4B6FBF" } };
-    const grayFill = { fgColor: { rgb: "F2F2F2" } };
-
-    for (let R = range.s.r; R <= range.e.r; ++R) {
-      const firstCellAddr = XLSX.utils.encode_cell({ r: R, c: 0 });
-      const firstCellVal = ws[firstCellAddr] ? String(ws[firstCellAddr].v || '') : '';
-      
-      const isSectionTitle = firstCellVal.startsWith('[') && firstCellVal.endsWith(']');
-      const isHeaderRow = ['수령처명', '구분', 'No'].includes(firstCellVal);
-      const isTotalRow = firstCellVal === '합계' || firstCellVal === '총합계';
-
-      for (let C = range.s.c; C <= range.e.c; ++C) {
-        const addr = XLSX.utils.encode_cell({ r: R, c: C });
-        if (!ws[addr]) continue;
-
-        if (R === 0) {
-          ws[addr].s = {
-            font: { bold: true, sz: 14, color: { rgb: "1E3A8A" } }
-          };
-        } else if (isSectionTitle) {
-          ws[addr].s = {
-            font: { bold: true, sz: 11, color: { rgb: "1E3A8A" } },
-            fill: { fgColor: { rgb: "EEF2FF" } }
-          };
-        } else if (isHeaderRow) {
-          ws[addr].s = {
-            font: { bold: true, sz: 10, color: { rgb: "FFFFFF" } },
-            fill: headerFill,
-            alignment: { vertical: "center", horizontal: "center" }
-          };
-        } else if (isTotalRow) {
-          ws[addr].s = {
-            font: { bold: true, sz: 10, color: { rgb: "0F172A" } },
-            fill: grayFill,
-            alignment: { vertical: "center", horizontal: ws[addr].t === 'n' ? 'right' : 'center' }
-          };
-        } else {
-          ws[addr].s = {
-            font: { sz: 9 },
-            alignment: { vertical: "center", horizontal: ws[addr].t === 'n' ? 'right' : 'center' }
-          };
-        }
-      }
-    }
-  } catch (e) {
-    // 스타일 오류 시 기본 시트로 진행
-  }
+  ws['!cols'] = autoFitColWidths(rows, 10, 42);
+  applyTableExcelStyle(ws, 'PURPLE');
 
   XLSX.utils.book_append_sheet(wb, ws, '정산명세서');
 
