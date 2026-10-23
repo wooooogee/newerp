@@ -4058,7 +4058,8 @@ async function mergeSheetDataByKeySafe(
     totalCount: writtenCount,
     updatedCount,
     newCount,
-    existingCount: existingRows.length - 1
+    existingCount: existingRows.length - 1,
+    mergedRows: normalizedMergedRows
   };
 }
 
@@ -4090,6 +4091,20 @@ app.post('/api/sheets/excel-sync/overwrite-sheet1', async (req, res) => {
       ['회원번호', '계약번호', '회원코드'],
       1
     );
+
+    // 🌟 캐시 즉시 무효화 및 로컬 캐시 파일 최신화
+    sheetDataCache.delete('시트1');
+    sheetDataCache.delete('통합원장');
+    if (result.mergedRows && result.mergedRows.length > 1) {
+      try {
+        const cacheDir = path.dirname(UNIFIED_LEDGER_PATH);
+        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+        fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(result.mergedRows, null, 2), 'utf-8');
+      } catch (cacheErr: any) {
+        console.warn('[overwrite-sheet1] Cache file write warning:', cacheErr.message);
+      }
+    }
+
     res.json({
       success: true,
       overwrittenCount: result.totalCount,
@@ -5313,33 +5328,45 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     sheetDataCache.delete('관리대장');
     sheetDataCache.delete('시트1');
 
-    // '시트1' 스마트 병합만 백그라운드 비동기로 순차 처리
-    if (safeContractRows && safeContractRows.length > 0 && safeContractRows.length <= 10000) {
-      setImmediate(async () => {
-        try {
-          console.log(`[ExcelSync Background] Merging '시트1'...`);
-          const s1Res = await mergeSheetDataByKeySafe(
-            sheets,
-            sheetId,
-            '시트1',
-            safeContractRows,
-            ['회원번호', '계약번호', '회원코드'],
-            1
-          );
-          sheetDataCache.delete('시트1');
-          console.log(`[ExcelSync Background] Merged '시트1': total ${s1Res.totalCount} rows`);
-        } catch (s1Err: any) {
-          console.warn(`[ExcelSync Background] Failed to merge '시트1':`, s1Err?.message || s1Err);
-        }
-      });
-    }
-
-    // 시트1 병합 결과 변수 초기화 (백그라운드 비동기 처리 대응)
+    // 🌟 [핵심] '시트1' 스마트 병합을 즉시 await로 실행하여 CMS 대장 및 시트1 반영을 100% 보장!
     let sheet1OverwrittenCount = 0;
     let sheet1UpdatedCount = 0;
     let sheet1NewCount = 0;
     let sheet1ExistingCount = 0;
     let sheet1Error: string | null = null;
+
+    if (safeContractRows && safeContractRows.length > 0) {
+      try {
+        console.log(`[ExcelSync] Merging '시트1' for CMS and original contracts...`);
+        const s1Res = await mergeSheetDataByKeySafe(
+          sheets,
+          sheetId,
+          '시트1',
+          safeContractRows,
+          ['회원번호', '계약번호', '회원코드'],
+          1
+        );
+        sheet1OverwrittenCount = s1Res.totalCount;
+        sheet1UpdatedCount = s1Res.updatedCount;
+        sheet1NewCount = s1Res.newCount;
+        sheet1ExistingCount = s1Res.existingCount;
+        sheetDataCache.delete('시트1');
+        sheetDataCache.delete('통합원장');
+
+        // 로컬 캐시도 최신 상태로 저장
+        if (s1Res.mergedRows && s1Res.mergedRows.length > 1) {
+          try {
+            const cacheDir = path.dirname(UNIFIED_LEDGER_PATH);
+            if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+            fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(s1Res.mergedRows, null, 2), 'utf-8');
+          } catch {}
+        }
+        console.log(`[ExcelSync] Successfully merged '시트1': total ${s1Res.totalCount} rows (new: ${s1Res.newCount}, updated: ${s1Res.updatedCount})`);
+      } catch (s1Err: any) {
+        sheet1Error = s1Err?.message || '시트1 스마트 병합 실패';
+        console.warn(`[ExcelSync] Failed to merge '시트1':`, sheet1Error);
+      }
+    }
 
     res.json({
       success: true,

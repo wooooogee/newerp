@@ -315,7 +315,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
     }
   };
 
-  // 🌟 [2단계 초안정 데이터 로드] 로컬 캐시 + 통합원장 + 시트1 3단계 폴백
+  // 🌟 [최신 데이터 보장 로드] 구글 시트 '시트1' 우선 로드 + 통합원장/캐시 스마트 병합 폴백
   const fetchSheet1Data = useCallback(async (forceSync = false) => {
     setIsLoading(true);
     try {
@@ -323,33 +323,37 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       let loadedRows: any[][] = [];
       let sourceName = '';
 
-      // 1순위: /api/sheets/unified-ledger/data?cms=true 호출 (캐시 및 원장 초고속 로드)
+      // 1순위: 구글 시트 [시트1] 최신 데이터 직접 조회 (방금 업로드한 최신 원장 데이터 즉시 반영)
       try {
-        if (forceSync) {
-          await fetch('/api/sheets/unified-ledger/sync-from-sheet', { method: 'POST' }).catch(() => null);
-        }
-        const uRes = await fetch(`/api/sheets/unified-ledger/data?cms=true&t=${timestamp}`);
-        if (uRes.ok) {
-          const uJson = await uRes.json();
-          const rows = uJson.data || uJson.ledgerRows || uJson.rows;
-          if (Array.isArray(rows) && rows.length > 1) {
-            loadedRows = rows;
-            sourceName = uJson.source === 'cache' ? '원장 캐시 (초고속)' : '통합원장 (구글시트)';
-          }
-        }
-      } catch (uErr) {
-        console.warn('[CmsRegistrationModal] unified-ledger fallback:', uErr);
-      }
-
-      // 2순위: 1순위 결과가 없거나 부족하면 /api/sheets/sheetData?sheetName=시트1 직접 호출
-      if (!loadedRows || loadedRows.length < 2) {
         const sRes = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('시트1')}&fresh=true&t=${timestamp}`);
         if (sRes.ok) {
           const sJson = await sRes.json();
           if (Array.isArray(sJson) && sJson.length > 1) {
             loadedRows = sJson;
-            sourceName = '시트1 (구글시트)';
+            sourceName = '시트1 (구글 시트 최신)';
           }
+        }
+      } catch (sErr) {
+        console.warn('[CmsRegistrationModal] sheet1 fetch error:', sErr);
+      }
+
+      // 2순위: 시트1 데이터가 비어있거나 부족할 때 /api/sheets/unified-ledger/data?cms=true 조회
+      if (!loadedRows || loadedRows.length < 2) {
+        try {
+          if (forceSync) {
+            await fetch('/api/sheets/unified-ledger/sync-from-sheet', { method: 'POST' }).catch(() => null);
+          }
+          const uRes = await fetch(`/api/sheets/unified-ledger/data?cms=true&t=${timestamp}`);
+          if (uRes.ok) {
+            const uJson = await uRes.json();
+            const rows = uJson.data || uJson.ledgerRows || uJson.rows;
+            if (Array.isArray(rows) && rows.length > 1) {
+              loadedRows = rows;
+              sourceName = uJson.source === 'cache' ? '원장 캐시' : '통합원장 (구글 시트)';
+            }
+          }
+        } catch (uErr) {
+          console.warn('[CmsRegistrationModal] unified-ledger fallback:', uErr);
         }
       }
 

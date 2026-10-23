@@ -11,6 +11,7 @@ import {
   ArrowRight,
   Database,
   Truck,
+  CreditCard,
   FileText,
   HelpCircle,
   Clock,
@@ -1193,10 +1194,11 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                       type="button"
                       onClick={handleDirectOverwriteSheet1}
                       disabled={isLoading}
-                      className="w-full py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
-                      title="기존 [시트1] 탭에 병합"
+                      className="w-full py-2 px-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="계약원장을 [시트1] 탭에 스마트 병합하여 CMS 등록 대장 및 전산 원본을 즉시 최신화합니다"
                     >
-                      <span>기존 [시트1] 탭에도 병합 등록</span>
+                      <CreditCard size={13} />
+                      <span>기존 [시트1] 탭에도 병합 등록 (CMS 대장 즉시 연동)</span>
                     </button>
                   </div>
                 )}
