@@ -6533,6 +6533,408 @@ app.post('/api/sheets/suppliers/save', async (req, res) => {
   }
 });
 
+
+// ========================================================
+// [취소 및 해약 관리 API] - 구글 시트 '취소및해약' 탭 연동
+// ========================================================
+app.get('/api/sheets/cancel-records', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let cancelSheet = sheetsList.find(s => s.properties?.title === '취소및해약' || s.properties?.title === '취소 및 해약');
+
+    if (!cancelSheet) {
+      return res.json({ records: [] });
+    }
+
+    const targetSheetTitle = cancelSheet.properties?.title || '취소및해약';
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `${targetSheetTitle}!A:S`,
+    });
+
+    const rows = response.data.values || [];
+    const headerRow = rows[0] || [];
+    const hasSangjoCol = headerRow.some((h: string) => String(h).includes('최초납입일'));
+
+    const records = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i] || [];
+      if (hasSangjoCol) {
+        const [
+          id, createdAt, processStatus, receiptType, targetStatus,
+          contractDate, statusBefore, rentalNo, memName, memNo,
+          prodName, rentalProd, hq, branch, empName,
+          firstPayDateSangjo, rentalWithdrawDate, notes, operator
+        ] = row;
+
+        if (id || rentalNo || memName) {
+          records.push({
+            id: id || `CNCL-${i}`,
+            createdAt: createdAt || '',
+            processStatus: processStatus || '접수중',
+            receiptType: receiptType || '',
+            targetStatus: targetStatus || '취소',
+            contractDate: contractDate || '',
+            statusBefore: statusBefore || '',
+            rentalNo: rentalNo || '',
+            memName: memName || '',
+            memNo: memNo || '',
+            prodName: prodName || '',
+            rentalProd: rentalProd || '',
+            hq: hq || '',
+            branch: branch || '',
+            empName: empName || '',
+            firstPayDateSangjo: firstPayDateSangjo || '',
+            rentalWithdrawDate: rentalWithdrawDate || '',
+            notes: notes || '',
+            operator: operator || '',
+            rowIdx: i + 1
+          });
+        }
+      } else {
+        const [
+          id, createdAt, processStatus, receiptType, targetStatus,
+          contractDate, statusBefore, rentalNo, memName, memNo,
+          prodName, rentalProd, hq, branch, empName, notes, operator
+        ] = row;
+
+        if (id || rentalNo || memName) {
+          records.push({
+            id: id || `CNCL-${i}`,
+            createdAt: createdAt || '',
+            processStatus: processStatus || '접수중',
+            receiptType: receiptType || '',
+            targetStatus: targetStatus || '취소',
+            contractDate: contractDate || '',
+            statusBefore: statusBefore || '',
+            rentalNo: rentalNo || '',
+            memName: memName || '',
+            memNo: memNo || '',
+            prodName: prodName || '',
+            rentalProd: rentalProd || '',
+            hq: hq || '',
+            branch: branch || '',
+            empName: empName || '',
+            firstPayDateSangjo: '',
+            rentalWithdrawDate: '',
+            notes: notes || '',
+            operator: operator || '',
+            rowIdx: i + 1
+          });
+        }
+      }
+    }
+
+    res.json({ records });
+  } catch (error: any) {
+    console.error('[Cancel Records Get Error]', error);
+    return handleGoogleError(error, res);
+  }
+});
+
+app.post('/api/sheets/cancel-records', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { record, records } = req.body as { record?: any; records?: any[] };
+  const itemsToSave = records || (record ? [record] : []);
+  if (itemsToSave.length === 0) {
+    return res.status(400).json({ error: '저장할 데이터가 없습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let cancelSheet = sheetsList.find(s => s.properties?.title === '취소및해약' || s.properties?.title === '취소 및 해약');
+    let sheetInternalId = cancelSheet?.properties?.sheetId;
+    let targetSheetTitle = cancelSheet?.properties?.title || '취소및해약';
+
+    const headers = [
+      '접수ID', '접수일시', '처리상태', '취소접수처', '가입상태변경',
+      '계약일자', '가입상태', '렌탈계약번호', '회원명', '회원번호',
+      '상품명', '제품명', '본부', '지사', '사원명',
+      '최초납입일(상조)', '렌탈출금일', '특이사항', '접수자'
+    ];
+
+    if (!cancelSheet) {
+      console.log("[Cancel Records] Creating '취소및해약' sheet...");
+      const newSheetResponse = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: '취소및해약' } } }]
+        }
+      });
+      sheetInternalId = newSheetResponse.data.replies?.[0].addSheet?.properties?.sheetId;
+      targetSheetTitle = '취소및해약';
+
+      if (sheetInternalId != null) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: { sheetId: sheetInternalId, startRowIndex: 0, endRowIndex: 1 },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.88, green: 0.22, blue: 0.33 },
+                      textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
+                      horizontalAlignment: 'CENTER'
+                    }
+                  },
+                  fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)'
+                }
+              }
+            ]
+          }
+        });
+      }
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `${targetSheetTitle}!A1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [headers] }
+      });
+    } else {
+      // 만약 기존 시트에 최초납입일 헤더가 없으면 첫 행 헤더 업데이트
+      const curHeaderRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: `${targetSheetTitle}!A1:S1`,
+      });
+      const curHeader = curHeaderRes.data.values?.[0] || [];
+      if (!curHeader.some((h: string) => String(h).includes('최초납입일'))) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: sheetId,
+          range: `${targetSheetTitle}!A1:S1`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [headers] }
+        });
+      }
+    }
+
+    const newRows = itemsToSave.map((item, idx) => {
+      const now = new Date();
+      const kstTime = new Intl.DateTimeFormat('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Seoul'
+      }).format(now).replace(/\. /g, '-').replace('.', '');
+
+      const id = item.id || `CNCL-${Date.now()}-${idx + 1}`;
+      const createdAt = item.createdAt || kstTime;
+
+      return [
+        id,
+        createdAt,
+        item.processStatus || '접수중',
+        item.receiptType || '',
+        item.targetStatus || '접수대기',
+        item.contractDate || '',
+        item.statusBefore || item.status || '가입',
+        item.rentalNo || '',
+        item.memName || '',
+        item.memNo || '',
+        item.prodName || '',
+        item.rentalProd || '',
+        item.hq || '',
+        item.branch || '',
+        item.empName || '',
+        item.firstPayDateSangjo || '',
+        item.rentalWithdrawDate || '',
+        item.notes || '',
+        item.operator || ''
+      ];
+    });
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: `${targetSheetTitle}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: newRows }
+    });
+
+    try {
+      const backupDir = path.join(process.cwd(), 'data');
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      const backupPath = path.join(backupDir, 'cancel_records_backup.json');
+      let existingBackup = [];
+      if (fs.existsSync(backupPath)) {
+        try { existingBackup = JSON.parse(fs.readFileSync(backupPath, 'utf-8')); } catch (e) {}
+      }
+      existingBackup.push(...itemsToSave);
+      fs.writeFileSync(backupPath, JSON.stringify(existingBackup, null, 2), 'utf-8');
+    } catch (e) {
+      console.warn('Local cancel records backup write failed:', e);
+    }
+
+    res.json({ success: true, count: newRows.length });
+  } catch (error: any) {
+    console.error('[Cancel Records Save Error]', error);
+    return handleGoogleError(error, res);
+  }
+});
+
+app.post('/api/sheets/cancel-records/update-status', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { id, newStatus } = req.body as { id: string; newStatus: string };
+  if (!id || !newStatus) {
+    return res.status(400).json({ error: '필수 파라미터가 누락되었습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let cancelSheet = sheetsList.find(s => s.properties?.title === '취소및해약' || s.properties?.title === '취소 및 해약');
+    if (!cancelSheet) return res.status(404).json({ error: '시트를 찾을 수 없습니다.' });
+
+    const targetSheetTitle = cancelSheet.properties?.title || '취소및해약';
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `${targetSheetTitle}!A:C`,
+    });
+
+    const rows = response.data.values || [];
+    let targetRow = -1;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] === id) {
+        targetRow = i + 1;
+        break;
+      }
+    }
+
+    if (targetRow === -1) {
+      return res.status(404).json({ error: '해당 ID의 레코드를 찾을 수 없습니다.' });
+    }
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `${targetSheetTitle}!C${targetRow}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [[newStatus]] }
+    });
+
+    res.json({ success: true, updatedRow: targetRow });
+  } catch (error: any) {
+    console.error('[Cancel Records Update Status Error]', error);
+    return handleGoogleError(error, res);
+  }
+});
+
+
+app.post('/api/sheets/cancel-records/batch-update-status', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { updates } = req.body as { updates: { id: string; newStatus: string }[] };
+  if (!updates || !Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ error: '필수 파라미터가 누락되었습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    sheetId = sheetId.split('spreadsheets/d/')[1].split('/')[0];
+  }
+  if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetsList = spreadsheet.data.sheets || [];
+    let cancelSheet = sheetsList.find(s => s.properties?.title === '취소및해약' || s.properties?.title === '취소 및 해약');
+    if (!cancelSheet) return res.status(404).json({ error: '시트를 찾을 수 없습니다.' });
+
+    const targetSheetTitle = cancelSheet.properties?.title || '취소및해약';
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `${targetSheetTitle}!A:C`,
+    });
+
+    const rows = response.data.values || [];
+    const idToRowMap = new Map<string, number>();
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0]) {
+        idToRowMap.set(rows[i][0], i + 1);
+      }
+    }
+
+    const batchData: any[] = [];
+    for (const update of updates) {
+      const rowNum = idToRowMap.get(update.id);
+      if (rowNum) {
+        batchData.push({
+          range: `${targetSheetTitle}!C${rowNum}`,
+          values: [[update.newStatus]]
+        });
+      }
+    }
+
+    if (batchData.length > 0) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          valueInputOption: 'USER_ENTERED',
+          data: batchData
+        }
+      });
+    }
+
+    // 로컬 백업도 업데이트
+    try {
+      const backupPath = path.join(process.cwd(), 'data', 'cancel_records_backup.json');
+      if (fs.existsSync(backupPath)) {
+        let backupList = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
+        const updateMap = new Map(updates.map(u => [u.id, u.newStatus]));
+        backupList = backupList.map((item: any) => {
+          if (updateMap.has(item.id)) {
+            return { ...item, processStatus: updateMap.get(item.id) };
+          }
+          return item;
+        });
+        fs.writeFileSync(backupPath, JSON.stringify(backupList, null, 2), 'utf-8');
+      }
+    } catch (e) {}
+
+    res.json({ success: true, count: batchData.length });
+  } catch (error: any) {
+    console.error("[Cancel Records Batch Update Status Error]", error);
+    return handleGoogleError(error, res);
+  }
+});
+
 // Vite Middleware
 async function start() {
   try {

@@ -13397,6 +13397,7 @@ const ERP_Dashboard = () => {
             onUpdateCell={updateCell}
             onBatchUpdateCells={batchUpdateCells}
             isAdmin={isAdmin}
+            currentUser={currentUser}
           />
           {showScrollTop && (
             <button

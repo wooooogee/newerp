@@ -1,0 +1,21 @@
+[
+  {
+    "id": "CNCL-1792717332981",
+    "createdAt": "2026-10-23-10:02:12",
+    "processStatus": "취소완료",
+    "receiptType": "영업조직",
+    "targetStatus": "접수대기",
+    "contractDate": "2026-10-22",
+    "statusBefore": "가입",
+    "rentalNo": "12384424",
+    "memName": "박정윤",
+    "memNo": "J2610013765",
+    "prodName": "더좋은프리미엄540플러스",
+    "rentalProd": "2구좌_[삼성] AI 세탁기+건조기 21/21kg+상단 설치 키트(WF21DG6650BW2T(540+))",
+    "hq": "언바운드컴퍼니",
+    "branch": "영등포2센터",
+    "empName": "박재영",
+    "notes": "",
+    "operator": "a250027"
+  }
+]
