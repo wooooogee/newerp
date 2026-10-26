@@ -70,7 +70,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [isConsolidated, setIsConsolidated] = useState<boolean>(true);
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
   const [receiveTypeFilter, setReceiveTypeFilter] = useState<'all' | 'post'>('all');
-  const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'sent' | 'all'>('all');
+  const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'sent' | 'all'>('notSent');
   const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
 
   // 인라인 수정 상태 관리: { [itemId: number]: { [fieldName: string]: any } }
@@ -165,13 +165,21 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
     const items = sheet1List
       .map((raw, idx) => {
+        // 원장(시트1)의 8번째 열(I열, raw[8])이 정확히 '가입'인 건만 대상 (해약, 대기, 행사 전면 배제)
+        const rawStatus = String(raw[8] || '').trim();
         const memNo = String(raw[1] || '').trim();
         const memNoKey = memNo.toUpperCase();
         const maintenanceItem = maintenanceMap.get(memNoKey);
-        // 관리대장 시트의 가입상태를 가져오고, 없으면 원장의 회원상태(raw[8]) 확인
-        const mStatus = String(maintenanceItem?.status || '').trim();
-        const rawStatus = String(raw[8] || '').trim();
-        const status = mStatus || rawStatus || '';
+        const status = rawStatus || String(maintenanceItem?.status || '').trim();
+
+        if (status !== '가입') {
+          return null;
+        }
+
+        // 시트1의 49번째 열 (AX열, 증서 컬럼: '발송' / '미발송')
+        const cert = String(raw[49] || '').trim();
+        // 발송완료 여부 판정: 시트1 49열이 '발송'이거나, '증서발송리스트'에 등록된 회원번호인 경우
+        const isDispatched = cert === '발송' || dispatchedHistoryNos.has(memNoKey);
 
         const hq = String(raw[38] || '');         // AM(38): 본부명
         const empCode = String(raw[39] || maintenanceItem?.empCode || '').trim();
@@ -186,7 +194,6 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         let zipCode = String(raw[44] || '');      // AS(44): 우편번호
         const address = String(raw[45] || '');    // AT(45): 주소
         const workAddress = String(raw[47] || '');// AV(47): 직장주소
-        const cert = String(raw[49] || '');       // AX(49): 증서
         const deliveryType = String(raw[58] || '');// BG(58): 배송구분
         const rentalNo = String(raw[59] || '');   // BH(59): 렌탈계약번호
 
@@ -232,8 +239,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         return {
           id: idx,
           customerKey,
+          isDispatched,
           extracted: {
             customerKey,
+            isDispatched,
             status, contractDate, memNo, memName, resNo, prodName, firstPayDate,
             hq, empCode, empName, zipCode, address, workAddress, cert, deliveryType, rentalNo,
             empPhone, monthlyPay1, monthlyPay2, birthDate, phone,
@@ -243,14 +252,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           }
         };
       })
-      .filter(item => {
-        const st = item.extracted.status;
-        return st === '가입' || st.includes('가입');
-      });
+      .filter((item): item is NonNullable<typeof item> => item !== null);
 
-    // 동일 고객(동일 가입자)별 우편 희망 여부 및 모든 회원번호 수집
+    // 동일 고객(동일 가입자)별 우편 희망 여부 및 [발송 상태별] 회원번호 수집
     const customerPostMap = new Map<string, boolean>();
-    const customerAllNosMap = new Map<string, Set<string>>();
+    // 고객키 + 발송여부(미발송 vs 발송완료) 기준으로 회원번호를 분리하여 이미 발송된 번호가 미발송 건에 섞이지 않도록 방지
+    const customerStatusNosMap = new Map<string, Set<string>>();
 
     items.forEach(item => {
       const cKey = item.customerKey;
@@ -262,29 +269,33 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       if (isPost) {
         customerPostMap.set(cKey, true);
       }
-      if (!customerAllNosMap.has(cKey)) {
-        customerAllNosMap.set(cKey, new Set());
+
+      const statusGroupKey = cKey + '_' + (item.isDispatched ? 'sent' : 'notSent');
+      if (!customerStatusNosMap.has(statusGroupKey)) {
+        customerStatusNosMap.set(statusGroupKey, new Set());
       }
       if (ext.memNo) {
-        customerAllNosMap.get(cKey)!.add(ext.memNo);
+        customerStatusNosMap.get(statusGroupKey)!.add(ext.memNo);
       }
     });
 
-    // 동일 가입자 중 하나라도 우편이면 모든 구좌에 '우편' 전파 및 모든 회원번호 매핑
+    // 동일 가입자 중 하나라도 우편이면 '우편' 전파 및 동일 발송상태 구좌 회원번호만 매핑
     items.forEach(item => {
       const cKey = item.customerKey;
       if (customerPostMap.get(cKey)) {
         item.extracted.workAddress = '우편';
       }
-      const allCustNos = Array.from(customerAllNosMap.get(cKey) || []);
-      item.extracted.allCustomerMemNos = allCustNos;
+      const statusGroupKey = cKey + '_' + (item.isDispatched ? 'sent' : 'notSent');
+      const sameStatusNos = Array.from(customerStatusNosMap.get(statusGroupKey) || [item.extracted.memNo]);
+      item.extracted.allCustomerMemNos = sameStatusNos;
     });
 
     if (isConsolidated) {
       const groups = new Map<string, typeof items>();
       items.forEach(item => {
         const ext = item.extracted;
-        const key = item.customerKey + '_' + ext.prodName;
+        // 동일 고객 + 상품명 + [발송상태]별로 그룹핑 (이미 발송된 구좌와 미발송 구좌가 절대 합쳐지지 않도록 분리)
+        const key = item.customerKey + '_' + ext.prodName + '_' + (item.isDispatched ? 'sent' : 'notSent');
         if (!groups.has(key)) {
           groups.set(key, []);
         }
@@ -311,24 +322,28 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         base.extracted.rentalNo4 = uniqueNos[3] || '';
         base.extracted.allMemNos = uniqueNos;
 
-        // 동일 가입자의 모든 구좌 회원번호 연결
-        const allCustNos = Array.from(customerAllNosMap.get(cKey) || uniqueNos);
-        base.extracted.allCustomerMemNos = allCustNos;
+        // 동일 발송상태의 회원번호 목록만 연결 (이미 발송된 번호 격리)
+        const statusGroupKey = cKey + '_' + (base.isDispatched ? 'sent' : 'notSent');
+        const sameStatusNos = Array.from(customerStatusNosMap.get(statusGroupKey) || uniqueNos);
+        base.extracted.allCustomerMemNos = sameStatusNos;
 
         return base;
       });
     }
 
-    return items.map((item, i) => ({
-      ...item,
-      id: i,
-      extracted: {
-        ...item.extracted,
-        allMemNos: [item.extracted.memNo].filter(Boolean),
-        allCustomerMemNos: Array.from(customerAllNosMap.get(item.customerKey) || [item.extracted.memNo].filter(Boolean))
-      }
-    }));
-  }, [sheet1List, empList, paymentList, data, isConsolidated]);
+    return items.map((item, i) => {
+      const statusGroupKey = item.customerKey + '_' + (item.isDispatched ? 'sent' : 'notSent');
+      return {
+        ...item,
+        id: i,
+        extracted: {
+          ...item.extracted,
+          allMemNos: [item.extracted.memNo].filter(Boolean),
+          allCustomerMemNos: Array.from(customerStatusNosMap.get(statusGroupKey) || [item.extracted.memNo].filter(Boolean))
+        }
+      };
+    });
+  }, [sheet1List, empList, paymentList, data, isConsolidated, dispatchedHistoryNos]);
 
   // 계약일자 연도 목록 추출 (YYYY)
   const availableYears = useMemo(() => {
@@ -973,8 +988,6 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         : [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].filter(Boolean);
 
       return {
-        '수령구분': getItemIsPost(item) ? '우편' : '모바일',
-        '발송구분': getItemIsDispatched(item) ? '발송완료' : '미발송',
         '회원명': ext.memName,
         '공란': '',
         '휴대폰번호': ext.phone,
@@ -1278,9 +1291,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       onChange={(e) => setDispatchStatusFilter(e.target.value as any)}
                       className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-2xs"
                     >
-                      <option value="all">전체</option>
                       <option value="notSent">미발송</option>
                       <option value="sent">발송완료</option>
+                      <option value="all">전체</option>
                     </select>
                   </div>
 
