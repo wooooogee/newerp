@@ -223,14 +223,14 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     }
   }, [isOpen, type]);
 
-  // 모달 개폐 시 관리자 계정은 완료 목록('list'), 일반 계정은 취소 접수('register')가 첫화면으로 열림
+  // 모달 개폐 시 항상 'register'(취소 및 해약 접수)가 첫화면으로 열림
   useEffect(() => {
     if (isOpen) {
       setCurrentPage(1);
       setPendingPage(1);
       setSearchTerm('');
       setPendingSearch('');
-      setCancelTab(isAdmin ? 'list' : 'register'); // 관리자 계정은 취소/해약 전체 관리 대장이 기본 화면
+      setCancelTab('register'); // 취소 및 해약 접수가 첫번째 기본 화면
       setSelectedContract(null);
       setSearchQuery('');
       setNotes('');
@@ -243,7 +243,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         fetchCancelRecords();
       }
     }
-  }, [isOpen, type, month, isAdmin, fetchCancelRecords]);
+  }, [isOpen, type, month, fetchCancelRecords]);
 
   // 가입 상태인 계약건들 (취소/해약 접수 대상)
   const activeContracts = useMemo(() => {
@@ -1003,47 +1003,24 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </div>
           </div>
 
-          {/* 취소/해약 전용 상단 탭 네비게이션: 관리자 계정은 완료 목록이 1번째 탭, 일반 계정은 접수 탭이 1번째 탭 */}
+          {/* 취소/해약 전용 상단 탭 네비게이션: 1번째 취소 및 해약 접수, 2번째 접수중 내역, 3번째 완료 목록 */}
           {!isDelivery && (
             <div className="bg-slate-100/90 px-6 pt-3 pb-0 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-1.5 overflow-x-auto">
                 
-                {/* [관리자 계정] 1번째 탭: 취소 및 해약 완료 목록 */}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setCancelTab('list')}
-                    className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
-                      cancelTab === 'list'
-                        ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
-                        : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                  >
-                    <FileText size={15} />
-                    <span>취소 및 해약 완료 목록</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                      cancelTab === 'list' ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-700'
-                    }`}>
-                      {filteredData.length}
-                    </span>
-                  </button>
-                )}
-
-                {/* [일반 계정] 1번째 탭: 취소 및 해약 접수 */}
-                {!isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setCancelTab('register')}
-                    className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
-                      cancelTab === 'register'
-                        ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
-                        : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                  >
-                    <Plus size={15} className="text-rose-600" />
-                    <span>취소 및 해약 접수</span>
-                  </button>
-                )}
+                {/* 1번째 탭: 취소 및 해약 접수 */}
+                <button
+                  type="button"
+                  onClick={() => setCancelTab('register')}
+                  className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
+                    cancelTab === 'register'
+                      ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
+                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                  }`}
+                >
+                  <Plus size={15} className="text-rose-600" />
+                  <span>취소 및 해약 접수</span>
+                </button>
 
                 {/* 2번째 탭: 접수중 내역 */}
                 <button
@@ -1064,42 +1041,24 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                   )}
                 </button>
 
-                {/* [관리자 계정] 3번째 탭: 취소 및 해약 접수 */}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setCancelTab('register')}
-                    className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
-                      cancelTab === 'register'
-                        ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
-                        : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                  >
-                    <Plus size={15} className="text-rose-600" />
-                    <span>취소 및 해약 접수</span>
-                  </button>
-                )}
-
-                {/* [일반 계정] 3번째 탭: 취소 및 해약 완료 목록 */}
-                {!isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setCancelTab('list')}
-                    className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
-                      cancelTab === 'list'
-                        ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
-                        : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                  >
-                    <FileText size={15} />
-                    <span>취소 및 해약 완료 목록</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                      cancelTab === 'list' ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-700'
-                    }`}>
-                      {filteredData.length}
-                    </span>
-                  </button>
-                )}
+                {/* 3번째 탭: 취소 및 해약 완료 목록 */}
+                <button
+                  type="button"
+                  onClick={() => setCancelTab('list')}
+                  className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
+                    cancelTab === 'list'
+                      ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
+                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                  }`}
+                >
+                  <FileText size={15} />
+                  <span>취소 및 해약 완료 목록</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                    cancelTab === 'list' ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {filteredData.length}
+                  </span>
+                </button>
 
               </div>
 
