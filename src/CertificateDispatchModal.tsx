@@ -64,6 +64,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [sheet1List, setSheet1List] = useState<any[]>([]);
   const [empList, setEmpList] = useState<any[]>([]);
   const [paymentList, setPaymentList] = useState<any[]>([]);
+  const [maintenanceSheetList, setMaintenanceSheetList] = useState<any[]>([]);
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedMonthOnly, setSelectedMonthOnly] = useState<string>('all');
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
@@ -86,11 +87,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         setLoading(true);
         try {
           const timestamp = Date.now();
-          const [sheet1Res, empRes, payRes, historyRes] = await Promise.all([
+                    const [sheet1Res, empRes, payRes, historyRes, maintenanceSheetRes] = await Promise.all([
             fetch(`/api/sheets/sheetData?sheetName=시트1&fresh=true&t=${timestamp}`),
             fetch(`/api/sheets/sheetData?sheetName=사원리스트&t=${timestamp}`),
             fetch(`/api/sheets/sheetData?sheetName=월불입금&t=${timestamp}`),
-            fetch(`/api/sheets/sheetData?sheetName=증서발송리스트&fresh=true&t=${timestamp}`)
+            fetch(`/api/sheets/sheetData?sheetName=증서발송리스트&fresh=true&t=${timestamp}`),
+            fetch(`/api/sheets/sheetData?sheetName=관리대장&fresh=true&t=${timestamp}`)
           ]);
           
           if (sheet1Res.ok) {
@@ -115,6 +117,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           if (payRes.ok) {
             const payData = await payRes.json();
             setPaymentList(payData.slice(1)); // Skip header
+          }
+          if (maintenanceSheetRes && maintenanceSheetRes.ok) {
+            const mData = await maintenanceSheetRes.json();
+            setMaintenanceSheetList(mData.slice(1)); // Skip header
           }
           if (historyRes.ok) {
             const historyData = await historyRes.json();
@@ -155,23 +161,40 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   }, [isOpen]);
   // 1. 기초 데이터 파싱 및 동일회원 통합(consolidatedData)
   const consolidatedData = useMemo(() => {
-    // 관리대장 데이터(data)를 회원번호 기준으로 맵 생성 (대소문자 무시)
-    const maintenanceMap = new Map<string, any>();
+    // 사용자 지시: 회원상태값은 관리대장 시트에서 회원번호(C열 r[2])로 매칭하여 계약상태(B열 r[1])를 가져옴
+    const maintenanceStatusMap = new Map<string, string>();
+    const maintenanceItemMap = new Map<string, any>();
+
+    // 1) 최신 '관리대장' 구글 시트 데이터 매핑
+    maintenanceSheetList.forEach((r: any) => {
+      const memNo = String(r[2] || '').trim().toUpperCase();
+      const st = String(r[1] || '').trim();
+      if (memNo) {
+        maintenanceStatusMap.set(memNo, st);
+      }
+    });
+
+    // 2) data prop 매핑 (fallback 보강)
     data.forEach(item => {
       if (item.memNo) {
-        maintenanceMap.set(String(item.memNo).trim().toUpperCase(), item);
+        const memNoKey = String(item.memNo).trim().toUpperCase();
+        maintenanceItemMap.set(memNoKey, item);
+        if (!maintenanceStatusMap.has(memNoKey)) {
+          maintenanceStatusMap.set(memNoKey, String(item.status || '').trim());
+        }
       }
     });
 
     const items = sheet1List
       .map((raw, idx) => {
-        // 원장(시트1)의 8번째 열(I열, raw[8])이 정확히 '가입'인 건만 대상 (해약, 대기, 행사 전면 배제)
-        const rawStatus = String(raw[8] || '').trim();
         const memNo = String(raw[1] || '').trim();
         const memNoKey = memNo.toUpperCase();
-        const maintenanceItem = maintenanceMap.get(memNoKey);
-        const status = rawStatus || String(maintenanceItem?.status || '').trim();
+        const maintenanceItem = maintenanceItemMap.get(memNoKey);
 
+        // 핵심 요구사항: 회원상태는 관리대장 시트에서 회원번호로 매칭하여 가져옴
+        const status = String(maintenanceStatusMap.get(memNoKey) || '').trim();
+
+        // 관리대장 기준 회원상태가 정확히 '가입'인 건만 필터링 (해약, 취소, 대기, 행사 등 전면 배제)
         if (status !== '가입') {
           return null;
         }
@@ -343,7 +366,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         }
       };
     });
-  }, [sheet1List, empList, paymentList, data, isConsolidated, dispatchedHistoryNos]);
+  }, [sheet1List, empList, paymentList, data, isConsolidated, dispatchedHistoryNos, maintenanceSheetList]);
 
   // 계약일자 연도 목록 추출 (YYYY)
   const availableYears = useMemo(() => {
