@@ -74,7 +74,6 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
   // 상태 관리
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [cleaningDates, setCleaningDates] = useState(false);
   const [items, setItems] = useState<UnpaidItem[]>([]);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({
     divisions: [],
@@ -134,31 +133,6 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
   const handleDivisionChange = (divVal: string) => {
     setSelectedDivision(divVal);
     setSelectedHq(''); // 본부 선택 초기화
-  };
-
-  // 구글 시트 '통합원장'의 모든 날짜 일괄 표준 YYYY-MM-DD 정제
-  const handleCleanDates = async () => {
-    if (!window.confirm('구글 시트 "통합원장"에 저장된 모든 날짜 데이터를 표준 YYYY-MM-DD 형식으로 일괄 정규화하시겠습니까?\n\n(2008/12/26, 2010/6/26, 10/6/26, ##### 등 왜곡된 날짜 서식이 2026-08-12, 2026-10-06 등으로 자동 복원됩니다.)')) {
-      return;
-    }
-
-    try {
-      setCleaningDates(true);
-      const res = await fetch('/api/sheets/unified-ledger/clean-dates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '날짜 정제 처리 실패');
-
-      alert(`✓ 구글 시트 날짜 정규화가 성공적으로 완료되었습니다!\n\n• 정제된 날짜 셀 수: ${data.modifiedCount.toLocaleString()}개\n• 대상 원장 행 수: ${data.totalRows.toLocaleString()}행`);
-      // 최신 데이터 다시 로드
-      fetchData(false);
-    } catch (err: any) {
-      alert(`날짜 정제 중 오류가 발생했습니다: ${err.message}`);
-    } finally {
-      setCleaningDates(false);
-    }
   };
 
   // 데이터 로드 함수
@@ -251,9 +225,12 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
     }
   };
 
-  // 정렬된 아이템
+  // 정렬된 아이템 (미납데이터만 보기 모드일 때는 회원상태가 '가입'인 건만 필터링)
   const sortedItems = useMemo(() => {
-    const list = [...items];
+    let list = [...items];
+    if (onlyUnpaid) {
+      list = list.filter(item => item.isUnpaid && (item.status === '가입' || item.status.includes('가입')));
+    }
     return list.sort((a, b) => {
       let valA: any = a[sortField];
       let valB: any = b[sortField];
@@ -266,7 +243,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
       valB = valB || 0;
       return sortAsc ? valA - valB : valB - valA;
     });
-  }, [items, sortField, sortAsc]);
+  }, [items, onlyUnpaid, sortField, sortAsc]);
 
   // 페이지네이션 처리
   const totalPages = Math.max(1, Math.ceil(sortedItems.length / pageSize));
@@ -482,17 +459,8 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
 
           <div className="flex items-center gap-2">
             <button
-              onClick={handleCleanDates}
-              disabled={cleaningDates || syncing || loading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-700/80 hover:bg-teal-600 text-xs font-semibold text-white border border-teal-600/80 transition-all cursor-pointer disabled:opacity-50"
-              title="구글 시트 '통합원장' 시트의 모든 날짜(#####, 2010/6/26, 2008/12/26 등)를 표준 YYYY-MM-DD로 일괄 자동 정제합니다."
-            >
-              <RefreshCw size={14} className={cleaningDates ? 'animate-spin text-teal-200' : ''} />
-              <span>{cleaningDates ? '날짜 정제 중...' : '시트 날짜 일괄 정규화'}</span>
-            </button>
-            <button
               onClick={() => fetchData(true)}
-              disabled={syncing || loading || cleaningDates}
+              disabled={syncing || loading}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700/80 hover:bg-slate-600 text-xs font-semibold text-slate-200 border border-slate-600/80 transition-all cursor-pointer disabled:opacity-50"
               title="구글 시트 '통합원장' 시트로부터 최신 원장 데이터를 즉시 다시 읽어옵니다."
             >

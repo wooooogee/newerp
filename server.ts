@@ -3129,30 +3129,32 @@ function formatDateToYMD(d: any): string {
   const s = String(d).trim();
   if (!s || s === '-' || s === '- -' || s === '-  -' || s === 'null' || s === 'undefined' || s.startsWith('###')) return "";
 
-  // 0. 구글 시트/엑셀 날짜 왜곡 패턴 복원 (2010/6/26, 2008/12/26 등)
-  const m2Digit = s.match(/^20(1[0-2])[-/.](\d{1,2})[-/.](\d{2})$/);
-  if (m2Digit) {
-    const month = m2Digit[1];
-    const day = m2Digit[2].padStart(2, '0');
-    const yy = parseInt(m2Digit[3], 10);
-    const year = yy >= 50 ? `19${m2Digit[3]}` : `20${m2Digit[3]}`;
-    return `${year}-${month}-${day}`;
+  // 0-A. 이전 왜곡으로 인해 2027년~2035년 미래 연도가 되어버린 건 복원 (예: 2028-10-04 -> 2010-04-28, 2029-08-09 -> 2008-09-29)
+  const mReversed = s.match(/^20([1-3]\d)[-/.](\d{2})[-/.](\d{2})$/);
+  if (mReversed) {
+    const curYY = parseInt(mReversed[1], 10);
+    const curMM = parseInt(mReversed[2], 10);
+    const curDD = parseInt(mReversed[3], 10);
+    if (curYY >= 27 && curMM >= 1 && curMM <= 25 && curDD >= 1 && curDD <= 12) {
+      const origYear = curMM < 10 ? `200${curMM}` : `20${curMM}`;
+      const origMonth = String(curDD).padStart(2, '0');
+      const origDay = String(curYY).padStart(2, '0');
+      return `${origYear}-${origMonth}-${origDay}`;
+    }
   }
 
-  const m1Digit = s.match(/^200([1-9])[-/.](\d{1,2})[-/.](\d{2})$/);
-  if (m1Digit) {
-    const month = m1Digit[1].padStart(2, '0');
-    const day = m1Digit[2].padStart(2, '0');
-    const yy = parseInt(m1Digit[3], 10);
-    const year = yy >= 50 ? `19${m1Digit[3]}` : `20${m1Digit[3]}`;
-    return `${year}-${month}-${day}`;
+  // 0-B. 구글 시트 2026년 계약 왜곡 패턴 복원: 뒤가 정확히 '26' (2026년 계약)인 건만 복원! (예: 2010/6/26, 2008/12/26, 2009/15/26)
+  const mBroken26 = s.match(/^20(0[1-9]|1[0-2])[-/.](\d{1,2})[-/.]26$/);
+  if (mBroken26) {
+    const month = String(mBroken26[1]).padStart(2, '0');
+    const day = String(mBroken26[2]).padStart(2, '0');
+    return `2026-${month}-${day}`;
   }
 
-  // 1. 2009-MM-26 또는 2009/M/26 (구글 시트 로캘 오변환: 원래 2026-09-MM)
-  const m2009 = s.match(/^2009[-/](\d{1,2})[-/]26$/);
-  if (m2009) {
-    const day = String(m2009[1]).padStart(2, '0');
-    return `2026-09-${day}`;
+  // 1. 일반 표준 날짜: YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD
+  const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (mNorm) {
+    return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
   }
 
   // 2. 5자리 숫자 (엑셀 시리얼 넘버)
@@ -3171,12 +3173,6 @@ function formatDateToYMD(d: any): string {
   // 3. 8자리 숫자 YYYYMMDD
   if (/^\d{8}$/.test(s)) {
     return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
-  }
-
-  // 4. YYYY/M/D 또는 YYYY.M.D 또는 YYYY-M-D
-  const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
-  if (mNorm) {
-    return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
   }
 
   // 5. M/D/YY (예: 6/22/26, 11/17/10, 10/1/26)
@@ -4329,7 +4325,20 @@ app.post('/api/sheets/excel-sync/upload-unified-chunk', async (req, res) => {
           str.startsWith('2010/') ||
           str.startsWith('###')
         ) {
-          const fDate = formatDateToYMD(str);
+          let fDate = formatDateToYMD(str);
+          // 회원번호 대조 역전 복원 (예: W1004... -> 2028-10-04인 경우 2010-04-28로 복원)
+          const memNo = String(row[1] || '').trim();
+          const matchMem = memNo.match(/^[JWjw](\d{2})(\d{2})/);
+          if (matchMem && fDate) {
+            const memYY = matchMem[1];
+            const memMM = matchMem[2];
+            const mDate = fDate.match(/^20(\d{2})-(\d{2})-(\d{2})$/);
+            if (mDate && mDate[2] === memYY && mDate[3] === memMM) {
+              const trueYear = parseInt(memYY, 10) >= 50 ? `19${memYY}` : `20${memYY}`;
+              fDate = `${trueYear}-${memMM}-${mDate[1]}`;
+            }
+          }
+
           if (fDate) {
             str = fDate;
           } else if (str.startsWith('###') || str === '- -' || str === '-  -') {
@@ -4563,11 +4572,26 @@ app.post('/api/sheets/unified-ledger/clean-dates', async (req, res) => {
 
     for (let r = 1; r < rows.length; r++) {
       const row = [...rows[r]];
+      const memNo = String(row[1] || '').trim();
+      const matchMem = memNo.match(/^[JWjw](\d{2})(\d{2})/);
+
       for (const c of dateColIndices) {
         if (row[c] !== undefined && row[c] !== null) {
           const raw = String(row[c]).trim();
           if (raw) {
-            const formatted = formatDateToYMD(raw);
+            let formatted = formatDateToYMD(raw);
+
+            // 회원번호와 대조하여 역전된 날짜 추가 복원 (예: W1004... -> 2028-10-04 복원 -> 2010-04-28)
+            if (matchMem && formatted) {
+              const memYY = matchMem[1];
+              const memMM = matchMem[2];
+              const mDate = formatted.match(/^20(\d{2})-(\d{2})-(\d{2})$/);
+              if (mDate && mDate[2] === memYY && mDate[3] === memMM) {
+                const trueYear = parseInt(memYY, 10) >= 50 ? `19${memYY}` : `20${memYY}`;
+                formatted = `${trueYear}-${memMM}-${mDate[1]}`;
+              }
+            }
+
             if (formatted && formatted !== raw) {
               row[c] = formatted;
               modifiedCount++;
@@ -4879,48 +4903,31 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
     const normalizeDateStr = (val: any): string => {
       if (val === null || val === undefined) return '';
       let str = String(val).trim();
-      if (!str || str === '- -' || str === '-  -' || str === '-' || str === 'null' || str === 'undefined') return '';
+      if (!str || str === '- -' || str === '-  -' || str === '-' || str === 'null' || str === 'undefined' || str.startsWith('###')) return '';
 
-      // 0. 구글 시트 왜곡 패턴 복원: 미국식 M/D/YY를 시트가 년도로 오인하여 앞에 20 또는 200을 붙인 건
-      // 패턴 A: 2010/6/26, 2011/15/26, 2012/10/26 -> 월이 10, 11, 12월이고 앞에 20이 붙은 경우
-      const m2Digit = str.match(/^20(1[0-2])\/(\d{1,2})\/(\d{2})$/);
-      if (m2Digit) {
-        const month = m2Digit[1];
-        const day = m2Digit[2].padStart(2, '0');
-        const yy = parseInt(m2Digit[3], 10);
-        const year = yy >= 50 ? `19${m2Digit[3]}` : `20${m2Digit[3]}`;
-        return `${year}-${month}-${day}`;
-      }
-
-      // 패턴 B: 2001/D/YY ~ 2009/D/YY -> 월이 1~9월이고 앞에 200이 붙은 경우 (예: 2008/12/26 -> 2026-08-12)
-      const m1Digit = str.match(/^200([1-9])\/(\d{1,2})\/(\d{2})$/);
-      if (m1Digit) {
-        const month = m1Digit[1].padStart(2, '0');
-        const day = m1Digit[2].padStart(2, '0');
-        const yy = parseInt(m1Digit[3], 10);
-        const year = yy >= 50 ? `19${m1Digit[3]}` : `20${m1Digit[3]}`;
-        return `${year}-${month}-${day}`;
-      }
-
-      // 1. 엑셀 시리얼 넘버
-      if (/^\d{5}$/.test(str)) {
-        const serial = parseInt(str, 10);
-        if (serial >= 30000 && serial <= 60000) {
-          const utcDays = serial - 25569;
-          const date = new Date(utcDays * 86400 * 1000);
-          const y = date.getUTCFullYear();
-          const m = String(date.getUTCMonth() + 1).padStart(2, '0');
-          const d = String(date.getUTCDate()).padStart(2, '0');
-          return `${y}-${m}-${d}`;
+      // 0-A. 이전 왜곡으로 인해 2027년~2035년 미래 연도가 되어버린 건 복원 (예: 2028-10-04 -> 2010-04-28, 2029-08-09 -> 2008-09-29)
+      const mReversed = str.match(/^20([1-3]\d)[-/.](\d{2})[-/.](\d{2})$/);
+      if (mReversed) {
+        const curYY = parseInt(mReversed[1], 10);
+        const curMM = parseInt(mReversed[2], 10);
+        const curDD = parseInt(mReversed[3], 10);
+        if (curYY >= 27 && curMM >= 1 && curMM <= 25 && curDD >= 1 && curDD <= 12) {
+          const origYear = curMM < 10 ? `200${curMM}` : `20${curMM}`;
+          const origMonth = String(curDD).padStart(2, '0');
+          const origDay = String(curYY).padStart(2, '0');
+          return `${origYear}-${origMonth}-${origDay}`;
         }
       }
 
-      // 2. 8자리 숫자 YYYYMMDD
-      if (/^\d{8}$/.test(str)) {
-        return `${str.slice(0, 4)}-${str.slice(4, 6)}-${str.slice(6, 8)}`;
+      // 0-B. 구글 시트 2026년 계약 왜곡 패턴 복원: 뒤가 정확히 '26' (2026년 계약)인 건만 복원! (2010/6/26, 2008/12/26, 2009/15/26)
+      const mBroken26 = str.match(/^20(0[1-9]|1[0-2])[-/.](\d{1,2})[-/.]26$/);
+      if (mBroken26) {
+        const month = String(mBroken26[1]).padStart(2, '0');
+        const day = String(mBroken26[2]).padStart(2, '0');
+        return `2026-${month}-${day}`;
       }
 
-      // 3. YYYY-MM-DD, YYYY.MM.DD, YYYY/MM/DD
+      // 1. 일반 표준 날짜: YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD
       const m4 = str.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
       if (m4) {
         return `${m4[1]}-${m4[2].padStart(2, '0')}-${m4[3].padStart(2, '0')}`;
@@ -4945,8 +4952,8 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
         return `${year}-${month}-${day}`;
       }
 
-      // 6. YY-MM-DD, YY.MM.DD
-      const m2 = str.match(/^(\d{2})[-.](\d{1,2})[-.](\d{1,2})/);
+      // 6. YY-MM-DD, YY.MM.DD, YY/MM/DD (예: 22/10/5, 26/05/10)
+      const m2 = str.match(/^(\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/);
       if (m2) {
         const yy = parseInt(m2[1], 10);
         const year = yy >= 50 ? `19${m2[1]}` : `20${m2[1]}`;
@@ -5035,8 +5042,9 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
         if (cDate > qEnd) continue;
       }
 
-      // 미납 여부 필터링
-      if (qOnlyUnpaid && !isUnpaid) {
+      // 미납 여부 필터링 (미납데이터만 보기 모드일 때는 회원상태가 '가입'인 건만 필터링)
+      const isJoined = status === '가입' || status.includes('가입');
+      if (qOnlyUnpaid && (!isUnpaid || !isJoined)) {
         continue;
       }
 
@@ -5078,7 +5086,7 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
       }
 
       summaryTotalCount++;
-      if (isUnpaid) {
+      if (isUnpaid && isJoined) {
         summaryUnpaidCount++;
         summaryTotalUnpaidAmt += delayAmount;
       }

@@ -219,36 +219,32 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       return '';
     }
 
+    // 0-A. 이전 왜곡으로 인해 2027년~2035년 미래 연도가 되어버린 건 복원 (예: 2028-10-04 -> 2010-04-28, 2029-08-09 -> 2008-09-29)
+    const mReversed = s.match(/^20([1-3]\d)[-/.](\d{2})[-/.](\d{2})$/);
+    if (mReversed) {
+      const curYY = parseInt(mReversed[1], 10);
+      const curMM = parseInt(mReversed[2], 10);
+      const curDD = parseInt(mReversed[3], 10);
+      if (curYY >= 27 && curMM >= 1 && curMM <= 25 && curDD >= 1 && curDD <= 12) {
+        const origYear = curMM < 10 ? `200${curMM}` : `20${curMM}`;
+        const origMonth = String(curDD).padStart(2, '0');
+        const origDay = String(curYY).padStart(2, '0');
+        return `${origYear}-${origMonth}-${origDay}`;
+      }
+    }
+
+    // 0-B. 구글 시트 2026년 계약 왜곡 패턴 복원: 뒤가 정확히 '26' (2026년 계약)인 건만 복원! (2010/6/26, 2008/12/26, 2009/15/26)
+    const mBroken26 = s.match(/^20(0[1-9]|1[0-2])[-/.](\d{1,2})[-/.]26$/);
+    if (mBroken26) {
+      const month = String(mBroken26[1]).padStart(2, '0');
+      const day = String(mBroken26[2]).padStart(2, '0');
+      return `2026-${month}-${day}`;
+    }
+
     // 1. 이미 정상적인 YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD
     const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
     if (mNorm) {
       return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
-    }
-
-    // 2. 구글 시트/엑셀 왜곡 패턴 복원: 2010/6/26 -> 2026-10-06, 2008/12/26 -> 2026-08-12
-    const m2Digit = s.match(/^20(1[0-2])[-/.](\d{1,2})[-/.](\d{2})$/);
-    if (m2Digit) {
-      const month = m2Digit[1];
-      const day = m2Digit[2].padStart(2, '0');
-      const yy = parseInt(m2Digit[3], 10);
-      const year = yy >= 50 ? `19${m2Digit[3]}` : `20${m2Digit[3]}`;
-      return `${year}-${month}-${day}`;
-    }
-
-    const m1Digit = s.match(/^200([1-9])[-/.](\d{1,2})[-/.](\d{2})$/);
-    if (m1Digit) {
-      const month = m1Digit[1].padStart(2, '0');
-      const day = m1Digit[2].padStart(2, '0');
-      const yy = parseInt(m1Digit[3], 10);
-      const year = yy >= 50 ? `19${m1Digit[3]}` : `20${m1Digit[3]}`;
-      return `${year}-${month}-${day}`;
-    }
-
-    // 3. 2009-MM-26 왜곡 패턴
-    const m2009 = s.match(/^2009[-/](\d{1,2})[-/]26$/);
-    if (m2009) {
-      const day = String(m2009[1]).padStart(2, '0');
-      return `2026-09-${day}`;
     }
 
     // 4. 5자리 숫자 (엑셀 날짜 일련번호)
@@ -868,10 +864,10 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     }
 
     const totalCount = contractRows.length - 1;
-    const confirmMsg = `[통합원장 영구 보관]\n구글 시트 [통합원장] 탭에 2008년~현재까지의 전체 계약원장 (${totalCount.toLocaleString()}건)을 안전하게 분할 저장하시겠습니까?\n\n• 대용량 데이터 안정 전송 (1,000건 단위 자동 청크 분할)\n• 구글 시트 [통합원장] 탭에 전체 데이터 보존\n• 서버 초고속 캐시 즉시 갱신되어 상조 조회 페이지에서 바로 검색 가능`;
+    const confirmMsg = `[통합원장 전체 스마트 병합 & 날짜 자동 정규화]\n구글 시트 [통합원장] 탭에 전체 계약원장 (${totalCount.toLocaleString()}건)을 분할 저장하시겠습니까?\n\n• 전수 날짜 자동 정규화 (YYYY-MM-DD 통일 및 왜곡 서식 자동 복원 포함)\n• 대용량 데이터 안정 전송 (1,000건 단위 자동 청크 분할)\n• 구글 시트 [통합원장] 탭에 전체 영구 보존 & 고속 캐시 즉시 갱신`;
     
     const isConfirmed = (window as any).customConfirm
-      ? await (window as any).customConfirm(confirmMsg, '통합원장 전체 스마트 병합')
+      ? await (window as any).customConfirm(confirmMsg, '통합원장 스마트 병합 & 날짜 정규화')
       : window.confirm(confirmMsg);
 
     if (!isConfirmed) return;
@@ -895,12 +891,10 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
           : contractRows.slice(startDataIdx, endDataIdx);
 
         // 구글 시트에서의 실제 시작 행 번호 (1-indexed)
-        // 0번 청크: 헤더 포함 1번 행부터
-        // 1번 청크: 헤더(1행) + 이전 데이터(1000행) 다음인 1002번 행부터
         const startRowIndex = isFirst ? 1 : (startDataIdx + 1);
 
         const pct = Math.round(((i + 1) / totalChunks) * 100);
-        setLoadingText(`구글 시트 [통합원장] 탭에 전체 계약원장을 병합하는 중... (${i + 1} / ${totalChunks} 청크, ${pct}%)`);
+        setLoadingText(`구글 시트 [통합원장]에 전체 계약원장 병합 및 날짜 정규화 중... (${i + 1} / ${totalChunks} 청크, ${pct}%)`);
 
         const res = await fetch('/api/sheets/excel-sync/upload-unified-chunk', {
           method: 'POST',
@@ -924,40 +918,13 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       }
 
       alert(`✓ 구글 시트 [통합원장] 탭에 전체 계약원장이 성공적으로 병합되었습니다!\n\n` +
-        `• 총 저장 건수: ${totalCount.toLocaleString()}건 (${totalChunks}개 청크 분할 완료)\n\n` +
-        `⭐ 상조 조회 페이지에서 즉시 2008년~현재 전체 계약 데이터를 검색하실 수 있습니다.`
+        `• 총 저장 건수: ${totalCount.toLocaleString()}건 (${totalChunks}개 청크 분할 완료)\n` +
+        `• 날짜 정규화: 전수 YYYY-MM-DD 표준 변환 적용 완료\n\n` +
+        `⭐ 상조 조회 및 미납 관리 페이지에서 즉시 최신 데이터를 검색하실 수 있습니다.`
       );
     } catch (err: any) {
       console.error('[Direct Overwrite Unified Ledger Error]', err);
       alert('통합원장 등록 중 오류가 발생했습니다: ' + err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // 구글 시트 '통합원장' 날짜 일괄 정규화 단독 실행
-  const handleDirectCleanDates = async () => {
-    const confirmMsg = `[통합원장 날짜 일괄 정규화]\n구글 시트 '통합원장' 탭에 저장된 모든 날짜 데이터를 표준 YYYY-MM-DD 형식으로 일괄 정제하시겠습니까?\n\n• 2008/12/26, 2010/6/26, 10/6/26, ##### 등 왜곡된 서식을 2026-08-12, 2026-10-06 등으로 자동 복원\n• 정제 완료 후 구글 시트와 로컬 캐시 동시 최신화`;
-    const isConfirmed = (window as any).customConfirm
-      ? await (window as any).customConfirm(confirmMsg, '날짜 일괄 정규화')
-      : window.confirm(confirmMsg);
-
-    if (!isConfirmed) return;
-
-    try {
-      setIsLoading(true);
-      setLoadingText('구글 시트 [통합원장]의 왜곡된 날짜들을 표준 YYYY-MM-DD로 일괄 정규화하는 중...');
-
-      const res = await fetch('/api/sheets/unified-ledger/clean-dates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '날짜 정제 실패');
-
-      alert(`✓ 구글 시트 [통합원장] 날짜 일괄 정규화가 완료되었습니다!\n\n• 정제된 날짜 셀: ${data.modifiedCount.toLocaleString()}개\n• 대상 원장 행 수: ${data.totalRows.toLocaleString()}행`);
-    } catch (err: any) {
-      alert('날짜 일괄 정규화 중 오류가 발생했습니다: ' + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -1396,17 +1363,17 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                   )}
                 </div>
 
-                {contractRows ? (
+                {contractRows && (
                   <div className="space-y-1">
                     <button
                       type="button"
                       onClick={handleDirectOverwriteUnifiedLedger}
                       disabled={isLoading}
                       className="w-full py-2 px-3 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-700 hover:to-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      title="2008년~현재 전체 계약원장을 구글 시트 [통합원장] 탭에 보관하고 고속 캐시를 즉시 갱신합니다"
+                      title="2008년~현재 전체 계약원장을 구글 시트 [통합원장] 탭에 날짜 자동 정규화와 함께 안전하게 보관하고 고속 캐시를 즉시 갱신합니다"
                     >
                       <Database size={13} />
-                      <span>[통합원장] 탭에 전체 스마트 병합 (영구보관 & 캐시)</span>
+                      <span>[통합원장] 탭에 전체 스마트 병합 (날짜 자동정규화 & 캐시)</span>
                     </button>
                     <button
                       type="button"
@@ -1417,29 +1384,6 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                     >
                       <CreditCard size={13} />
                       <span>기존 [시트1] 탭에도 병합 등록 (CMS 대장 즉시 연동)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDirectCleanDates}
-                      disabled={isLoading}
-                      className="w-full py-1.5 px-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      title="구글 시트 [통합원장]에 저장된 왜곡 날짜들을 표준 YYYY-MM-DD로 일괄 정제합니다"
-                    >
-                      <RefreshCw size={12} />
-                      <span>[통합원장] 날짜 일괄 정규화 (YYYY-MM-DD)</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={handleDirectCleanDates}
-                      disabled={isLoading}
-                      className="w-full py-1.5 px-3 bg-slate-600 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      title="구글 시트 [통합원장]에 이미 저장된 날짜 데이터(2008/12/26, 2010/6/26, 10/6/26, ##### 등)를 표준 YYYY-MM-DD로 일괄 복원합니다"
-                    >
-                      <RefreshCw size={12} />
-                      <span>시트 [통합원장] 날짜 일괄 정규화</span>
                     </button>
                   </div>
                 )}
