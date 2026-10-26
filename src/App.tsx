@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Component, ReactNode } from 'react';
-import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, Minus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare, Copy, Check, UserCheck, Sparkles, FolderTree, Globe, DollarSign } from 'lucide-react';
+import { Save, RefreshCw, Upload, FileText, CheckCircle, AlertCircle, Search, Filter, Download, MoreVertical, X, Settings, Calendar, CreditCard, Users, TrendingUp, Building, Package, ChevronRight, ChevronLeft, ChevronDown, Plus, Minus, User, Briefcase, StickyNote, Calculator, Monitor, Lock, ExternalLink, Truck, HelpCircle, ArrowUp, Printer, FileSpreadsheet, KeyRound, History, Activity, MessageSquare, Copy, Check, UserCheck, Sparkles, FolderTree, Globe, DollarSign, Coins } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoginScreen } from './LoginScreen';
 import { HealthcareModal } from './HealthcareModal';
@@ -26,6 +26,7 @@ import { AdvancedSearchModal } from './AdvancedSearchModal';
 import { CommissionNotesModal } from './CommissionNotesModal';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { VocManagementModal } from './VocManagementModal';
+import { UnpaidManagementModal } from './UnpaidManagementModal';
 import { AccountManagementModal } from './AccountManagementModal';
 import { OrganizationChartModal } from './OrganizationChartModal';
 import { MonthlySettlementModal } from './MonthlySettlementModal';
@@ -1087,6 +1088,7 @@ const ERP_Dashboard = () => {
   const [isHealthcareReconModalOpen, setIsHealthcareReconModalOpen] = useState(false);
   const [isManualOrderReconModalOpen, setIsManualOrderReconModalOpen] = useState(false);
   const [isVocManagementModalOpen, setIsVocManagementModalOpen] = useState(false);
+  const [isUnpaidManagementModalOpen, setIsUnpaidManagementModalOpen] = useState(false);
 
   // 사이드바 아코디언 메뉴 접힘/열림 상태 (기본값: 접힘)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -1097,6 +1099,7 @@ const ERP_Dashboard = () => {
     membership: false,
     healthcare: false,
     voc: false,
+    unpaid: false,
   });
 
   const toggleSection = (key: string) => {
@@ -8660,6 +8663,56 @@ const ERP_Dashboard = () => {
             </section>
           )}
 
+          {/* 미납 관리 (통합원장 기반 미납/연체 관리 대장) */}
+          {(isManager || isHQStaff) && (
+            <section className="mt-1">
+              <button
+                type="button"
+                onClick={() => toggleSection('unpaid')}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-100/90 hover:bg-slate-200/90 border border-slate-200/80 rounded-xl transition-all font-bold text-slate-800 shadow-2xs group cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1 bg-rose-100 text-rose-600 rounded-lg group-hover:scale-105 transition-transform">
+                    <Coins size={18} />
+                  </div>
+                  <span className="text-sm font-bold text-slate-800 tracking-tight">미납 관리</span>
+                </div>
+                <ChevronDown
+                  size={18}
+                  className={`text-slate-400 transition-transform duration-200 ${openSections.unpaid ? 'rotate-180 text-slate-700' : ''}`}
+                />
+              </button>
+              <AnimatePresence initial={false}>
+                {openSections.unpaid && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
+                      {[
+                        { dot: 'bg-rose-500', label: '미납 대장 / 조회', action: () => setIsUnpaidManagementModalOpen(true) },
+                      ].map((item, idx) => (
+                        <motion.button
+                          key={idx}
+                          onClick={item.action}
+                          whileHover={{ x: 3, backgroundColor: '#ffffff' }}
+                          whileTap={{ scale: 0.98 }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-700 text-left border border-slate-200/70 bg-white hover:border-rose-300 hover:text-rose-600 hover:shadow-xs transition-all cursor-pointer"
+                        >
+                          <span className={`w-2.5 h-2.5 rounded-full ${item.dot} shrink-0`} />
+                          <span className="truncate">{item.label}</span>
+                        </motion.button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </section>
+          )}
+
           <div className="mt-auto pt-4 border-t border-slate-100 flex flex-col gap-2">
             <div className="text-[11px] text-slate-500 leading-relaxed font-semibold">
               접속자: <span className="text-slate-800">{currentUser?.orgs && currentUser.orgs.length > 0 ? currentUser.orgs.map(o => o.orgName).join(', ') : currentUser?.orgName}</span> ({currentUser?.orgs && currentUser.orgs.length > 0 ? Array.from(new Set(currentUser.orgs.map(o => o.role))).join(', ') : currentUser?.role})
@@ -13359,6 +13412,10 @@ const ERP_Dashboard = () => {
           erpData={isHQStaff && userHqNames.length > 0 ? data.filter(d => userHqNames.some(uh => (d.hq || '').replace(/[\s()본부]/g, '').includes(uh))) : data}
           isHQStaff={isHQStaff}
           userHqs={userHqNames}
+        />
+        <UnpaidManagementModal
+          isOpen={isUnpaidManagementModalOpen}
+          onClose={() => setIsUnpaidManagementModalOpen(false)}
         />
         <AnimatePresence>
           <DeliveryStatusModal
