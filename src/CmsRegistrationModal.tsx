@@ -182,7 +182,17 @@ const formatBankCode = (rawVal: any): string => {
 // 계좌번호 선행 0 누락 방어 및 자동 복원 헬퍼 (국민 004, 우체국 071, 하나 081 등)
 const normalizeAccountNumber = (rawAcc: any, bankCode: string, bankName?: string): string => {
   if (!rawAcc) return '';
-  const str = String(rawAcc).trim();
+  let str = String(rawAcc).trim();
+
+  // 지수 표기법(E+) 방어 및 정수 문자열 복원
+  if (/^[0-9.]+[eE]\+[0-9]+$/.test(str)) {
+    try {
+      const num = Number(str);
+      if (!isNaN(num)) {
+        str = BigInt(Math.round(num)).toString();
+      }
+    } catch (e) {}
+  }
 
   // 13자리 순수 숫자인 경우 주요 은행의 14자리 신계좌 앞자리 0 누락 자동 복원
   if (/^[0-9]{13}$/.test(str)) {

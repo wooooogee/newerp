@@ -3926,13 +3926,27 @@ async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, target
         if (/^0\d+$/.test(str)) {
           return `'${str}`;
         }
-        // 2) 식별자 텍스트 컬럼이면서 숫자만 있는 경우 (은행코드가 1~2자리면 3자리 패딩)
-        if (textColIndices.has(cIdx) && /^\d+$/.test(str)) {
+        // 2) 식별자 텍스트 컬럼 처리 (계좌번호 지수 방지 및 은행코드 패딩)
+        if (textColIndices.has(cIdx)) {
           const colName = String(headerRow[cIdx] || '').replace(/\s+/g, '');
-          if (colName.includes('은행코드') && str.length <= 2) {
-            str = str.padStart(3, '0');
+          if (colName.includes('계좌번호')) {
+            if (/^[0-9.]+[eE]\+[0-9]+$/.test(str)) {
+              try {
+                const num = Number(str);
+                if (!isNaN(num)) str = BigInt(Math.round(num)).toString();
+              } catch (e) {}
+            }
+            if (str && !str.startsWith("'")) {
+              return `'${str}`;
+            }
           }
-          return `'${str}`;
+          if (colName.includes('은행코드') && /^\d{1,2}$/.test(str)) {
+            str = str.padStart(3, '0');
+            return `'${str}`;
+          }
+          if (/^\d+$/.test(str) && !str.startsWith("'")) {
+            return `'${str}`;
+          }
         }
         return str;
       });

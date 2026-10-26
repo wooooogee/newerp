@@ -187,6 +187,16 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         const bCode = idxBankCode !== -1 ? String(newRow[idxBankCode] || '').trim() : '';
         const bName = idxBankName !== -1 ? String(newRow[idxBankName] || '').trim() : '';
 
+        // 지수 표기법 (예: 1.3907751112101E+13) 정수 문자열 복원
+        if (/^[0-9.]+[eE]\+[0-9]+$/.test(acc)) {
+          try {
+            const num = Number(acc);
+            if (!isNaN(num)) {
+              newRow[idxAccountNo] = BigInt(Math.round(num)).toString();
+            }
+          } catch (e) {}
+        }
+
         // 국민(004), 우체국(071), 하나(081) 13자리 순수 숫자 계좌 -> 앞자리 0 추가하여 14자리로 복원
         if (/^[0-9]{13}$/.test(acc)) {
           if (bCode === '004' || bCode === '4' || bName.includes('국민')) {
@@ -472,6 +482,30 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
           chosenText = utfText;
         } else {
           chosenText = eucText;
+        }
+      }
+
+      // 🌟 1-2. TSV (탭 구분 텍스트 기반 .xls 파일) 직접 감지 및 지수 변환 원천 차단
+      if (chosenText.includes('\t') && (chosenText.includes('\n') || chosenText.includes('\r'))) {
+        const firstLine = chosenText.split(/\r?\n/)[0] || '';
+        const tabCount = (firstLine.match(/\t/g) || []).length;
+        if (tabCount >= 5) {
+          const lines = chosenText.split(/\r?\n/);
+          const tsvRows: any[][] = [];
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const parts = line.split('\t').map(p => {
+              let s = p.trim();
+              if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+                s = s.slice(1, -1).trim();
+              }
+              return s;
+            });
+            tsvRows.push(parts);
+          }
+          if (tsvRows.length > 1) {
+            return autoRepairAndFormatDates(autoRepairAccountAndBankCodes(autoRepairRowEncoding(tsvRows)));
+          }
         }
       }
 
