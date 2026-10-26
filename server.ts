@@ -4555,9 +4555,23 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
         source: 'empty',
         totalCount: 0,
         items: [],
-        filterOptions: { hqs: [], branches: [], products: [], statuses: [] },
+        filterOptions: { divisions: [], hqs: [], branches: [], products: [], statuses: [] },
         summary: { totalCount: 0, unpaidCount: 0, totalUnpaidAmt: 0, totalBalanceAmt: 0 }
       });
+    }
+
+    // 사업단(Division) 설정 로드
+    let savedDivisions: any[] = [];
+    try {
+      const setPath = path.join(process.cwd(), '.settings_cache.json');
+      if (fs.existsSync(setPath)) {
+        const rawSettings = JSON.parse(fs.readFileSync(setPath, 'utf-8'));
+        if (Array.isArray(rawSettings.divisions)) {
+          savedDivisions = rawSettings.divisions;
+        }
+      }
+    } catch (e) {
+      console.warn('[UnpaidManagement] load divisions error:', e);
     }
 
     // 헤더 인덱스 매핑
@@ -4584,16 +4598,16 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
     const idxDelayAmt = findIdx(['연체액']);
     const idxLastPayDate = findIdx(['최종납입일']);
     const idxHq = findIdx(['본부']);
-    const idxBranch = findIdx(['지사', '사업단', '소속지사']);
+    const idxBranch = findIdx(['지사', '소속지사']);
     const idxEmp = findIdx(['사원', '사원명', '담당사원', '영업사원']);
 
-    // 날짜 정규화 함수
+    // 고도화된 날짜 정규화 함수 (M/D/YY, M/D/YYYY, YYYY/MM/DD, 시리얼 넘버 등 전수 지원)
     const normalizeDateStr = (val: any): string => {
       if (val === null || val === undefined) return '';
       let str = String(val).trim();
-      if (!str || str === '- -' || str === '-' || str === 'null' || str === 'undefined') return '';
+      if (!str || str === '- -' || str === '-  -' || str === '-' || str === 'null' || str === 'undefined') return '';
 
-      // 5자리 숫자 (엑셀 시리얼 넘버)
+      // 1. 엑셀 시리얼 넘버
       if (/^\d{5}$/.test(str)) {
         const serial = parseInt(str, 10);
         if (serial >= 30000 && serial <= 60000) {
@@ -4606,23 +4620,42 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
         }
       }
 
-      // YYYYMMDD
+      // 2. 8자리 숫자 YYYYMMDD
       if (/^\d{8}$/.test(str)) {
         return `${str.slice(0, 4)}-${str.slice(4, 6)}-${str.slice(6, 8)}`;
       }
 
-      // YYYY-MM-DD, YYYY.MM.DD, YYYY/MM/DD
+      // 3. YYYY-MM-DD, YYYY.MM.DD, YYYY/MM/DD
       const m4 = str.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
       if (m4) {
         return `${m4[1]}-${m4[2].padStart(2, '0')}-${m4[3].padStart(2, '0')}`;
       }
 
-      // YY-MM-DD
-      const m2 = str.match(/^(\d{2})[-./](\d{1,2})[-./](\d{1,2})/);
+      // 4. M/D/YY or MM/DD/YY (예: 6/22/26, 11/17/10, 10/1/26)
+      const mSlash = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+      if (mSlash) {
+        const month = mSlash[1].padStart(2, '0');
+        const day = mSlash[2].padStart(2, '0');
+        const yy = parseInt(mSlash[3], 10);
+        const year = yy >= 50 ? `19${mSlash[3]}` : `20${mSlash[3]}`;
+        return `${year}-${month}-${day}`;
+      }
+
+      // 5. M/D/YYYY or MM/DD/YYYY
+      const mSlash4 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (mSlash4) {
+        const month = mSlash4[1].padStart(2, '0');
+        const day = mSlash4[2].padStart(2, '0');
+        const year = mSlash4[3];
+        return `${year}-${month}-${day}`;
+      }
+
+      // 6. YY-MM-DD, YY.MM.DD
+      const m2 = str.match(/^(\d{2})[-.](\d{1,2})[-.](\d{1,2})/);
       if (m2) {
         const yy = parseInt(m2[1], 10);
-        const y = yy >= 50 ? `19${m2[1]}` : `20${m2[1]}`;
-        return `${y}-${m2[2].padStart(2, '0')}-${m2[3].padStart(2, '0')}`;
+        const year = yy >= 50 ? `19${m2[1]}` : `20${m2[1]}`;
+        return `${year}-${m2[2].padStart(2, '0')}-${m2[3].padStart(2, '0')}`;
       }
 
       return str;
@@ -4638,11 +4671,21 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
     const qStart = req.query.startContractDate ? String(req.query.startContractDate).trim() : '';
     const qEnd = req.query.endContractDate ? String(req.query.endContractDate).trim() : '';
     const qOnlyUnpaid = req.query.onlyUnpaid === 'true';
+    const qDivision = req.query.division ? String(req.query.division).trim() : '';
     const qHq = req.query.hq ? String(req.query.hq).trim() : '';
     const qBranch = req.query.branch ? String(req.query.branch).trim() : '';
     const qProduct = req.query.product ? String(req.query.product).trim() : '';
     const qStatus = req.query.status ? String(req.query.status).trim() : '';
     const qSearch = req.query.search ? String(req.query.search).trim().toLowerCase() : '';
+
+    // 사업단(Division) 필터링 대상 본부 목록 확인
+    let divisionHqSet: Set<string> | null = null;
+    if (qDivision && savedDivisions.length > 0) {
+      const targetDiv = savedDivisions.find((d: any) => d.id === qDivision || d.name === qDivision);
+      if (targetDiv && Array.isArray(targetDiv.hqNames)) {
+        divisionHqSet = new Set(targetDiv.hqNames.map((h: string) => h.replace(/\s+/g, '').toLowerCase()));
+      }
+    }
 
     const allHqs = new Set<string>();
     const allBranches = new Set<string>();
@@ -4687,7 +4730,7 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
 
       const isUnpaid = delayCount > 0 || delayAmount > 0;
 
-      // 계약일자 필터링
+      // 계약일자 필터링 (YYYY-MM 또는 YYYY-MM-DD)
       if (qStart) {
         const cDate = contractDate.substring(0, qStart.length);
         if (cDate < qStart) continue;
@@ -4702,13 +4745,35 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
         continue;
       }
 
-      // 사업단/지사, 본부, 상품명, 회원상태 필터링
+      // 1순위: 사업단(Division) 필터링
+      if (divisionHqSet) {
+        const cleanHq = hq.replace(/\s+/g, '').toLowerCase();
+        let matched = divisionHqSet.has(cleanHq);
+        if (!matched) {
+          // 본부명 포함 검색
+          for (const divHq of divisionHqSet) {
+            if (cleanHq.includes(divHq) || divHq.includes(cleanHq)) {
+              matched = true;
+              break;
+            }
+          }
+        }
+        if (!matched) continue;
+      }
+
+      // 2순위: 본부 필터링
       if (qHq && hq !== qHq) continue;
+
+      // 3순위: 지사 필터링 (원장의 순수 지사 컬럼)
       if (qBranch && branch !== qBranch) continue;
+
+      // 4순위: 상품명 필터링
       if (qProduct && productName !== qProduct) continue;
+
+      // 5순위: 회원상태 필터링
       if (qStatus && status !== qStatus) continue;
 
-      // 검색어 필터링
+      // 통합 검색어 필터링
       if (qSearch) {
         const matchSearch =
           memName.toLowerCase().includes(qSearch) ||
@@ -4758,6 +4823,7 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
         totalBalanceAmt: summaryTotalBalanceAmt,
       },
       filterOptions: {
+        divisions: savedDivisions.map((d: any) => ({ id: d.id, name: d.name, hqNames: d.hqNames || [] })),
         hqs: Array.from(allHqs).sort(),
         branches: Array.from(allBranches).sort(),
         products: Array.from(allProducts).sort(),

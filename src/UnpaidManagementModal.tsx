@@ -6,16 +6,16 @@ import {
   Filter, 
   RefreshCw, 
   AlertCircle, 
-  CheckCircle2, 
   Calendar, 
   Building2, 
-  User, 
-  FileSpreadsheet,
+  Coins, 
+  ArrowUpDown,
   ChevronLeft,
   ChevronRight,
   TrendingDown,
-  Coins,
-  ArrowUpDown
+  FileSpreadsheet,
+  Layers,
+  MapPin
 } from 'lucide-react';
 import { autoFitColWidths, applyTableExcelStyle } from './excelStyleUtils';
 
@@ -44,7 +44,14 @@ export interface UnpaidItem {
   isUnpaid: boolean;
 }
 
+export interface DivisionOption {
+  id: string;
+  name: string;
+  hqNames: string[];
+}
+
 interface FilterOptions {
+  divisions: DivisionOption[];
   hqs: string[];
   branches: string[];
   products: string[];
@@ -69,6 +76,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
   const [syncing, setSyncing] = useState(false);
   const [items, setItems] = useState<UnpaidItem[]>([]);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({
+    divisions: [],
     hqs: [],
     branches: [],
     products: [],
@@ -81,10 +89,13 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
     totalBalanceAmt: 0,
   });
 
-  // 필터 조건 상태
-  const [startMonth, setStartMonth] = useState('2026-01');
+  // 필터 조건 상태: 기본값 2026년 5월부터
+  const [startMonth, setStartMonth] = useState('2026-05');
   const [endMonth, setEndMonth] = useState('');
-  const [onlyUnpaid, setOnlyUnpaid] = useState(true); // 기본값: 미납데이터만 보기 활성화
+  const [onlyUnpaid, setOnlyUnpaid] = useState(false); // 기본은 전체 데이터 보기 (미납 토글 제공)
+  
+  // 조직 계층 필터: 사업단 -> 본부 -> 지사
+  const [selectedDivision, setSelectedDivision] = useState('');
   const [selectedHq, setSelectedHq] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState('');
@@ -92,12 +103,37 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
   const [searchKeyword, setSearchKeyword] = useState('');
 
   // 정렬 상태
-  const [sortField, setSortField] = useState<keyof UnpaidItem>('delayAmount');
-  const [sortAsc, setSortAsc] = useState(false); // 연체액 높은 순 기본 정렬
+  const [sortField, setSortField] = useState<keyof UnpaidItem>('contractDate');
+  const [sortAsc, setSortAsc] = useState(false); // 계약일자 최신순 기본
 
   // 페이지네이션
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+
+  // 사업단 선택 시 해당 사업단 소속 본부 목록 계산 (캐스케이딩)
+  const availableHqs = useMemo(() => {
+    if (!selectedDivision) return filterOptions.hqs;
+    const div = filterOptions.divisions.find(d => d.id === selectedDivision || d.name === selectedDivision);
+    if (!div || !Array.isArray(div.hqNames) || div.hqNames.length === 0) {
+      return filterOptions.hqs;
+    }
+    const hqNameList: string[] = div.hqNames.map(h => String(h || '').trim().toLowerCase());
+    const set = new Set<string>(hqNameList);
+    return filterOptions.hqs.filter(hq => {
+      const cleanHq = hq.trim().toLowerCase();
+      if (set.has(cleanHq)) return true;
+      for (const dHq of hqNameList) {
+        if (cleanHq.includes(dHq) || dHq.includes(cleanHq)) return true;
+      }
+      return false;
+    });
+  }, [selectedDivision, filterOptions.divisions, filterOptions.hqs]);
+
+  // 사업단 변경 시 하위 본부 선택 초기화
+  const handleDivisionChange = (divVal: string) => {
+    setSelectedDivision(divVal);
+    setSelectedHq(''); // 본부 선택 초기화
+  };
 
   // 데이터 로드 함수
   const fetchData = async (forceSync = false) => {
@@ -109,6 +145,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
       if (startMonth) params.append('startContractDate', startMonth);
       if (endMonth) params.append('endContractDate', endMonth);
       if (onlyUnpaid) params.append('onlyUnpaid', 'true');
+      if (selectedDivision) params.append('division', selectedDivision);
       if (selectedHq) params.append('hq', selectedHq);
       if (selectedBranch) params.append('branch', selectedBranch);
       if (selectedProduct) params.append('product', selectedProduct);
@@ -142,7 +179,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
     if (isOpen) {
       fetchData();
     }
-  }, [isOpen, startMonth, endMonth, onlyUnpaid, selectedHq, selectedBranch, selectedProduct, selectedStatus]);
+  }, [isOpen, startMonth, endMonth, onlyUnpaid, selectedDivision, selectedHq, selectedBranch, selectedProduct, selectedStatus]);
 
   // 검색어 입력 시 디바운스 적용
   useEffect(() => {
@@ -184,7 +221,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
       setSortAsc(!sortAsc);
     } else {
       setSortField(field);
-      setSortAsc(false); // 새로 선택된 필드는 내림차순(높은 순) 기본
+      setSortAsc(false); // 새로 선택된 필드는 내림차순 기본
     }
   };
 
@@ -231,7 +268,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
     const wb = XLSX.utils.book_new();
 
     const titleText = onlyUnpaid 
-      ? `더좋은라이프 미납 관리 대장 (미납건)` 
+      ? `더좋은라이프 미납 관리 대장 (연체/미납건)` 
       : `더좋은라이프 통합원장 관리 대장 (전체)`;
 
     const periodText = `조회기간: ${startMonth || '전체'} ~ ${endMonth || '현재'} | 작성일자: ${new Date().toLocaleDateString('ko-KR')} | 총 건수: ${sortedItems.length.toLocaleString()}건`;
@@ -412,7 +449,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
                 )}
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                계약일자별 원장 데이터를 기반으로 연체차수 및 미납액을 분석하고 관리합니다.
+                계약일자별 원장 데이터를 기반으로 사업단, 본부, 지사별 연체차수 및 미납액을 분석하고 관리합니다.
               </p>
             </div>
           </div>
@@ -521,9 +558,9 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
                 <button
                   type="button"
                   onClick={() => handlePresetDate('2026-05')}
-                  className={`px-2 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
                     startMonth === '2026-05' && !endMonth
-                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
                       : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                   }`}
                 >
@@ -532,9 +569,9 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
                 <button
                   type="button"
                   onClick={() => handlePresetDate('2026-ALL')}
-                  className={`px-2 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
                     startMonth === '2026-01' && endMonth === '2026-12'
-                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
                       : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                   }`}
                 >
@@ -543,9 +580,9 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
                 <button
                   type="button"
                   onClick={() => handlePresetDate('LAST-1YEAR')}
-                  className={`px-2 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
-                    startMonth && endMonth && startMonth !== '2026-01'
-                      ? 'bg-indigo-600 text-white border-indigo-600'
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
+                    startMonth && endMonth && startMonth !== '2026-01' && startMonth !== '2026-05'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
                       : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                   }`}
                 >
@@ -554,9 +591,9 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
                 <button
                   type="button"
                   onClick={() => handlePresetDate('ALL')}
-                  className={`px-2 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
                     !startMonth && !endMonth
-                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
                       : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                   }`}
                 >
@@ -595,37 +632,62 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
             </div>
           </div>
 
-          {/* 2행: 본부, 사업단(지사), 상품, 회원상태 필터 + 검색창 */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
-            {/* 본부 필터 */}
-            <div>
+          {/* 2행: [사업단] -> [본부] -> [지사] -> [상품명] -> [회원상태] + 검색창 */}
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-1">
+            {/* 1. 사업단 필터 (최우선) */}
+            <div className="relative">
+              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-indigo-600">
+                <Layers size={13} />
+              </div>
+              <select
+                value={selectedDivision}
+                onChange={(e) => handleDivisionChange(e.target.value)}
+                className="w-full pl-7 pr-2.5 py-1.5 bg-indigo-50/50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-hidden focus:border-indigo-500 shadow-2xs"
+              >
+                <option value="">전체 사업단 ({filterOptions.divisions.length})</option>
+                {filterOptions.divisions.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 2. 본부 필터 (사업단 선택 시 소속 본부 연동) */}
+            <div className="relative">
+              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                <Building2 size={13} />
+              </div>
               <select
                 value={selectedHq}
                 onChange={(e) => setSelectedHq(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-hidden focus:border-indigo-500"
+                className="w-full pl-7 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-hidden focus:border-indigo-500"
               >
-                <option value="">전체 본부 ({filterOptions.hqs.length})</option>
-                {filterOptions.hqs.map((h) => (
+                <option value="">
+                  {selectedDivision ? `소속 본부 (${availableHqs.length})` : `전체 본부 (${filterOptions.hqs.length})`}
+                </option>
+                {availableHqs.map((h) => (
                   <option key={h} value={h}>{h}</option>
                 ))}
               </select>
             </div>
 
-            {/* 사업단 / 지사 필터 */}
-            <div>
+            {/* 3. 지사 필터 (사업단과 분리된 순수 원장 지사 컬럼) */}
+            <div className="relative">
+              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                <MapPin size={13} />
+              </div>
               <select
                 value={selectedBranch}
                 onChange={(e) => setSelectedBranch(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-hidden focus:border-indigo-500"
+                className="w-full pl-7 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-hidden focus:border-indigo-500"
               >
-                <option value="">전체 사업단/지사 ({filterOptions.branches.length})</option>
+                <option value="">전체 지사 ({filterOptions.branches.length})</option>
                 {filterOptions.branches.map((b) => (
                   <option key={b} value={b}>{b}</option>
                 ))}
               </select>
             </div>
 
-            {/* 상품 필터 */}
+            {/* 4. 상품명 필터 */}
             <div>
               <select
                 value={selectedProduct}
@@ -639,7 +701,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
               </select>
             </div>
 
-            {/* 회원상태 필터 */}
+            {/* 5. 회원상태 필터 */}
             <div>
               <select
                 value={selectedStatus}
@@ -653,7 +715,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
               </select>
             </div>
 
-            {/* 통합 검색창 */}
+            {/* 6. 통합 검색창 */}
             <div className="relative">
               <input
                 type="text"
@@ -793,7 +855,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
                         {item.memberNo}
                       </td>
 
-                      <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap max-w-[200px] truncate" title={item.productName}>
+                      <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap max-w-[200px] truncate font-medium" title={item.productName}>
                         {item.productName}
                       </td>
 
@@ -841,7 +903,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
                         {item.lastPayDate || '-'}
                       </td>
 
-                      <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
+                      <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap font-medium">
                         {item.hq || '-'}
                       </td>
 
