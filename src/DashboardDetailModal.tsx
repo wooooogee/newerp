@@ -223,14 +223,14 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     }
   }, [isOpen, type]);
 
-  // 모달 개폐 시 항상 'register'(취소 및 해약 접수)가 첫화면으로 리셋
+  // 모달 개폐 시 관리자 계정은 완료 목록('list'), 일반 계정은 취소 접수('register')가 첫화면으로 열림
   useEffect(() => {
     if (isOpen) {
       setCurrentPage(1);
       setPendingPage(1);
       setSearchTerm('');
       setPendingSearch('');
-      setCancelTab('register'); // 1번 요구: 첫화면 접수
+      setCancelTab(isAdmin ? 'list' : 'register'); // 관리자 계정은 취소/해약 전체 관리 대장이 기본 화면
       setSelectedContract(null);
       setSearchQuery('');
       setNotes('');
@@ -243,7 +243,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         fetchCancelRecords();
       }
     }
-  }, [isOpen, type, month, fetchCancelRecords]);
+  }, [isOpen, type, month, isAdmin, fetchCancelRecords]);
 
   // 가입 상태인 계약건들 (취소/해약 접수 대상)
   const activeContracts = useMemo(() => {
@@ -433,6 +433,110 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     } catch (err: any) {
       console.error(err);
       alert('취소 접수 중 오류가 발생했습니다: ' + (err.message || '다시 시도해 주세요.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // ----------------------------------------------------
+  // 관리자 전용: 관리대장 계약상태 즉시 '취소'/'해약' 적용 및 구글시트 완료 기록
+  // ----------------------------------------------------
+  const handleDirectApplyCancelOrTerminate = async (targetStatus: '취소' | '해약') => {
+    if (!selectedContract) {
+      alert('취소/해약 처리할 계약건을 선택해 주세요.');
+      return;
+    }
+
+    const count = matchingContracts.length;
+    const confirmMsg = `[관리자 즉시 '${targetStatus}' 적용 확인]\n\n` +
+      `• 회원명: ${selectedContract.memName}\n` +
+      `• 회원번호: ${selectedMergedMemNos || selectedContract.memNo}\n` +
+      `• 렌탈계약번호: ${selectedContract.rentalNo || '-'}\n` +
+      `• 대상 구좌수: 총 ${count}개 구좌\n` +
+      `• 취소 접수처: ${receiptType}\n` +
+      (notes.trim() ? `• 특이사항: ${notes.trim()}\n\n` : '\n') +
+      `방어 대기 없이 관리대장의 계약상태를 즉시 '${targetStatus}'(으)로 일괄 변경하고,\n` +
+      `구글 시트 '취소및해약'에도 [${targetStatus}완료]로 기록하시겠습니까?`;
+
+    const isConfirmed = (window as any).customConfirm
+      ? await (window as any).customConfirm(confirmMsg, `즉시 '${targetStatus}' 적용`)
+      : window.confirm(confirmMsg);
+
+    if (!isConfirmed) return;
+
+    setIsSubmitting(true);
+    try {
+      // 1. 관리대장 원장 상태 변경 (B열: colIdx = 1)
+      const statusUpdates = matchingContracts.map(c => ({
+        rowIdx: c.originalRowIdx,
+        colIdx: 1, // B열 (가입상태)
+        newValue: targetStatus,
+        expectedMemNo: c.memNo,
+        expectedRentalNo: c.rentalNo
+      }));
+
+      if (statusUpdates.length > 0) {
+        await onBatchUpdateCells(statusUpdates);
+      }
+
+      // 2. 구글 시트 '취소및해약' 탭에 완료 기록
+      const now = new Date();
+      const kstTime = new Intl.DateTimeFormat('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Seoul'
+      }).format(now).replace(/\. /g, '-').replace('.', '');
+
+      const newRecord: CancelRecord = {
+        id: `CNCL-${Date.now()}`,
+        createdAt: kstTime,
+        processStatus: `${targetStatus}완료`,
+        receiptType,
+        targetStatus,
+        contractDate: selectedContract.contractDate || '',
+        statusBefore: selectedContract.status || '가입',
+        rentalNo: selectedContract.rentalNo || '',
+        memName: selectedContract.memName || '',
+        memNo: selectedMergedMemNos || selectedContract.memNo || '',
+        prodName: selectedContract.prodName || '',
+        rentalProd: selectedContract.rentalProd || '',
+        hq: selectedContract.hq || '',
+        branch: selectedContract.branch || '',
+        empName: selectedContract.empName || '',
+        firstPayDateSangjo: contractExtraDates.firstPayDateSangjo !== '-' ? contractExtraDates.firstPayDateSangjo : '',
+        rentalWithdrawDate: contractExtraDates.rentalWithdrawDate !== '-' ? contractExtraDates.rentalWithdrawDate : '',
+        notes: notes.trim(),
+        operator: currentUser?.username || currentUser?.name || '관리자'
+      };
+
+      const saveRes = await fetch('/api/sheets/cancel-records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ record: newRecord })
+      });
+
+      if (!saveRes.ok) {
+        const errJson = await saveRes.json().catch(() => ({}));
+        throw new Error(errJson.error || '구글 시트 저장 실패');
+      }
+
+      alert(`[적용 완료] '${selectedContract.memName}' 고객의 계약(총 ${count}구좌)이 관리대장 및 구글 시트에 즉시 '${targetStatus}'(으)로 적용되었습니다.`);
+
+      setSelectedContract(null);
+      setSearchQuery('');
+      setNotes('');
+      setReceiptType('더좋은라이프');
+      
+      await fetchCancelRecords();
+      setCancelTab('list');
+    } catch (err: any) {
+      console.error(err);
+      alert('취소/해약 적용 중 오류가 발생했습니다: ' + (err.message || '다시 시도해 주세요.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -899,24 +1003,47 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             </div>
           </div>
 
-          {/* 취소/해약 전용 상단 탭 네비게이션: 1번 요구(접수 탭이 제일 첫번째) */}
+          {/* 취소/해약 전용 상단 탭 네비게이션: 관리자 계정은 완료 목록이 1번째 탭, 일반 계정은 접수 탭이 1번째 탭 */}
           {!isDelivery && (
             <div className="bg-slate-100/90 px-6 pt-3 pb-0 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-1.5 overflow-x-auto">
                 
-                {/* 1번째 탭: 취소 및 해약 접수 (첫 화면) */}
-                <button
-                  type="button"
-                  onClick={() => setCancelTab('register')}
-                  className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
-                    cancelTab === 'register'
-                      ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
-                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                  }`}
-                >
-                  <Plus size={15} className="text-rose-600" />
-                  <span>취소 및 해약 접수</span>
-                </button>
+                {/* [관리자 계정] 1번째 탭: 취소 및 해약 완료 목록 */}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setCancelTab('list')}
+                    className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
+                      cancelTab === 'list'
+                        ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
+                        : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <FileText size={15} />
+                    <span>취소 및 해약 완료 목록</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                      cancelTab === 'list' ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-700'
+                    }`}>
+                      {filteredData.length}
+                    </span>
+                  </button>
+                )}
+
+                {/* [일반 계정] 1번째 탭: 취소 및 해약 접수 */}
+                {!isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setCancelTab('register')}
+                    className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
+                      cancelTab === 'register'
+                        ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
+                        : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <Plus size={15} className="text-rose-600" />
+                    <span>취소 및 해약 접수</span>
+                  </button>
+                )}
 
                 {/* 2번째 탭: 접수중 내역 */}
                 <button
@@ -937,24 +1064,42 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                   )}
                 </button>
 
-                {/* 3번째 탭: 취소 및 해약 완료 목록 */}
-                <button
-                  type="button"
-                  onClick={() => setCancelTab('list')}
-                  className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
-                    cancelTab === 'list'
-                      ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
-                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                  }`}
-                >
-                  <FileText size={15} />
-                  <span>취소 및 해약 완료 목록</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                    cancelTab === 'list' ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-700'
-                  }`}>
-                    {filteredData.length}
-                  </span>
-                </button>
+                {/* [관리자 계정] 3번째 탭: 취소 및 해약 접수 */}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setCancelTab('register')}
+                    className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
+                      cancelTab === 'register'
+                        ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
+                        : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <Plus size={15} className="text-rose-600" />
+                    <span>취소 및 해약 접수</span>
+                  </button>
+                )}
+
+                {/* [일반 계정] 3번째 탭: 취소 및 해약 완료 목록 */}
+                {!isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setCancelTab('list')}
+                    className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all flex items-center gap-2 border-t border-x ${
+                      cancelTab === 'list'
+                        ? 'bg-white text-rose-700 border-slate-200 shadow-xs translate-y-[1px]'
+                        : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <FileText size={15} />
+                    <span>취소 및 해약 완료 목록</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                      cancelTab === 'list' ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-700'
+                    }`}>
+                      {filteredData.length}
+                    </span>
+                  </button>
+                )}
 
               </div>
 
@@ -1217,34 +1362,81 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                         />
                       </div>
 
-                      <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-start gap-2">
-                        <AlertCircle size={15} className="text-amber-600 shrink-0 mt-0.5" />
-                        <div>
-                          <strong>영업사원 취소 방어 기간 부여:</strong> 지금 접수하시면 관리대장의 가입상태는 변경되지 않고 구글 시트 <strong>'취소및해약'</strong>에 <strong>[접수중]</strong>으로만 안전하게 기록됩니다.
-                          영업사원 소통 후 방어 실패 시 <strong>[접수중 내역]</strong> 탭에서 일괄 취소/해약으로 확정 변경하실 수 있습니다.
+                      {isAdmin ? (
+                        <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg text-[11px] text-indigo-950 flex items-start gap-2">
+                          <ShieldCheck size={16} className="text-indigo-600 shrink-0 mt-0.5" />
+                          <div className="space-y-1">
+                            <strong className="text-indigo-900 block font-black">관리자 전용 즉시 적용 권한:</strong>
+                            <p className="text-indigo-800 leading-relaxed">
+                              취소 방어 기간 부여가 필요한 경우 <strong>[접수만 등록]</strong>을 선택하시고, 즉시 원장 상태까지 변경하시려면 하단의 <strong>[관리대장 즉시 '취소' 적용]</strong> 또는 <strong>['해약' 적용]</strong>을 클릭하세요.
+                            </p>
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-start gap-2">
+                          <AlertCircle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                          <div>
+                            <strong>영업사원 취소 방어 기간 부여:</strong> 지금 접수하시면 관리대장의 가입상태는 변경되지 않고 구글 시트 <strong>'취소및해약'</strong>에 <strong>[접수중]</strong>으로만 안전하게 기록됩니다.
+                            영업사원 소통 후 방어 실패 시 <strong>[접수중 내역]</strong> 탭에서 일괄 취소/해약으로 확정 변경하실 수 있습니다.
+                          </div>
+                        </div>
+                      )}
 
-                      <div>
-                        <button
-                          type="button"
-                          onClick={handleSubmitCancel}
-                          disabled={isSubmitting}
-                          className="w-full py-3 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white font-black text-xs rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5"
-                        >
-                          {isSubmitting ? (
-                            <>
-                              <RefreshCw size={15} className="animate-spin" />
-                              <span>구글 시트 '취소및해약' 저장 중...</span>
-                            </>
-                          ) : (
-                            <>
+                      {isAdmin ? (
+                        <div className="space-y-2 pt-1">
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleDirectApplyCancelOrTerminate('취소')}
+                              disabled={isSubmitting}
+                              className="py-3 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white font-black text-xs rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
                               <Check size={15} />
-                              <span>취소 접수 등록 (접수중 기록)</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
+                              <span>관리대장 즉시 '취소' 적용</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDirectApplyCancelOrTerminate('해약')}
+                              disabled={isSubmitting}
+                              className="py-3 bg-purple-700 hover:bg-purple-800 disabled:bg-purple-400 text-white font-black text-xs rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <Check size={15} />
+                              <span>관리대장 즉시 '해약' 적용</span>
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleSubmitCancel}
+                            disabled={isSubmitting}
+                            className="w-full py-2.5 bg-slate-700 hover:bg-slate-800 disabled:bg-slate-400 text-slate-200 font-bold text-xs rounded-lg shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-slate-600"
+                          >
+                            <Clock size={14} className="text-amber-400" />
+                            <span>취소 접수만 등록 (방어 기간 부여 / [접수중] 기록)</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <button
+                            type="button"
+                            onClick={handleSubmitCancel}
+                            disabled={isSubmitting}
+                            className="w-full py-3 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-400 text-white font-black text-xs rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            {isSubmitting ? (
+                              <>
+                                <RefreshCw size={15} className="animate-spin" />
+                                <span>구글 시트 '취소및해약' 저장 중...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check size={15} />
+                                <span>취소 접수 등록 (접수중 기록)</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
 
                     </div>
                   </div>
