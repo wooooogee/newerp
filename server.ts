@@ -3118,8 +3118,35 @@ function formatPhoneSync(p: any): string {
 
 function formatDateToYMD(d: any): string {
   if (!d) return "";
+  if (d instanceof Date) {
+    if (isNaN(d.getTime())) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
   const s = String(d).trim();
-  if (!s || s === '-' || s === '- -') return "";
+  if (!s || s === '-' || s === '- -' || s === '-  -' || s === 'null' || s === 'undefined' || s.startsWith('###')) return "";
+
+  // 0. 구글 시트/엑셀 날짜 왜곡 패턴 복원 (2010/6/26, 2008/12/26 등)
+  const m2Digit = s.match(/^20(1[0-2])[-/.](\d{1,2})[-/.](\d{2})$/);
+  if (m2Digit) {
+    const month = m2Digit[1];
+    const day = m2Digit[2].padStart(2, '0');
+    const yy = parseInt(m2Digit[3], 10);
+    const year = yy >= 50 ? `19${m2Digit[3]}` : `20${m2Digit[3]}`;
+    return `${year}-${month}-${day}`;
+  }
+
+  const m1Digit = s.match(/^200([1-9])[-/.](\d{1,2})[-/.](\d{2})$/);
+  if (m1Digit) {
+    const month = m1Digit[1].padStart(2, '0');
+    const day = m1Digit[2].padStart(2, '0');
+    const yy = parseInt(m1Digit[3], 10);
+    const year = yy >= 50 ? `19${m1Digit[3]}` : `20${m1Digit[3]}`;
+    return `${year}-${month}-${day}`;
+  }
 
   // 1. 2009-MM-26 또는 2009/M/26 (구글 시트 로캘 오변환: 원래 2026-09-MM)
   const m2009 = s.match(/^2009[-/](\d{1,2})[-/]26$/);
@@ -3128,34 +3155,65 @@ function formatDateToYMD(d: any): string {
     return `2026-09-${day}`;
   }
 
-  // 2. M/D/26 또는 MM/DD/26 (미국식 M/D/YY 포맷)
-  const mUS = s.match(/^(\d{1,2})\/(\d{1,2})\/26$/);
-  if (mUS) {
-    const month = String(mUS[1]).padStart(2, '0');
-    const day = String(mUS[2]).padStart(2, '0');
-    return `2026-${month}-${day}`;
+  // 2. 5자리 숫자 (엑셀 시리얼 넘버)
+  if (/^\d{5}$/.test(s)) {
+    const serial = parseInt(s, 10);
+    if (serial >= 30000 && serial <= 60000) {
+      const utcDays = serial - 25569;
+      const date = new Date(utcDays * 86400 * 1000);
+      const y = date.getUTCFullYear();
+      const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
   }
 
-  // 3. YYYY/M/D 또는 YYYY.M.D 또는 YYYY-M-D
+  // 3. 8자리 숫자 YYYYMMDD
+  if (/^\d{8}$/.test(s)) {
+    return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  }
+
+  // 4. YYYY/M/D 또는 YYYY.M.D 또는 YYYY-M-D
   const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (mNorm) {
     return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
   }
 
-  // 4. YY-MM-DD (26-09-XX)
-  const mYY = s.match(/^26[-/.](\d{1,2})[-/.](\d{1,2})$/);
-  if (mYY) {
-    return `2026-${String(mYY[1]).padStart(2, '0')}-${String(mYY[2]).padStart(2, '0')}`;
+  // 5. M/D/YY (예: 6/22/26, 11/17/10, 10/1/26)
+  const mSlash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if (mSlash) {
+    const month = String(mSlash[1]).padStart(2, '0');
+    const day = String(mSlash[2]).padStart(2, '0');
+    const yy = parseInt(mSlash[3], 10);
+    const year = yy >= 50 ? `19${mSlash[3]}` : `20${mSlash[3]}`;
+    return `${year}-${month}-${day}`;
   }
 
-  const dt = (d instanceof Date) ? d : new Date(d);
-  if (isNaN(dt.getTime())) {
-    return s;
+  // 6. M/D/YYYY
+  const mSlash4 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mSlash4) {
+    const month = String(mSlash4[1]).padStart(2, '0');
+    const day = String(mSlash4[2]).padStart(2, '0');
+    return `${mSlash4[3]}-${month}-${day}`;
   }
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, '0');
-  const day = String(dt.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+
+  // 7. YY-MM-DD
+  const mYY = s.match(/^(\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (mYY) {
+    const yy = parseInt(mYY[1], 10);
+    const year = yy >= 50 ? `19${mYY[1]}` : `20${mYY[1]}`;
+    return `${year}-${String(mYY[2]).padStart(2, '0')}-${String(mYY[3]).padStart(2, '0')}`;
+  }
+
+  const dt = new Date(s);
+  if (!isNaN(dt.getTime())) {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const day = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  return s;
 }
 
 function isSameDateSync(d1: any, d2: any): boolean {
@@ -4119,7 +4177,7 @@ app.post('/api/sheets/excel-sync/overwrite-sheet1', async (req, res) => {
 });
 
 // 청크 업로드를 위한 인메모리 세션 저장소
-const unifiedChunkSessions = new Map<string, { rows: any[][]; lastUpdated: number }>();
+const unifiedChunkSessions = new Map<string, { rows: any[][]; dateColIndices: number[]; lastUpdated: number }>();
 
 // 2-1B-1. 대용량 계약원장 청크 분할 업로드 API (Netlify 6MB 제한 및 10초 타임아웃 완벽 극복)
 app.post('/api/sheets/excel-sync/upload-unified-chunk', async (req, res) => {
@@ -4213,29 +4271,82 @@ app.post('/api/sheets/excel-sync/upload-unified-chunk', async (req, res) => {
         }
       }
 
-      unifiedChunkSessions.set(sessionId, { rows: [...chunkRows], lastUpdated: Date.now() });
-    } else {
-      const session = unifiedChunkSessions.get(sessionId) || { rows: [], lastUpdated: Date.now() };
-      session.rows.push(...chunkRows);
-      session.lastUpdated = Date.now();
-      unifiedChunkSessions.set(sessionId, session);
+      // 첫 청크 헤더 분석하여 날짜 컬럼 인덱스 감지
+      const headerRow = chunkRows[0] || [];
+      const detectedDateIndices: number[] = [];
+      headerRow.forEach((h: any, idx: number) => {
+        const col = String(h || '').trim();
+        if (
+          col.includes('일자') ||
+          col.includes('날짜') ||
+          col.includes('생년월일') ||
+          col.includes('계약일') ||
+          col.includes('납입일') ||
+          col.includes('등록일') ||
+          col.includes('해약일') ||
+          col.includes('지급일') ||
+          col.includes('신청일') ||
+          col.includes('변경일') ||
+          col === '월납입일' ||
+          col === '생일'
+        ) {
+          const isExcluded = col.includes('금액') || col.includes('불입금') || col.includes('잔액') || col.includes('회차') || col.includes('횟수') || col.includes('입금차') || col.includes('잔여차') || col.includes('연체차');
+          if (!isExcluded) {
+            detectedDateIndices.push(idx);
+          }
+        }
+      });
+      if (detectedDateIndices.length === 0) {
+        detectedDateIndices.push(2, 3, 4, 20, 21, 41, 50, 52, 57, 64);
+      }
+
+      unifiedChunkSessions.set(sessionId, { rows: [], dateColIndices: detectedDateIndices, lastUpdated: Date.now() });
     }
 
-    // 2. 구글 시트에 이번 청크 즉시 쓰기
+    const currentSession = unifiedChunkSessions.get(sessionId) || {
+      rows: [],
+      dateColIndices: [2, 3, 4, 20, 21, 41, 50, 52, 57, 64],
+      lastUpdated: Date.now()
+    };
+    const activeDateCols = currentSession.dateColIndices;
+
+    // 2. 구글 시트에 이번 청크 즉시 쓰기 전 날짜 강제 YYYY-MM-DD 정규화
     const cleanChunk = chunkRows.map((row, rIdx) => {
       if (isFirst && rIdx === 0) {
         return (Array.isArray(row) ? row : []).map(c => (c === undefined || c === null ? '' : String(c)));
       }
-      return (Array.isArray(row) ? row : []).map((cell) => {
+      return (Array.isArray(row) ? row : []).map((cell, cIdx) => {
         if (cell === undefined || cell === null) return '';
         if (typeof cell === 'object') return JSON.stringify(cell);
-        const str = String(cell).trim();
+        let str = String(cell).trim();
+
+        // 날짜 컬럼이거나 날짜 형식인 경우 강제 표준 YYYY-MM-DD 정규화 (구글 시트의 2008/12/26, 2010/6/26 오인식 원천 차단)
+        if (
+          activeDateCols.includes(cIdx) ||
+          /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(str) ||
+          /^20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}$/.test(str) ||
+          str.startsWith('2008/') ||
+          str.startsWith('2010/') ||
+          str.startsWith('###')
+        ) {
+          const fDate = formatDateToYMD(str);
+          if (fDate) {
+            str = fDate;
+          } else if (str.startsWith('###') || str === '- -' || str === '-  -') {
+            str = '';
+          }
+        }
+
         if (/^0\d+$/.test(str)) {
           return `'${str}`;
         }
         return str;
       });
     });
+
+    currentSession.rows.push(...cleanChunk);
+    currentSession.lastUpdated = Date.now();
+    unifiedChunkSessions.set(sessionId, currentSession);
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
@@ -4312,12 +4423,57 @@ app.post('/api/sheets/excel-sync/overwrite-unified-ledger', async (req, res) => 
       console.log(`[ExcelSync] Created new sheet '통합원장'`);
     }
 
+    // 회원번호 기준 스마트 병합 실행 전 날짜 컬럼 YYYY-MM-DD 강제 정제
+    const headerRow = contractRows[0] || [];
+    const detectedDateCols: number[] = [];
+    headerRow.forEach((h: any, idx: number) => {
+      const col = String(h || '').trim();
+      if (
+        col.includes('일자') ||
+        col.includes('날짜') ||
+        col.includes('생년월일') ||
+        col.includes('계약일') ||
+        col.includes('납입일') ||
+        col.includes('등록일') ||
+        col.includes('해약일') ||
+        col.includes('지급일') ||
+        col.includes('신청일') ||
+        col.includes('변경일') ||
+        col === '월납입일' ||
+        col === '생일'
+      ) {
+        const isExcluded = col.includes('금액') || col.includes('불입금') || col.includes('잔액') || col.includes('회차') || col.includes('횟수') || col.includes('입금차') || col.includes('잔여차') || col.includes('연체차');
+        if (!isExcluded) {
+          detectedDateCols.push(idx);
+        }
+      }
+    });
+    if (detectedDateCols.length === 0) {
+      detectedDateCols.push(2, 3, 4, 20, 21, 41, 50, 52, 57, 64);
+    }
+
+    const cleanedContractRows = contractRows.map((row, rIdx) => {
+      if (rIdx === 0 || !Array.isArray(row)) return row;
+      const nRow = [...row];
+      for (const c of detectedDateCols) {
+        if (nRow[c] !== undefined && nRow[c] !== null) {
+          const raw = String(nRow[c]).trim();
+          if (raw) {
+            const f = formatDateToYMD(raw);
+            if (f) nRow[c] = f;
+            else if (raw.startsWith('###') || raw === '- -' || raw === '-  -') nRow[c] = '';
+          }
+        }
+      }
+      return nRow;
+    });
+
     // 회원번호 기준 스마트 병합 실행
     const result = await mergeSheetDataByKeySafe(
       sheets,
       sheetId,
       '통합원장',
-      contractRows,
+      cleanedContractRows,
       ['회원번호', '계약번호', '회원코드'],
       1
     );
@@ -4326,8 +4482,8 @@ app.post('/api/sheets/excel-sync/overwrite-unified-ledger', async (req, res) => 
     try {
       const cacheDir = path.dirname(UNIFIED_LEDGER_PATH);
       if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-      fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(contractRows, null, 2), 'utf-8');
-      console.log(`[ExcelSync] Successfully saved unified ledger cache: ${contractRows.length - 1} rows`);
+      fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(cleanedContractRows, null, 2), 'utf-8');
+      console.log(`[ExcelSync] Successfully saved unified ledger cache: ${cleanedContractRows.length - 1} rows`);
     } catch (cErr: any) {
       console.warn(`[ExcelSync] Failed to write local cache:`, cErr.message);
     }
@@ -4342,6 +4498,124 @@ app.post('/api/sheets/excel-sync/overwrite-unified-ledger', async (req, res) => 
   } catch (err: any) {
     console.error(`[ExcelSync] Smart merge '통합원장' failed:`, err);
     res.status(500).json({ error: err.message || '통합원장 스마트 병합에 실패했습니다.' });
+  }
+});
+
+// 2-1B-3. 구글 시트 '통합원장'의 왜곡된 날짜 전체 일괄 정규화 (YYYY-MM-DD 변환 및 로컬 캐시 갱신)
+app.post('/api/sheets/unified-ledger/clean-dates', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+  if (!sheetId) return res.status(500).json({ error: 'GOOGLE_SHEET_ID 설정이 없습니다.' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    console.log('[CleanDates] Fetching all rows from Google Sheets 통합원장...');
+    const resp = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `'통합원장'!A1:ZZ`,
+      valueRenderOption: 'FORMATTED_VALUE'
+    });
+
+    const rows = resp.data.values || [];
+    if (rows.length < 2) {
+      return res.status(400).json({ error: '통합원장에 정제할 데이터가 없습니다.' });
+    }
+
+    const header = rows[0] || [];
+    const dateColIndices: number[] = [];
+    header.forEach((h: any, idx: number) => {
+      const col = String(h || '').trim();
+      if (
+        col.includes('일자') ||
+        col.includes('날짜') ||
+        col.includes('생년월일') ||
+        col.includes('계약일') ||
+        col.includes('납입일') ||
+        col.includes('등록일') ||
+        col.includes('해약일') ||
+        col.includes('지급일') ||
+        col.includes('신청일') ||
+        col.includes('변경일') ||
+        col === '월납입일' ||
+        col === '생일'
+      ) {
+        const isExcluded = col.includes('금액') || col.includes('불입금') || col.includes('잔액') || col.includes('회차') || col.includes('횟수') || col.includes('입금차') || col.includes('잔여차') || col.includes('연체차');
+        if (!isExcluded) {
+          dateColIndices.push(idx);
+        }
+      }
+    });
+
+    if (dateColIndices.length === 0) {
+      dateColIndices.push(2, 3, 4, 20, 21, 41, 50, 52, 57, 64);
+    }
+
+    let modifiedCount = 0;
+    const cleanedRows: any[][] = [];
+    cleanedRows.push(header);
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = [...rows[r]];
+      for (const c of dateColIndices) {
+        if (row[c] !== undefined && row[c] !== null) {
+          const raw = String(row[c]).trim();
+          if (raw) {
+            const formatted = formatDateToYMD(raw);
+            if (formatted && formatted !== raw) {
+              row[c] = formatted;
+              modifiedCount++;
+            } else if (raw === '- -' || raw === '-  -' || raw.startsWith('###')) {
+              row[c] = '';
+              modifiedCount++;
+            }
+          }
+        }
+      }
+      cleanedRows.push(row);
+    }
+
+    console.log(`[CleanDates] Total ${modifiedCount} date cells corrected across ${rows.length - 1} rows. Updating Google Sheets...`);
+    const chunkSize = 1000;
+    for (let i = 1; i < cleanedRows.length; i += chunkSize) {
+      const chunk = cleanedRows.slice(i, i + chunkSize);
+      const startRow = i + 1; // 1-indexed
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `'통합원장'!A${startRow}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: chunk }
+      });
+      console.log(`[CleanDates] Updated chunk rows ${startRow} ~ ${startRow + chunk.length - 1}`);
+    }
+
+    // 로컬 캐시 파일 저장
+    try {
+      const cacheDir = path.dirname(UNIFIED_LEDGER_PATH);
+      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+      fs.writeFileSync(UNIFIED_LEDGER_PATH, JSON.stringify(cleanedRows, null, 2), 'utf-8');
+      console.log(`[CleanDates] Updated local cache file with ${cleanedRows.length - 1} rows`);
+    } catch (cErr: any) {
+      console.warn(`[CleanDates] Cache write warning:`, cErr.message);
+    }
+
+    sheetDataCache.delete('통합원장');
+
+    res.json({
+      success: true,
+      totalRows: rows.length - 1,
+      modifiedCount,
+      dateColCount: dateColIndices.length
+    });
+  } catch (err: any) {
+    console.error('[CleanDates] Failed:', err);
+    res.status(500).json({ error: err.message || '통합원장 날짜 일괄 정규화에 실패했습니다.' });
   }
 });
 

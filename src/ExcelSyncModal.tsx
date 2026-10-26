@@ -203,6 +203,162 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     });
   };
 
+  // 엑셀 날짜 정규화 헬퍼: 셀 너비 부족(#####) 또는 M/D/YY, 2008/12/26, 2010/6/26 등 로캘 왜곡 날짜를 표준 YYYY-MM-DD로 복원
+  const normalizeExcelDate = (val: any): string => {
+    if (val === null || val === undefined) return '';
+    if (val instanceof Date) {
+      if (isNaN(val.getTime())) return '';
+      const y = val.getFullYear();
+      const m = String(val.getMonth() + 1).padStart(2, '0');
+      const d = String(val.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    const s = String(val).trim();
+    if (!s || s === '-' || s === '- -' || s === '-  -' || s === 'null' || s === 'undefined' || s.startsWith('###')) {
+      return '';
+    }
+
+    // 1. 이미 정상적인 YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD
+    const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (mNorm) {
+      return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
+    }
+
+    // 2. 구글 시트/엑셀 왜곡 패턴 복원: 2010/6/26 -> 2026-10-06, 2008/12/26 -> 2026-08-12
+    const m2Digit = s.match(/^20(1[0-2])[-/.](\d{1,2})[-/.](\d{2})$/);
+    if (m2Digit) {
+      const month = m2Digit[1];
+      const day = m2Digit[2].padStart(2, '0');
+      const yy = parseInt(m2Digit[3], 10);
+      const year = yy >= 50 ? `19${m2Digit[3]}` : `20${m2Digit[3]}`;
+      return `${year}-${month}-${day}`;
+    }
+
+    const m1Digit = s.match(/^200([1-9])[-/.](\d{1,2})[-/.](\d{2})$/);
+    if (m1Digit) {
+      const month = m1Digit[1].padStart(2, '0');
+      const day = m1Digit[2].padStart(2, '0');
+      const yy = parseInt(m1Digit[3], 10);
+      const year = yy >= 50 ? `19${m1Digit[3]}` : `20${m1Digit[3]}`;
+      return `${year}-${month}-${day}`;
+    }
+
+    // 3. 2009-MM-26 왜곡 패턴
+    const m2009 = s.match(/^2009[-/](\d{1,2})[-/]26$/);
+    if (m2009) {
+      const day = String(m2009[1]).padStart(2, '0');
+      return `2026-09-${day}`;
+    }
+
+    // 4. 5자리 숫자 (엑셀 날짜 일련번호)
+    if (/^\d{5}$/.test(s)) {
+      const serial = parseInt(s, 10);
+      if (serial >= 30000 && serial <= 60000) {
+        const utcDays = serial - 25569;
+        const date = new Date(utcDays * 86400 * 1000);
+        const y = date.getUTCFullYear();
+        const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(date.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    }
+
+    // 5. 8자리 숫자 YYYYMMDD
+    if (/^\d{8}$/.test(s)) {
+      return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+    }
+
+    // 6. M/D/YY (예: 10/6/26, 8/13/26, 11/17/10)
+    const mSlash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    if (mSlash) {
+      const month = String(mSlash[1]).padStart(2, '0');
+      const day = String(mSlash[2]).padStart(2, '0');
+      const yy = parseInt(mSlash[3], 10);
+      const year = yy >= 50 ? `19${mSlash[3]}` : `20${mSlash[3]}`;
+      return `${year}-${month}-${day}`;
+    }
+
+    // 7. M/D/YYYY
+    const mSlash4 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (mSlash4) {
+      const month = String(mSlash4[1]).padStart(2, '0');
+      const day = String(mSlash4[2]).padStart(2, '0');
+      return `${mSlash4[3]}-${month}-${day}`;
+    }
+
+    // 8. YY-MM-DD
+    const mYY = s.match(/^(\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (mYY) {
+      const yy = parseInt(mYY[1], 10);
+      const year = yy >= 50 ? `19${mYY[1]}` : `20${mYY[1]}`;
+      return `${year}-${String(mYY[2]).padStart(2, '0')}-${String(mYY[3]).padStart(2, '0')}`;
+    }
+
+    // 9. Date 파싱 가능한 문자열
+    const dt = new Date(s);
+    if (!isNaN(dt.getTime()) && s.length >= 8 && (s.includes('-') || s.includes('/') || s.includes('.'))) {
+      const y = dt.getFullYear();
+      if (y >= 1990 && y <= 2050) {
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const d = String(dt.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    }
+
+    return s;
+  };
+
+  // 날짜 관련 열 자동 감지 및 전체 데이터 YYYY-MM-DD 표준화
+  const autoRepairAndFormatDates = (rows: any[][]): any[][] => {
+    if (!rows || rows.length < 2) return rows;
+    const header = rows[0] || [];
+
+    const dateColIndices: number[] = [];
+    header.forEach((h: any, idx: number) => {
+      const colName = String(h || '').trim();
+      if (!colName) return;
+      if (
+        colName.includes('일자') ||
+        colName.includes('날짜') ||
+        colName.includes('생년월일') ||
+        colName.includes('계약일') ||
+        colName.includes('납입일') ||
+        colName.includes('등록일') ||
+        colName.includes('해약일') ||
+        colName.includes('지급일') ||
+        colName.includes('신청일') ||
+        colName.includes('변경일') ||
+        colName === '월납입일' ||
+        colName === '생일'
+      ) {
+        const isExcluded = colName.includes('금액') || colName.includes('불입금') || colName.includes('잔액') || colName.includes('회차') || colName.includes('횟수') || colName.includes('입금차') || colName.includes('잔여차') || colName.includes('연체차');
+        if (!isExcluded) {
+          dateColIndices.push(idx);
+        }
+      }
+    });
+
+    if (dateColIndices.length === 0) return rows;
+
+    return rows.map((row, rIdx) => {
+      if (rIdx === 0 || !Array.isArray(row)) return row;
+      const newRow = [...row];
+      for (const colIdx of dateColIndices) {
+        if (newRow[colIdx] !== undefined && newRow[colIdx] !== null) {
+          const rawVal = newRow[colIdx];
+          const fixed = normalizeExcelDate(rawVal);
+          if (fixed !== '') {
+            newRow[colIdx] = fixed;
+          } else if (String(rawVal).trim().startsWith('###') || String(rawVal).trim() === '- -' || String(rawVal).trim() === '-  -') {
+            newRow[colIdx] = '';
+          }
+        }
+      }
+      return newRow;
+    });
+  };
+
   // 서버 복호화 API 호출 (비밀번호: 기본값 1111)
   const decryptExcelViaServer = async (file: File, password: string): Promise<any[][]> => {
     const buffer = await file.arrayBuffer();
@@ -328,7 +484,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       if (lower.includes('<table') || (lower.includes('<tr') && lower.includes('<td'))) {
         const parsedRows = parseHtmlTableToRows(chosenText);
         if (parsedRows && parsedRows.length > 0) {
-          return autoRepairAccountAndBankCodes(autoRepairRowEncoding(parsedRows));
+          return autoRepairAndFormatDates(autoRepairAccountAndBankCodes(autoRepairRowEncoding(parsedRows)));
         }
       }
     }
@@ -337,7 +493,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
 
     try {
       if (isZipXlsx || isCfbXls) {
-        workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949, raw: false, cellText: true });
+        workbook = XLSX.read(buffer, { type: 'array', cellDates: true, codepage: 949, raw: false, cellText: false });
       } else {
         let decodedText = '';
         try {
@@ -345,26 +501,60 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         } catch (e) {}
 
         if (decodedText && /[가-힣]/.test(decodedText)) {
-          workbook = XLSX.read(decodedText, { type: 'string', cellDates: false, raw: false, cellText: true });
+          workbook = XLSX.read(decodedText, { type: 'string', cellDates: true, raw: false, cellText: false });
         } else {
           try {
             const utf8Text = new TextDecoder('utf-8').decode(buffer);
             if (/[가-힣]/.test(utf8Text)) {
-              workbook = XLSX.read(utf8Text, { type: 'string', cellDates: false, raw: false, cellText: true });
+              workbook = XLSX.read(utf8Text, { type: 'string', cellDates: true, raw: false, cellText: false });
             }
           } catch (e) {}
 
           if (!workbook) {
-            workbook = XLSX.read(buffer, { type: 'array', cellDates: false, codepage: 949, raw: false, cellText: true });
+            workbook = XLSX.read(buffer, { type: 'array', cellDates: true, codepage: 949, raw: false, cellText: false });
           }
         }
       }
 
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
+
+      // 워크시트 내 열 너비 부족으로 '#####' 렌더링된 셀 해제 및 Date 객체 YYYY-MM-DD 변환
+      if (worksheet && worksheet['!ref']) {
+        try {
+          const range = XLSX.utils.decode_range(worksheet['!ref']);
+          for (let R = range.s.r; R <= range.e.r; R++) {
+            for (let C = range.s.c; C <= range.e.c; C++) {
+              const cellAddr = XLSX.utils.encode_cell({ r: R, c: C });
+              const cell = worksheet[cellAddr];
+              if (!cell) continue;
+
+              // 셀 너비 부족으로 '#####' 된 셀: 포맷 문자열 제거하여 원시값 참조 유도
+              if (typeof cell.w === 'string' && cell.w.startsWith('###')) {
+                cell.w = undefined;
+              }
+
+              // Date 객체는 YYYY-MM-DD 문자열로 명시적 변환
+              if (cell.t === 'd' && cell.v instanceof Date) {
+                const y = cell.v.getFullYear();
+                const m = String(cell.v.getMonth() + 1).padStart(2, '0');
+                const d = String(cell.v.getDate()).padStart(2, '0');
+                const ymd = `${y}-${m}-${d}`;
+                cell.v = ymd;
+                cell.w = ymd;
+                cell.t = 's';
+              }
+            }
+          }
+        } catch (wsErr) {
+          console.warn('[ExcelSync] Worksheet cell repair warning:', wsErr);
+        }
+      }
+
       let jsonRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false }) as any[][];
       jsonRows = autoRepairRowEncoding(jsonRows);
       jsonRows = autoRepairAccountAndBankCodes(jsonRows);
+      jsonRows = autoRepairAndFormatDates(jsonRows);
       return jsonRows;
     } catch (parseErr: any) {
       console.warn('[ExcelSync] Standard XLSX read failed, attempting server password decryption:', parseErr.message);
@@ -374,7 +564,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       try {
         const decryptedRows = await decryptExcelViaServer(file, currentPw);
         if (decryptedRows && decryptedRows.length > 0) {
-          return autoRepairAccountAndBankCodes(autoRepairRowEncoding(decryptedRows));
+          return autoRepairAndFormatDates(autoRepairAccountAndBankCodes(autoRepairRowEncoding(decryptedRows)));
         }
       } catch (pwErr: any) {
         // 기본 비밀번호(1111)가 맞지 않는 경우 사용자에게 직접 물어보기
@@ -384,7 +574,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         }
         setDeliveryPassword(promptPw);
         const retryRows = await decryptExcelViaServer(file, promptPw);
-        return autoRepairAccountAndBankCodes(autoRepairRowEncoding(retryRows));
+        return autoRepairAndFormatDates(autoRepairAccountAndBankCodes(autoRepairRowEncoding(retryRows)));
       }
 
       throw parseErr;
@@ -740,6 +930,34 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     } catch (err: any) {
       console.error('[Direct Overwrite Unified Ledger Error]', err);
       alert('통합원장 등록 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 구글 시트 '통합원장' 날짜 일괄 정규화 단독 실행
+  const handleDirectCleanDates = async () => {
+    const confirmMsg = `[통합원장 날짜 일괄 정규화]\n구글 시트 '통합원장' 탭에 저장된 모든 날짜 데이터를 표준 YYYY-MM-DD 형식으로 일괄 정제하시겠습니까?\n\n• 2008/12/26, 2010/6/26, 10/6/26, ##### 등 왜곡된 서식을 2026-08-12, 2026-10-06 등으로 자동 복원\n• 정제 완료 후 구글 시트와 로컬 캐시 동시 최신화`;
+    const isConfirmed = (window as any).customConfirm
+      ? await (window as any).customConfirm(confirmMsg, '날짜 일괄 정규화')
+      : window.confirm(confirmMsg);
+
+    if (!isConfirmed) return;
+
+    try {
+      setIsLoading(true);
+      setLoadingText('구글 시트 [통합원장]의 왜곡된 날짜들을 표준 YYYY-MM-DD로 일괄 정규화하는 중...');
+
+      const res = await fetch('/api/sheets/unified-ledger/clean-dates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '날짜 정제 실패');
+
+      alert(`✓ 구글 시트 [통합원장] 날짜 일괄 정규화가 완료되었습니다!\n\n• 정제된 날짜 셀: ${data.modifiedCount.toLocaleString()}개\n• 대상 원장 행 수: ${data.totalRows.toLocaleString()}행`);
+    } catch (err: any) {
+      alert('날짜 일괄 정규화 중 오류가 발생했습니다: ' + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -1178,7 +1396,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                   )}
                 </div>
 
-                {contractRows && (
+                {contractRows ? (
                   <div className="space-y-1">
                     <button
                       type="button"
@@ -1199,6 +1417,29 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                     >
                       <CreditCard size={13} />
                       <span>기존 [시트1] 탭에도 병합 등록 (CMS 대장 즉시 연동)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDirectCleanDates}
+                      disabled={isLoading}
+                      className="w-full py-1.5 px-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="구글 시트 [통합원장]에 저장된 왜곡 날짜들을 표준 YYYY-MM-DD로 일괄 정제합니다"
+                    >
+                      <RefreshCw size={12} />
+                      <span>[통합원장] 날짜 일괄 정규화 (YYYY-MM-DD)</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={handleDirectCleanDates}
+                      disabled={isLoading}
+                      className="w-full py-1.5 px-3 bg-slate-600 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      title="구글 시트 [통합원장]에 이미 저장된 날짜 데이터(2008/12/26, 2010/6/26, 10/6/26, ##### 등)를 표준 YYYY-MM-DD로 일괄 복원합니다"
+                    >
+                      <RefreshCw size={12} />
+                      <span>시트 [통합원장] 날짜 일괄 정규화</span>
                     </button>
                   </div>
                 )}
