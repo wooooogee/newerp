@@ -18,6 +18,7 @@ export interface CertPrintItem {
   memNo2?: string;      // 회원번호2
   memNo3?: string;      // 회원번호3
   memNo4?: string;      // 회원번호4
+  allMemberNos?: string[]; // 해당 회원의 모든 구좌 회원번호 목록 (4개 이상 또는 전체 구좌)
 }
 
 /**
@@ -117,7 +118,9 @@ export async function printCertificatesPdf(items: CertPrintItem[]) {
     const templateCacheMap = new Map<string, ArrayBuffer>();
 
     for (const item of items) {
-      const memberNos = parseMemberNumbers([item.memNo1, item.memNo2, item.memNo3, item.memNo4]);
+      const memberNos = item.allMemberNos && item.allMemberNos.length > 0
+        ? parseMemberNumbers(item.allMemberNos)
+        : parseMemberNumbers([item.memNo1, item.memNo2, item.memNo3, item.memNo4]);
       if (memberNos.length === 0) {
         memberNos.push(item.memNo1 || '');
       }

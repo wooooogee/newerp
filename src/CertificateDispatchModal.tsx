@@ -13,6 +13,16 @@ interface CertificateDispatchModalProps {
 }
 
 // 다양한 형태의 계약일자(US 형식 M/D/YY, 구글시트 로캘 오변환 2009-M-26 등)를 YYYY-MM-DD로 복원 및 정규화
+// 동일 가입자(동일 고객) 식별 키 생성 함수 (이름 + 연락처 뒷자리 또는 주민번호 앞자리)
+export function getCustomerKey(memName: string, phone: string, resNo: string): string {
+  const cleanName = String(memName || '').trim();
+  const cleanPhone = String(phone || '').replace(/[^0-9]/g, '');
+  const cleanRes = String(resNo || '').replace(/[^0-9]/g, '');
+  if (cleanPhone.length >= 7) return cleanName + '_' + cleanPhone.slice(-8);
+  if (cleanRes.length >= 6) return cleanName + '_' + cleanRes.slice(0, 6);
+  return cleanName || 'UNKNOWN';
+}
+
 export function normalizeContractDate(val: any): string {
   if (!val) return '';
   const s = String(val).trim();
@@ -60,7 +70,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [isConsolidated, setIsConsolidated] = useState<boolean>(true);
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
   const [receiveTypeFilter, setReceiveTypeFilter] = useState<'all' | 'post'>('all');
-  const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'sent' | 'all'>('notSent');
+  const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'sent' | 'all'>('all');
   const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
 
   // 인라인 수정 상태 관리: { [itemId: number]: { [fieldName: string]: any } }
@@ -96,28 +106,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
               }
             });
 
-            // 최근 연월 찾아서 기본 선택
-            const yearMonths = new Set<string>();
-            rows.forEach((raw: any) => {
-              const memNo = String(raw[1] || '').trim().toUpperCase();
-              const mItem = maintenanceMap.get(memNo);
-              const status = String(mItem?.status || '').trim();
-
-              if (status === '가입') {
-                const rawCDate = mItem?.contractDate || raw[2] || '';
-                const cDate = normalizeContractDate(rawCDate);
-                if (cDate) {
-                  const m = cDate.match(/^(\d{4})[-./]?(\d{2})/);
-                  if (m) yearMonths.add(`${m[1]}-${m[2]}`);
-                }
-              }
-            });
-            const sortedYM = Array.from(yearMonths).sort().reverse();
-            if (sortedYM.length > 0) {
-              const [y, m] = sortedYM[0].split('-');
-              setSelectedYear(y);
-              setSelectedMonthOnly(m);
-            }
+            // 전체 가입자가 바로 표시될 수 있도록 기본값(all) 유지
           }
           if (empRes.ok) {
             const empData = await empRes.json();
@@ -164,7 +153,6 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
-
   // 1. 기초 데이터 파싱 및 동일회원 통합(consolidatedData)
   const consolidatedData = useMemo(() => {
     // 관리대장 데이터(data)를 회원번호 기준으로 맵 생성 (대소문자 무시)
@@ -180,8 +168,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         const memNo = String(raw[1] || '').trim();
         const memNoKey = memNo.toUpperCase();
         const maintenanceItem = maintenanceMap.get(memNoKey);
-        // 관리대장 시트의 가입상태를 가져오고, 없으면 '' 처리
-        const status = String(maintenanceItem?.status || '').trim();
+        // 관리대장 시트의 가입상태를 가져오고, 없으면 원장의 회원상태(raw[8]) 확인
+        const mStatus = String(maintenanceItem?.status || '').trim();
+        const rawStatus = String(raw[8] || '').trim();
+        const status = mStatus || rawStatus || '';
 
         const hq = String(raw[38] || '');         // AM(38): 본부명
         const empCode = String(raw[39] || maintenanceItem?.empCode || '').trim();
@@ -237,25 +227,64 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
         // 휴대폰번호: AB열(27)
         const phone = String(raw[27] || '');
+        const customerKey = getCustomerKey(memName, phone, resNo);
 
         return {
           id: idx,
+          customerKey,
           extracted: {
+            customerKey,
             status, contractDate, memNo, memName, resNo, prodName, firstPayDate,
             hq, empCode, empName, zipCode, address, workAddress, cert, deliveryType, rentalNo,
             empPhone, monthlyPay1, monthlyPay2, birthDate, phone,
             rentalNo2: '', rentalNo3: '', rentalNo4: '',
-            allMemNos: [memNo].filter(Boolean)
+            allMemNos: [memNo].filter(Boolean),
+            allCustomerMemNos: [memNo].filter(Boolean)
           }
         };
       })
-      .filter(item => item.extracted.status === '가입');
+      .filter(item => {
+        const st = item.extracted.status;
+        return st === '가입' || st.includes('가입');
+      });
+
+    // 동일 고객(동일 가입자)별 우편 희망 여부 및 모든 회원번호 수집
+    const customerPostMap = new Map<string, boolean>();
+    const customerAllNosMap = new Map<string, Set<string>>();
+
+    items.forEach(item => {
+      const cKey = item.customerKey;
+      const ext = item.extracted;
+      const isPost = String(ext.workAddress || '').trim() === '우편'
+        || String(ext.cert || '').trim().includes('우편')
+        || String(ext.deliveryType || '').trim().includes('우편');
+
+      if (isPost) {
+        customerPostMap.set(cKey, true);
+      }
+      if (!customerAllNosMap.has(cKey)) {
+        customerAllNosMap.set(cKey, new Set());
+      }
+      if (ext.memNo) {
+        customerAllNosMap.get(cKey)!.add(ext.memNo);
+      }
+    });
+
+    // 동일 가입자 중 하나라도 우편이면 모든 구좌에 '우편' 전파 및 모든 회원번호 매핑
+    items.forEach(item => {
+      const cKey = item.customerKey;
+      if (customerPostMap.get(cKey)) {
+        item.extracted.workAddress = '우편';
+      }
+      const allCustNos = Array.from(customerAllNosMap.get(cKey) || []);
+      item.extracted.allCustomerMemNos = allCustNos;
+    });
 
     if (isConsolidated) {
       const groups = new Map<string, typeof items>();
       items.forEach(item => {
         const ext = item.extracted;
-        const key = `${ext.memName}_${ext.phone}_${ext.prodName}`;
+        const key = item.customerKey + '_' + ext.prodName;
         if (!groups.has(key)) {
           groups.set(key, []);
         }
@@ -267,19 +296,24 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         base.id = gIdx;
         base.extracted = { ...base.extracted };
 
-        // 그룹 내 하나라도 우편이면 우편 희망자로 통일
-        const hasPost = group.some(it => String(it.extracted.workAddress || '').trim() === '우편');
+        // 그룹 내 또는 동일 고객 중 하나라도 우편이면 우편 희망자로 통일
+        const cKey = base.customerKey;
+        const hasPost = customerPostMap.get(cKey) || group.some(it => String(it.extracted.workAddress || '').trim() === '우편');
         if (hasPost) {
           base.extracted.workAddress = '우편';
         }
 
-        // 구좌 번호 묶기
+        // 동일 그룹 내 구좌 번호 묶기
         const uniqueNos = Array.from(new Set(group.map(it => it.extracted.memNo).filter(Boolean)));
         base.extracted.memNo = uniqueNos[0] || '';
         base.extracted.rentalNo2 = uniqueNos[1] || '';
         base.extracted.rentalNo3 = uniqueNos[2] || '';
         base.extracted.rentalNo4 = uniqueNos[3] || '';
         base.extracted.allMemNos = uniqueNos;
+
+        // 동일 가입자의 모든 구좌 회원번호 연결
+        const allCustNos = Array.from(customerAllNosMap.get(cKey) || uniqueNos);
+        base.extracted.allCustomerMemNos = allCustNos;
 
         return base;
       });
@@ -290,7 +324,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       id: i,
       extracted: {
         ...item.extracted,
-        allMemNos: [item.extracted.memNo].filter(Boolean)
+        allMemNos: [item.extracted.memNo].filter(Boolean),
+        allCustomerMemNos: Array.from(customerAllNosMap.get(item.customerKey) || [item.extracted.memNo].filter(Boolean))
       }
     }));
   }, [sheet1List, empList, paymentList, data, isConsolidated]);
@@ -370,7 +405,21 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     if (edited && edited.isPost !== undefined) {
       return Boolean(edited.isPost);
     }
-    return String(item.extracted.workAddress || '').trim() === '우편';
+    const targetKey = item.customerKey || item.extracted?.customerKey;
+    if (targetKey) {
+      for (const [idStr, ed] of Object.entries(editedItems)) {
+        if ((ed as any).isPost !== undefined) {
+          const matched = consolidatedData.find(c => c.id === Number(idStr));
+          if (matched) {
+            const mKey = matched.customerKey || matched.extracted?.customerKey;
+            if (mKey === targetKey) {
+              return Boolean((ed as any).isPost);
+            }
+          }
+        }
+      }
+    }
+    return String(item.extracted?.workAddress || '').trim() === '우편';
   };
 
   const handleUpdateField = (id: number, field: string, val: any) => {
@@ -392,7 +441,27 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const handleTogglePost = (item: any, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const current = getItemIsPost(item);
-    handleUpdateField(item.id, 'isPost', !current);
+    const nextVal = !current;
+    const targetKey = item.customerKey || item.extracted?.customerKey;
+
+    setEditedItems(prev => {
+      const nextState = { ...prev };
+      // 동일 가입자(동일 고객)의 모든 구좌를 함께 우편/모바일로 동기화
+      consolidatedData.forEach(it => {
+        const itKey = it.customerKey || it.extracted?.customerKey;
+        if (itKey && itKey === targetKey) {
+          nextState[it.id] = {
+            ...(nextState[it.id] || {}),
+            isPost: nextVal
+          };
+        }
+      });
+      nextState[item.id] = {
+        ...(nextState[item.id] || {}),
+        isPost: nextVal
+      };
+      return nextState;
+    });
   };
 
   // 필터링 및 정렬된 최종 데이터
@@ -424,20 +493,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
     }
 
-    // 3. 초회납 미납 필터
+    // 3. 초회납 미납 필터 (체크 시에만 미납자 한정 필터링, 체크 해제 시 가입인 상태의 모든 회원 노출)
     if (filterFirstPayNotDate) {
       result = result.filter(item => {
         const ext = getItemExtracted(item);
         const val = String(ext.firstPayDate || '').trim();
         const isDate = /^\d{4}[-./]?\d{2}[-./]?\d{2}/.test(val);
         return !isDate;
-      });
-    } else {
-      result = result.filter(item => {
-        const ext = getItemExtracted(item);
-        const val = String(ext.firstPayDate || '').trim();
-        const isDate = /^\d{4}[-./]?\d{2}[-./]?\d{2}/.test(val);
-        return isDate;
       });
     }
 
@@ -552,6 +614,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     }
     const certItems: CertPrintItem[] = selectedItems.map(item => {
       const ext = getItemExtracted(item);
+      const allNos = (ext.allMemNos && ext.allMemNos.length > 0)
+        ? ext.allMemNos
+        : [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].filter(Boolean);
+
       return {
         id: item.id,
         memName: ext.memName,
@@ -568,7 +634,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         empPhone: ext.empPhone,
         memNo2: ext.rentalNo2,
         memNo3: ext.rentalNo3,
-        memNo4: ext.rentalNo4
+        memNo4: ext.rentalNo4,
+        allMemberNos: allNos
       };
     });
     printCertificatesPdf(certItems);
@@ -584,6 +651,23 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       return;
     }
 
+    // 동일 고객(동일 가입자)별로 라벨을 묶고 해당 가입자의 모든 회원번호를 수집
+    const customerLabelMap = new Map<string, { item: any; allNos: Set<string> }>();
+    selectedItems.forEach(item => {
+      const ext = getItemExtracted(item);
+      const cKey = item.customerKey || ext.customerKey || (ext.memName + '_' + ext.phone);
+      if (!customerLabelMap.has(cKey)) {
+        customerLabelMap.set(cKey, { item, allNos: new Set() });
+      }
+      const group = customerLabelMap.get(cKey)!;
+      const nos = ext.allMemNos || [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4];
+      nos.forEach((n: string) => { if (n) group.allNos.add(n); });
+      if (ext.allCustomerMemNos) {
+        ext.allCustomerMemNos.forEach((n: string) => { if (n) group.allNos.add(n); });
+      }
+    });
+
+    const uniqueLabelEntries = Array.from(customerLabelMap.values());
     const itemsPerPage = 16;
     let pagesHtml = '';
 
@@ -591,201 +675,208 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     const offset = Math.max(0, Math.min(15, labelStartPos - 1));
     
     // 전체 라벨 슬롯 배열 구성 (첫 페이지 offset 빈 공간 + 데이터 + 나머지 빈 공간)
-    const totalSlots: (any | null)[] = [];
+    const totalSlots: ({ item: any; memberNosStr: string } | null)[] = [];
     for (let i = 0; i < offset; i++) {
       totalSlots.push(null);
     }
-    selectedItems.forEach(item => totalSlots.push(item));
+    uniqueLabelEntries.forEach(entry => {
+      totalSlots.push({
+        item: entry.item,
+        memberNosStr: Array.from(entry.allNos).join(', ')
+      });
+    });
 
     for (let i = 0; i < totalSlots.length; i += itemsPerPage) {
       const pageItems = totalSlots.slice(i, i + itemsPerPage);
       let cellsHtml = '';
 
       for (let j = 0; j < 16; j++) {
-        const item = pageItems[j];
-        if (item) {
-          const ext = getItemExtracted(item);
-          cellsHtml += `
-            <div class="label-cell">
-              <div class="label-row-top">
-                <span class="label-header">받는 사람</span>
-                <span class="label-zip">${ext.zipCode || ''}</span>
-              </div>
-              <div class="label-address">${ext.address || ''}</div>
-              <div class="label-footer">
-                <span class="label-phone">${ext.phone || ''}</span>
-                <span class="label-name">${ext.memName || ''} <small>귀하</small></span>
-              </div>
-            </div>
-          `;
+        const slot = pageItems[j];
+        if (slot) {
+          const ext = getItemExtracted(slot.item);
+          cellsHtml += [
+            '<div class="label-cell">',
+            '  <div class="label-row-top">',
+            '    <span class="label-header">받는 사람</span>',
+            '    <span class="label-zip">' + (ext.zipCode || '') + '</span>',
+            '  </div>',
+            '  <div class="label-address">' + (ext.address || '') + '</div>',
+            '  <div class="label-nos" style="font-size: 8pt; color: #4b5563; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1mm;" title="' + slot.memberNosStr + '">',
+            '    회원번호: ' + slot.memberNosStr,
+            '  </div>',
+            '  <div class="label-footer">',
+            '    <span class="label-phone">' + (ext.phone || '') + '</span>',
+            '    <span class="label-name">' + (ext.memName || '') + ' <small>귀하</small></span>',
+            '  </div>',
+            '</div>'
+          ].join('\n');
         } else {
-          cellsHtml += `<div class="label-cell empty"></div>`;
+          cellsHtml += '<div class="label-cell empty"></div>';
         }
       }
 
-      pagesHtml += `<div class="label-page">${cellsHtml}</div>`;
+      pagesHtml += '<div class="label-page">' + cellsHtml + '</div>';
     }
 
-    const htmlContent = `
-      <html>
-        <head>
-          <title>라벨 인쇄 (99.1 x 33.9mm / 16칸)</title>
-          <style>
-            @page {
-              size: A4;
-              margin: 0;
-            }
-            body {
-              margin: 0;
-              padding: 0;
-              font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
-              background: #fff;
-              -webkit-print-color-adjust: exact;
-            }
-            .label-page {
-              width: 210mm;
-              height: 297mm;
-              box-sizing: border-box;
-              padding-top: 14mm;
-              padding-bottom: 10mm;
-              padding-left: 2.9mm;
-              padding-right: 8.9mm;
-              display: grid;
-              grid-template-columns: repeat(2, 99.1mm);
-              grid-template-rows: repeat(8, 33.9mm);
-              column-gap: 4.0mm;
-              row-gap: 0mm;
-              page-break-after: always;
-            }
-            .label-page:last-child {
-              page-break-after: avoid;
-            }
-            .label-cell {
-              box-sizing: border-box;
-              padding: 3mm 4mm;
-              display: flex;
-              flex-direction: column;
-              justify-content: space-between;
-              overflow: hidden;
-            }
-            .label-cell.empty {
-              visibility: hidden;
-            }
-            .label-row-top {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              border-bottom: 1px solid #999;
-              padding-bottom: 1mm;
-              margin-bottom: 1mm;
-            }
-            .label-header {
-              font-size: 9.5pt;
-              font-weight: bold;
-              color: #333;
-            }
-            .label-zip {
-              font-size: 10pt;
-              font-weight: bold;
-              color: #000;
-              letter-spacing: 0.5px;
-            }
-            .label-address {
-              font-size: 10pt;
-              line-height: 1.35;
-              color: #000;
-              word-break: break-all;
-              flex-grow: 1;
-              display: -webkit-box;
-              -webkit-line-clamp: 2;
-              -webkit-box-orient: vertical;
-              overflow: hidden;
-              margin-bottom: 1mm;
-              text-align: left;
-            }
-            .label-footer {
-              display: flex;
-              justify-content: space-between;
-              align-items: flex-end;
-              margin-top: auto;
-            }
-            .label-phone {
-              font-size: 9pt;
-              color: #444;
-              font-family: monospace;
-            }
-            .label-name {
-              font-size: 11pt;
-              font-weight: bold;
-              color: #000;
-            }
-            .label-name small {
-              font-size: 9pt;
-              font-weight: normal;
-              color: #333;
-              margin-left: 2px;
-            }
-            
-            @media screen {
-              body {
-                background: #f0f0f0;
-                padding: 20px;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 20px;
-              }
-              .label-page {
-                background: white;
-                box-shadow: 0 4px 10px rgba(0,0,0,0.15);
-                border-radius: 4px;
-              }
-              .label-cell {
-                border: 1px dashed #ccc;
-              }
-              .print-btn-container {
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                z-index: 1000;
-              }
-              .print-btn {
-                background: #10b981;
-                color: white;
-                border: none;
-                padding: 12px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                border-radius: 8px;
-                cursor: pointer;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-              }
-            }
-            @media print {
-              .print-btn-container {
-                display: none;
-              }
-              .label-cell {
-                border: none;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="print-btn-container">
-            <button class="print-btn" onclick="window.print()">인쇄하기 (Print)</button>
-          </div>
-          ${pagesHtml}
-          <script>
-            window.onload = function() {
-              setTimeout(function() {
-                window.print();
-              }, 300);
-            }
-          </script>
-        </body>
-      </html>
-    `;
+    const htmlContent = [
+      '<html>',
+      '  <head>',
+      '    <title>라벨 인쇄 (99.1 x 33.9mm / 16칸)</title>',
+      '    <style>',
+      '      @page {',
+      '        size: A4;',
+      '        margin: 0;',
+      '      }',
+      '      body {',
+      '        margin: 0;',
+      '        padding: 0;',
+      '        font-family: \'Malgun Gothic\', \'맑은 고딕\', sans-serif;',
+      '        background: #fff;',
+      '        -webkit-print-color-adjust: exact;',
+      '      }',
+      '      .label-page {',
+      '        width: 210mm;',
+      '        height: 297mm;',
+      '        box-sizing: border-box;',
+      '        padding-top: 14mm;',
+      '        padding-bottom: 10mm;',
+      '        padding-left: 2.9mm;',
+      '        padding-right: 8.9mm;',
+      '        display: grid;',
+      '        grid-template-columns: repeat(2, 99.1mm);',
+      '        grid-template-rows: repeat(8, 33.9mm);',
+      '        column-gap: 4.0mm;',
+      '        row-gap: 0mm;',
+      '        page-break-after: always;',
+      '      }',
+      '      .label-page:last-child {',
+      '        page-break-after: avoid;',
+      '      }',
+      '      .label-cell {',
+      '        box-sizing: border-box;',
+      '        padding: 3mm 4mm;',
+      '        display: flex;',
+      '        flex-direction: column;',
+      '        justify-content: space-between;',
+      '        overflow: hidden;',
+      '      }',
+      '      .label-cell.empty {',
+      '        visibility: hidden;',
+      '      }',
+      '      .label-row-top {',
+      '        display: flex;',
+      '        justify-content: space-between;',
+      '        align-items: center;',
+      '        border-bottom: 1px solid #999;',
+      '        padding-bottom: 1mm;',
+      '        margin-bottom: 1mm;',
+      '      }',
+      '      .label-header {',
+      '        font-size: 9.5pt;',
+      '        font-weight: bold;',
+      '        color: #333;',
+      '      }',
+      '      .label-zip {',
+      '        font-size: 10pt;',
+      '        font-weight: bold;',
+      '        color: #000;',
+      '        letter-spacing: 0.5px;',
+      '      }',
+      '      .label-address {',
+      '        font-size: 10pt;',
+      '        line-height: 1.35;',
+      '        color: #000;',
+      '        word-break: break-all;',
+      '        flex-grow: 1;',
+      '        display: -webkit-box;',
+      '        -webkit-line-clamp: 2;',
+      '        -webkit-box-orient: vertical;',
+      '        overflow: hidden;',
+      '        margin-bottom: 0.5mm;',
+      '        text-align: left;',
+      '      }',
+      '      .label-footer {',
+      '        display: flex;',
+      '        justify-content: space-between;',
+      '        align-items: flex-end;',
+      '        margin-top: auto;',
+      '      }',
+      '      .label-phone {',
+      '        font-size: 9pt;',
+      '        color: #444;',
+      '        font-family: monospace;',
+      '      }',
+      '      .label-name {',
+      '        font-size: 11pt;',
+      '        font-weight: bold;',
+      '        color: #000;',
+      '      }',
+      '      .label-name small {',
+      '        font-size: 9pt;',
+      '        font-weight: normal;',
+      '        color: #333;',
+      '        margin-left: 2px;',
+      '      }',
+      '      @media screen {',
+      '        body {',
+      '          background: #f0f0f0;',
+      '          padding: 20px;',
+      '          display: flex;',
+      '          flex-direction: column;',
+      '          align-items: center;',
+      '          gap: 20px;',
+      '        }',
+      '        .label-page {',
+      '          background: white;',
+      '          box-shadow: 0 4px 10px rgba(0,0,0,0.15);',
+      '          border-radius: 4px;',
+      '        }',
+      '        .label-cell {',
+      '          border: 1px dashed #ccc;',
+      '        }',
+      '        .print-btn-container {',
+      '          position: fixed;',
+      '          bottom: 20px;',
+      '          right: 20px;',
+      '          z-index: 1000;',
+      '        }',
+      '        .print-btn {',
+      '          background: #10b981;',
+      '          color: white;',
+      '          border: none;',
+      '          padding: 12px 24px;',
+      '          font-size: 14px;',
+      '          font-weight: bold;',
+      '          border-radius: 8px;',
+      '          cursor: pointer;',
+      '          box-shadow: 0 4px 6px rgba(0,0,0,0.1);',
+      '        }',
+      '      }',
+      '      @media print {',
+      '        .print-btn-container {',
+      '          display: none;',
+      '        }',
+      '        .label-cell {',
+      '          border: none;',
+      '        }',
+      '      }',
+      '    </style>',
+      '  </head>',
+      '  <body>',
+      '    <div class="print-btn-container">',
+      '      <button class="print-btn" onclick="window.print()">인쇄하기 (Print)</button>',
+      '    </div>',
+      '    ' + pagesHtml,
+      '    <script>',
+      '      window.onload = function() {',
+      '        setTimeout(function() {',
+      '          window.print();',
+      '        }, 300);',
+      '      }',
+      '    </script>',
+      '  </body>',
+      '</html>'
+    ].join('\n');
 
     printWindow.document.write(htmlContent);
     printWindow.document.close();
@@ -847,9 +938,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         // 로컬 상태에 새로 저장된 회원번호들을 추가해 즉시 음영 반영
         setDispatchedHistoryNos(prev => {
           const next = new Set(prev);
-          targetData.forEach(item => {
+                    targetData.forEach(item => {
             const ext = getItemExtracted(item);
-            [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].forEach(no => {
+            const allNos = (ext.allMemNos && ext.allMemNos.length > 0)
+              ? ext.allMemNos
+              : [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4];
+            allNos.forEach(no => {
               const cleanNo = String(no || '').trim().toUpperCase();
               if (cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL') {
                 next.add(cleanNo);
@@ -874,7 +968,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const handleExportExcel = () => {
     const excelData = processedData.map(item => {
       const ext = getItemExtracted(item);
+      const allNos = (ext.allMemNos && ext.allMemNos.length > 0)
+        ? ext.allMemNos
+        : [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].filter(Boolean);
+
       return {
+        '수령구분': getItemIsPost(item) ? '우편' : '모바일',
+        '발송구분': getItemIsDispatched(item) ? '발송완료' : '미발송',
         '회원명': ext.memName,
         '공란': '',
         '휴대폰번호': ext.phone,
@@ -891,7 +991,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         '*담당자전화번호': ext.empPhone,
         '회원번호2': ext.rentalNo2 || '',
         '회원번호3': ext.rentalNo3 || '',
-        '회원번호4': ext.rentalNo4 || ''
+        '회원번호4': ext.rentalNo4 || '',
+        '전체회원번호': allNos.join(', ')
       };
     });
 
@@ -988,7 +1089,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                 <div>
                   <h2 className="text-lg sm:text-xl font-black text-slate-800 tracking-tight">증서발송대장</h2>
                   <p className="text-[11px] sm:text-xs font-medium text-slate-400 mt-0.5">
-                    총 <span className="text-blue-600 font-bold">{processedData.length}</span>건의 데이터
+                    총 <span className="text-blue-600 font-bold">{processedData.length}</span>건 (미발송 <span className="text-rose-500 font-bold">{processedData.filter(i => !getItemIsDispatched(i)).length}</span>건 / 발송완료 <span className="text-emerald-600 font-bold">{processedData.filter(i => getItemIsDispatched(i)).length}</span>건)
                   </p>
                 </div>
               </div>
@@ -1177,9 +1278,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       onChange={(e) => setDispatchStatusFilter(e.target.value as any)}
                       className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-2xs"
                     >
+                      <option value="all">전체</option>
                       <option value="notSent">미발송</option>
                       <option value="sent">발송완료</option>
-                      <option value="all">전체</option>
                     </select>
                   </div>
 
@@ -1320,24 +1421,30 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                 {renderEditableCell(item, 'rentalNo4', ext.rentalNo4 || '', 'text-slate-600')}
                                 <td className="p-3 text-center whitespace-nowrap">
                                   <button
-                                    onClick={() => printCertificatesPdf([{
-                                      id: item.id,
-                                      memName: ext.memName,
-                                      phone: ext.phone,
-                                      memNo1: ext.memNo,
-                                      birthDate: ext.birthDate,
-                                      contractDate: ext.contractDate,
-                                      prodName: ext.prodName,
-                                      monthlyPay1: ext.monthlyPay1,
-                                      monthlyPay2: ext.monthlyPay2,
-                                      zipCode: ext.zipCode,
-                                      address: ext.address,
-                                      empName: ext.empName,
-                                      empPhone: ext.empPhone,
-                                      memNo2: ext.rentalNo2,
-                                      memNo3: ext.rentalNo3,
-                                      memNo4: ext.rentalNo4
-                                    }])}
+                                    onClick={() => {
+                                  const allNos = (ext.allMemNos && ext.allMemNos.length > 0)
+                                    ? ext.allMemNos
+                                    : [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].filter(Boolean);
+                                  printCertificatesPdf([{
+                                    id: item.id,
+                                    memName: ext.memName,
+                                    phone: ext.phone,
+                                    memNo1: ext.memNo,
+                                    birthDate: ext.birthDate,
+                                    contractDate: ext.contractDate,
+                                    prodName: ext.prodName,
+                                    monthlyPay1: ext.monthlyPay1,
+                                    monthlyPay2: ext.monthlyPay2,
+                                    zipCode: ext.zipCode,
+                                    address: ext.address,
+                                    empName: ext.empName,
+                                    empPhone: ext.empPhone,
+                                    memNo2: ext.rentalNo2,
+                                    memNo3: ext.rentalNo3,
+                                    memNo4: ext.rentalNo4,
+                                    allMemberNos: allNos
+                                  }]);
+                                }}
                                     className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-md text-[11px] font-bold transition-colors flex items-center gap-1 mx-auto"
                                     title="해당 회원만 단독 PDF 출력"
                                   >
