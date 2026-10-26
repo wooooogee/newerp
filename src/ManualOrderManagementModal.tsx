@@ -650,16 +650,26 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         dState = '발주완료';
       }
 
-      const certDate = (savedData?.installCertDate && savedData.installCertDate.trim()) 
-        ? savedData.installCertDate.trim() 
-        : (sheetMatch?.installCertDate || '');
-      let certMonth = (savedData?.installCertMonth && savedData.installCertMonth.trim()) 
-        ? savedData.installCertMonth.trim() 
-        : (sheetMatch?.installCertMonth || (certDate ? certDate.substring(0, 7) : ''));
-      if (!certMonth && certDate) {
-        certMonth = certDate.substring(0, 7);
+      let certDate = '';
+      let certMonth = '';
+      let certStatus: '등록' | '미등록' = '미등록';
+
+      if (savedData?.installCertStatus === '미등록' || dState === '발주취소') {
+        certStatus = '미등록';
+        certDate = '';
+        certMonth = '';
+      } else {
+        certDate = (savedData?.installCertDate && savedData.installCertDate.trim()) 
+          ? savedData.installCertDate.trim() 
+          : (sheetMatch?.installCertDate || '');
+        certMonth = (savedData?.installCertMonth && savedData.installCertMonth.trim()) 
+          ? savedData.installCertMonth.trim() 
+          : (sheetMatch?.installCertMonth || (certDate ? certDate.substring(0, 7) : ''));
+        if (!certMonth && certDate) {
+          certMonth = certDate.substring(0, 7);
+        }
+        certStatus = (savedData?.installCertStatus === '등록' || certDate || certMonth) ? '등록' : '미등록';
       }
-      const certStatus: '등록' | '미등록' = (savedData?.installCertStatus === '등록' || certDate || certMonth) ? '등록' : '미등록';
 
       list.push({
         uniqueKey: item.uniqueKey || `item-${contractNo}`,
@@ -709,22 +719,32 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : String(row[22] || '').trim();
         const explicitState = savedData?.deliveryState || (row[23] as DeliveryState);
 
-        const certDate = (savedData?.installCertDate && savedData.installCertDate.trim()) 
-          ? savedData.installCertDate.trim() 
-          : String(row[24] || '').trim();
-        let certMonth = (savedData?.installCertMonth && savedData.installCertMonth.trim()) 
-          ? savedData.installCertMonth.trim() 
-          : String(row[25] || (certDate ? certDate.substring(0, 7) : '')).trim();
-        if (!certMonth && certDate) {
-          certMonth = certDate.substring(0, 7);
-        }
-        const certStatus: '등록' | '미등록' = (savedData?.installCertStatus === '등록' || certDate || certMonth) ? '등록' : '미등록';
-
         let dState: DeliveryState = explicitState || '발주대기';
         if (!explicitState) {
           if (delDate.trim()) dState = '배송완료';
           else if (tracking.trim() || courier.trim()) dState = '배송중';
           else if (ordDate.trim()) dState = '발주완료';
+        }
+
+        let certDate = '';
+        let certMonth = '';
+        let certStatus: '등록' | '미등록' = '미등록';
+
+        if (savedData?.installCertStatus === '미등록' || dState === '발주취소') {
+          certStatus = '미등록';
+          certDate = '';
+          certMonth = '';
+        } else {
+          certDate = (savedData?.installCertDate && savedData.installCertDate.trim()) 
+            ? savedData.installCertDate.trim() 
+            : String(row[24] || '').trim();
+          certMonth = (savedData?.installCertMonth && savedData.installCertMonth.trim()) 
+            ? savedData.installCertMonth.trim() 
+            : String(row[25] || (certDate ? certDate.substring(0, 7) : '')).trim();
+          if (!certMonth && certDate) {
+            certMonth = certDate.substring(0, 7);
+          }
+          certStatus = (savedData?.installCertStatus === '등록' || certDate || certMonth) ? '등록' : '미등록';
         }
 
         list.push({
@@ -768,6 +788,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
     // 발주완료 시 발주일자만 자동 설정 (배송일/설치일은 수작업으로 직접 입력)
     if (nextState === '발주완료' && !curOrdDate.trim()) handleInputChange(contractNo, 'orderDate', today);
+    // 발주취소 시 설치확인서 자동 미등록 및 일자 초기화 연동
+    if (nextState === '발주취소') handleInputChange(contractNo, 'installCertStatus', '미등록');
   };
 
   const handleBulkStateChange = (targetState: DeliveryState) => {
@@ -794,6 +816,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
       if (targetState === '발주완료' && !curOrdDate.trim()) {
         handleInputChange(t.contractNo, 'orderDate', today);
+      }
+      if (targetState === '발주취소') {
+        handleInputChange(t.contractNo, 'installCertStatus', '미등록');
       }
     });
 
@@ -887,10 +912,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     });
   };
 
-  // 배송완료 건 중 설치확인서 미등록 건 목록
+  // 배송완료 건 중 설치확인서 미등록 건 목록 (취소/해약/철회 및 발주취소 건 제외)
   const unregisteredDeliveredOrders = useMemo(() => {
     return extractedOrders.filter((o) => {
       const state = getRowDeliveryState(o);
+      const isCancelled = 
+        o.status?.includes('취소') ||
+        o.status?.includes('해약') ||
+        o.status?.includes('반품') ||
+        o.status?.includes('철회') ||
+        state === '발주취소';
+      if (isCancelled) return false;
+
       const delDate = getFieldValue(o, 'deliveryDate');
       const isDelivered = state === '배송완료' || !!(delDate && delDate.trim());
       const certStatus = getFieldValue(o, 'installCertStatus');
@@ -1293,6 +1326,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         let newCertStatus = editedVal?.installCertStatus !== undefined ? editedVal.installCertStatus : (existing.installCertStatus ?? row.installCertStatus ?? '미등록');
         let newCertDate = editedVal?.installCertDate !== undefined ? editedVal.installCertDate : (existing.installCertDate ?? row.installCertDate ?? '');
         let newCertMonth = editedVal?.installCertMonth !== undefined ? editedVal.installCertMonth : (existing.installCertMonth ?? row.installCertMonth ?? (newCertDate ? newCertDate.substring(0, 7) : ''));
+
+        // 발주취소 상태이거나 확인서 상태가 '미등록'인 경우 확인서 일자 및 마감월을 확실하게 초기화
+        if (newDState === '발주취소' || newCertStatus === '미등록') {
+          newCertStatus = '미등록';
+          newCertDate = '';
+          newCertMonth = '';
+        }
 
         const valObj = {
           orderDate: newOrdDate,

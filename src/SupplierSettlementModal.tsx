@@ -457,6 +457,11 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       const effectiveDeliveryStatus = manualInfo?.deliveryState || item.deliveryStatus || '';
       const effectiveDeliveryDate = manualInfo?.deliveryDate || item.deliveryDate || '';
 
+      // 수기발주에서 배송상태가 '발주취소'이거나 '취소'인 경우 정산 대상에서 완전 제외
+      if (effectiveDeliveryStatus.includes('취소')) {
+        return;
+      }
+
       // 배송완료 상태여야 정산 대상
       if (!effectiveDeliveryStatus.includes('완료') && effectiveDeliveryStatus !== '배송완료') {
         return;
@@ -498,17 +503,29 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
       // 5. 설치확인서 등록 여부 및 마감월 정밀 판정
       const rawCertStatus = manualInfo?.installCertStatus;
-      const certDate = manualInfo?.installCertDate || richInfo?.certDate || '';
-      let certMonth = manualInfo?.installCertMonth || (certDate ? extractYearMonth(certDate) : '');
+      let certDate = '';
+      let certMonth = '';
+      let isCertRegistered = false;
 
-      // 보조 헬퍼 확인
-      const certEligibility = checkInstallCertEligibility(item, effectiveManualStores, manualOrderTargetProducts);
-      if (!certMonth && certEligibility?.certMonth) {
-        certMonth = certEligibility.certMonth;
+      if (rawCertStatus === '미등록') {
+        // 명시적으로 미등록 지정된 경우 무조건 미등록 확정
+        isCertRegistered = false;
+        certDate = '';
+        certMonth = '';
+      } else {
+        certDate = manualInfo?.installCertDate || richInfo?.certDate || '';
+        certMonth = manualInfo?.installCertMonth || (certDate ? extractYearMonth(certDate) : '');
+
+        // 보조 헬퍼 확인
+        const certEligibility = checkInstallCertEligibility(item, effectiveManualStores, manualOrderTargetProducts);
+        if (!certMonth && certEligibility?.certMonth) {
+          certMonth = certEligibility.certMonth;
+        }
+
+        isCertRegistered = (rawCertStatus === '등록' || !!certDate || !!certMonth) && !!certMonth;
       }
 
-      const isManualTarget = !!certEligibility?.isTargetOrder || isManualTargetProduct(item.prodName, item.rentalProd, manualOrderTargetProducts) || !!manualInfo;
-      const isCertRegistered = (rawCertStatus === '등록' || !!certDate || !!certMonth) && !!certMonth;
+      const isManualTarget = !!checkInstallCertEligibility(item, effectiveManualStores, manualOrderTargetProducts)?.isTargetOrder || isManualTargetProduct(item.prodName, item.rentalProd, manualOrderTargetProducts) || !!manualInfo;
       const finalCertStatus: '등록' | '미등록' = isCertRegistered ? '등록' : '미등록';
 
       // 6. 공급사 정산일 및 지급일자/지급월 계산

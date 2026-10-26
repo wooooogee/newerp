@@ -75,16 +75,35 @@ export function mergeManualOrderStores(
     const trackingNo = incoming.trackingNo?.trim() || existing.trackingNo || '';
     const deliveryState = incoming.deliveryState?.trim() || existing.deliveryState || '';
 
-    // ⭐ 설치확인서 관련 필드는 '등록' 상태나 유효한 날짜가 있는 쪽을 최우선으로 보존!
+    // 설치확인서 관련 필드 병합:
+    // 들어오는 쪽(incoming)에서 명시적으로 변경(등록 또는 미등록)한 경우 최우선 반영!
     let installCertStatus: '등록' | '미등록' = '미등록';
-    if (incoming.installCertStatus === '등록' || existing.installCertStatus === '등록') {
+    let installCertDate = '';
+    let installCertMonth = '';
+
+    if (incoming.installCertStatus === '미등록') {
+      // 사용자가 명시적으로 '미등록'으로 해제한 경우, 기존 등록값을 초기화
+      installCertStatus = '미등록';
+      installCertDate = '';
+      installCertMonth = '';
+    } else if (incoming.installCertStatus === '등록') {
       installCertStatus = '등록';
-    } else if (incoming.installCertDate || incoming.installCertMonth || existing.installCertDate || existing.installCertMonth) {
+      installCertDate = incoming.installCertDate?.trim() || existing.installCertDate || '';
+      installCertMonth = incoming.installCertMonth?.trim() || existing.installCertMonth || (installCertDate ? installCertDate.substring(0, 7) : '');
+    } else if (existing.installCertStatus === '미등록') {
+      installCertStatus = '미등록';
+      installCertDate = '';
+      installCertMonth = '';
+    } else if (existing.installCertStatus === '등록') {
       installCertStatus = '등록';
+      installCertDate = incoming.installCertDate?.trim() || existing.installCertDate || '';
+      installCertMonth = incoming.installCertMonth?.trim() || existing.installCertMonth || (installCertDate ? installCertDate.substring(0, 7) : '');
+    } else if (incoming.installCertDate || existing.installCertDate) {
+      installCertDate = incoming.installCertDate?.trim() || existing.installCertDate || '';
+      installCertMonth = incoming.installCertMonth?.trim() || existing.installCertMonth || (installCertDate ? installCertDate.substring(0, 7) : '');
+      installCertStatus = (installCertDate || installCertMonth) ? '등록' : '미등록';
     }
 
-    const installCertDate = incoming.installCertDate?.trim() || existing.installCertDate || '';
-    let installCertMonth = incoming.installCertMonth?.trim() || existing.installCertMonth || '';
     if (!installCertMonth && installCertDate) {
       installCertMonth = installCertDate.substring(0, 7);
     }
@@ -169,6 +188,28 @@ export function checkInstallCertEligibility(
   holdReason?: string;           // 보류 사유
 } {
   const manualInfo = getManualOrderInfo(item, manualOrderStores);
+
+  // 취소/해약/반품/철회 또는 발주취소 상태인 경우 수수료/수기발주 정산 대상에서 완전 제외
+  const isCancelled = 
+    item.status?.includes('취소') ||
+    item.status?.includes('해약') ||
+    item.status?.includes('반품') ||
+    item.status?.includes('철회') ||
+    item.deliveryStatus?.includes('취소') ||
+    manualInfo?.deliveryState === '발주취소' ||
+    manualInfo?.deliveryState?.includes('취소');
+
+  if (isCancelled) {
+    return {
+      isTargetOrder: false,
+      isCertRegistered: false,
+      certMonth: '',
+      expectedPayoutMonth: '',
+      isHold: false,
+      holdReason: '주문 취소/해약 건 (정산 제외)',
+    };
+  }
+
   const isTarget = isManualTargetProduct(item.prodName, item.rentalProd, targetProducts) || !!manualInfo;
 
   if (!isTarget) {
