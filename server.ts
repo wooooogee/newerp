@@ -4601,11 +4601,32 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
     const idxBranch = findIdx(['지사', '소속지사']);
     const idxEmp = findIdx(['사원', '사원명', '담당사원', '영업사원']);
 
-    // 고도화된 날짜 정규화 함수 (M/D/YY, M/D/YYYY, YYYY/MM/DD, 시리얼 넘버 등 전수 지원)
+    // 고도화된 날짜 정규화 함수 (M/D/YY, M/D/YYYY, YYYY/MM/DD, 시리얼 넘버 및 왜곡 패턴 전수 복원)
     const normalizeDateStr = (val: any): string => {
       if (val === null || val === undefined) return '';
       let str = String(val).trim();
       if (!str || str === '- -' || str === '-  -' || str === '-' || str === 'null' || str === 'undefined') return '';
+
+      // 0. 구글 시트 왜곡 패턴 복원: 미국식 M/D/YY를 시트가 년도로 오인하여 앞에 20 또는 200을 붙인 건
+      // 패턴 A: 2010/6/26, 2011/15/26, 2012/10/26 -> 월이 10, 11, 12월이고 앞에 20이 붙은 경우
+      const m2Digit = str.match(/^20(1[0-2])\/(\d{1,2})\/(\d{2})$/);
+      if (m2Digit) {
+        const month = m2Digit[1];
+        const day = m2Digit[2].padStart(2, '0');
+        const yy = parseInt(m2Digit[3], 10);
+        const year = yy >= 50 ? `19${m2Digit[3]}` : `20${m2Digit[3]}`;
+        return `${year}-${month}-${day}`;
+      }
+
+      // 패턴 B: 2001/D/YY ~ 2009/D/YY -> 월이 1~9월이고 앞에 200이 붙은 경우 (예: 2008/12/26 -> 2026-08-12)
+      const m1Digit = str.match(/^200([1-9])\/(\d{1,2})\/(\d{2})$/);
+      if (m1Digit) {
+        const month = m1Digit[1].padStart(2, '0');
+        const day = m1Digit[2].padStart(2, '0');
+        const yy = parseInt(m1Digit[3], 10);
+        const year = yy >= 50 ? `19${m1Digit[3]}` : `20${m1Digit[3]}`;
+        return `${year}-${month}-${day}`;
+      }
 
       // 1. 엑셀 시리얼 넘버
       if (/^\d{5}$/.test(str)) {
