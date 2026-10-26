@@ -229,35 +229,18 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       return '';
     }
 
-    // 0-A. 이전 왜곡으로 인해 2027년~2035년 미래 연도가 되어버린 건 복원 (예: 2028-10-04 -> 2010-04-28, 2029-08-09 -> 2008-09-29)
-    const mReversed = s.match(/^20([1-3]\d)[-/.](\d{2})[-/.](\d{2})$/);
-    if (mReversed) {
-      const curYY = parseInt(mReversed[1], 10);
-      const curMM = parseInt(mReversed[2], 10);
-      const curDD = parseInt(mReversed[3], 10);
-      if (curYY >= 27 && curMM >= 1 && curMM <= 25 && curDD >= 1 && curDD <= 12) {
-        const origYear = curMM < 10 ? `200${curMM}` : `20${curMM}`;
-        const origMonth = String(curDD).padStart(2, '0');
-        const origDay = String(curYY).padStart(2, '0');
-        return `${origYear}-${origMonth}-${origDay}`;
-      }
-    }
-
-    // 0-B. 구글 시트 2026년 계약 왜곡 패턴 복원: 뒤가 정확히 '26' (2026년 계약)인 건만 복원! (2010/6/26, 2008/12/26, 2009/15/26)
-    const mBroken26 = s.match(/^20(0[1-9]|1[0-2])[-/.](\d{1,2})[-/.]26$/);
-    if (mBroken26) {
-      const month = String(mBroken26[1]).padStart(2, '0');
-      const day = String(mBroken26[2]).padStart(2, '0');
-      return `2026-${month}-${day}`;
-    }
-
-    // 1. 이미 정상적인 YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD
+    // 1. 이미 정상적인 YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD (4자리 연도 우선 매칭하여 왜곡 원천 방지)
     const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
     if (mNorm) {
       return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
     }
 
-    // 4. 5자리 숫자 (엑셀 날짜 일련번호)
+    // 2. 8자리 숫자 YYYYMMDD
+    if (/^\d{8}$/.test(s)) {
+      return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+    }
+
+    // 3. 5자리 숫자 (엑셀 날짜 일련번호)
     if (/^\d{5}$/.test(s)) {
       const serial = parseInt(s, 10);
       if (serial >= 30000 && serial <= 60000) {
@@ -270,35 +253,20 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
       }
     }
 
-    // 5. 8자리 숫자 YYYYMMDD
-    if (/^\d{8}$/.test(s)) {
-      return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
-    }
-
-    // 6. M/D/YY (예: 10/6/26, 8/13/26, 11/17/10)
-    const mSlash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-    if (mSlash) {
-      const month = String(mSlash[1]).padStart(2, '0');
-      const day = String(mSlash[2]).padStart(2, '0');
-      const yy = parseInt(mSlash[3], 10);
-      const year = yy >= 50 ? `19${mSlash[3]}` : `20${mSlash[3]}`;
-      return `${year}-${month}-${day}`;
-    }
-
-    // 7. M/D/YYYY
-    const mSlash4 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (mSlash4) {
-      const month = String(mSlash4[1]).padStart(2, '0');
-      const day = String(mSlash4[2]).padStart(2, '0');
-      return `${mSlash4[3]}-${month}-${day}`;
-    }
-
-    // 8. YY-MM-DD
+    // 4. 한국식 2자리 연도 YY-MM-DD 또는 YY/MM/DD 또는 YY.MM.DD (예: 10/12/2, 22/10/5, 21/10/5)
     const mYY = s.match(/^(\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/);
     if (mYY) {
       const yy = parseInt(mYY[1], 10);
       const year = yy >= 50 ? `19${mYY[1]}` : `20${mYY[1]}`;
       return `${year}-${String(mYY[2]).padStart(2, '0')}-${String(mYY[3]).padStart(2, '0')}`;
+    }
+
+    // 5. M/D/YYYY (연도가 뒤에 4자리로 오는 경우)
+    const mSlash4 = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    if (mSlash4) {
+      const month = String(mSlash4[1]).padStart(2, '0');
+      const day = String(mSlash4[2]).padStart(2, '0');
+      return `${mSlash4[3]}-${month}-${day}`;
     }
 
     // 9. Date 파싱 가능한 문자열

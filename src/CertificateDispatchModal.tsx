@@ -26,33 +26,25 @@ export function getCustomerKey(memName: string, phone: string, resNo: string): s
 export function normalizeContractDate(val: any): string {
   if (!val) return '';
   const s = String(val).trim();
-  if (!s || s === '-' || s === '- -') return '';
+  if (!s || s === '-' || s === '- -' || s === '-  -' || s === 'null' || s === 'undefined' || s.startsWith('###')) return '';
 
-  // 1. 2009-MM-26 또는 2009/M/26 (구글 시트 로캘 오변환: 원래 2026-09-MM)
-  const m2009 = s.match(/^2009[-/](\d{1,2})[-/]26$/);
-  if (m2009) {
-    const day = String(m2009[1]).padStart(2, '0');
-    return `2026-09-${day}`;
-  }
-
-  // 2. M/D/26 또는 MM/DD/26 (미국식 M/D/YY 포맷)
-  const mUS = s.match(/^(\d{1,2})\/(\d{1,2})\/26$/);
-  if (mUS) {
-    const month = String(mUS[1]).padStart(2, '0');
-    const day = String(mUS[2]).padStart(2, '0');
-    return `2026-${month}-${day}`;
-  }
-
-  // 3. YYYY/M/D 또는 YYYY.M.D 또는 YYYY-M-D
+  // 1. 일반 표준 날짜: YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD (4자리 연도 우선)
   const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (mNorm) {
     return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
   }
 
-  // 4. YY-MM-DD (26-09-XX)
-  const mYY = s.match(/^26[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  // 2. 8자리 숫자 YYYYMMDD
+  if (/^\d{8}$/.test(s)) {
+    return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  }
+
+  // 3. 한국식 2자리 연도 YY-MM-DD 또는 YY/MM/DD 또는 YY.MM.DD (예: 10/12/2, 22/10/5, 26/09/08)
+  const mYY = s.match(/^(\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (mYY) {
-    return `2026-${String(mYY[1]).padStart(2, '0')}-${String(mYY[2]).padStart(2, '0')}`;
+    const yy = parseInt(mYY[1], 10);
+    const year = yy >= 50 ? `19${mYY[1]}` : `20${mYY[1]}`;
+    return `${year}-${String(mYY[2]).padStart(2, '0')}-${String(mYY[3]).padStart(2, '0')}`;
   }
 
   return s;

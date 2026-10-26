@@ -3117,7 +3117,7 @@ function formatPhoneSync(p: any): string {
 }
 
 function formatDateToYMD(d: any): string {
-  if (!d) return "";
+  if (d === null || d === undefined) return "";
   if (d instanceof Date) {
     if (isNaN(d.getTime())) return "";
     const y = d.getFullYear();
@@ -3129,35 +3129,18 @@ function formatDateToYMD(d: any): string {
   const s = String(d).trim();
   if (!s || s === '-' || s === '- -' || s === '-  -' || s === 'null' || s === 'undefined' || s.startsWith('###')) return "";
 
-  // 0-A. 이전 왜곡으로 인해 2027년~2035년 미래 연도가 되어버린 건 복원 (예: 2028-10-04 -> 2010-04-28, 2029-08-09 -> 2008-09-29)
-  const mReversed = s.match(/^20([1-3]\d)[-/.](\d{2})[-/.](\d{2})$/);
-  if (mReversed) {
-    const curYY = parseInt(mReversed[1], 10);
-    const curMM = parseInt(mReversed[2], 10);
-    const curDD = parseInt(mReversed[3], 10);
-    if (curYY >= 27 && curMM >= 1 && curMM <= 25 && curDD >= 1 && curDD <= 12) {
-      const origYear = curMM < 10 ? `200${curMM}` : `20${curMM}`;
-      const origMonth = String(curDD).padStart(2, '0');
-      const origDay = String(curYY).padStart(2, '0');
-      return `${origYear}-${origMonth}-${origDay}`;
-    }
-  }
-
-  // 0-B. 구글 시트 2026년 계약 왜곡 패턴 복원: 뒤가 정확히 '26' (2026년 계약)인 건만 복원! (예: 2010/6/26, 2008/12/26, 2009/15/26)
-  const mBroken26 = s.match(/^20(0[1-9]|1[0-2])[-/.](\d{1,2})[-/.]26$/);
-  if (mBroken26) {
-    const month = String(mBroken26[1]).padStart(2, '0');
-    const day = String(mBroken26[2]).padStart(2, '0');
-    return `2026-${month}-${day}`;
-  }
-
-  // 1. 일반 표준 날짜: YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD
+  // 1. 일반 표준 날짜: YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD (4자리 연도 우선 매칭하여 왜곡 원천 방지)
   const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (mNorm) {
     return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
   }
 
-  // 2. 5자리 숫자 (엑셀 시리얼 넘버)
+  // 2. 8자리 숫자 YYYYMMDD
+  if (/^\d{8}$/.test(s)) {
+    return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  }
+
+  // 3. 5자리 숫자 (엑셀 시리얼 넘버)
   if (/^\d{5}$/.test(s)) {
     const serial = parseInt(s, 10);
     if (serial >= 30000 && serial <= 60000) {
@@ -3170,35 +3153,20 @@ function formatDateToYMD(d: any): string {
     }
   }
 
-  // 3. 8자리 숫자 YYYYMMDD
-  if (/^\d{8}$/.test(s)) {
-    return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
-  }
-
-  // 5. M/D/YY (예: 6/22/26, 11/17/10, 10/1/26)
-  const mSlash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-  if (mSlash) {
-    const month = String(mSlash[1]).padStart(2, '0');
-    const day = String(mSlash[2]).padStart(2, '0');
-    const yy = parseInt(mSlash[3], 10);
-    const year = yy >= 50 ? `19${mSlash[3]}` : `20${mSlash[3]}`;
-    return `${year}-${month}-${day}`;
-  }
-
-  // 6. M/D/YYYY
-  const mSlash4 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (mSlash4) {
-    const month = String(mSlash4[1]).padStart(2, '0');
-    const day = String(mSlash4[2]).padStart(2, '0');
-    return `${mSlash4[3]}-${month}-${day}`;
-  }
-
-  // 7. YY-MM-DD
+  // 4. 한국식 2자리 연도 YY-MM-DD 또는 YY/MM/DD 또는 YY.MM.DD (예: 10/12/2, 22/10/5, 21/10/5)
   const mYY = s.match(/^(\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (mYY) {
     const yy = parseInt(mYY[1], 10);
     const year = yy >= 50 ? `19${mYY[1]}` : `20${mYY[1]}`;
     return `${year}-${String(mYY[2]).padStart(2, '0')}-${String(mYY[3]).padStart(2, '0')}`;
+  }
+
+  // 5. M/D/YYYY (연도가 뒤에 4자리로 오는 경우)
+  const mSlash4 = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (mSlash4) {
+    const month = String(mSlash4[1]).padStart(2, '0');
+    const day = String(mSlash4[2]).padStart(2, '0');
+    return `${mSlash4[3]}-${month}-${day}`;
   }
 
   const dt = new Date(s);
@@ -4913,69 +4881,8 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
     const idxBranch = findIdx(['지사', '소속지사']);
     const idxEmp = findIdx(['사원', '사원명', '담당사원', '영업사원']);
 
-    // 고도화된 날짜 정규화 함수 (M/D/YY, M/D/YYYY, YYYY/MM/DD, 시리얼 넘버 및 왜곡 패턴 전수 복원)
-    const normalizeDateStr = (val: any): string => {
-      if (val === null || val === undefined) return '';
-      let str = String(val).trim();
-      if (!str || str === '- -' || str === '-  -' || str === '-' || str === 'null' || str === 'undefined' || str.startsWith('###')) return '';
-
-      // 0-A. 이전 왜곡으로 인해 2027년~2035년 미래 연도가 되어버린 건 복원 (예: 2028-10-04 -> 2010-04-28, 2029-08-09 -> 2008-09-29)
-      const mReversed = str.match(/^20([1-3]\d)[-/.](\d{2})[-/.](\d{2})$/);
-      if (mReversed) {
-        const curYY = parseInt(mReversed[1], 10);
-        const curMM = parseInt(mReversed[2], 10);
-        const curDD = parseInt(mReversed[3], 10);
-        if (curYY >= 27 && curMM >= 1 && curMM <= 25 && curDD >= 1 && curDD <= 12) {
-          const origYear = curMM < 10 ? `200${curMM}` : `20${curMM}`;
-          const origMonth = String(curDD).padStart(2, '0');
-          const origDay = String(curYY).padStart(2, '0');
-          return `${origYear}-${origMonth}-${origDay}`;
-        }
-      }
-
-      // 0-B. 구글 시트 2026년 계약 왜곡 패턴 복원: 뒤가 정확히 '26' (2026년 계약)인 건만 복원! (2010/6/26, 2008/12/26, 2009/15/26)
-      const mBroken26 = str.match(/^20(0[1-9]|1[0-2])[-/.](\d{1,2})[-/.]26$/);
-      if (mBroken26) {
-        const month = String(mBroken26[1]).padStart(2, '0');
-        const day = String(mBroken26[2]).padStart(2, '0');
-        return `2026-${month}-${day}`;
-      }
-
-      // 1. 일반 표준 날짜: YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD
-      const m4 = str.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
-      if (m4) {
-        return `${m4[1]}-${m4[2].padStart(2, '0')}-${m4[3].padStart(2, '0')}`;
-      }
-
-      // 4. M/D/YY or MM/DD/YY (예: 6/22/26, 11/17/10, 10/1/26)
-      const mSlash = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-      if (mSlash) {
-        const month = mSlash[1].padStart(2, '0');
-        const day = mSlash[2].padStart(2, '0');
-        const yy = parseInt(mSlash[3], 10);
-        const year = yy >= 50 ? `19${mSlash[3]}` : `20${mSlash[3]}`;
-        return `${year}-${month}-${day}`;
-      }
-
-      // 5. M/D/YYYY or MM/DD/YYYY
-      const mSlash4 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (mSlash4) {
-        const month = mSlash4[1].padStart(2, '0');
-        const day = mSlash4[2].padStart(2, '0');
-        const year = mSlash4[3];
-        return `${year}-${month}-${day}`;
-      }
-
-      // 6. YY-MM-DD, YY.MM.DD, YY/MM/DD (예: 22/10/5, 26/05/10)
-      const m2 = str.match(/^(\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/);
-      if (m2) {
-        const yy = parseInt(m2[1], 10);
-        const year = yy >= 50 ? `19${m2[1]}` : `20${m2[1]}`;
-        return `${year}-${m2[2].padStart(2, '0')}-${m2[3].padStart(2, '0')}`;
-      }
-
-      return str;
-    };
+    // 표준 날짜 정규화 함수
+    const normalizeDateStr = (val: any): string => formatDateToYMD(val);
 
     const parseNum = (val: any): number => {
       if (val === null || val === undefined) return 0;
