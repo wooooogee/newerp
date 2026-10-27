@@ -25,6 +25,64 @@ app.use(express.json({ limit: '50mb' }));
 const COOKIE_SECRET = process.env.COOKIE_SECRET || 'erp-secret-key-1234';
 app.use(cookieParser(COOKIE_SECRET));
 
+// --- 실시간 전산 데이터 버전 관리 (F5 없는 자동 동기화용) ---
+let latestDataVersion = Date.now();
+const DATA_VERSION_PATH = isServerless 
+  ? path.join('/tmp', '.data_version.json') 
+  : path.join(process.cwd(), 'data', '.data_version.json');
+
+try {
+  if (fs.existsSync(DATA_VERSION_PATH)) {
+    const raw = fs.readFileSync(DATA_VERSION_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed.version) latestDataVersion = Number(parsed.version);
+  }
+} catch (e) {}
+
+export const markDataUpdated = () => {
+  latestDataVersion = Date.now();
+  try {
+    const dir = path.dirname(DATA_VERSION_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(DATA_VERSION_PATH, JSON.stringify({ version: latestDataVersion, updatedAt: new Date().toISOString() }), 'utf-8');
+  } catch (e) {}
+};
+
+// 전산 데이터 변경(POST/PUT/DELETE/PATCH) 감지 자동 미들웨어
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    if (req.path.startsWith('/api/sheets') && !req.path.includes('/sync-cache') && !req.path.includes('/decrypt')) {
+      res.on('finish', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          markDataUpdated();
+        }
+      });
+    }
+  }
+  next();
+});
+
+// 경량 데이터 버전 확인 엔드포인트 (구글 API 할당량 소모 없음, 1ms 응답)
+app.get('/api/system/data-version', (req, res) => {
+  try {
+    if (fs.existsSync(DATA_VERSION_PATH)) {
+      const raw = fs.readFileSync(DATA_VERSION_PATH, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed.version && Number(parsed.version) > latestDataVersion) {
+        latestDataVersion = Number(parsed.version);
+      }
+    }
+  } catch (e) {}
+
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.json({
+    version: latestDataVersion,
+    timestamp: Date.now()
+  });
+});
+
 app.get('/api/debug/cache', (req, res) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sheetsCache = (global as any).sheetsCache || new Map();
@@ -7656,7 +7714,8 @@ async function start() {
             '**/.google_tokens.json',
             '**/token.json',
             '**/*.log',
-            '**/.system_generated/**'
+            '**/.system_generated/**',
+            '**/.data_version.json'
           ],
         },
       },

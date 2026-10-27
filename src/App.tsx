@@ -2348,8 +2348,14 @@ const ERP_Dashboard = () => {
     }
   };
 
-  const loadData = async () => {
-    setLoading(true);
+  // 🔄 백그라운드 자동 동기화용 참조 변수 (창 포커스 및 경량 주기 체크)
+  const lastDataVersionRef = useRef<number>(0);
+  const lastSyncCheckTimeRef = useRef<number>(Date.now());
+  const lastDataLoadedTimeRef = useRef<number>(Date.now());
+  const isSyncingRef = useRef<boolean>(false);
+
+  const loadData = async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
     try {
       if (!isAuthenticated) {
         // Mock data if not authenticated for preview
@@ -2757,14 +2763,38 @@ const ERP_Dashboard = () => {
 
       setData(finalData);
       setLastUpdate(new Date().toLocaleString('ko-KR', { hour12: false }));
+      lastDataLoadedTimeRef.current = Date.now();
+
+      // 상세 모달이 열려 있는 경우 선택 항목도 최신 데이터로 동기화
+      if (selectedItem) {
+        setSelectedItem(prev => {
+          if (!prev) return null;
+          const fresh = finalData.find(d => d.uniqueKey === prev.uniqueKey || (prev.memNo && d.memNo === prev.memNo));
+          return fresh || prev;
+        });
+      }
+
+      // 최신 서버 데이터 버전 갱신 (중복 동기화 방지)
+      fetch(`/api/system/data-version?t=${Date.now()}`, { cache: 'no-store' })
+        .then(r => r.json())
+        .then(v => {
+          if (v && v.version) {
+            lastDataVersionRef.current = Number(v.version);
+          }
+        })
+        .catch(() => {});
     } catch (error: any) {
       console.error('Load fail:', error);
-      const msg = error.message.includes('unauthorized_client')
-        ? '인증 오류: Client ID/Secret를 확인하고 로그아웃 후 다시 연동해 주세요.'
-        : '데이터 로드에 실패했습니다. 구글 시트 ID와 권한을 확인해 주세요.';
-      setNotification({ message: msg, type: 'info' });
+      if (!isSilent) {
+        const msg = error.message.includes('unauthorized_client')
+          ? '인증 오류: Client ID/Secret를 확인하고 로그아웃 후 다시 연동해 주세요.'
+          : '데이터 로드에 실패했습니다. 구글 시트 ID와 권한을 확인해 주세요.';
+        setNotification({ message: msg, type: 'info' });
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -2785,6 +2815,77 @@ const ERP_Dashboard = () => {
       }
     }
   }, [isAuthenticated, currentUser]);
+
+  // 🔄 [F5 없는 자동 동기화] 창 활성화(포커스) 감지 + 주기적 경량 변경 체크 (안내 메시지/깜빡임 없이 무음 갱신)
+  useEffect(() => {
+    if (!currentUser || !isAuthenticated) return;
+
+    // 초기 서버 버전 번호 로드
+    fetch(`/api/system/data-version?t=${Date.now()}`, { cache: 'no-store' })
+      .then(res => res.json())
+      .then(data => {
+        if (data?.version) lastDataVersionRef.current = Number(data.version);
+      })
+      .catch(() => {});
+
+    // 백그라운드 경량 버전 체크 및 조용한 자동 동기화 함수
+    const checkAndSync = async () => {
+      if (isSyncingRef.current) return;
+      const now = Date.now();
+
+      // 너무 잦은 API 호출 방지 (최소 5초 쿨타임)
+      if (now - lastSyncCheckTimeRef.current < 5000) return;
+      lastSyncCheckTimeRef.current = now;
+
+      try {
+        isSyncingRef.current = true;
+        const res = await fetch(`/api/system/data-version?t=${now}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store' }
+        });
+
+        if (res.ok) {
+          const { version } = await res.json();
+          const serverVersion = Number(version || 0);
+
+          // 1) 다른 사용자가 전산 데이터를 수정한 경우 (서버 버전이 더 높음)
+          // 2) 또는 마지막 로드 후 5분 이상 경과한 뒤 창에 복귀한 경우 (구글 시트 웹 직접 수정 대비)
+          const isStale = (now - lastDataLoadedTimeRef.current) > 5 * 60 * 1000;
+          if (serverVersion > lastDataVersionRef.current || isStale) {
+            if (serverVersion) lastDataVersionRef.current = serverVersion;
+            await loadData(true); // isSilent=true: 안내 메시지나 로딩 깜빡임 없이 무음 갱신
+          }
+        }
+      } catch (err) {
+        // 무음 처리
+      } finally {
+        isSyncingRef.current = false;
+      }
+    };
+
+    // 1. 주기적 경량 체크 (30초 주기, 현재 탭이 보일 때만 실행하여 트래픽/배터리 절약)
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        checkAndSync();
+      }
+    }, 30000);
+
+    // 2. 창 활성화(Focus) / 다른 프로그램이나 탭에서 전산 화면으로 복귀 시 즉시 체크
+    const handleFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        checkAndSync();
+      }
+    };
+
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+    };
+  }, [currentUser, isAuthenticated]);
 
   // 일괄 업데이트 기능 (지급완료/취소 등) - 회원번호 실시간 보정 지원
   const batchUpdateCells = async (updates: { rowIdx: number, colIdx: number, newValue: string, expectedMemNo?: string, expectedRentalNo?: string }[]) => {
