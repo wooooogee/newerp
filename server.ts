@@ -7201,12 +7201,33 @@ app.get('/api/sheets/cancel-records', async (req, res) => {
     const targetSheetTitle = cancelSheet.properties?.title || '취소및해약';
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: `${targetSheetTitle}!A:S`,
+      range: `${targetSheetTitle}!A:T`,
     });
 
     const rows = response.data.values || [];
     const headerRow = rows[0] || [];
     const hasSangjoCol = headerRow.some((h: string) => String(h).includes('최초납입일'));
+    const hasProcessedAtCol = headerRow.some((h: string) => String(h).includes('처리일시'));
+
+    // 처리일시 헤더가 없으면 A1:T1 헤더 자동 업데이트
+    if (!hasProcessedAtCol && rows.length > 0) {
+      try {
+        const fullHeaders = [
+          '접수ID', '접수일시', '처리상태', '취소접수처', '가입상태변경',
+          '계약일자', '가입상태', '렌탈계약번호', '회원명', '회원번호',
+          '상품명', '제품명', '본부', '지사', '사원명',
+          '최초납입일(상조)', '렌탈출금일', '특이사항', '접수자', '처리일시'
+        ];
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: sheetId,
+          range: `${targetSheetTitle}!A1:T1`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [fullHeaders] }
+        });
+      } catch (e) {
+        console.warn('취소및해약 헤더 자동 갱신 실패:', e);
+      }
+    }
 
     const records = [];
     for (let i = 1; i < rows.length; i++) {
@@ -7216,8 +7237,11 @@ app.get('/api/sheets/cancel-records', async (req, res) => {
           id, createdAt, processStatus, receiptType, targetStatus,
           contractDate, statusBefore, rentalNo, memName, memNo,
           prodName, rentalProd, hq, branch, empName,
-          firstPayDateSangjo, rentalWithdrawDate, notes, operator
+          firstPayDateSangjo, rentalWithdrawDate, notes, operator,
+          rawProcessedAt
         ] = row;
+
+        const effectiveProcessedAt = rawProcessedAt || (processStatus && processStatus !== '접수중' ? (createdAt || '') : '');
 
         if (id || rentalNo || memName) {
           records.push({
@@ -7240,6 +7264,7 @@ app.get('/api/sheets/cancel-records', async (req, res) => {
             rentalWithdrawDate: rentalWithdrawDate || '',
             notes: notes || '',
             operator: operator || '',
+            processedAt: effectiveProcessedAt,
             rowIdx: i + 1
           });
         }
@@ -7247,8 +7272,11 @@ app.get('/api/sheets/cancel-records', async (req, res) => {
         const [
           id, createdAt, processStatus, receiptType, targetStatus,
           contractDate, statusBefore, rentalNo, memName, memNo,
-          prodName, rentalProd, hq, branch, empName, notes, operator
+          prodName, rentalProd, hq, branch, empName, notes, operator,
+          rawProcessedAt
         ] = row;
+
+        const effectiveProcessedAt = rawProcessedAt || (processStatus && processStatus !== '접수중' ? (createdAt || '') : '');
 
         if (id || rentalNo || memName) {
           records.push({
@@ -7271,6 +7299,7 @@ app.get('/api/sheets/cancel-records', async (req, res) => {
             rentalWithdrawDate: '',
             notes: notes || '',
             operator: operator || '',
+            processedAt: effectiveProcessedAt,
             rowIdx: i + 1
           });
         }
@@ -7312,7 +7341,7 @@ app.post('/api/sheets/cancel-records', async (req, res) => {
       '접수ID', '접수일시', '처리상태', '취소접수처', '가입상태변경',
       '계약일자', '가입상태', '렌탈계약번호', '회원명', '회원번호',
       '상품명', '제품명', '본부', '지사', '사원명',
-      '최초납입일(상조)', '렌탈출금일', '특이사항', '접수자'
+      '최초납입일(상조)', '렌탈출금일', '특이사항', '접수자', '처리일시'
     ];
 
     if (!cancelSheet) {
@@ -7356,16 +7385,16 @@ app.post('/api/sheets/cancel-records', async (req, res) => {
         requestBody: { values: [headers] }
       });
     } else {
-      // 만약 기존 시트에 최초납입일 헤더가 없으면 첫 행 헤더 업데이트
+      // 만약 기존 시트에 최초납입일/처리일시 헤더가 없으면 첫 행 헤더 업데이트
       const curHeaderRes = await sheets.spreadsheets.values.get({
         spreadsheetId: sheetId,
-        range: `${targetSheetTitle}!A1:S1`,
+        range: `${targetSheetTitle}!A1:T1`,
       });
       const curHeader = curHeaderRes.data.values?.[0] || [];
-      if (!curHeader.some((h: string) => String(h).includes('최초납입일'))) {
+      if (!curHeader.some((h: string) => String(h).includes('처리일시'))) {
         await sheets.spreadsheets.values.update({
           spreadsheetId: sheetId,
-          range: `${targetSheetTitle}!A1:S1`,
+          range: `${targetSheetTitle}!A1:T1`,
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: [headers] }
         });
@@ -7387,6 +7416,8 @@ app.post('/api/sheets/cancel-records', async (req, res) => {
 
       const id = item.id || `CNCL-${Date.now()}-${idx + 1}`;
       const createdAt = item.createdAt || kstTime;
+      const isCompleted = item.processStatus && item.processStatus !== '접수중';
+      const processedAt = item.processedAt || (isCompleted ? (item.createdAt || kstTime) : '');
 
       return [
         id,
@@ -7407,7 +7438,8 @@ app.post('/api/sheets/cancel-records', async (req, res) => {
         item.firstPayDateSangjo || '',
         item.rentalWithdrawDate || '',
         item.notes || '',
-        item.operator || ''
+        item.operator || '',
+        processedAt
       ];
     });
 
@@ -7481,14 +7513,32 @@ app.post('/api/sheets/cancel-records/update-status', async (req, res) => {
       return res.status(404).json({ error: '해당 ID의 레코드를 찾을 수 없습니다.' });
     }
 
-    await sheets.spreadsheets.values.update({
+    const now = new Date();
+    const kstTime = new Intl.DateTimeFormat('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Seoul'
+    }).format(now).replace(/\. /g, '-').replace('.', '');
+
+    const processedAtVal = newStatus === '접수중' ? '' : kstTime;
+
+    await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: sheetId,
-      range: `${targetSheetTitle}!C${targetRow}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [[newStatus]] }
+      requestBody: {
+        valueInputOption: 'USER_ENTERED',
+        data: [
+          { range: `${targetSheetTitle}!C${targetRow}`, values: [[newStatus]] },
+          { range: `${targetSheetTitle}!T${targetRow}`, values: [[processedAtVal]] }
+        ]
+      }
     });
 
-    res.json({ success: true, updatedRow: targetRow });
+    res.json({ success: true, updatedRow: targetRow, processedAt: processedAtVal });
   } catch (error: any) {
     console.error('[Cancel Records Update Status Error]', error);
     return handleGoogleError(error, res);
@@ -7500,7 +7550,7 @@ app.post('/api/sheets/cancel-records/batch-update-status', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
 
-  const { updates } = req.body as { updates: { id: string; newStatus: string }[] };
+  const { updates } = req.body as { updates: { id: string; newStatus: string; processedAt?: string }[] };
   if (!updates || !Array.isArray(updates) || updates.length === 0) {
     return res.status(400).json({ error: '필수 파라미터가 누락되었습니다.' });
   }
@@ -7532,6 +7582,18 @@ app.post('/api/sheets/cancel-records/batch-update-status', async (req, res) => {
       }
     }
 
+    const now = new Date();
+    const kstTime = new Intl.DateTimeFormat('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Seoul'
+    }).format(now).replace(/\. /g, '-').replace('.', '');
+
     const batchData: any[] = [];
     for (const update of updates) {
       const rowNum = idToRowMap.get(update.id);
@@ -7539,6 +7601,11 @@ app.post('/api/sheets/cancel-records/batch-update-status', async (req, res) => {
         batchData.push({
           range: `${targetSheetTitle}!C${rowNum}`,
           values: [[update.newStatus]]
+        });
+        const processedAtVal = update.newStatus === '접수중' ? '' : (update.processedAt || kstTime);
+        batchData.push({
+          range: `${targetSheetTitle}!T${rowNum}`,
+          values: [[processedAtVal]]
         });
       }
     }

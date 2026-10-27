@@ -26,6 +26,10 @@ export interface ERPDataItem {
   empName: string;        
   status: string;         
   raw: any[];
+  cancelProcessedAt?: string; // 취소/해약 처리일시
+  cancelCreatedAt?: string;   // 접수일시
+  cancelReceiptType?: string; // 취소접수처
+  cancelProcessStatus?: string;
 }
 
 export interface CancelRecord {
@@ -48,6 +52,7 @@ export interface CancelRecord {
   rentalWithdrawDate?: string;
   notes: string;
   operator?: string;
+  processedAt?: string; // 취소/해약 처리일시
   rowIdx?: number;
 }
 
@@ -553,6 +558,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       const newRecord: CancelRecord = {
         id: `CNCL-${Date.now()}`,
         createdAt: kstTime,
+        processedAt: kstTime, // 관리자 즉시 처리일시 반영
         processStatus: `${targetStatus}완료`,
         receiptType,
         targetStatus,
@@ -656,9 +662,22 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         await onBatchUpdateCells(updates);
       }
 
+      const now = new Date();
+      const kstTime = new Intl.DateTimeFormat('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Seoul'
+      }).format(now).replace(/\. /g, '-').replace('.', '');
+
       const statusUpdates = targetRecords.map(r => ({
         id: r.id,
-        newStatus: `${targetStatus}완료`
+        newStatus: `${targetStatus}완료`,
+        processedAt: kstTime
       }));
 
       await fetch('/api/sheets/cancel-records/batch-update-status', {
@@ -697,9 +716,22 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
     setIsBatchProcessing(true);
     try {
+      const now = new Date();
+      const kstTime = new Intl.DateTimeFormat('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Seoul'
+      }).format(now).replace(/\. /g, '-').replace('.', '');
+
       const statusUpdates = targetRecords.map(r => ({
         id: r.id,
-        newStatus: '방어성공'
+        newStatus: '방어성공',
+        processedAt: kstTime
       }));
 
       await fetch('/api/sheets/cancel-records/batch-update-status', {
@@ -830,8 +862,82 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       });
     }
 
-    return temp.sort((a, b) => b.contractDate.localeCompare(a.contractDate));
-  }, [data, type, month, searchTerm, viewAllMonths, manualOrderFilter, targetProducts]);
+    // 취소/해약 구글시트 연동 매칭 맵 (렌탈번호 및 회원번호 매칭)
+    const cancelMapByRentalNo = new Map<string, CancelRecord>();
+    const cancelMapByMemNo = new Map<string, CancelRecord>();
+
+    cancelRecords.forEach(r => {
+      const rNo = (r.rentalNo || '').trim();
+      const pTime = r.processedAt || (r.processStatus !== '접수중' ? r.createdAt : '') || '';
+      if (rNo) {
+        const exist = cancelMapByRentalNo.get(rNo);
+        const existTime = exist ? (exist.processedAt || (exist.processStatus !== '접수중' ? exist.createdAt : '') || '') : '';
+        if (!exist || pTime.localeCompare(existTime) > 0) {
+          cancelMapByRentalNo.set(rNo, r);
+        }
+      }
+      const memNos = (r.memNo || '').split(',').map(s => s.trim()).filter(Boolean);
+      memNos.forEach(m => {
+        const exist = cancelMapByMemNo.get(m);
+        const existTime = exist ? (exist.processedAt || (exist.processStatus !== '접수중' ? exist.createdAt : '') || '') : '';
+        if (!exist || pTime.localeCompare(existTime) > 0) {
+          cancelMapByMemNo.set(m, r);
+        }
+      });
+    });
+
+    const enrichedItems: ERPDataItem[] = temp.map(item => {
+      const rentalKey = (item.rentalNo || '').trim();
+      let matchedRecord = rentalKey ? cancelMapByRentalNo.get(rentalKey) : undefined;
+      if (!matchedRecord && item.memNo) {
+        const mList = item.memNo.split(',').map(s => s.trim()).filter(Boolean);
+        for (const m of mList) {
+          if (cancelMapByMemNo.has(m)) {
+            matchedRecord = cancelMapByMemNo.get(m);
+            break;
+          }
+        }
+      }
+
+      if (matchedRecord) {
+        const pTime = matchedRecord.processedAt || (matchedRecord.processStatus !== '접수중' ? matchedRecord.createdAt : '');
+        return {
+          ...item,
+          cancelProcessedAt: pTime || '',
+          cancelCreatedAt: matchedRecord.createdAt || '',
+          cancelReceiptType: matchedRecord.receiptType || '',
+          cancelProcessStatus: matchedRecord.processStatus || ''
+        };
+      }
+      return {
+        ...item,
+        cancelProcessedAt: '',
+        cancelCreatedAt: '',
+        cancelReceiptType: '',
+        cancelProcessStatus: ''
+      };
+    });
+
+    // 취소 및 해약 완료 목록은 처리일시(가장 최근 처리한 건) 기준으로 내림차순 정렬
+    if (type === 'cancel') {
+      return enrichedItems.sort((a, b) => {
+        const timeA = a.cancelProcessedAt || '';
+        const timeB = b.cancelProcessedAt || '';
+
+        // 1. 처리일시가 있는 건들 중 가장 최근 처리일시 우선 정렬
+        if (timeA && timeB) {
+          return timeB.localeCompare(timeA);
+        }
+        if (timeA && !timeB) return -1;
+        if (!timeA && timeB) return 1;
+
+        // 2. 처리일시가 없는 과거 원장 데이터는 계약일자 최신순
+        return (b.contractDate || '').localeCompare(a.contractDate || '');
+      });
+    }
+
+    return enrichedItems.sort((a, b) => (b.contractDate || '').localeCompare(a.contractDate || ''));
+  }, [data, type, month, searchTerm, viewAllMonths, manualOrderFilter, targetProducts, cancelRecords]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
   const paginatedData = useMemo(() => {
@@ -863,7 +969,12 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       );
     }
 
-    return list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    // 처리일시(또는 접수일시) 최신순으로 정렬
+    return list.sort((a, b) => {
+      const timeA = a.processedAt || a.createdAt || '';
+      const timeB = b.processedAt || b.createdAt || '';
+      return timeB.localeCompare(timeA);
+    });
   }, [cancelRecords, pendingFilter, pendingSearch]);
 
   const totalPendingPages = Math.ceil(filteredCancelRecords.length / pendingItemsPerPage) || 1;
@@ -951,6 +1062,8 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
         return {
           '순번': index + 1,
           '계약상태': item.status || '',
+          '처리일시': item.cancelProcessedAt || '',
+          '접수일시': item.cancelCreatedAt || '',
           '계약일자': item.contractDate,
           '회원번호': item.memNo || '',
           '회원명': item.memName || '',
@@ -983,6 +1096,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       '순번': index + 1,
       '접수ID': item.id,
       '접수일시': item.createdAt,
+      '처리일시': item.processedAt || (item.processStatus !== '접수중' ? item.createdAt : ''),
       '처리상태': item.processStatus,
       '취소접수처': item.receiptType,
       '계약일자': item.contractDate,
@@ -1651,6 +1765,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                         </th>
                         <th className="px-3 py-2.5 text-center w-24 whitespace-nowrap">순번 / 처리상태</th>
                         <th className="px-3 py-2.5 w-36 whitespace-nowrap">접수일시 / 접수처</th>
+                        <th className="px-3 py-2.5 w-36 whitespace-nowrap">처리일시</th>
                         <th className="px-3 py-2.5 w-36 whitespace-nowrap">렌탈계약번호 / 계약일자</th>
                         <th className="px-3 py-2.5 w-24 whitespace-nowrap">회원명</th>
                         <th className="px-3 py-2.5 w-44 whitespace-nowrap">회원번호</th>
@@ -1709,6 +1824,19 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                                     {r.receiptType || '-'}
                                   </span>
                                 </div>
+                              </td>
+
+                              {/* 2-1. 처리일시 */}
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                {isPending ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                    대기중 (방어기간)
+                                  </span>
+                                ) : (
+                                  <div className="font-mono font-bold text-purple-700 text-[11px]">
+                                    {r.processedAt || r.createdAt}
+                                  </div>
+                                )}
                               </td>
 
                               {/* 3. 렌탈계약번호 / 계약일자 */}
@@ -1929,6 +2057,8 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                         <th className="px-3 py-2 text-center whitespace-nowrap">순번</th>
                         {isDelivery && <th className="px-3 py-2 text-center whitespace-nowrap">발주구분</th>}
                         {!isDelivery && <th className="px-3 py-2 text-center whitespace-nowrap">계약상태</th>}
+                        {!isDelivery && <th className="px-3 py-2 whitespace-nowrap">처리일시</th>}
+                        {!isDelivery && <th className="px-3 py-2 whitespace-nowrap">접수일시</th>}
                         <th className="px-3 py-2 whitespace-nowrap">계약일자</th>
                         {isDelivery && <th className="px-3 py-2 whitespace-nowrap">배송일자</th>}
                         <th className="px-3 py-2 whitespace-nowrap">회원번호</th>
@@ -1967,12 +2097,34 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                               {!isDelivery && (
                                 <td className="px-3 py-2 text-center whitespace-nowrap">
                                   <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                    item.status.includes('취소') || item.status.includes('해약')
-                                      ? 'bg-rose-50 text-rose-600 border border-rose-200'
+                                    item.status.includes('해약')
+                                      ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                                      : item.status.includes('취소')
+                                      ? 'bg-rose-100 text-rose-800 border border-rose-300'
                                       : 'bg-green-50 text-green-600 border border-green-200'
                                   }`}>
                                     {item.status}
                                   </span>
+                                </td>
+                              )}
+                              {!isDelivery && (
+                                <td className="px-3 py-2 font-mono whitespace-nowrap">
+                                  {item.cancelProcessedAt && item.cancelProcessedAt !== '-' ? (
+                                    <span className="font-bold text-purple-700 text-[11px] font-mono">
+                                      {item.cancelProcessedAt}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300 text-xs">-</span>
+                                  )}
+                                </td>
+                              )}
+                              {!isDelivery && (
+                                <td className="px-3 py-2 font-mono text-slate-500 whitespace-nowrap text-[11px]">
+                                  {item.cancelCreatedAt && item.cancelCreatedAt !== '-' ? (
+                                    item.cancelCreatedAt
+                                  ) : (
+                                    <span className="text-slate-300 text-xs">-</span>
+                                  )}
                                 </td>
                               )}
                               <td className="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">{item.contractDate}</td>
