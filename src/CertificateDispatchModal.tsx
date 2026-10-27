@@ -50,6 +50,20 @@ export function normalizeContractDate(val: any): string {
   return s;
 }
 
+// 관리대장 시트 V열(상조출금/초회납) 값 기준 납입 완료 여부 판정 함수
+export function isPaidFirstPay(val: any): boolean {
+  if (!val) return false;
+  const s = String(val).trim();
+  if (!s || s === '-' || s === '- -' || s === '-  -' || s === '미납' || s === '미출금' || s === 'null' || s === 'undefined' || s.startsWith('###')) {
+    return false;
+  }
+  // 4자리 연도가 포함되어 있거나 6~8자리 숫자, 또는 날짜 형식인 경우 납입 완료로 판정
+  if (/\d{4}/.test(s)) return true;
+  if (/^\d{2}[-./]\d{1,2}[-./]\d{1,2}/.test(s)) return true;
+  if (/^\d{6,8}$/.test(s)) return true;
+  return false;
+}
+
 export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> = ({ isOpen, onClose, data }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
@@ -59,6 +73,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [maintenanceSheetList, setMaintenanceSheetList] = useState<any[]>([]);
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedMonthOnly, setSelectedMonthOnly] = useState<string>('all');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [isConsolidated, setIsConsolidated] = useState<boolean>(true);
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
@@ -157,12 +173,18 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     const maintenanceStatusMap = new Map<string, string>();
     const maintenanceItemMap = new Map<string, any>();
 
+    const maintenanceVColMap = new Map<string, string>();
+
     // 1) 최신 '관리대장' 구글 시트 데이터 매핑
     maintenanceSheetList.forEach((r: any) => {
       const memNo = String(r[2] || '').trim().toUpperCase();
       const st = String(r[1] || '').trim();
+      const vVal = String(r[21] !== undefined ? r[21] : '').trim(); // V열(상조출금 / 초회납)
       if (memNo) {
         maintenanceStatusMap.set(memNo, st);
+        if (vVal) {
+          maintenanceVColMap.set(memNo, vVal);
+        }
       }
     });
 
@@ -173,6 +195,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         maintenanceItemMap.set(memNoKey, item);
         if (!maintenanceStatusMap.has(memNoKey)) {
           maintenanceStatusMap.set(memNoKey, String(item.status || '').trim());
+        }
+        if (!maintenanceVColMap.has(memNoKey)) {
+          const vVal = String((item.raw && item.raw[21]) || item.payDate || '').trim();
+          if (vVal) maintenanceVColMap.set(memNoKey, vVal);
         }
       }
     });
@@ -204,8 +230,11 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         const memName = String(raw[5] || maintenanceItem?.memName || '').trim();     // F(5): 회원명
         const resNo = String(raw[7] || maintenanceItem?.resNo || '').trim();       // H(7): 주민등록번호
         const prodName = String(raw[11] || maintenanceItem?.prodName || '').trim();   // L(11): 상품명
-        const rawFirstPay = String(raw[20] || maintenanceItem?.payDate || '').trim();
-        const firstPayDate = normalizeContractDate(rawFirstPay); // U(20): 최초납입일
+        // 관리대장 시트 V열(상조출금/초회납) 값 매핑 및 납입 여부 판정
+        const maintenanceVVal = String(maintenanceVColMap.get(memNoKey) || (maintenanceItem?.raw && maintenanceItem.raw[21]) || '').trim();
+        const isFirstPaid = isPaidFirstPay(maintenanceVVal);
+        const rawFirstPay = maintenanceVVal || String(raw[20] || maintenanceItem?.payDate || '').trim();
+        const firstPayDate = normalizeContractDate(rawFirstPay); // 관리대장 V열 출금일 우선 반영
         let zipCode = String(raw[44] || '');      // AS(44): 우편번호
         const address = String(raw[45] || '');    // AT(45): 주소
         const workAddress = String(raw[47] || '');// AV(47): 직장주소
@@ -255,9 +284,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           id: idx,
           customerKey,
           isDispatched,
+          isFirstPaid,
+          firstPayVVal: maintenanceVVal,
           extracted: {
             customerKey,
             isDispatched,
+            isFirstPaid,
             status, contractDate, memNo, memName, resNo, prodName, firstPayDate,
             hq, empCode, empName, zipCode, address, workAddress, cert, deliveryType, rentalNo,
             empPhone, monthlyPay1, monthlyPay2, birthDate, phone,
@@ -309,8 +341,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       const groups = new Map<string, typeof items>();
       items.forEach(item => {
         const ext = item.extracted;
-        // 동일 고객 + 상품명 + [발송상태]별로 그룹핑 (이미 발송된 구좌와 미발송 구좌가 절대 합쳐지지 않도록 분리)
-        const key = item.customerKey + '_' + ext.prodName + '_' + (item.isDispatched ? 'sent' : 'notSent');
+        // 동일 고객 + 상품명 + [발송상태] + [초회납납입여부]별로 그룹핑 (초회납 여부와 발송여부가 다른 건이 절대 합쳐지지 않도록 분리)
+        const key = item.customerKey + '_' + ext.prodName + '_' + (item.isDispatched ? 'sent' : 'notSent') + '_' + (item.isFirstPaid ? 'paid' : 'unpaid');
         if (!groups.has(key)) {
           groups.set(key, []);
         }
@@ -320,7 +352,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       return Array.from(groups.values()).map((group, gIdx) => {
         const base = { ...group[0] };
         base.id = gIdx;
-        base.extracted = { ...base.extracted };
+        base.isFirstPaid = group[0].isFirstPaid;
+        base.extracted = { ...base.extracted, isFirstPaid: group[0].isFirstPaid };
 
         // 그룹 내 또는 동일 고객 중 하나라도 우편이면 우편 희망자로 통일
         const cKey = base.customerKey;
@@ -351,8 +384,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       return {
         ...item,
         id: i,
+        isFirstPaid: item.isFirstPaid,
         extracted: {
           ...item.extracted,
+          isFirstPaid: item.isFirstPaid,
           allMemNos: [item.extracted.memNo].filter(Boolean),
           allCustomerMemNos: Array.from(customerStatusNosMap.get(statusGroupKey) || [item.extracted.memNo].filter(Boolean))
         }
@@ -372,6 +407,44 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     });
     return Array.from(years).sort().reverse();
   }, [consolidatedData]);
+
+  // 계약 연도/월 선택 및 기간 설정 핸들러
+  const handleYearChange = (year: string) => {
+    setSelectedYear(year);
+    if (year !== 'all' && selectedMonthOnly !== 'all') {
+      const y = parseInt(year, 10);
+      const m = parseInt(selectedMonthOnly, 10);
+      const lastDay = new Date(y, m, 0).getDate();
+      setStartDate(`${year}-${selectedMonthOnly}-01`);
+      setEndDate(`${year}-${selectedMonthOnly}-${String(lastDay).padStart(2, '0')}`);
+    } else if (year === 'all') {
+      setStartDate('');
+      setEndDate('');
+    }
+  };
+
+  const handleMonthChange = (month: string) => {
+    setSelectedMonthOnly(month);
+    if (month !== 'all') {
+      const yStr = selectedYear !== 'all' ? selectedYear : (availableYears[0] || new Date().getFullYear().toString());
+      if (selectedYear === 'all') setSelectedYear(yStr);
+      const y = parseInt(yStr, 10);
+      const m = parseInt(month, 10);
+      const lastDay = new Date(y, m, 0).getDate();
+      setStartDate(`${yStr}-${month}-01`);
+      setEndDate(`${yStr}-${month}-${String(lastDay).padStart(2, '0')}`);
+    } else {
+      setStartDate('');
+      setEndDate('');
+    }
+  };
+
+  const handleClearDateRange = () => {
+    setStartDate('');
+    setEndDate('');
+    setSelectedYear('all');
+    setSelectedMonthOnly('all');
+  };
 
   // 가입상품 목록 추출
   const uniqueProducts = useMemo(() => {
@@ -498,8 +571,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const processedData = useMemo(() => {
     let result = consolidatedData;
 
-    // 1. 계약년월 필터 (연도와 월 개별 또는 조합 필터링)
-    if (selectedYear !== 'all' || selectedMonthOnly !== 'all') {
+    // 1. 계약일자 기간 및 계약년월 필터 (세부 기간 지정 시 우선 적용)
+    if (startDate || endDate) {
+      result = result.filter(item => {
+        const ext = getItemExtracted(item);
+        const cDate = ext.contractDate;
+        if (!cDate) return false;
+        if (startDate && cDate < startDate) return false;
+        if (endDate && cDate > endDate) return false;
+        return true;
+      });
+    } else if (selectedYear !== 'all' || selectedMonthOnly !== 'all') {
       result = result.filter(item => {
         const ext = getItemExtracted(item);
         const cDate = ext.contractDate;
@@ -523,14 +605,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
     }
 
-    // 3. 초회납 미납 필터 (체크 시에만 미납자 한정 필터링, 체크 해제 시 가입인 상태의 모든 회원 노출)
+    // 3. 초회납 납입/미납 필터 (관리대장 시트 V열 기준)
+    // 초회납 미납 체크 안되어있으면(기본): 초회납 납입된 건들만 가져옴
+    // 초회납 미납 체크되어있으면: 초회납 미납된 건들만 가져옴
     if (filterFirstPayNotDate) {
-      result = result.filter(item => {
-        const ext = getItemExtracted(item);
-        const val = String(ext.firstPayDate || '').trim();
-        const isDate = /^\d{4}[-./]?\d{2}[-./]?\d{2}/.test(val);
-        return !isDate;
-      });
+      result = result.filter(item => !item.isFirstPaid);
+    } else {
+      result = result.filter(item => item.isFirstPaid);
     }
 
     // 4. 수령방식 필터 (전체 / 우편)
@@ -572,14 +653,14 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       };
       return getScore(extB) - getScore(extA);
     });
-  }, [consolidatedData, selectedYear, selectedMonthOnly, selectedProducts, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter, searchTerm, dispatchedHistoryNos, editedItems]);
+  }, [consolidatedData, selectedYear, selectedMonthOnly, startDate, endDate, selectedProducts, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter, searchTerm, dispatchedHistoryNos, editedItems]);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   // 필터나 검색어가 바뀔 때 선택 초기화
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [searchTerm, selectedYear, selectedMonthOnly, selectedProducts, isConsolidated, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter]);
+  }, [searchTerm, selectedYear, selectedMonthOnly, startDate, endDate, selectedProducts, isConsolidated, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter]);
 
   const handleToggleSelect = (id: number) => {
     setSelectedIds(prev => {
@@ -1227,14 +1308,20 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                     />
                   </div>
 
-                  {/* 계약 연도/월 2단 분리 선택 드롭다운 */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="w-28">
+                  {/* 계약일자 기간 설정 및 연/월 선택 */}
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl shadow-2xs">
+                    <div className="flex items-center gap-1">
+                      <Calendar size={13} className="text-blue-600" />
+                      <span className="text-[11px] font-black text-slate-700 whitespace-nowrap">계약기간:</span>
+                    </div>
+
+                    {/* 연도 드롭다운 */}
+                    <div className="w-24">
                       <select
                         value={selectedYear}
-                        onChange={(e) => setSelectedYear(e.target.value)}
-                        className="w-full px-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-2xs"
-                        title="계약 연도 선택"
+                        onChange={(e) => handleYearChange(e.target.value)}
+                        className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        title="계약 연도 선택 (선택 시 해당 월 기간 자동 설정)"
                       >
                         <option value="all">전체 연도</option>
                         {availableYears.map(y => (
@@ -1242,18 +1329,51 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                         ))}
                       </select>
                     </div>
-                    <div className="w-24">
+
+                    {/* 월 드롭다운 */}
+                    <div className="w-20">
                       <select
                         value={selectedMonthOnly}
-                        onChange={(e) => setSelectedMonthOnly(e.target.value)}
-                        className="w-full px-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[12px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-2xs"
-                        title="계약 월 선택"
+                        onChange={(e) => handleMonthChange(e.target.value)}
+                        className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        title="계약 월 선택 (선택 시 해당 월 기간 자동 설정)"
                       >
                         <option value="all">전체 월</option>
                         {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => (
                           <option key={m} value={m}>{parseInt(m)}월</option>
                         ))}
                       </select>
+                    </div>
+
+                    <span className="text-slate-300 mx-0.5">|</span>
+
+                    {/* 직접 날짜 기간 지정 (시작일 ~ 종료일) */}
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        title="계약 시작일"
+                      />
+                      <span className="text-slate-400 font-bold text-[11px]">~</span>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        title="계약 종료일"
+                      />
+                      {(startDate || endDate || selectedYear !== 'all' || selectedMonthOnly !== 'all') && (
+                        <button
+                          type="button"
+                          onClick={handleClearDateRange}
+                          className="p-1 hover:bg-slate-200 text-slate-400 hover:text-slate-600 rounded-md transition-colors"
+                          title="기간 설정 초기화"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1271,8 +1391,11 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                     </label>
                   </div>
 
-                  {/* 체크박스: 초회납 미납 */}
-                  <div className="flex items-center gap-1.5 px-2">
+                  {/* 체크박스: 초회납 미납 (관리대장 V열 기준) */}
+                  <div 
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 shadow-2xs cursor-pointer hover:bg-slate-100 transition-colors"
+                    title="체크 해제 시: 관리대장 V열 기준 초회납 납입 완료건만 표시&#10;체크 시: 초회납 미납건만 표시"
+                  >
                     <input
                       type="checkbox"
                       id="firstpay-notdate-check"
@@ -1281,7 +1404,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
                     />
                     <label htmlFor="firstpay-notdate-check" className="text-[12px] font-bold text-slate-700 cursor-pointer select-none whitespace-nowrap">
-                      초회납 미납
+                      초회납 미납 {filterFirstPayNotDate ? '(미납건)' : '(납입건만)'}
                     </label>
                   </div>
 
