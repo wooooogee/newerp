@@ -119,27 +119,82 @@ export const CopyableText: React.FC<{
   );
 };
 
-// 쉼표로 연결된 복수 회원번호를 개별 복사 버튼으로 렌더링하는 컴포넌트
-export const CopyableMemNos: React.FC<{ memNosStr?: string; className?: string }> = ({ memNosStr, className = '' }) => {
-  if (!memNosStr || memNosStr.trim() === '' || memNosStr === '-') {
-    return <span className="text-slate-400 font-mono">-</span>;
-  }
+// 쉼표로 연결된 복수 회원번호를 개별 복사 버튼 및 일괄 복사 버튼으로 렌더링하는 컴포넌트
+export const CopyableMemNos: React.FC<{ 
+  memNosStr?: string; 
+  className?: string;
+  layout?: 'col' | 'row';
+}> = ({ memNosStr, className = '', layout = 'col' }) => {
+  const [copiedAll, setCopiedAll] = useState(false);
 
-  const list = memNosStr.split(',').map(s => s.trim()).filter(Boolean);
+  const list = useMemo(() => {
+    if (!memNosStr || memNosStr.trim() === '' || memNosStr === '-') return [];
+    // 낮은 회원번호가 위(앞)로 가도록 오름차순 자연 정렬
+    return Array.from(new Set(memNosStr.split(',').map(s => s.trim()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [memNosStr]);
+
   if (list.length === 0) return <span className="text-slate-400 font-mono">-</span>;
 
+  const handleCopyAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const allText = list.join(', ');
+    navigator.clipboard.writeText(allText);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 1500);
+  };
+
+  if (list.length === 1) {
+    return (
+      <div className={`inline-flex items-center ${className}`}>
+        <CopyableText 
+          text={list[0]}
+          className="font-mono text-slate-700 bg-slate-50 border border-slate-200/70 hover:border-slate-300 font-medium px-1.5 py-0.5 rounded text-[11px]"
+          tooltipText={`회원번호 ${list[0]} 복사`}
+        />
+      </div>
+    );
+  }
+
+  const isCol = layout === 'col';
+
   return (
-    <div className={`inline-flex flex-wrap items-center gap-1.5 ${className}`}>
-      {list.map((mNo, idx) => (
-        <React.Fragment key={mNo + idx}>
+    <div className={`${isCol ? 'inline-flex flex-col items-start gap-1 py-0.5' : 'inline-flex flex-wrap items-center gap-1.5'} ${className}`}>
+      {/* 2개 이상일 때 일괄 복사 버튼: J2610013717, J2610013718, J2610013719 형태로 원클릭 복사 */}
+      <button
+        type="button"
+        onClick={handleCopyAll}
+        title={`전체 회원번호 일괄 복사 (${list.join(', ')})`}
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border transition-all cursor-pointer shadow-2xs ${
+          copiedAll
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+            : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200/80 hover:border-rose-300'
+        }`}
+      >
+        {copiedAll ? (
+          <>
+            <Check size={11} className="text-emerald-600 stroke-[2.5]" />
+            <span>일괄 복사됨!</span>
+          </>
+        ) : (
+          <>
+            <Copy size={11} className="text-rose-600" />
+            <span>일괄 복사</span>
+          </>
+        )}
+      </button>
+
+      {/* 낮은 회원번호가 위(앞)로 정렬된 개별 회원번호 목록 */}
+      <div className={isCol ? 'flex flex-col items-start gap-1' : 'inline-flex flex-wrap items-center gap-1.5'}>
+        {list.map((mNo) => (
           <CopyableText 
+            key={mNo}
             text={mNo}
-            className="font-mono text-slate-700 bg-slate-50 border border-slate-200/70 hover:border-slate-300 font-medium px-1.5 py-0.5 rounded"
-            tooltipText={`회원번호 ${mNo} 복사`}
+            className="font-mono text-slate-700 bg-slate-50 border border-slate-200/70 hover:border-slate-300 font-medium px-1.5 py-0.5 rounded text-[11px]"
+            tooltipText={`회원번호 ${mNo} 개별 복사`}
           />
-          {idx < list.length - 1 && <span className="text-slate-300 text-xs">,</span>}
-        </React.Fragment>
-      ))}
+        ))}
+      </div>
     </div>
   );
 };
@@ -287,7 +342,8 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
 
     groupedMap.forEach(items => {
       const rep = items[0];
-      const uniqueMemNos = Array.from(new Set(items.map(i => i.memNo).filter(Boolean)));
+      const uniqueMemNos = Array.from(new Set(items.map(i => i.memNo).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
       results.push({
         representative: rep,
         allMembers: items.map(i => ({ memNo: i.memNo, memName: i.memName })),
@@ -308,10 +364,12 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     return matched.length > 0 ? matched : [selectedContract];
   }, [selectedContract, data]);
 
-  // 선택된 계약건의 통합 회원번호 문자열 (괄호 없이 나열)
+  // 선택된 계약건의 통합 회원번호 문자열 (낮은 번호 우선 오름차순 나열)
   const selectedMergedMemNos = useMemo(() => {
     if (matchingContracts.length === 0) return '';
-    return Array.from(new Set(matchingContracts.map(c => c.memNo).filter(Boolean))).join(', ');
+    return Array.from(new Set(matchingContracts.map(c => c.memNo).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+      .join(', ');
   }, [matchingContracts]);
 
   // ----------------------------------------------------
@@ -809,19 +867,22 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   }, [cancelRecords, pendingFilter, pendingSearch]);
 
   const totalPendingPages = Math.ceil(filteredCancelRecords.length / pendingItemsPerPage) || 1;
-    // 렌탈번호로 관리대장(data)에서 일치하는 모든 회원번호 목록 동적 추출 (2구좌 이상일 때 두 개 이상 자동 노출)
+  // 렌탈번호로 관리대장(data)에서 일치하는 모든 회원번호 목록 동적 추출 (낮은 회원번호 우선 오름차순)
   const getDisplayMemNos = useCallback((record: CancelRecord) => {
     const rentalNo = (record.rentalNo || '').trim();
     if (rentalNo && data && data.length > 0) {
       const matched = data.filter(d => (d.rentalNo || '').trim() === rentalNo);
       if (matched.length > 0) {
-        const uniqueMemNos = Array.from(new Set(matched.map(d => d.memNo).filter(Boolean)));
+        const uniqueMemNos = Array.from(new Set(matched.map(d => d.memNo).filter(Boolean)))
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
         if (uniqueMemNos.length > 0) {
           return uniqueMemNos.join(', ');
         }
       }
     }
-    return record.memNo || '-';
+    const fallbackList = (record.memNo || '').split(',').map(s => s.trim()).filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    return fallbackList.length > 0 ? fallbackList.join(', ') : '-';
   }, [data]);
 
   const paginatedPendingRecords = useMemo(() => {
@@ -928,7 +989,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       '가입상태': item.statusBefore,
       '렌탈계약번호': item.rentalNo,
       '회원명': item.memName,
-      '회원번호': item.memNo,
+      '회원번호': getDisplayMemNos(item),
       '상품명': item.prodName,
       '제품명': item.rentalProd,
       '본부': item.hq,
@@ -1141,7 +1202,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                                 
                                 {/* 2번 요구: 회원번호 괄호 없이 나열 & 원클릭 복사 */}
                                 <span className="text-[11px] text-slate-600 shrink-0 flex items-center gap-1">
-                                  <CopyableMemNos memNosStr={group.mergedMemNos} />
+                                  <CopyableMemNos memNosStr={group.mergedMemNos} layout="row" />
                                 </span>
                                 
                                 <span className="text-[11px] text-slate-300 shrink-0">|</span>
