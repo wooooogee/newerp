@@ -30,6 +30,7 @@ export interface ERPDataItem {
   cancelCreatedAt?: string;   // 접수일시
   cancelReceiptType?: string; // 취소접수처
   cancelProcessStatus?: string;
+  accountCount?: number;      // 구좌수 (동일 렌탈번호 묶음 건수)
 }
 
 export interface CancelRecord {
@@ -223,8 +224,10 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  const [viewAllMonths, setViewAllMonths] = useState(true);
+  const [viewAllMonths, setViewAllMonths] = useState(false);
   const [manualOrderFilter, setManualOrderFilter] = useState<'all' | 'manual' | 'normal'>('all');
+  const [selectedHqFilter, setSelectedHqFilter] = useState<string>('전체');
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>('전체');
 
   // 구글 시트 '취소및해약' 접수 대장 상태
   const [cancelRecords, setCancelRecords] = useState<CancelRecord[]>([]);
@@ -295,8 +298,10 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       setSearchQuery('');
       setNotes('');
       setReceiptType('더좋은라이프');
-      setViewAllMonths(true);
+      setViewAllMonths(type === 'cancel'); // 배송완료는 해당월을 기본으로 표시, 취소/해약은 전체기간 기본
       setManualOrderFilter('all');
+      setSelectedHqFilter('전체');
+      setSelectedBranchFilter('전체');
       setSelectedPendingIds(new Set());
 
       if (type === 'cancel') {
@@ -775,6 +780,56 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     }
   };
 
+  // 기준 기간/상태에 따른 기본 데이터 목록 (본부/지사 드롭다운 목록 생성용)
+  const baseListForFilters = useMemo(() => {
+    if (!type) return [];
+    return data.filter(d => {
+      const contractDateStr = d.contractDate ? d.contractDate.replace(/\./g, '-').substring(0, 7) : '';
+      const deliveryDateStr = d.deliveryDate ? d.deliveryDate.replace(/\./g, '-').substring(0, 7) : '';
+
+      if (type === 'delivery') {
+        const isJoined = d.status === '가입';
+        if (viewAllMonths) {
+          return d.deliveryStatus === '배송완료' && isJoined;
+        }
+        return d.deliveryStatus === '배송완료' && deliveryDateStr === month && isJoined;
+      } else {
+        const isCancelled = d.status.includes('취소') || d.status.includes('해약') || d.deliveryStatus.includes('취소') || d.deliveryStatus.includes('반품');
+        if (viewAllMonths) {
+          return isCancelled;
+        }
+        return contractDateStr === month && isCancelled;
+      }
+    });
+  }, [data, type, month, viewAllMonths]);
+
+  // 가용 본부 목록 (오름차순 정렬)
+  const availableHqs = useMemo(() => {
+    const set = new Set<string>();
+    baseListForFilters.forEach(item => {
+      if (item.hq && item.hq.trim()) set.add(item.hq.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko'));
+  }, [baseListForFilters]);
+
+  // 가용 지사 목록 (선택된 본부 기반, 오름차순 정렬)
+  const availableBranches = useMemo(() => {
+    const set = new Set<string>();
+    baseListForFilters.forEach(item => {
+      if (selectedHqFilter === '전체' || item.hq === selectedHqFilter) {
+        if (item.branch && item.branch.trim()) set.add(item.branch.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko'));
+  }, [baseListForFilters, selectedHqFilter]);
+
+  // 본부 변경 등으로 지사 목록에 없어진 경우 리셋
+  useEffect(() => {
+    if (selectedBranchFilter !== '전체' && !availableBranches.includes(selectedBranchFilter)) {
+      setSelectedBranchFilter('전체');
+    }
+  }, [availableBranches, selectedBranchFilter]);
+
   // 기존 관리대장 기반 취소/해약 데이터 필터링
   const filteredData = useMemo(() => {
     if (!type) return [];
@@ -815,7 +870,10 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     const groupedItems: ERPDataItem[] = [];
     groups.forEach((items, rentalNo) => {
       if (items.length === 1) {
-        groupedItems.push(items[0]);
+        groupedItems.push({
+          ...items[0],
+          accountCount: 1,
+        });
       } else {
         const mergedMemNos = Array.from(new Set(items.map(i => i.memNo).filter(Boolean))).sort().join(', ');
         const mergedMemNames = Array.from(new Set(items.map(i => i.memName).filter(Boolean))).sort().join(', ');
@@ -828,16 +886,26 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           memName: mergedMemNames,
           rentalProd: mergedRentalProds,
           prodName: mergedProdNames,
+          accountCount: items.length,
         });
       }
     });
 
-    temp = [...groupedItems, ...nonRentalItems];
+    const nonRentalWithCount = nonRentalItems.map(i => ({ ...i, accountCount: 1 }));
+    temp = [...groupedItems, ...nonRentalWithCount];
 
     if (manualOrderFilter === 'manual') {
       temp = temp.filter(item => checkIsManualOrder(item));
     } else if (manualOrderFilter === 'normal') {
       temp = temp.filter(item => !checkIsManualOrder(item));
+    }
+
+    if (selectedHqFilter !== '전체') {
+      temp = temp.filter(item => (item.hq || '').trim() === selectedHqFilter);
+    }
+
+    if (selectedBranchFilter !== '전체') {
+      temp = temp.filter(item => (item.branch || '').trim() === selectedBranchFilter);
     }
 
     if (searchTerm.trim()) {
@@ -937,7 +1005,12 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     }
 
     return enrichedItems.sort((a, b) => (b.contractDate || '').localeCompare(a.contractDate || ''));
-  }, [data, type, month, searchTerm, viewAllMonths, manualOrderFilter, targetProducts, cancelRecords]);
+  }, [data, type, month, searchTerm, viewAllMonths, manualOrderFilter, selectedHqFilter, selectedBranchFilter, targetProducts, cancelRecords]);
+
+  // 필터링된 전체 구좌수 합계 계산
+  const totalAccountCount = useMemo(() => {
+    return filteredData.reduce((acc, cur) => acc + (cur.accountCount || 1), 0);
+  }, [filteredData]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
   const paginatedData = useMemo(() => {
@@ -1050,6 +1123,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           '회원번호': item.memNo || '',
           '회원명': item.memName || '',
           '렌탈번호': item.rentalNo || '',
+          '구좌수': item.accountCount || 1,
           '상품명': item.prodName || '',
           '제품명': item.rentalProd || '',
           '본부': item.hq || '',
@@ -1068,6 +1142,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
           '회원번호': item.memNo || '',
           '회원명': item.memName || '',
           '렌탈번호': item.rentalNo || '',
+          '구좌수': item.accountCount || 1,
           '상품명': item.prodName || '',
           '제품명': item.rentalProd || '',
           '본부': item.hq || '',
@@ -1954,13 +2029,16 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
             {(isDelivery || cancelTab === 'list') && (
               <>
                 {/* 필터 및 검색 바 */}
-                <div className="p-4 border-b border-slate-200 bg-white flex flex-col sm:flex-row gap-3 items-center justify-between">
-                  <div className="flex flex-wrap items-center gap-4">
-                    <span className="text-sm font-semibold text-slate-600">
-                      총 <span className={isDelivery ? 'text-sky-600 font-black' : 'text-rose-600 font-black'}>{filteredData.length}</span> 건
+                <div className="p-4 border-b border-slate-200 bg-white flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between">
+                  <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+                    <span className="text-sm font-semibold text-slate-600 shrink-0">
+                      총 <span className={isDelivery ? 'text-sky-600 font-black' : 'text-rose-600 font-black'}>{filteredData.length.toLocaleString()}</span>건
+                      <span className="ml-1 text-slate-500 font-bold">
+                        ({totalAccountCount.toLocaleString()}구좌)
+                      </span>
                     </span>
 
-                    <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-slate-600 select-none hover:text-slate-800 transition-colors">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-slate-600 select-none hover:text-slate-800 transition-colors shrink-0">
                       <input
                         type="checkbox"
                         checked={viewAllMonths}
@@ -1975,7 +2053,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                     </label>
 
                     {isDelivery && (
-                      <div className="flex bg-slate-100 p-0.5 rounded-lg text-xs font-bold border border-slate-200/80">
+                      <div className="flex bg-slate-100 p-0.5 rounded-lg text-xs font-bold border border-slate-200/80 shrink-0">
                         <button
                           type="button"
                           onClick={() => setManualOrderFilter('all')}
@@ -2011,16 +2089,78 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                         </button>
                       </div>
                     )}
+
+                    {/* 본부별 / 지사별 선택 드롭다운 */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <select
+                        value={selectedHqFilter}
+                        onChange={(e) => {
+                          setSelectedHqFilter(e.target.value);
+                          setSelectedBranchFilter('전체');
+                          setCurrentPage(1);
+                        }}
+                        className={`py-1.5 px-2.5 text-xs font-bold rounded-lg border transition-all cursor-pointer outline-none ${
+                          selectedHqFilter !== '전체'
+                            ? isDelivery 
+                              ? 'bg-sky-50 border-sky-300 text-sky-800 ring-1 ring-sky-200' 
+                              : 'bg-rose-50 border-rose-300 text-rose-800 ring-1 ring-rose-200'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <option value="전체">본부: 전체</option>
+                        {availableHqs.map(hq => (
+                          <option key={hq} value={hq}>{hq}</option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={selectedBranchFilter}
+                        onChange={(e) => {
+                          setSelectedBranchFilter(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                        className={`py-1.5 px-2.5 text-xs font-bold rounded-lg border transition-all cursor-pointer outline-none ${
+                          selectedBranchFilter !== '전체'
+                            ? isDelivery 
+                              ? 'bg-sky-50 border-sky-300 text-sky-800 ring-1 ring-sky-200' 
+                              : 'bg-rose-50 border-rose-300 text-rose-800 ring-1 ring-rose-200'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <option value="전체">지사: 전체</option>
+                        {availableBranches.map(branch => (
+                          <option key={branch} value={branch}>{branch}</option>
+                        ))}
+                      </select>
+
+                      {(selectedHqFilter !== '전체' || selectedBranchFilter !== '전체') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedHqFilter('전체');
+                            setSelectedBranchFilter('전체');
+                            setCurrentPage(1);
+                          }}
+                          className="px-2 py-1 text-[11px] font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors"
+                          title="본부/지사 필터 초기화"
+                        >
+                          초기화
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex w-full sm:w-auto items-center gap-2">
+                  <div className="flex w-full xl:w-auto items-center gap-2 justify-end">
                     <div className="relative flex-1 sm:w-64">
                       <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input
                         type="text"
                         placeholder="회원명, 렌탈번호, 본부, 지사, 상품명 검색"
                         value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+                        onChange={(e) => {
+                          setSearchTerm(e.target.value);
+                          setCurrentPage(1);
+                        }}
                         className="w-full pl-9 pr-4 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 bg-slate-50/50"
                       />
                     </div>
@@ -2064,6 +2204,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                         <th className="px-3 py-2 whitespace-nowrap">회원번호</th>
                         <th className="px-3 py-2 whitespace-nowrap">회원명</th>
                         <th className="px-3 py-2 whitespace-nowrap">렌탈계약번호</th>
+                        <th className="px-3 py-2 text-center whitespace-nowrap">구좌</th>
                         <th className="px-3 py-2 whitespace-nowrap">상품명</th>
                         <th className="px-3 py-2 whitespace-nowrap">제품명</th>
                         <th className="px-3 py-2 whitespace-nowrap">본부</th>
@@ -2136,6 +2277,15 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                               <td className="px-3 py-2 whitespace-nowrap">
                                 <CopyableText text={item.rentalNo} className="text-rose-600 font-mono font-bold" />
                               </td>
+                              <td className="px-3 py-2 text-center whitespace-nowrap">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                  (item.accountCount || 1) > 1 
+                                    ? 'bg-amber-100 text-amber-800 border border-amber-300' 
+                                    : 'bg-slate-100 text-slate-600 border border-slate-200'
+                                }`}>
+                                  {item.accountCount || 1}
+                                </span>
+                              </td>
                               <td className="px-3 py-2 text-slate-700 truncate max-w-[170px]" title={item.prodName}>{item.prodName}</td>
                               <td className="px-3 py-2 text-slate-700 truncate max-w-[170px]" title={item.rentalProd}>{item.rentalProd || '-'}</td>
                               <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{item.hq}</td>
@@ -2170,7 +2320,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
                         })
                       ) : (
                         <tr>
-                          <td colSpan={isDelivery ? 14 : 11} className="px-4 py-16 text-center text-slate-400 font-medium">
+                          <td colSpan={isDelivery ? 15 : 12} className="px-4 py-16 text-center text-slate-400 font-medium">
                             검색 조건에 맞는 내역이 없습니다.
                           </td>
                         </tr>
