@@ -10051,7 +10051,7 @@ const ERP_Dashboard = () => {
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="relative bg-white w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+                className="relative bg-white w-full max-w-7xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
               >
                 <div className="px-6 py-3.5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                   <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
@@ -10283,14 +10283,14 @@ const ERP_Dashboard = () => {
                       <div className="w-1 h-3 bg-emerald-500 rounded-full" />
                       상품 정보
                     </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
-                      <DetailItem label="상품명" value={selectedItem.prodName} className="lg:col-span-1" />
-                      <DetailItem label="렌탈상품명" value={selectedItem.rentalProd} className="lg:col-span-2" />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5">
+                      <DetailItem label="상품명" value={selectedItem.prodName} truncate={false} className="lg:col-span-3" />
+                      <DetailItem label="렌탈상품명" value={selectedItem.rentalProd} truncate={false} className="lg:col-span-4" />
                       
                       {/* 렌탈계약번호 원클릭 복사 카드 */}
                       <div
                         onClick={handleCopyRentalNo}
-                        className="p-3 bg-slate-50 hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-300 rounded-xl cursor-pointer transition-all group lg:col-span-1 shadow-2xs relative flex flex-col justify-between"
+                        className="p-3 bg-slate-50 hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-300 rounded-xl cursor-pointer transition-all group lg:col-span-2 shadow-2xs relative flex flex-col justify-between"
                         title="클릭하여 렌탈계약번호 복사"
                       >
                         <div className="flex items-center justify-between gap-1 mb-1">
@@ -10324,7 +10324,7 @@ const ERP_Dashboard = () => {
                         </div>
                       </div>
 
-                      <DetailItem label="배송현황" value={selectedItem.deliveryStatus ? selectedItem.deliveryStatus.replace('완료', ' 완료') : '-'} className="lg:col-span-1" />
+                      <DetailItem label="배송현황" value={selectedItem.deliveryStatus ? selectedItem.deliveryStatus.replace('완료', ' 완료') : '-'} className="lg:col-span-2" />
                       <DetailItem label="배송일자" value={selectedItem.deliveryDate} className="lg:col-span-1" />
                     </div>
                   </section>
@@ -10455,11 +10455,11 @@ const ERP_Dashboard = () => {
                       <div className="w-1 h-3 bg-indigo-500 rounded-full" />
                       영업자 및 지원 정보
                     </h4>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                      <DetailItem label="본부명" value={selectedItem.hq} />
-                      <DetailItem label="지사명" value={selectedItem.branch} />
-                      <DetailItem label="사원명" value={selectedItem.empName} />
-                      <DetailItem label="헬스케어 대상자(PQR)" value={selectedItem.hc} />
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-12 gap-2.5">
+                      <DetailItem label="본부명" value={selectedItem.hq} className="lg:col-span-2" />
+                      <DetailItem label="지사명" value={selectedItem.branch} className="lg:col-span-2" />
+                      <DetailItem label="사원명" value={selectedItem.empName} className="lg:col-span-2" />
+                      <DetailItem label="헬스케어 대상자(PQR)" value={selectedItem.hc} truncate={false} className="col-span-2 sm:col-span-4 lg:col-span-6" />
                     </div>
                   </section>
                 </div>
@@ -18126,10 +18126,25 @@ const ERP_Dashboard = () => {
   );
 };
 
-const DetailItem = ({ label, value, className = "" }: { label: string, value: any, className?: string }) => (
+const DetailItem = ({ 
+  label, 
+  value, 
+  className = "", 
+  truncate = true 
+}: { 
+  label: string; 
+  value: any; 
+  className?: string; 
+  truncate?: boolean; 
+}) => (
   <div className={`p-3 bg-slate-50 border border-slate-100 rounded-lg ${className}`}>
     <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">{label}</div>
-    <div className="text-[13px] text-slate-700 font-medium truncate">{value || '-'}</div>
+    <div 
+      className={`text-[13px] text-slate-700 font-medium ${truncate ? 'truncate' : 'break-words whitespace-normal'}`}
+      title={typeof value === 'string' ? value : undefined}
+    >
+      {value || '-'}
+    </div>
   </div>
 );
 
