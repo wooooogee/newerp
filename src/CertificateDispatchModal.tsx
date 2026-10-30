@@ -78,8 +78,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [isConsolidated, setIsConsolidated] = useState<boolean>(true);
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
-  const [receiveTypeFilter, setReceiveTypeFilter] = useState<'all' | 'post' | 'mobile'>('all');
-  const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'postNotSent' | 'mobileNotSent' | 'postSent' | 'mobileSent' | 'sent' | 'all'>('notSent');
+  const [receiveTypeFilter, setReceiveTypeFilter] = useState<'all' | 'post'>('all');
+  const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'sent'>('notSent');
   const [postDispatchedNos, setPostDispatchedNos] = useState<Set<string>>(new Set());
   const [mobileDispatchedNos, setMobileDispatchedNos] = useState<Set<string>>(new Set());
 
@@ -675,31 +675,15 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       result = result.filter(item => item.isFirstPaid);
     }
 
-    // 4. 수령방식 필터 (전체 / 우편 / 모바일)
+    // 4. 수령방식 필터 (전체수령 / 우편)
     if (receiveTypeFilter === 'post') {
       result = result.filter(item => getItemIsPost(item));
-    } else if (receiveTypeFilter === 'mobile') {
-      result = result.filter(item => !getItemIsPost(item));
     }
 
-    // 5. 발송구분 필터
+    // 5. 발송구분 필터 (미발송 / 발송완료)
     if (dispatchStatusFilter === 'notSent') {
-      // 미발송 (기본): 우편 희망자는 우편이나 모바일 중 하나라도 미발송, 모바일 희망자는 모바일 미발송
       result = result.filter(item => !getItemIsFullyDispatched(item));
-    } else if (dispatchStatusFilter === 'postNotSent') {
-      // 우편 미발송 건
-      result = result.filter(item => getItemIsPost(item) && !getItemIsPostDispatched(item));
-    } else if (dispatchStatusFilter === 'mobileNotSent') {
-      // 모바일 미발송 건
-      result = result.filter(item => !getItemIsMobileDispatched(item));
-    } else if (dispatchStatusFilter === 'postSent') {
-      // 우편 발송완료 건
-      result = result.filter(item => getItemIsPostDispatched(item));
-    } else if (dispatchStatusFilter === 'mobileSent') {
-      // 모바일 발송완료 건
-      result = result.filter(item => getItemIsMobileDispatched(item));
     } else if (dispatchStatusFilter === 'sent') {
-      // 전체 발송완료 건
       result = result.filter(item => getItemIsFullyDispatched(item));
     }
 
@@ -769,71 +753,36 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     });
   };
 
-  // 우편 미발송 건수 계산 (현재 목록 기준)
-  const pendingPostItems = useMemo(() => {
-    return processedData.filter(item => getItemIsPost(item) && !getItemIsPostDispatched(item));
-  }, [processedData, postDispatchedNos, editedItems]);
-
-  // 모바일 미발송 건수 계산 (현재 목록 기준)
-  const pendingMobileItems = useMemo(() => {
-    return processedData.filter(item => !getItemIsMobileDispatched(item));
-  }, [processedData, mobileDispatchedNos, editedItems]);
-
-  // 발송 완료 / 미완료 통계 계산
+  // 발송 완료 / 미완료 및 우편 통계 계산
   const dispatchStats = useMemo(() => {
     let completed = 0;
     let pending = 0;
+    let postCount = 0;
+    let pendingPost = 0;
+
     processedData.forEach(item => {
+      const isPost = getItemIsPost(item);
+      if (isPost) {
+        postCount++;
+        if (!getItemIsPostDispatched(item)) {
+          pendingPost++;
+        }
+      }
       if (getItemIsFullyDispatched(item)) {
         completed++;
       } else {
         pending++;
       }
     });
+
     return {
       total: processedData.length,
       completed,
       pending,
-      pendingPost: pendingPostItems.length,
-      pendingMobile: pendingMobileItems.length
+      postCount,
+      pendingPost
     };
-  }, [processedData, getItemIsFullyDispatched, pendingPostItems, pendingMobileItems]);
-
-  // 우편 미발송 대상만 원클릭 선택 토글
-  const handleSelectPendingPost = () => {
-    if (pendingPostItems.length === 0) {
-      alert('현재 목록에 우편 미발송 대상이 없습니다.');
-      return;
-    }
-    const allPendingSelected = pendingPostItems.every(item => selectedIds.has(item.id));
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (allPendingSelected) {
-        pendingPostItems.forEach(item => next.delete(item.id));
-      } else {
-        pendingPostItems.forEach(item => next.add(item.id));
-      }
-      return next;
-    });
-  };
-
-  // 모바일 미발송 대상만 원클릭 선택 토글
-  const handleSelectPendingMobile = () => {
-    if (pendingMobileItems.length === 0) {
-      alert('현재 목록에 모바일 미발송 대상이 없습니다.');
-      return;
-    }
-    const allPendingSelected = pendingMobileItems.every(item => selectedIds.has(item.id));
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (allPendingSelected) {
-        pendingMobileItems.forEach(item => next.delete(item.id));
-      } else {
-        pendingMobileItems.forEach(item => next.add(item.id));
-      }
-      return next;
-    });
-  };
+  }, [processedData, getItemIsFullyDispatched, getItemIsPost, getItemIsPostDispatched]);
 
   const [labelStartPos, setLabelStartPos] = useState<number>(1);
 
@@ -1119,12 +1068,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     // 체크박스로 선택된 대상 저장
     const targetData = processedData.filter(item => selectedIds.has(item.id));
 
+    const actionLabel = dispatchType === '우편' ? '우편 발송저장' : '발송저장';
     if (targetData.length === 0) {
-      await (window as any).customAlert(`선택된 대상이 없습니다. ${dispatchType} 발송 저장할 대상을 선택해 주세요.`, '알림');
+      await (window as any).customAlert(`선택된 대상이 없습니다. ${actionLabel}할 대상을 선택해 주세요.`, '알림');
       return;
     }
 
-    if (!await (window as any).customConfirm(`현재 선택된 ${targetData.length}건의 데이터를 구글 시트 '증서발송리스트'에 ${dispatchType}발송 저장하시겠습니까?`, `${dispatchType} 발송 저장`)) {
+    const confirmMsg = dispatchType === '우편'
+      ? `현재 선택된 ${targetData.length}건의 데이터를 구글 시트 '증서발송리스트'에 [우편 발송저장] 처리하시겠습니까?`
+      : `현재 선택된 ${targetData.length}건의 데이터를 구글 시트 '증서발송리스트'에 [발송저장] 처리하시겠습니까?\n(우편 수령 건은 [우편 발송저장]을 완료해야 최종 발송완료 처리됩니다)`;
+
+    if (!await (window as any).customConfirm(confirmMsg, actionLabel)) {
       return;
     }
 
@@ -1208,9 +1162,6 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         : [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].filter(Boolean);
 
       return {
-        '수령구분': isPost ? '우편' : '모바일',
-        '우편발송': isPostDispatched ? '완료' : '미발송',
-        '모바일발송': isMobileDispatched ? '완료' : '미발송',
         '회원명': ext.memName,
         '공란': '',
         '휴대폰번호': ext.phone,
@@ -1329,11 +1280,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                   <div className="flex items-center gap-1.5 text-xs sm:text-[13px] font-semibold text-slate-600 bg-slate-100/80 border border-slate-200 px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap shadow-2xs">
                     <span>(총 <strong className="text-blue-600 font-bold">{dispatchStats.total}</strong>건</span>
                     <span className="text-slate-300">|</span>
-                    <span>미완료 <strong className="text-rose-500 font-bold">{dispatchStats.pending}</strong>건</span>
-                    <span>완료 <strong className="text-emerald-600 font-bold">{dispatchStats.completed}</strong>건</span>
+                    <span>미발송 <strong className="text-rose-500 font-bold">{dispatchStats.pending}</strong>건</span>
+                    <span>발송완료 <strong className="text-emerald-600 font-bold">{dispatchStats.completed}</strong>건</span>
                     <span className="text-slate-300">|</span>
-                    <span>우편미발송 <strong className="text-amber-600 font-bold">{dispatchStats.pendingPost}</strong>건</span>
-                    <span>모바일미발송 <strong className="text-teal-600 font-bold">{dispatchStats.pendingMobile}</strong>건)</span>
+                    <span>우편 <strong className="text-amber-600 font-bold">{dispatchStats.postCount}</strong>건</span>
+                    {dispatchStats.pendingPost > 0 && (
+                      <>
+                        <span className="text-slate-300">·</span>
+                        <span>우편미발송 <strong className="text-rose-600 font-bold">{dispatchStats.pendingPost}</strong>건</span>
+                      </>
+                    )}
+                    <span>)</span>
                   </div>
                 </div>
               </div>
@@ -1357,9 +1314,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
               </div>
             </div>
 
-            {/* 2단 Action Toolbar: 선택 도구 & 출력/저장 액션 버튼들 */}
+            {/* 2단 Action Toolbar: 출력/저장 액션 버튼들 */}
             <div className="px-5 py-2.5 sm:px-6 bg-slate-50/90 border-b border-slate-200/80 flex items-center justify-between gap-3 shrink-0 flex-wrap overflow-x-auto">
-              {/* 좌측 액션 그룹: 선택 관련 도구 */}
+              {/* 좌측: 라벨 시작위치 및 인쇄 도구 */}
               <div className="flex items-center gap-2 shrink-0">
                 <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 whitespace-nowrap shadow-2xs">
                   <span className="text-slate-500 font-medium">라벨시작:</span>
@@ -1376,35 +1333,6 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                   </select>
                 </div>
 
-                <button
-                  onClick={handleSelectPendingPost}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-[13px] font-bold transition-all border shadow-2xs whitespace-nowrap cursor-pointer ${
-                    pendingPostItems.length > 0 && pendingPostItems.every(item => selectedIds.has(item.id))
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-blue-700 hover:bg-blue-50 border-blue-200'
-                  }`}
-                  title="현재 목록 중 아직 우편 발송되지 않은 우편 희망자들을 일괄 선택/해제합니다."
-                >
-                  <Mail size={15} />
-                  <span>우편 미발송 선택 ({pendingPostItems.length})</span>
-                </button>
-
-                <button
-                  onClick={handleSelectPendingMobile}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-[13px] font-bold transition-all border shadow-2xs whitespace-nowrap cursor-pointer ${
-                    pendingMobileItems.length > 0 && pendingMobileItems.every(item => selectedIds.has(item.id))
-                      ? 'bg-violet-600 text-white border-violet-600'
-                      : 'bg-white text-violet-700 hover:bg-violet-50 border-violet-200'
-                  }`}
-                  title="현재 목록 중 아직 모바일 발송되지 않은 대상들을 일괄 선택/해제합니다."
-                >
-                  <Smartphone size={15} />
-                  <span>모바일 미발송 선택 ({pendingMobileItems.length})</span>
-                </button>
-              </div>
-
-              {/* 우측 액션 그룹: 출력 및 발송저장 */}
-              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={handlePrintCertificates}
                   disabled={selectedIds.size === 0}
@@ -1430,27 +1358,28 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                   <FileText size={15} />
                   <span>라벨 인쇄 ({selectedIds.size}건)</span>
                 </button>
+              </div>
 
-                <div className="h-4 w-px bg-slate-300 mx-0.5" />
+              {/* 우측 액션 그룹: 발송저장 및 우편 발송저장 */}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => handleSaveDispatch('모바일')}
+                  disabled={saving || selectedIds.size === 0}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-teal-200 whitespace-nowrap cursor-pointer shadow-2xs"
+                  title="선택된 항목들을 '발송저장' 처리합니다. (우편 수령 건은 [우편 발송저장]을 추가 진행해야 최종 완료됩니다)"
+                >
+                  <Save size={15} />
+                  <span>{saving ? '저장 중...' : `발송저장 (${selectedIds.size}건)`}</span>
+                </button>
 
                 <button
                   onClick={() => handleSaveDispatch('우편')}
                   disabled={saving || selectedIds.size === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-indigo-200 whitespace-nowrap cursor-pointer"
-                  title="선택된 항목들을 '우편' 구분으로 증서발송리스트에 저장합니다."
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-indigo-200 whitespace-nowrap cursor-pointer shadow-2xs"
+                  title="선택된 우편 수령 항목들을 '우편 발송저장' 처리하여 최종 완료합니다."
                 >
-                  <Save size={15} />
-                  <span>{saving ? '저장 중...' : `우편발송저장 (${selectedIds.size}건)`}</span>
-                </button>
-
-                <button
-                  onClick={() => handleSaveDispatch('모바일')}
-                  disabled={saving || selectedIds.size === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-teal-200 whitespace-nowrap cursor-pointer"
-                  title="선택된 항목들을 '모바일' 구분으로 증서발송리스트에 저장합니다."
-                >
-                  <Smartphone size={15} />
-                  <span>{saving ? '저장 중...' : `모바일발송저장 (${selectedIds.size}건)`}</span>
+                  <Mail size={15} />
+                  <span>{saving ? '저장 중...' : `우편 발송저장 (${selectedIds.size}건)`}</span>
                 </button>
               </div>
             </div>
@@ -1592,9 +1521,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       onChange={(e) => setReceiveTypeFilter(e.target.value as any)}
                       className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[12px] font-bold text-blue-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-2xs"
                     >
-                      <option value="all">전체 수령</option>
+                      <option value="all">전체수령</option>
                       <option value="post">우편</option>
-                      <option value="mobile">모바일</option>
                     </select>
                   </div>
 
@@ -1606,13 +1534,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       onChange={(e) => setDispatchStatusFilter(e.target.value as any)}
                       className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-2xs"
                     >
-                      <option value="notSent">미발송 (기본)</option>
-                      <option value="postNotSent">우편 미발송</option>
-                      <option value="mobileNotSent">모바일 미발송</option>
-                      <option value="postSent">우편 발송완료</option>
-                      <option value="mobileSent">모바일 발송완료</option>
-                      <option value="sent">전체 발송완료</option>
-                      <option value="all">전체</option>
+                      <option value="notSent">미발송</option>
+                      <option value="sent">발송완료</option>
                     </select>
                   </div>
 
@@ -1744,9 +1667,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
                                           : 'bg-rose-50 text-rose-600 border border-rose-300 hover:bg-rose-100'
                                       }`}
-                                      title="클릭하여 모바일 발송상태 전환 (모바일미발송 ↔ 모바일완료)"
+                                      title="클릭하여 발송상태 전환 (미발송 ↔ 발송완료)"
                                     >
-                                      {getItemIsMobileDispatched(item) ? '모바일완료' : '모바일미발송'}
+                                      {getItemIsMobileDispatched(item) ? '발송완료' : '미발송'}
                                     </button>
                                   </div>
                                 </td>

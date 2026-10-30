@@ -10324,8 +10324,8 @@ const ERP_Dashboard = () => {
                         </div>
                       </div>
 
-                      <DetailItem label="배송현황" value={selectedItem.deliveryStatus ? selectedItem.deliveryStatus.replace('완료', ' 완료') : '-'} className="lg:col-span-2" />
-                      <DetailItem label="배송일자" value={selectedItem.deliveryDate} className="lg:col-span-1" />
+                      <DetailItem label="배송현황" value={selectedItem.deliveryStatus ? selectedItem.deliveryStatus.replace('완료', ' 완료') : '-'} className="lg:col-span-1" />
+                      <DetailItem label="배송일자" value={selectedItem.deliveryDate} className="lg:col-span-2" />
                     </div>
                   </section>
 
