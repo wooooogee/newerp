@@ -675,16 +675,32 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       result = result.filter(item => item.isFirstPaid);
     }
 
-    // 4. 수령방식 필터 (전체수령 / 우편)
+    // 4. 수령방식 및 5. 발송구분 필터
     if (receiveTypeFilter === 'post') {
-      result = result.filter(item => getItemIsPost(item));
-    }
-
-    // 5. 발송구분 필터 (미발송 / 발송완료)
-    if (dispatchStatusFilter === 'notSent') {
-      result = result.filter(item => !getItemIsFullyDispatched(item));
-    } else if (dispatchStatusFilter === 'sent') {
-      result = result.filter(item => getItemIsFullyDispatched(item));
+      // 수령구분: 우편 (우편 희망 건만 대상)
+      result = result.filter(item => {
+        if (!getItemIsPost(item)) return false;
+        if (dispatchStatusFilter === 'notSent') {
+          // 미발송: 우편발송저장 안 된 값들만 불러옴
+          return !getItemIsPostDispatched(item);
+        } else if (dispatchStatusFilter === 'sent') {
+          // 발송완료: 우편발송저장 완료된 값들만 불러옴
+          return getItemIsPostDispatched(item);
+        }
+        return true;
+      });
+    } else {
+      // 수령구분: 전체수령
+      result = result.filter(item => {
+        if (dispatchStatusFilter === 'notSent') {
+          // 미발송: 일반 발송저장이 안 된 값들만 (발송완료는 절대 나오지 않음!)
+          return !getItemIsMobileDispatched(item);
+        } else if (dispatchStatusFilter === 'sent') {
+          // 발송완료: 일반 발송저장이 완료된 값들만
+          return getItemIsMobileDispatched(item);
+        }
+        return true;
+      });
     }
 
     // 6. 검색어 필터
@@ -1278,17 +1294,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                     증서발송대장
                   </h2>
                   <div className="flex items-center gap-1.5 text-xs sm:text-[13px] font-semibold text-slate-600 bg-slate-100/80 border border-slate-200 px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap shadow-2xs">
-                    <span>(총 <strong className="text-blue-600 font-bold">{dispatchStats.total}</strong>건</span>
+                    <span>(총 <strong className="text-blue-600 font-bold">{processedData.length}</strong>건</span>
                     <span className="text-slate-300">|</span>
-                    <span>미발송 <strong className="text-rose-500 font-bold">{dispatchStats.pending}</strong>건</span>
-                    <span>발송완료 <strong className="text-emerald-600 font-bold">{dispatchStats.completed}</strong>건</span>
-                    <span className="text-slate-300">|</span>
-                    <span>우편 <strong className="text-amber-600 font-bold">{dispatchStats.postCount}</strong>건</span>
-                    {dispatchStats.pendingPost > 0 && (
-                      <>
-                        <span className="text-slate-300">·</span>
-                        <span>우편미발송 <strong className="text-rose-600 font-bold">{dispatchStats.pendingPost}</strong>건</span>
-                      </>
+                    {receiveTypeFilter === 'post' ? (
+                      <span>우편 {dispatchStatusFilter === 'notSent' ? '미발송' : '발송완료'} <strong className={dispatchStatusFilter === 'notSent' ? 'text-rose-500 font-bold' : 'text-emerald-600 font-bold'}>{processedData.length}</strong>건</span>
+                    ) : (
+                      <span>{dispatchStatusFilter === 'notSent' ? '미발송' : '발송완료'} <strong className={dispatchStatusFilter === 'notSent' ? 'text-rose-500 font-bold' : 'text-emerald-600 font-bold'}>{processedData.length}</strong>건</span>
                     )}
                     <span>)</span>
                   </div>
