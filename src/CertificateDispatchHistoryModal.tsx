@@ -394,25 +394,27 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 sm:p-6"
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-2 sm:p-3 md:p-4"
         >
           <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
+            initial={{ scale: 0.98, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden"
+            exit={{ scale: 0.98, opacity: 0 }}
+            className="bg-white rounded-2xl shadow-2xl w-[98vw] max-w-[1850px] h-[96vh] flex flex-col overflow-hidden border border-slate-200"
           >
             {/* Header */}
             <div className="flex items-center justify-between p-5 sm:p-6 border-b border-slate-100 bg-white shrink-0">
-              <div className="flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
-                  <Calendar size={20} className="sm:w-6 sm:h-6" />
+              <div className="flex items-center gap-3 shrink-0 whitespace-nowrap">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shrink-0 shadow-2xs">
+                  <Calendar size={20} />
                 </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-black text-slate-800 tracking-tight">증서발송이력</h2>
-                  <p className="text-[11px] sm:text-xs font-medium text-slate-400 mt-0.5">
-                    총 <span className="text-emerald-600 font-bold">{filteredData.length}</span>건의 발송 이력
-                  </p>
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
+                  <h2 className="text-lg sm:text-xl font-black text-slate-800 tracking-tight shrink-0">
+                    증서발송이력
+                  </h2>
+                  <div className="flex items-center gap-1.5 text-xs sm:text-[13px] font-semibold text-slate-600 bg-slate-100/80 border border-slate-200 px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap shadow-2xs">
+                    (총 <strong className="text-emerald-600 font-bold">{filteredData.length}</strong>건의 발송 이력)
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2 sm:gap-3">
@@ -459,7 +461,7 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
             {/* Content */}
             <div className="flex-1 overflow-hidden flex flex-col bg-slate-50/50">
               {/* Filters */}
-              <div className="p-4 sm:p-5 border-b border-slate-100 bg-white shrink-0">
+              <div className="px-5 py-3 sm:px-6 sm:py-3.5 border-b border-slate-200/80 bg-white shrink-0">
                 <div className="flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
                     <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -499,7 +501,7 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
               </div>
 
               {/* Table */}
-              <div className="flex-1 overflow-auto p-4 sm:p-5">
+              <div className="flex-1 min-h-0 p-3 sm:p-4 overflow-hidden flex flex-col">
                 {loading ? (
                   <div className="h-full flex items-center justify-center">
                     <div className="animate-spin w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full" />
@@ -511,7 +513,7 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                   </div>
                 ) : (
                   <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex-1 flex flex-col min-h-0">
-                    <div className="overflow-auto flex-1 max-h-[calc(85vh-240px)]">
+                    <div className="overflow-auto flex-1 h-full">
                       <table className="w-full text-left border-collapse min-w-[1200px]">
                         <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                           <tr className="bg-slate-50 border-b border-slate-200">

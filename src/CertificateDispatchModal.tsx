@@ -779,6 +779,26 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     return processedData.filter(item => !getItemIsMobileDispatched(item));
   }, [processedData, mobileDispatchedNos, editedItems]);
 
+  // 발송 완료 / 미완료 통계 계산
+  const dispatchStats = useMemo(() => {
+    let completed = 0;
+    let pending = 0;
+    processedData.forEach(item => {
+      if (getItemIsFullyDispatched(item)) {
+        completed++;
+      } else {
+        pending++;
+      }
+    });
+    return {
+      total: processedData.length,
+      completed,
+      pending,
+      pendingPost: pendingPostItems.length,
+      pendingMobile: pendingMobileItems.length
+    };
+  }, [processedData, getItemIsFullyDispatched, pendingPostItems, pendingMobileItems]);
+
   // 우편 미발송 대상만 원클릭 선택 토글
   const handleSelectPendingPost = () => {
     if (pendingPostItems.length === 0) {
@@ -1288,36 +1308,61 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 sm:p-6"
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-2 sm:p-3 md:p-4"
         >
           <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
+            initial={{ scale: 0.98, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden"
+            exit={{ scale: 0.98, opacity: 0 }}
+            className="bg-white rounded-2xl shadow-2xl w-[98vw] max-w-[1850px] h-[96vh] flex flex-col overflow-hidden border border-slate-200"
           >
-            {/* Header */}
-            <div className="flex items-center justify-between p-5 sm:p-6 border-b border-slate-100 bg-white shrink-0">
-              <div className="flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
-                  <FileText size={20} className="sm:w-6 sm:h-6" />
+            {/* 1단 Header: 타이틀 + 한줄 요약통계 & 엑셀 다운로드 / 닫기 */}
+            <div className="flex items-center justify-between px-5 py-3 sm:px-6 sm:py-3.5 border-b border-slate-200/80 bg-white shrink-0 gap-4">
+              <div className="flex items-center gap-3 shrink-0 whitespace-nowrap">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0 shadow-2xs">
+                  <FileText size={20} />
                 </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-black text-slate-800 tracking-tight">증서발송대장</h2>
-                  <p className="text-[11px] sm:text-xs font-medium text-slate-500 mt-0.5 flex flex-wrap items-center gap-1 sm:gap-2">
-                    <span>총 <span className="text-blue-600 font-bold">{processedData.length}</span>건</span>
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
+                  <h2 className="text-lg sm:text-xl font-black text-slate-800 tracking-tight shrink-0">
+                    증서발송대장
+                  </h2>
+                  <div className="flex items-center gap-1.5 text-xs sm:text-[13px] font-semibold text-slate-600 bg-slate-100/80 border border-slate-200 px-3 py-1.5 rounded-lg shrink-0 whitespace-nowrap shadow-2xs">
+                    <span>(총 <strong className="text-blue-600 font-bold">{dispatchStats.total}</strong>건</span>
                     <span className="text-slate-300">|</span>
-                    <span>미완료 <span className="text-rose-500 font-bold">{processedData.filter(i => !getItemIsFullyDispatched(i)).length}</span>건</span>
-                    <span>완료 <span className="text-emerald-600 font-bold">{processedData.filter(i => getItemIsFullyDispatched(i)).length}</span>건</span>
+                    <span>미완료 <strong className="text-rose-500 font-bold">{dispatchStats.pending}</strong>건</span>
+                    <span>완료 <strong className="text-emerald-600 font-bold">{dispatchStats.completed}</strong>건</span>
                     <span className="text-slate-300">|</span>
-                    <span>우편미발송 <span className="text-amber-600 font-bold">{processedData.filter(i => getItemIsPost(i) && !getItemIsPostDispatched(i)).length}</span>건</span>
-                    <span>모바일미발송 <span className="text-teal-600 font-bold">{processedData.filter(i => !getItemIsMobileDispatched(i)).length}</span>건</span>
-                  </p>
+                    <span>우편미발송 <strong className="text-amber-600 font-bold">{dispatchStats.pendingPost}</strong>건</span>
+                    <span>모바일미발송 <strong className="text-teal-600 font-bold">{dispatchStats.pendingMobile}</strong>건)</span>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-1.5 rounded-lg text-xs font-semibold text-slate-700 whitespace-nowrap shrink-0">
-                  <span className="text-slate-400 font-medium">라벨시작:</span>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={handleExportExcel}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-emerald-200 whitespace-nowrap shadow-2xs cursor-pointer"
+                  title="대장 전체 엑셀 다운로드"
+                >
+                  <Download size={15} />
+                  <span>엑셀 다운로드</span>
+                </button>
+                <button
+                  onClick={onClose}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                  title="닫기 (ESC)"
+                >
+                  <X size={22} />
+                </button>
+              </div>
+            </div>
+
+            {/* 2단 Action Toolbar: 선택 도구 & 출력/저장 액션 버튼들 */}
+            <div className="px-5 py-2.5 sm:px-6 bg-slate-50/90 border-b border-slate-200/80 flex items-center justify-between gap-3 shrink-0 flex-wrap overflow-x-auto">
+              {/* 좌측 액션 그룹: 선택 관련 도구 */}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 whitespace-nowrap shadow-2xs">
+                  <span className="text-slate-500 font-medium">라벨시작:</span>
                   <select
                     value={labelStartPos}
                     onChange={(e) => setLabelStartPos(Number(e.target.value))}
@@ -1333,84 +1378,79 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
                 <button
                   onClick={handleSelectPendingPost}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-[13px] font-bold transition-all border shadow-sm whitespace-nowrap shrink-0 ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-[13px] font-bold transition-all border shadow-2xs whitespace-nowrap cursor-pointer ${
                     pendingPostItems.length > 0 && pendingPostItems.every(item => selectedIds.has(item.id))
                       ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'
+                      : 'bg-white text-blue-700 hover:bg-blue-50 border-blue-200'
                   }`}
                   title="현재 목록 중 아직 우편 발송되지 않은 우편 희망자들을 일괄 선택/해제합니다."
                 >
                   <Mail size={15} />
-                  우편 미발송 선택 ({pendingPostItems.length})
+                  <span>우편 미발송 선택 ({pendingPostItems.length})</span>
                 </button>
 
                 <button
                   onClick={handleSelectPendingMobile}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-[13px] font-bold transition-all border shadow-sm whitespace-nowrap shrink-0 ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-[13px] font-bold transition-all border shadow-2xs whitespace-nowrap cursor-pointer ${
                     pendingMobileItems.length > 0 && pendingMobileItems.every(item => selectedIds.has(item.id))
                       ? 'bg-violet-600 text-white border-violet-600'
-                      : 'bg-violet-50 text-violet-700 hover:bg-violet-100 border-violet-200'
+                      : 'bg-white text-violet-700 hover:bg-violet-50 border-violet-200'
                   }`}
                   title="현재 목록 중 아직 모바일 발송되지 않은 대상들을 일괄 선택/해제합니다."
                 >
                   <Smartphone size={15} />
-                  모바일 미발송 선택 ({pendingMobileItems.length})
+                  <span>모바일 미발송 선택 ({pendingMobileItems.length})</span>
                 </button>
+              </div>
 
+              {/* 우측 액션 그룹: 출력 및 발송저장 */}
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={handlePrintCertificates}
                   disabled={selectedIds.size === 0}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-[13px] font-bold transition-all whitespace-nowrap shrink-0 ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-[13px] font-bold transition-all whitespace-nowrap cursor-pointer ${
                     selectedIds.size === 0 
                       ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200' 
                       : 'bg-amber-600 text-white hover:bg-amber-500 shadow-md shadow-amber-600/20'
                   }`}
                 >
                   <Printer size={15} />
-                  증서 출력 ({selectedIds.size}건)
+                  <span>증서 출력 ({selectedIds.size}건)</span>
                 </button>
+
                 <button
                   onClick={handlePrintLabels}
                   disabled={selectedIds.size === 0}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-[13px] font-bold transition-colors whitespace-nowrap shrink-0 ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-[13px] font-bold transition-colors whitespace-nowrap cursor-pointer ${
                     selectedIds.size === 0 
                       ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200' 
                       : 'bg-blue-600 text-white hover:bg-blue-500 shadow-md shadow-blue-500/10'
                   }`}
                 >
                   <FileText size={15} />
-                  라벨 인쇄 ({selectedIds.size}건)
+                  <span>라벨 인쇄 ({selectedIds.size}건)</span>
                 </button>
+
+                <div className="h-4 w-px bg-slate-300 mx-0.5" />
+
                 <button
                   onClick={() => handleSaveDispatch('우편')}
                   disabled={saving || selectedIds.size === 0}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-indigo-200 whitespace-nowrap shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-indigo-200 whitespace-nowrap cursor-pointer"
                   title="선택된 항목들을 '우편' 구분으로 증서발송리스트에 저장합니다."
                 >
                   <Save size={15} />
-                  {saving ? '저장 중...' : `우편발송저장 (${selectedIds.size}건)`}
+                  <span>{saving ? '저장 중...' : `우편발송저장 (${selectedIds.size}건)`}</span>
                 </button>
+
                 <button
                   onClick={() => handleSaveDispatch('모바일')}
                   disabled={saving || selectedIds.size === 0}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-teal-200 whitespace-nowrap shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-teal-200 whitespace-nowrap cursor-pointer"
                   title="선택된 항목들을 '모바일' 구분으로 증서발송리스트에 저장합니다."
                 >
                   <Smartphone size={15} />
-                  {saving ? '저장 중...' : `모바일발송저장 (${selectedIds.size}건)`}
-                </button>
-                <button
-                  onClick={handleExportExcel}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-emerald-200 whitespace-nowrap shrink-0"
-                >
-                  <Download size={15} />
-                  엑셀 다운로드
-                </button>
-                <button
-                  onClick={onClose}
-                  className="p-2 sm:p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-                >
-                  <X size={20} />
+                  <span>{saving ? '저장 중...' : `모바일발송저장 (${selectedIds.size}건)`}</span>
                 </button>
               </div>
             </div>
@@ -1418,7 +1458,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             {/* Content */}
             <div className="flex-1 overflow-hidden flex flex-col bg-slate-50/50">
               {/* Filters */}
-              <div className="p-4 sm:p-5 border-b border-slate-100 bg-white shrink-0">
+              <div className="px-5 py-3 sm:px-6 sm:py-3.5 border-b border-slate-200/80 bg-white shrink-0">
                 <div className="flex flex-wrap items-center gap-2.5">
                   {/* 검색창 */}
                   <div className="relative w-56 sm:w-64 min-w-[200px]">
@@ -1595,7 +1635,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
               </div>
 
               {/* Table */}
-              <div className="flex-1 overflow-auto p-4 sm:p-5">
+              <div className="flex-1 min-h-0 p-3 sm:p-4 overflow-hidden flex flex-col">
                 {loading ? (
                   <div className="h-full flex items-center justify-center">
                     <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
@@ -1607,7 +1647,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                   </div>
                 ) : (
                   <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex-1 flex flex-col min-h-0">
-                    <div className="overflow-auto flex-1 max-h-[calc(85vh-240px)]">
+                    <div className="overflow-auto flex-1 h-full">
                       <table className="w-full text-left border-collapse min-w-[1200px]">
                         <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-sm">
                           <tr className="bg-slate-50 border-b border-slate-200">
