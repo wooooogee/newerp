@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Calendar, Download, Search, FileText, Save, Printer, Mail } from 'lucide-react';
+import { X, Calendar, Download, Search, FileText, Save, Printer, Mail, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { printCertificatesPdf, CertPrintItem } from './certificatePdfPrinter';
@@ -78,9 +78,10 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [isConsolidated, setIsConsolidated] = useState<boolean>(true);
   const [filterFirstPayNotDate, setFilterFirstPayNotDate] = useState<boolean>(false);
-  const [receiveTypeFilter, setReceiveTypeFilter] = useState<'all' | 'post'>('all');
-  const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'sent' | 'all'>('notSent');
-  const [dispatchedHistoryNos, setDispatchedHistoryNos] = useState<Set<string>>(new Set());
+  const [receiveTypeFilter, setReceiveTypeFilter] = useState<'all' | 'post' | 'mobile'>('all');
+  const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'postNotSent' | 'mobileNotSent' | 'postSent' | 'mobileSent' | 'sent' | 'all'>('notSent');
+  const [postDispatchedNos, setPostDispatchedNos] = useState<Set<string>>(new Set());
+  const [mobileDispatchedNos, setMobileDispatchedNos] = useState<Set<string>>(new Set());
 
   // 인라인 수정 상태 관리: { [itemId: number]: { [fieldName: string]: any } }
   const [editedItems, setEditedItems] = useState<Record<number, Record<string, any>>>({});
@@ -132,12 +133,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
           }
           if (historyRes.ok) {
             const historyData = await historyRes.json();
-            const nos = new Set<string>();
+            const postNos = new Set<string>();
+            const mobileNos = new Set<string>();
             if (historyData && historyData.length > 1) {
               // 1행(데이터 행)부터 모든 셀을 전수 조사하여 회원번호 패턴 추출
               historyData.slice(1).forEach((raw: any) => {
                 if (Array.isArray(raw)) {
-                  raw.forEach((cellVal: any) => {
+                  const type = String(raw[1] || '').trim();
+                  const isPost = type === '우편';
+                  const isMobile = type === '모바일' || type === '알림톡';
+                  raw.forEach((cellVal: any, cellIdx: number) => {
+                    if (cellIdx === 0 || cellIdx === 1) return;
                     if (cellVal) {
                       const str = String(cellVal).trim();
                       // 콤마, 공백, 줄바꿈, 탭 등으로 분할
@@ -146,7 +152,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                         const cleanTok = tok.trim().toUpperCase();
                         // 회원번호 형태 (알파벳+숫자 6자리 이상 또는 J로 시작하는 회원번호)
                         if (cleanTok && cleanTok !== 'UNDEFINED' && cleanTok !== 'NULL' && cleanTok.length >= 5) {
-                          nos.add(cleanTok);
+                          if (isMobile) {
+                            mobileNos.add(cleanTok);
+                          }
+                          if (isPost || (!isPost && !isMobile)) {
+                            postNos.add(cleanTok);
+                          }
                         }
                       });
                     }
@@ -154,7 +165,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                 }
               });
             }
-            setDispatchedHistoryNos(nos);
+            setPostDispatchedNos(postNos);
+            setMobileDispatchedNos(mobileNos);
           }
         } catch (error) {
           console.error('Failed to load additional sheet data:', error);
@@ -220,7 +232,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         // 시트1의 49번째 열 (AX열, 증서 컬럼: '발송' / '미발송')
         const cert = String(raw[49] || '').trim();
         // 발송완료 여부 판정: 시트1 49열이 '발송'이거나, '증서발송리스트'에 등록된 회원번호인 경우
-        const isDispatched = cert === '발송' || dispatchedHistoryNos.has(memNoKey);
+        const isPostDispatched = postDispatchedNos.has(memNoKey);
+        const isMobileDispatched = mobileDispatchedNos.has(memNoKey) || cert === '발송';
 
         const hq = String(raw[38] || '');         // AM(38): 본부명
         const empCode = String(raw[39] || maintenanceItem?.empCode || '').trim();
@@ -283,12 +296,14 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         return {
           id: idx,
           customerKey,
-          isDispatched,
+          isPostDispatched,
+          isMobileDispatched,
           isFirstPaid,
           firstPayVVal: maintenanceVVal,
           extracted: {
             customerKey,
-            isDispatched,
+            isPostDispatched,
+          isMobileDispatched,
             isFirstPaid,
             status, contractDate, memNo, memName, resNo, prodName, firstPayDate,
             hq, empCode, empName, zipCode, address, workAddress, cert, deliveryType, rentalNo,
@@ -317,7 +332,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         customerPostMap.set(cKey, true);
       }
 
-      const statusGroupKey = cKey + '_' + (item.isDispatched ? 'sent' : 'notSent');
+      const statusGroupKey = cKey + '_' + (item.isPostDispatched ? 'p1' : 'p0') + '_' + (item.isMobileDispatched ? 'm1' : 'm0');
       if (!customerStatusNosMap.has(statusGroupKey)) {
         customerStatusNosMap.set(statusGroupKey, new Set());
       }
@@ -332,7 +347,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       if (customerPostMap.get(cKey)) {
         item.extracted.workAddress = '우편';
       }
-      const statusGroupKey = cKey + '_' + (item.isDispatched ? 'sent' : 'notSent');
+      const statusGroupKey = cKey + '_' + (item.isPostDispatched ? 'p1' : 'p0') + '_' + (item.isMobileDispatched ? 'm1' : 'm0');
       const sameStatusNos = Array.from(customerStatusNosMap.get(statusGroupKey) || [item.extracted.memNo]);
       item.extracted.allCustomerMemNos = sameStatusNos;
     });
@@ -342,7 +357,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       items.forEach(item => {
         const ext = item.extracted;
         // 동일 고객 + 상품명 + [발송상태] + [초회납납입여부]별로 그룹핑 (초회납 여부와 발송여부가 다른 건이 절대 합쳐지지 않도록 분리)
-        const key = item.customerKey + '_' + ext.prodName + '_' + (item.isDispatched ? 'sent' : 'notSent') + '_' + (item.isFirstPaid ? 'paid' : 'unpaid');
+        const sentKey = (item.isPostDispatched ? 'p1' : 'p0') + '_' + (item.isMobileDispatched ? 'm1' : 'm0');
+        const key = item.customerKey + '_' + ext.prodName + '_' + sentKey + '_' + (item.isFirstPaid ? 'paid' : 'unpaid');
         if (!groups.has(key)) {
           groups.set(key, []);
         }
@@ -353,7 +369,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         const base = { ...group[0] };
         base.id = gIdx;
         base.isFirstPaid = group[0].isFirstPaid;
-        base.extracted = { ...base.extracted, isFirstPaid: group[0].isFirstPaid };
+        base.isPostDispatched = group[0].isPostDispatched;
+        base.isMobileDispatched = group[0].isMobileDispatched;
+        base.extracted = { ...base.extracted, isFirstPaid: group[0].isFirstPaid, isPostDispatched: group[0].isPostDispatched, isMobileDispatched: group[0].isMobileDispatched };
 
         // 그룹 내 또는 동일 고객 중 하나라도 우편이면 우편 희망자로 통일
         const cKey = base.customerKey;
@@ -371,7 +389,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         base.extracted.allMemNos = uniqueNos;
 
         // 동일 발송상태의 회원번호 목록만 연결 (이미 발송된 번호 격리)
-        const statusGroupKey = cKey + '_' + (base.isDispatched ? 'sent' : 'notSent');
+        const statusGroupKey = cKey + '_' + (base.isPostDispatched ? 'p1' : 'p0') + '_' + (base.isMobileDispatched ? 'm1' : 'm0');
         const sameStatusNos = Array.from(customerStatusNosMap.get(statusGroupKey) || uniqueNos);
         base.extracted.allCustomerMemNos = sameStatusNos;
 
@@ -380,20 +398,24 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     }
 
     return items.map((item, i) => {
-      const statusGroupKey = item.customerKey + '_' + (item.isDispatched ? 'sent' : 'notSent');
+      const statusGroupKey = item.customerKey + '_' + (item.isPostDispatched ? 'p1' : 'p0') + '_' + (item.isMobileDispatched ? 'm1' : 'm0');
       return {
         ...item,
         id: i,
         isFirstPaid: item.isFirstPaid,
+        isPostDispatched: item.isPostDispatched,
+        isMobileDispatched: item.isMobileDispatched,
         extracted: {
           ...item.extracted,
           isFirstPaid: item.isFirstPaid,
+        isPostDispatched: item.isPostDispatched,
+        isMobileDispatched: item.isMobileDispatched,
           allMemNos: [item.extracted.memNo].filter(Boolean),
           allCustomerMemNos: Array.from(customerStatusNosMap.get(statusGroupKey) || [item.extracted.memNo].filter(Boolean))
         }
       };
     });
-  }, [sheet1List, empList, paymentList, data, isConsolidated, dispatchedHistoryNos, maintenanceSheetList]);
+  }, [sheet1List, empList, paymentList, data, isConsolidated, postDispatchedNos, mobileDispatchedNos, maintenanceSheetList]);
 
   // 계약일자 연도 목록 추출 (YYYY)
   const availableYears = useMemo(() => {
@@ -488,19 +510,52 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   };
 
   // 발송완료 여부 판정 (인라인 수정값 우선 반영)
-  const getItemIsDispatched = (item: any): boolean => {
+  // 우편 발송완료 여부 판정 (인라인 수정값 우선 반영)
+  const getItemIsPostDispatched = (item: any): boolean => {
     const edited = editedItems[item.id];
-    if (edited && edited.isDispatched !== undefined) {
-      return Boolean(edited.isDispatched);
+    if (edited && edited.isPostDispatched !== undefined) {
+      return Boolean(edited.isPostDispatched);
     }
     const ext = item.extracted;
-    const isSavedInHistory = ext.allMemNos?.some((no: string) => {
+    const allNos = (ext.allMemNos && ext.allMemNos.length > 0)
+      ? ext.allMemNos
+      : [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].filter(Boolean);
+    return allNos.some((no: string) => {
       const cleanNo = String(no || '').trim().toUpperCase();
-      return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && dispatchedHistoryNos.has(cleanNo);
+      return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && postDispatchedNos.has(cleanNo);
+    });
+  };
+
+  // 모바일 발송완료 여부 판정 (인라인 수정값 우선 반영)
+  const getItemIsMobileDispatched = (item: any): boolean => {
+    const edited = editedItems[item.id];
+    if (edited && edited.isMobileDispatched !== undefined) {
+      return Boolean(edited.isMobileDispatched);
+    }
+    const ext = item.extracted;
+    const allNos = (ext.allMemNos && ext.allMemNos.length > 0)
+      ? ext.allMemNos
+      : [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].filter(Boolean);
+    const isSavedInHistory = allNos.some((no: string) => {
+      const cleanNo = String(no || '').trim().toUpperCase();
+      return cleanNo && cleanNo !== 'UNDEFINED' && cleanNo !== 'NULL' && mobileDispatchedNos.has(cleanNo);
     });
     const certVal = String(ext.cert || '').trim();
     return Boolean(isSavedInHistory || (certVal !== '미발송' && certVal !== ''));
   };
+
+  // 전체 발송 완료 여부 판정
+  const getItemIsFullyDispatched = (item: any): boolean => {
+    const isPost = getItemIsPost(item);
+    const postDone = getItemIsPostDispatched(item);
+    const mobileDone = getItemIsMobileDispatched(item);
+    if (isPost) {
+      return postDone && mobileDone;
+    }
+    return mobileDone;
+  };
+
+  
 
   // 수령구분 우편 여부 판정 (인라인 수정값 우선 반영)
   const getItemIsPost = (item: any): boolean => {
@@ -535,10 +590,16 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     }));
   };
 
-  const handleToggleDispatch = (item: any, e?: React.MouseEvent) => {
+    const handleTogglePostDispatch = (item: any, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const current = getItemIsDispatched(item);
-    handleUpdateField(item.id, 'isDispatched', !current);
+    const current = getItemIsPostDispatched(item);
+    handleUpdateField(item.id, 'isPostDispatched', !current);
+  };
+
+  const handleToggleMobileDispatch = (item: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const current = getItemIsMobileDispatched(item);
+    handleUpdateField(item.id, 'isMobileDispatched', !current);
   };
 
   const handleTogglePost = (item: any, e?: React.MouseEvent) => {
@@ -614,16 +675,32 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       result = result.filter(item => item.isFirstPaid);
     }
 
-    // 4. 수령방식 필터 (전체 / 우편)
+    // 4. 수령방식 필터 (전체 / 우편 / 모바일)
     if (receiveTypeFilter === 'post') {
       result = result.filter(item => getItemIsPost(item));
+    } else if (receiveTypeFilter === 'mobile') {
+      result = result.filter(item => !getItemIsPost(item));
     }
 
-    // 5. 발송구분 필터 (전체 / 미발송 / 발송완료)
+    // 5. 발송구분 필터
     if (dispatchStatusFilter === 'notSent') {
-      result = result.filter(item => !getItemIsDispatched(item));
+      // 미발송 (기본): 우편 희망자는 우편이나 모바일 중 하나라도 미발송, 모바일 희망자는 모바일 미발송
+      result = result.filter(item => !getItemIsFullyDispatched(item));
+    } else if (dispatchStatusFilter === 'postNotSent') {
+      // 우편 미발송 건
+      result = result.filter(item => getItemIsPost(item) && !getItemIsPostDispatched(item));
+    } else if (dispatchStatusFilter === 'mobileNotSent') {
+      // 모바일 미발송 건
+      result = result.filter(item => !getItemIsMobileDispatched(item));
+    } else if (dispatchStatusFilter === 'postSent') {
+      // 우편 발송완료 건
+      result = result.filter(item => getItemIsPostDispatched(item));
+    } else if (dispatchStatusFilter === 'mobileSent') {
+      // 모바일 발송완료 건
+      result = result.filter(item => getItemIsMobileDispatched(item));
     } else if (dispatchStatusFilter === 'sent') {
-      result = result.filter(item => getItemIsDispatched(item));
+      // 전체 발송완료 건
+      result = result.filter(item => getItemIsFullyDispatched(item));
     }
 
     // 6. 검색어 필터
@@ -653,7 +730,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       };
       return getScore(extB) - getScore(extA);
     });
-  }, [consolidatedData, selectedYear, selectedMonthOnly, startDate, endDate, selectedProducts, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter, searchTerm, dispatchedHistoryNos, editedItems]);
+  }, [consolidatedData, selectedYear, selectedMonthOnly, startDate, endDate, selectedProducts, filterFirstPayNotDate, receiveTypeFilter, dispatchStatusFilter, searchTerm, postDispatchedNos, mobileDispatchedNos, editedItems]);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
@@ -694,8 +771,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
   // 우편 미발송 건수 계산 (현재 목록 기준)
   const pendingPostItems = useMemo(() => {
-    return processedData.filter(item => getItemIsPost(item) && !getItemIsDispatched(item));
-  }, [processedData, dispatchedHistoryNos, editedItems]);
+    return processedData.filter(item => getItemIsPost(item) && !getItemIsPostDispatched(item));
+  }, [processedData, postDispatchedNos, editedItems]);
+
+  // 모바일 미발송 건수 계산 (현재 목록 기준)
+  const pendingMobileItems = useMemo(() => {
+    return processedData.filter(item => !getItemIsMobileDispatched(item));
+  }, [processedData, mobileDispatchedNos, editedItems]);
 
   // 우편 미발송 대상만 원클릭 선택 토글
   const handleSelectPendingPost = () => {
@@ -710,6 +792,24 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         pendingPostItems.forEach(item => next.delete(item.id));
       } else {
         pendingPostItems.forEach(item => next.add(item.id));
+      }
+      return next;
+    });
+  };
+
+  // 모바일 미발송 대상만 원클릭 선택 토글
+  const handleSelectPendingMobile = () => {
+    if (pendingMobileItems.length === 0) {
+      alert('현재 목록에 모바일 미발송 대상이 없습니다.');
+      return;
+    }
+    const allPendingSelected = pendingMobileItems.every(item => selectedIds.has(item.id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allPendingSelected) {
+        pendingMobileItems.forEach(item => next.delete(item.id));
+      } else {
+        pendingMobileItems.forEach(item => next.add(item.id));
       }
       return next;
     });
@@ -995,16 +1095,16 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
 
   const [saving, setSaving] = useState(false);
 
-  const handleSaveDispatch = async () => {
-    // 체크박스로 선택된 대상 저장 (우편 희망 여부 무관하게 선택된 모든 건을 우편 발송 저장)
+  const handleSaveDispatch = async (dispatchType: '우편' | '모바일') => {
+    // 체크박스로 선택된 대상 저장
     const targetData = processedData.filter(item => selectedIds.has(item.id));
 
     if (targetData.length === 0) {
-      await (window as any).customAlert('선택된 대상이 없습니다. 우편 발송 저장할 대상을 선택해 주세요.', '알림');
+      await (window as any).customAlert(`선택된 대상이 없습니다. ${dispatchType} 발송 저장할 대상을 선택해 주세요.`, '알림');
       return;
     }
 
-    if (!await (window as any).customConfirm(`현재 선택된 ${targetData.length}건의 데이터를 구글 시트 '증서발송리스트'에 우편발송 저장하시겠습니까?`, '우편 발송 저장')) {
+    if (!await (window as any).customConfirm(`현재 선택된 ${targetData.length}건의 데이터를 구글 시트 '증서발송리스트'에 ${dispatchType}발송 저장하시겠습니까?`, `${dispatchType} 발송 저장`)) {
       return;
     }
 
@@ -1013,7 +1113,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       const todayStr = new Date().toISOString().slice(0, 10);
       const rows = targetData.map(item => {
         const ext = getItemExtracted(item);
-        const type = '우편'; // 항상 우편 발송 건만 필터링하여 저장하므로 고정
+        const type = dispatchType; // '우편' 또는 '모바일'
 
         return [
           todayStr,
@@ -1045,11 +1145,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
 
       if (response.ok) {
-        await (window as any).customAlert('증서발송리스트에 성공적으로 저장되었습니다!', '저장 완료');
+        await (window as any).customAlert(`증서발송리스트에 성공적으로 ${dispatchType}발송 저장되었습니다!`, '저장 완료');
         // 로컬 상태에 새로 저장된 회원번호들을 추가해 즉시 음영 반영
-        setDispatchedHistoryNos(prev => {
+        const setter = dispatchType === '우편' ? setPostDispatchedNos : setMobileDispatchedNos;
+        setter(prev => {
           const next = new Set(prev);
-                    targetData.forEach(item => {
+          targetData.forEach(item => {
             const ext = getItemExtracted(item);
             const allNos = (ext.allMemNos && ext.allMemNos.length > 0)
               ? ext.allMemNos
@@ -1061,9 +1162,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
               }
             });
           });
-          setSelectedIds(new Set());
           return next;
         });
+        setSelectedIds(new Set());
       } else {
         const err = await response.json();
         await (window as any).customAlert(`저장 실패: ${err.error || '알 수 없는 오류'}`, '오류 발생');
@@ -1079,11 +1180,17 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const handleExportExcel = () => {
     const excelData = processedData.map(item => {
       const ext = getItemExtracted(item);
+      const isPost = getItemIsPost(item);
+      const isPostDispatched = getItemIsPostDispatched(item);
+      const isMobileDispatched = getItemIsMobileDispatched(item);
       const allNos = (ext.allMemNos && ext.allMemNos.length > 0)
         ? ext.allMemNos
         : [ext.memNo, ext.rentalNo2, ext.rentalNo3, ext.rentalNo4].filter(Boolean);
 
       return {
+        '수령구분': isPost ? '우편' : '모바일',
+        '우편발송': isPostDispatched ? '완료' : '미발송',
+        '모바일발송': isMobileDispatched ? '완료' : '미발송',
         '회원명': ext.memName,
         '공란': '',
         '휴대폰번호': ext.phone,
@@ -1197,8 +1304,14 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                 </div>
                 <div>
                   <h2 className="text-lg sm:text-xl font-black text-slate-800 tracking-tight">증서발송대장</h2>
-                  <p className="text-[11px] sm:text-xs font-medium text-slate-400 mt-0.5">
-                    총 <span className="text-blue-600 font-bold">{processedData.length}</span>건 (미발송 <span className="text-rose-500 font-bold">{processedData.filter(i => !getItemIsDispatched(i)).length}</span>건 / 발송완료 <span className="text-emerald-600 font-bold">{processedData.filter(i => getItemIsDispatched(i)).length}</span>건)
+                  <p className="text-[11px] sm:text-xs font-medium text-slate-500 mt-0.5 flex flex-wrap items-center gap-1 sm:gap-2">
+                    <span>총 <span className="text-blue-600 font-bold">{processedData.length}</span>건</span>
+                    <span className="text-slate-300">|</span>
+                    <span>미완료 <span className="text-rose-500 font-bold">{processedData.filter(i => !getItemIsFullyDispatched(i)).length}</span>건</span>
+                    <span>완료 <span className="text-emerald-600 font-bold">{processedData.filter(i => getItemIsFullyDispatched(i)).length}</span>건</span>
+                    <span className="text-slate-300">|</span>
+                    <span>우편미발송 <span className="text-amber-600 font-bold">{processedData.filter(i => getItemIsPost(i) && !getItemIsPostDispatched(i)).length}</span>건</span>
+                    <span>모바일미발송 <span className="text-teal-600 font-bold">{processedData.filter(i => !getItemIsMobileDispatched(i)).length}</span>건</span>
                   </p>
                 </div>
               </div>
@@ -1232,6 +1345,19 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                 </button>
 
                 <button
+                  onClick={handleSelectPendingMobile}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-[13px] font-bold transition-all border shadow-sm whitespace-nowrap shrink-0 ${
+                    pendingMobileItems.length > 0 && pendingMobileItems.every(item => selectedIds.has(item.id))
+                      ? 'bg-violet-600 text-white border-violet-600'
+                      : 'bg-violet-50 text-violet-700 hover:bg-violet-100 border-violet-200'
+                  }`}
+                  title="현재 목록 중 아직 모바일 발송되지 않은 대상들을 일괄 선택/해제합니다."
+                >
+                  <Smartphone size={15} />
+                  모바일 미발송 선택 ({pendingMobileItems.length})
+                </button>
+
+                <button
                   onClick={handlePrintCertificates}
                   disabled={selectedIds.size === 0}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-[13px] font-bold transition-all whitespace-nowrap shrink-0 ${
@@ -1256,12 +1382,22 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                   라벨 인쇄 ({selectedIds.size}건)
                 </button>
                 <button
-                  onClick={handleSaveDispatch}
+                  onClick={() => handleSaveDispatch('우편')}
                   disabled={saving || selectedIds.size === 0}
                   className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-indigo-200 whitespace-nowrap shrink-0"
+                  title="선택된 항목들을 '우편' 구분으로 증서발송리스트에 저장합니다."
                 >
                   <Save size={15} />
                   {saving ? '저장 중...' : `우편발송저장 (${selectedIds.size}건)`}
+                </button>
+                <button
+                  onClick={() => handleSaveDispatch('모바일')}
+                  disabled={saving || selectedIds.size === 0}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-teal-50 text-teal-700 hover:bg-teal-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-xs sm:text-[13px] font-bold transition-colors border border-teal-200 whitespace-nowrap shrink-0"
+                  title="선택된 항목들을 '모바일' 구분으로 증서발송리스트에 저장합니다."
+                >
+                  <Smartphone size={15} />
+                  {saving ? '저장 중...' : `모바일발송저장 (${selectedIds.size}건)`}
                 </button>
                 <button
                   onClick={handleExportExcel}
@@ -1416,8 +1552,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       onChange={(e) => setReceiveTypeFilter(e.target.value as any)}
                       className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[12px] font-bold text-blue-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-2xs"
                     >
-                      <option value="all">전체</option>
+                      <option value="all">전체 수령</option>
                       <option value="post">우편</option>
+                      <option value="mobile">모바일</option>
                     </select>
                   </div>
 
@@ -1429,8 +1566,12 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                       onChange={(e) => setDispatchStatusFilter(e.target.value as any)}
                       className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-[12px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer shadow-2xs"
                     >
-                      <option value="notSent">미발송</option>
-                      <option value="sent">발송완료</option>
+                      <option value="notSent">미발송 (기본)</option>
+                      <option value="postNotSent">우편 미발송</option>
+                      <option value="mobileNotSent">모바일 미발송</option>
+                      <option value="postSent">우편 발송완료</option>
+                      <option value="mobileSent">모바일 발송완료</option>
+                      <option value="sent">전체 발송완료</option>
                       <option value="all">전체</option>
                     </select>
                   </div>
@@ -1506,13 +1647,16 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                           {processedData.slice(0, 100).map((item, idx) => {
                             const ext = getItemExtracted(item);
                             const isPost = getItemIsPost(item);
-                            const isDispatched = getItemIsDispatched(item);
+                            const isPostDispatched = getItemIsPostDispatched(item);
+                            const isMobileDispatched = getItemIsMobileDispatched(item);
 
                             return (
                               <tr key={idx} className={`border-b border-slate-100 transition-colors ${
-                                isDispatched 
+                                getItemIsFullyDispatched(item)
                                   ? 'bg-emerald-50/30 hover:bg-emerald-100/40' 
-                                  : 'hover:bg-slate-50/50'
+                                  : (getItemIsPostDispatched(item) || getItemIsMobileDispatched(item))
+                                    ? 'bg-amber-50/20 hover:bg-amber-100/30'
+                                    : 'hover:bg-slate-50/50'
                               }`}>
                                 <td className="p-3 text-center whitespace-nowrap w-[40px]">
                                   <input
@@ -1523,33 +1667,46 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                                   />
                                 </td>
                                 <td className="p-3 text-center whitespace-nowrap">
-                                  <div className="flex items-center justify-center gap-1">
+                                  <div className="flex items-center justify-center gap-1.5 flex-wrap">
                                     <button
                                       type="button"
                                       onClick={(e) => handleTogglePost(item, e)}
                                       className={`px-2 py-0.5 rounded text-[11px] font-bold transition-transform active:scale-95 cursor-pointer shadow-2xs ${
-                                        isPost 
+                                        getItemIsPost(item) 
                                           ? 'bg-blue-100 text-blue-700 border border-blue-300 hover:bg-blue-200' 
                                           : 'bg-slate-100 text-slate-600 border border-slate-300 hover:bg-slate-200'
                                       }`}
                                       title="클릭하여 수령구분 전환 (우편 ↔ 모바일)"
                                     >
-                                      {isPost ? '우편' : '모바일'}
+                                      {getItemIsPost(item) ? '우편' : '모바일'}
                                     </button>
+
+                                    {(getItemIsPost(item) || getItemIsPostDispatched(item)) && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleTogglePostDispatch(item, e)}
+                                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition-transform active:scale-95 cursor-pointer shadow-2xs whitespace-nowrap ${
+                                          getItemIsPostDispatched(item)
+                                            ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200'
+                                            : 'bg-rose-50 text-rose-600 border border-rose-300 hover:bg-rose-100'
+                                        }`}
+                                        title="클릭하여 우편 발송상태 전환 (우편미발송 ↔ 우편완료)"
+                                      >
+                                        {getItemIsPostDispatched(item) ? '우편완료' : '우편미발송'}
+                                      </button>
+                                    )}
 
                                     <button
                                       type="button"
-                                      onClick={(e) => handleToggleDispatch(item, e)}
+                                      onClick={(e) => handleToggleMobileDispatch(item, e)}
                                       className={`px-2 py-0.5 rounded text-[10px] font-bold transition-transform active:scale-95 cursor-pointer shadow-2xs whitespace-nowrap ${
-                                        isDispatched
-                                          ? isPost
-                                            ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200'
-                                            : 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                                        getItemIsMobileDispatched(item)
+                                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
                                           : 'bg-rose-50 text-rose-600 border border-rose-300 hover:bg-rose-100'
                                       }`}
-                                      title="클릭하여 발송상태 전환 (미발송 ↔ 발송완료)"
+                                      title="클릭하여 모바일 발송상태 전환 (모바일미발송 ↔ 모바일완료)"
                                     >
-                                      {isDispatched ? (isPost ? '우편발송완료' : '모바일완료') : '미발송'}
+                                      {getItemIsMobileDispatched(item) ? '모바일완료' : '모바일미발송'}
                                     </button>
                                   </div>
                                 </td>

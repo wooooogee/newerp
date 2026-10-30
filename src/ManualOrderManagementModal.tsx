@@ -242,9 +242,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   useEffect(() => {
     if (isOpen) {
       setSuppliers(loadSuppliersFromStorage());
-      // 모달 열릴 때 항상 기본 화면으로 초기화 (가입상태: 전체 기본값으로 취소/정상 모두 집계)
+      // 모달 열릴 때 항상 기본 화면으로 초기화 (가입상태: 정상 가입만 기본값)
       setSupplierFilter('all');
-      setJoinStatusFilter('all');
+      setJoinStatusFilter('active');
       setStateFilter('all');
       setRequestDateFilter('all');
       setContractMonthFilter('all');
@@ -317,7 +317,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [searchInput, setSearchInput] = useState('');
   const [requestDateFilter, setRequestDateFilter] = useState<'all' | 'has_value' | 'no_value'>('all');
   const [stateFilter, setStateFilter] = useState<'all' | DeliveryState>('all');
-  const [joinStatusFilter, setJoinStatusFilter] = useState<'all' | 'active' | 'cancelled'>('all');
+  const [joinStatusFilter, setJoinStatusFilter] = useState<'all' | 'active' | 'cancelled'>('active');
   const [contractMonthFilter, setContractMonthFilter] = useState<string>('all');
   const [deliveryMonthFilter, setDeliveryMonthFilter] = useState<string>('all');
   const [installCertFilter, setInstallCertFilter] = useState<'all' | 'registered' | 'unregistered'>('all');
@@ -334,7 +334,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     setInstallCertFilter('all');
     setRequestDateFilter('all');
     setSupplierFilter('all');
-    setJoinStatusFilter('all');
+    setJoinStatusFilter('active');
     setStateFilter('all');
     setSortField(null);
     setSortDirection('desc');
@@ -352,7 +352,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       installCertFilter !== 'all' ||
       requestDateFilter !== 'all' ||
       supplierFilter !== 'all' ||
-      joinStatusFilter !== 'all' ||
+      joinStatusFilter !== 'active' ||
       stateFilter !== 'all' ||
       sortField !== null ||
       searchTerm.trim() !== '' ||
@@ -1924,18 +1924,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               {/* 가입상태 필터 드롭다운 */}
               <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
                 <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
-                  <ShieldCheck size={13} className={joinStatusFilter !== 'all' ? 'text-emerald-600' : 'text-slate-400'} />
+                  <ShieldCheck size={13} className={joinStatusFilter === 'active' ? 'text-emerald-600' : 'text-slate-400'} />
                   <span>가입상태</span>
                 </div>
                 <select
                   value={joinStatusFilter}
                   onChange={(e) => setJoinStatusFilter(e.target.value as any)}
                   className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
-                    joinStatusFilter !== 'all' ? 'text-emerald-600 font-bold' : 'text-slate-700'
+                    joinStatusFilter === 'active' ? 'text-emerald-600 font-bold' : 'text-slate-700'
                   }`}
                 >
+                  <option value="active">정상 가입만 (기본)</option>
                   <option value="all">전체 가입상태</option>
-                  <option value="active">정상 가입만</option>
                   <option value="cancelled">취소/해약/철회</option>
                 </select>
               </div>
@@ -2328,9 +2328,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                         배송월: {deliveryMonthFilter === 'none' ? '배송일 없음' : deliveryMonthFilter}
                       </span>
                     )}
-                    {joinStatusFilter !== 'all' && (
+                    {joinStatusFilter !== 'active' && (
                       <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-300 text-slate-700 text-xs font-semibold">
-                        가입상태: {joinStatusFilter === 'active' ? '정상 가입만' : '취소/해약'}
+                        가입상태: {joinStatusFilter === 'all' ? '전체 가입상태' : '취소/해약'}
                       </span>
                     )}
                     {installCertFilter !== 'all' && (

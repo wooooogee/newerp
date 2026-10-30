@@ -477,9 +477,10 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                       onChange={(e) => setSelectedType(e.target.value)}
                       className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[13px] font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                     >
-                      <option value="all">전체 구분 (알림톡/우편)</option>
-                      <option value="알림톡">알림톡</option>
+                      <option value="all">전체 구분 (우편/모바일/알림톡)</option>
                       <option value="우편">우편</option>
+                      <option value="모바일">모바일</option>
+                      <option value="알림톡">알림톡</option>
                     </select>
                   </div>
                   <div className="sm:w-48">
@@ -562,7 +563,9 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
                                   <span className={`px-2 py-0.5 text-[11px] font-bold rounded-full ${
                                     item.type === '우편' 
                                       ? 'bg-amber-50 text-amber-600 border border-amber-200' 
-                                      : 'bg-blue-50 text-blue-600 border border-blue-200'
+                                      : item.type === '모바일'
+                                        ? 'bg-teal-50 text-teal-700 border border-teal-200'
+                                        : 'bg-blue-50 text-blue-600 border border-blue-200'
                                   }`}>
                                     {item.type}
                                   </span>
