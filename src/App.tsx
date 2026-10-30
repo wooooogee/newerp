@@ -814,6 +814,7 @@ const ERP_Dashboard = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ERPDataItem | null>(null);
   const [isCopiedMemberInfo, setIsCopiedMemberInfo] = useState(false);
+  const [isCopiedRentalNo, setIsCopiedRentalNo] = useState(false);
   const [isSettlementModalOpen, setIsSettlementModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -1330,24 +1331,39 @@ const ERP_Dashboard = () => {
     }
   };
 
+  const handleCopyRentalNo = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!selectedItem?.rentalNo) return;
+    const text = String(selectedItem.rentalNo).trim();
+    if (!text || text === '-') return;
+
+    const doSuccess = () => {
+      setIsCopiedRentalNo(true);
+      setTimeout(() => setIsCopiedRentalNo(false), 2000);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(doSuccess).catch(() => {
+        fallbackCopyText(text, doSuccess);
+      });
+    } else {
+      fallbackCopyText(text, doSuccess);
+    }
+  };
+
   const handleCopyMemberInfo = () => {
     if (!selectedItem) return;
-    const textToCopy = `[회원 정보]
+    const orgInfo = [selectedItem.hq, selectedItem.branch, selectedItem.empName].filter(Boolean).join(' ');
+    const lines = [
+      `계약일자 - ${selectedItem.contractDate || ''}`,
+      `렌탈계약번호 - ${selectedItem.rentalNo || ''}`,
+      `회원명 - ${selectedItem.memName || ''}`,
+      `상품명 - ${selectedItem.prodName || ''}`,
+      selectedItem.rentalProd || '',
+      orgInfo
+    ].filter(line => line.trim() !== '');
 
-계약일자 - ${selectedItem.contractDate || ''}
-회원명 - ${selectedItem.memName || ''}
-
-[상품 정보]
-
-상품명 - ${selectedItem.prodName || ''}
-렌탈상품명 - ${selectedItem.rentalProd || ''}
-렌탈계약번호 - ${selectedItem.rentalNo || ''}
-
-[영업자 정보]
-
-본부명 - ${selectedItem.hq || ''}
-지사명 - ${selectedItem.branch || ''}
-사원명 - ${selectedItem.empName || ''}`;
+    const textToCopy = lines.join('\n');
 
     const doSuccess = () => {
       setIsCopiedMemberInfo(true);
@@ -10028,29 +10044,29 @@ const ERP_Dashboard = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                onClick={() => { setSelectedItem(null); setDetailSource('main'); setIsCopiedMemberInfo(false); }}
+                onClick={() => { setSelectedItem(null); setDetailSource('main'); setIsCopiedMemberInfo(false); setIsCopiedRentalNo(false); }}
                 className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
               />
               <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="relative bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+                className="relative bg-white w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
               >
-                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <div className="px-6 py-3.5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                   <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                     <FileText size={18} className="text-accent-blue" />
                     회원 상세 정보
                   </h3>
                   <button
-                    onClick={() => { setSelectedItem(null); setDetailSource('main'); setIsCopiedMemberInfo(false); }}
-                    className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
+                    onClick={() => { setSelectedItem(null); setDetailSource('main'); setIsCopiedMemberInfo(false); setIsCopiedRentalNo(false); }}
+                    className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
                   >
-                    <X size={20} />
+                    <X size={18} />
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-auto p-6 space-y-8">
+                <div className="flex-1 overflow-auto p-5 sm:p-6 space-y-5">
                   {/* 정산 요약 - 실시간 계산 결과 */}
                   {detailSource !== 'healthcare' && pcViewMode === 'settlement' && showCommissionInfo && (
                   <section className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
@@ -10114,18 +10130,18 @@ const ERP_Dashboard = () => {
 
                   {/* 회원정보 */}
                   <section>
-                    <div className="flex items-center justify-between mb-4">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
                         <div className="w-1 h-3 bg-blue-500 rounded-full" />
                         회원 정보
                       </h4>
                       <button
                         type="button"
                         onClick={handleCopyMemberInfo}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg transition-all shadow-sm ${
+                        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all shadow-xs ${
                           isCopiedMemberInfo
                             ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
-                            : 'bg-white text-slate-600 hover:text-blue-600 hover:bg-blue-50/50 border border-slate-200 cursor-pointer'
+                            : 'bg-white text-slate-700 hover:text-blue-600 hover:bg-blue-50/50 border border-slate-200 cursor-pointer'
                         }`}
                         title="회원정보 복사"
                       >
@@ -10142,7 +10158,7 @@ const ERP_Dashboard = () => {
                         )}
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
                       <DetailItem label="계약일자" value={selectedItem.contractDate} />
                       <DetailItem label="회원번호" value={selectedItem.memNo} />
                       <DetailItem label="회원명" value={selectedItem.memName} />
@@ -10157,8 +10173,8 @@ const ERP_Dashboard = () => {
                       const relatedMembers = getRelatedMembers(selectedItem.rentalNo, selectedItem.memNo);
                       return (
                         <>
-                          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
                               <div className="w-1 h-3 bg-rose-500 rounded-full" />
                               계약 상태 관리
                               <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
@@ -10167,7 +10183,7 @@ const ERP_Dashboard = () => {
                             </h4>
 
                             {isAdmin && relatedMembers.length > 0 && (
-                              <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-xs">
+                              <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-200 shadow-2xs">
                                 <span className="text-[11px] font-bold text-slate-600 pl-1">일괄 변경:</span>
                                 <select
                                   id="batchContractStatusSelect"
@@ -10192,7 +10208,7 @@ const ERP_Dashboard = () => {
                                     }
                                   }}
                                   disabled={isUpdating}
-                                  className="px-3 py-1 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-[11px] font-bold rounded-lg shadow-xs transition-colors cursor-pointer whitespace-nowrap"
+                                  className="px-3 py-1 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-[11px] font-bold rounded-lg shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
                                 >
                                   일괄 변경
                                 </button>
@@ -10200,18 +10216,18 @@ const ERP_Dashboard = () => {
                             )}
                           </div>
 
-                          <div className="space-y-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                             {relatedMembers.map((m, mIdx) => (
-                              <div key={m.uniqueKey || mIdx} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                <div className="flex flex-col gap-0.5">
+                              <div key={m.uniqueKey || mIdx} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-between gap-3">
+                                <div className="flex flex-col gap-0.5 min-w-0">
                                   <div className="flex items-center gap-2">
                                     <span className="text-[13px] font-black text-slate-800">{m.memName || selectedItem.memName}</span>
                                     <span className="text-[11px] font-medium text-slate-500 font-mono">({m.memNo})</span>
                                   </div>
-                                  <span className="text-[10px] text-slate-400 truncate max-w-[200px]">{m.prodName || selectedItem.prodName}</span>
+                                  <span className="text-[10px] text-slate-400 truncate max-w-[220px]" title={m.prodName || selectedItem.prodName}>{m.prodName || selectedItem.prodName}</span>
                                 </div>
-                                <div className="flex items-center gap-4">
-                                  <div className="flex flex-col gap-0.5 min-w-[70px]">
+                                <div className="flex items-center gap-3 shrink-0">
+                                  <div className="flex flex-col gap-0.5 min-w-[55px] text-right sm:text-left">
                                     <span className="text-[10px] font-bold text-slate-400">현재 상태</span>
                                     <span className={`text-[12px] font-black ${
                                       m.status.includes('취소') || m.status.includes('해약')
@@ -10224,11 +10240,11 @@ const ERP_Dashboard = () => {
                                     </span>
                                   </div>
                                   {isAdmin ? (
-                                    <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200 shadow-sm shrink-0">
+                                    <div className="flex items-center gap-1.5 bg-white p-1 rounded-lg border border-slate-200 shadow-2xs shrink-0">
                                       <select
                                         defaultValue={m.status}
                                         id={`editStatus-${m.memNo || m.originalRowIdx}`}
-                                        className="text-[12px] font-bold text-slate-700 bg-transparent px-2 py-1 focus:outline-none"
+                                        className="text-[12px] font-bold text-slate-700 bg-transparent px-1.5 py-0.5 focus:outline-none"
                                       >
                                         <option value="가입">가입</option>
                                         <option value="대기">대기</option>
@@ -10246,7 +10262,7 @@ const ERP_Dashboard = () => {
                                           }
                                         }}
                                         disabled={isUpdating}
-                                        className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-[11px] font-semibold rounded-md shadow-sm transition-colors cursor-pointer"
+                                        className="px-2 py-1 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-[11px] font-semibold rounded-md shadow-2xs transition-colors cursor-pointer"
                                       >
                                         변경
                                       </button>
@@ -10263,16 +10279,53 @@ const ERP_Dashboard = () => {
 
                   {/* 상품정보 */}
                   <section>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2.5 flex items-center gap-2">
                       <div className="w-1 h-3 bg-emerald-500 rounded-full" />
                       상품 정보
                     </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <DetailItem label="상품명" value={selectedItem.prodName} />
-                      <DetailItem label="렌탈상품명" value={selectedItem.rentalProd} />
-                      <DetailItem label="렌탈계약번호" value={selectedItem.rentalNo} />
-                      <DetailItem label="배송현황" value={selectedItem.deliveryStatus ? selectedItem.deliveryStatus.replace('완료', ' 완료') : '-'} />
-                      <DetailItem label="배송일자" value={selectedItem.deliveryDate} />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
+                      <DetailItem label="상품명" value={selectedItem.prodName} className="lg:col-span-1" />
+                      <DetailItem label="렌탈상품명" value={selectedItem.rentalProd} className="lg:col-span-2" />
+                      
+                      {/* 렌탈계약번호 원클릭 복사 카드 */}
+                      <div
+                        onClick={handleCopyRentalNo}
+                        className="p-3 bg-slate-50 hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-300 rounded-xl cursor-pointer transition-all group lg:col-span-1 shadow-2xs relative flex flex-col justify-between"
+                        title="클릭하여 렌탈계약번호 복사"
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider group-hover:text-blue-600 transition-colors">
+                            렌탈계약번호
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleCopyRentalNo}
+                            className={`flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold rounded transition-colors ${
+                              isCopiedRentalNo
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'text-slate-400 group-hover:text-blue-600 group-hover:bg-blue-100/60'
+                            }`}
+                          >
+                            {isCopiedRentalNo ? (
+                              <>
+                                <Check size={11} className="text-emerald-600" />
+                                <span>복사됨!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={11} />
+                                <span>복사</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        <div className="text-[13px] font-bold text-slate-800 font-mono group-hover:text-blue-700 truncate">
+                          {selectedItem.rentalNo || '-'}
+                        </div>
+                      </div>
+
+                      <DetailItem label="배송현황" value={selectedItem.deliveryStatus ? selectedItem.deliveryStatus.replace('완료', ' 완료') : '-'} className="lg:col-span-1" />
+                      <DetailItem label="배송일자" value={selectedItem.deliveryDate} className="lg:col-span-1" />
                     </div>
                   </section>
 
@@ -10396,32 +10449,22 @@ const ERP_Dashboard = () => {
                     )}
                   </section>
 
-                  {/* 영업자정보 */}
+                  {/* 영업자 및 지원 정보 */}
                   <section>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2.5 flex items-center gap-2">
                       <div className="w-1 h-3 bg-indigo-500 rounded-full" />
-                      영업자 정보
+                      영업자 및 지원 정보
                     </h4>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                       <DetailItem label="본부명" value={selectedItem.hq} />
                       <DetailItem label="지사명" value={selectedItem.branch} />
                       <DetailItem label="사원명" value={selectedItem.empName} />
-                    </div>
-                  </section>
-
-                  {/* 기타 */}
-                  <section>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <div className="w-1 h-3 bg-purple-500 rounded-full" />
-                      기타 지원 정보
-                    </h4>
-                    <div className="grid grid-cols-1 gap-4">
                       <DetailItem label="헬스케어 대상자(PQR)" value={selectedItem.hc} />
                     </div>
                   </section>
                 </div>
 
-                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+                <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
                   <div>
                     {pcViewMode === 'settlement' && showCommissionInfo && (selectedItem.paymentStatus === '지급완료' || (selectedItem.hc && selectedItem.hc.includes('지급완료'))) && (
                       <button
@@ -10439,7 +10482,7 @@ const ERP_Dashboard = () => {
                     )}
                   </div>
                   <button
-                    onClick={() => { setSelectedItem(null); setIsCopiedMemberInfo(false); }}
+                    onClick={() => { setSelectedItem(null); setIsCopiedMemberInfo(false); setIsCopiedRentalNo(false); }}
                     className="px-8 py-2 bg-slate-900 text-white rounded-xl text-sm font-black shadow-lg cursor-pointer hover:bg-slate-800 transition-colors"
                   >
                     확인
