@@ -505,6 +505,19 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       const cleanNo = cleanRentalNo || item.rentalNo || '';
       const richInfo = richwelfareMap.get(cleanNo) || (cleanNo.replace(/[^0-9]/g, '') ? richwelfareMap.get(cleanNo.replace(/[^0-9]/g, '')) : null);
 
+      // 리치웰페어 입금 수수료 및 세금계산서 입금월 선행 산출 (설치확인서 마감월 판정 및 순수익 계산에 공통 활용)
+      let richDeposit = 0;
+      let richTaxDate = '';
+      let richDepositMonth = '';
+      let isRichMatched = false;
+
+      if (richInfo && (richInfo.depositAmount > 0 || richInfo.combinedCost > 0)) {
+        richDeposit = richInfo.depositAmount || richInfo.combinedCost; // I열 결합원가(VAT포함) 합계
+        richTaxDate = richInfo.taxInvoiceDate;
+        richDepositMonth = richInfo.expectedDepositMonth;
+        isRichMatched = true;
+      }
+
       // 5. 설치확인서 등록 여부 및 마감월 정밀 판정
       const rawCertStatus = manualInfo?.installCertStatus;
       let certDate = '';
@@ -617,25 +630,6 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       const sPrice = matchedProductSetting.supplyPrice || 0;
       const totalSupplyAmt = sPrice * qty;
       const totalCommAmt = finalCommission * qty;
-
-      // 9. 리치웰페어 입금 수수료 [A] 및 손익 [D] 계산
-      // 핵심: 리치웰페어 시트 I열 결합원가(VAT포함)가 입금 금액이며, W열 세금계산서 작성일 기준 다음달에 입금
-      let richDeposit = 0;
-      let richTaxDate = '';
-      let richDepositMonth = '';
-      let isRichMatched = false;
-
-      if (richInfo && (richInfo.depositAmount > 0 || richInfo.combinedCost > 0)) {
-        richDeposit = richInfo.depositAmount || richInfo.combinedCost; // I열 결합원가(VAT포함) 합계
-        richTaxDate = richInfo.taxInvoiceDate;
-        richDepositMonth = richInfo.expectedDepositMonth;
-        isRichMatched = true;
-      } else {
-        // 리치웰페어 시트에 미등록된 건은 입금액 0원 및 세금계산서 작성일 없음
-        richDeposit = 0;
-        richTaxDate = '';
-        richDepositMonth = '';
-      }
 
       // [D] 건별 순수익 = [A] 리치웰페어 입금액 - [B] 공급 물품대금 - [C] 공급수수료
       const itemNetProfit = richDeposit - totalSupplyAmt - totalCommAmt;
