@@ -101,8 +101,8 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
     bothPaidCount: 0,
   });
 
-  // 필터 조건 상태
-  const [startMonth, setStartMonth] = useState('2026-05');
+  // 필터 조건 상태: 전체 기간 및 회원상태 '가입' 기본값
+  const [startMonth, setStartMonth] = useState('');
   const [endMonth, setEndMonth] = useState('');
   const [payFilter, setPayFilter] = useState<PayFilterType>('ALL');
 
@@ -111,7 +111,7 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
   const [selectedHq, setSelectedHq] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('가입');
   const [searchKeyword, setSearchKeyword] = useState('');
 
   // 정렬 상태 (기본 계약일 내림차순)
@@ -273,16 +273,16 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
     const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const wb = XLSX.utils.book_new();
 
-    const titleText = '더좋은라이프 초회납 관리 대장 (상조/렌탈)';
+    const titleText = '더좋은라이프 초회납 관리 대장';
     const filterLabelMap: Record<PayFilterType, string> = {
       ALL: '전체',
-      ALL_UNPAID: '초회 미납자 전체(상조 or 렌탈 미납)',
+      ALL_UNPAID: '초회 미납자 전체',
       SANGJO_UNPAID: '상조 미납자',
       SANGJO_PAID: '상조 정상납입자',
       RENTAL_UNPAID: '렌탈 미납자',
-      RENTAL_PAID: '렌탈 정상납입(출금)자',
-      BOTH_UNPAID: '동시 미납자(상조&렌탈 미납)',
-      BOTH_PAID: '동시 완납자(상조&렌탈 납입완료)',
+      RENTAL_PAID: '렌탈 정상출금자',
+      BOTH_UNPAID: '동시 미납자',
+      BOTH_PAID: '동시 완납자',
     };
 
     const periodText = `조회기간: ${startMonth || '전체'} ~ ${endMonth || '현재'} | 필터구분: ${filterLabelMap[payFilter]} | 총 건수: ${sortedItems.length.toLocaleString()}건 (상조미납: ${summary.sangjoUnpaidCount}건, 렌탈미납: ${summary.rentalUnpaidCount}건) | 작성일: ${new Date().toLocaleDateString('ko-KR')}`;
@@ -306,8 +306,8 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
       '본부',
       '지사',
       '영업사원',
-      '최초납입일(상조)',
-      '렌탈출금일(렌탈)',
+      '최초납입일',
+      '렌탈출금일',
       '상조납입여부',
       '렌탈출금여부'
     ]);
@@ -382,7 +382,7 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
           </div>
         </div>
 
-        {/* 초회 미납 합계 (상조 or 렌탈) */}
+        {/* 초회 미납 합계 */}
         <div 
           onClick={() => setPayFilter('ALL_UNPAID')}
           className={`p-3 bg-rose-50/70 rounded-xl border transition-all cursor-pointer shadow-2xs hover:shadow-xs ${
@@ -390,7 +390,7 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
           }`}
         >
           <div className="flex items-center justify-between text-rose-700 text-xs font-semibold mb-1">
-            <span>초회 미납(전체)</span>
+            <span>초회 미납</span>
             <AlertCircle size={14} className="text-rose-500" />
           </div>
           <div className="flex items-baseline gap-1.5">
@@ -422,7 +422,6 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
               {summary.sangjoUnpaidCount.toLocaleString()}
             </span>
             <span className="text-xs text-amber-700">건</span>
-            <span className="text-[10px] text-amber-600 ml-auto font-medium">관리대장 V열</span>
           </div>
         </div>
 
@@ -442,7 +441,6 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
               {summary.rentalUnpaidCount.toLocaleString()}
             </span>
             <span className="text-xs text-orange-700">건</span>
-            <span className="text-[10px] text-orange-600 ml-auto font-medium">관리대장 AA열</span>
           </div>
         </div>
 
@@ -522,14 +520,14 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
             <div className="flex items-center gap-1 ml-1">
               <button
                 type="button"
-                onClick={() => handlePresetDate('2026-05')}
+                onClick={() => handlePresetDate('ALL')}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
-                  startMonth === '2026-05' && !endMonth
+                  !startMonth && !endMonth
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
                     : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                 }`}
               >
-                26년 5월~
+                전체 기간
               </button>
               <button
                 type="button"
@@ -546,23 +544,12 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
                 type="button"
                 onClick={() => handlePresetDate('LAST-1YEAR')}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
-                  startMonth && endMonth && startMonth !== '2026-01' && startMonth !== '2026-05'
+                  startMonth && endMonth && startMonth !== '2026-01'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
                     : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                 }`}
               >
                 최근 1년
-              </button>
-              <button
-                type="button"
-                onClick={() => handlePresetDate('ALL')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-bold border transition-all cursor-pointer ${
-                  !startMonth && !endMonth
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                }`}
-              >
-                전체 기간
               </button>
             </div>
           </div>
@@ -815,26 +802,26 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
                   영업사원
                 </th>
 
-                {/* 11. 최초납입일 (관리대장 V열, 상조부금) */}
+                {/* 11. 최초납입일 */}
                 <th 
                   onClick={() => handleSort('sangjoFirstPayDate')}
                   className="py-2.5 px-3 font-semibold text-center cursor-pointer hover:bg-slate-700 border-b border-slate-700 whitespace-nowrap bg-amber-950/40 text-amber-200"
                   title="관리대장 시트 V열: 상조 최초납입일"
                 >
                   <div className="flex items-center justify-center gap-1">
-                    <span>최초납입일 (상조 V열)</span>
+                    <span>최초납입일</span>
                     <ArrowUpDown size={12} className={sortField === 'sangjoFirstPayDate' ? 'text-amber-400' : 'text-slate-500'} />
                   </div>
                 </th>
 
-                {/* 12. 렌탈출금일 (관리대장 AA열, 렌탈초회) */}
+                {/* 12. 렌탈출금일 */}
                 <th 
                   onClick={() => handleSort('rentalWithdrawDate')}
                   className="py-2.5 px-3 font-semibold text-center cursor-pointer hover:bg-slate-700 border-b border-slate-700 whitespace-nowrap bg-cyan-950/40 text-cyan-200"
                   title="관리대장 시트 AA열: 렌탈출금일"
                 >
                   <div className="flex items-center justify-center gap-1">
-                    <span>렌탈출금일 (렌탈 AA열)</span>
+                    <span>렌탈출금일</span>
                     <ArrowUpDown size={12} className={sortField === 'rentalWithdrawDate' ? 'text-cyan-400' : 'text-slate-500'} />
                   </div>
                 </th>
@@ -916,7 +903,7 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
                       {item.employee || '-'}
                     </td>
 
-                    {/* 최초납입일 (상조 V열) */}
+                    {/* 최초납입일 */}
                     <td className="py-2.5 px-3 text-center whitespace-nowrap">
                       {item.isSangjoPaid ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -926,12 +913,12 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
                           <XCircle size={11} className="text-rose-500" />
-                          <span>미납 {item.sangjoFirstPayDate && item.sangjoFirstPayDate !== '-' ? `(${item.sangjoFirstPayDate})` : ''}</span>
+                          <span>미납</span>
                         </span>
                       )}
                     </td>
 
-                    {/* 렌탈출금일 (렌탈 AA열) */}
+                    {/* 렌탈출금일 */}
                     <td className="py-2.5 px-3 text-center whitespace-nowrap">
                       {item.isRentalPaid ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-mono font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">
@@ -941,7 +928,7 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
                           <XCircle size={11} className="text-rose-500" />
-                          <span>미납 {item.rentalWithdrawDate && item.rentalWithdrawDate !== '-' ? `(${item.rentalWithdrawDate})` : ''}</span>
+                          <span>미납</span>
                         </span>
                       )}
                     </td>

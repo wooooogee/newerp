@@ -443,8 +443,8 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-5 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-7xl h-[92vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in duration-200">
+      <div className="relative w-full max-w-[98vw] 2xl:max-w-[1720px] h-[96vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200">
         
         {/* ========================================================= */}
         {/* 모달 상단 헤더 & 탭 전환 */}
@@ -468,7 +468,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({
                     ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
                     : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
                 }`}>
-                  {activeTab === 'firstPay' ? '관리대장 연동 (상조 V열 / 렌탈 AA열)' : '통합원장 연동'}
+                  {activeTab === 'firstPay' ? '관리대장 연동' : '통합원장 연동'}
                 </span>
                 {activeTab === 'unified' && onlyUnpaid && (
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
@@ -478,7 +478,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
                 {activeTab === 'firstPay'
-                  ? '관리대장 시트의 상조 최초납입일(V열) 및 렌탈출금일(AA열)을 매칭하여 초회납 미납자와 납입완료자를 조회·관리합니다.'
+                  ? '관리대장 시트의 상조 최초납입일 및 렌탈출금일을 매칭하여 초회납 미납자와 납입완료자를 조회·관리합니다.'
                   : '계약일자별 원장 데이터를 기반으로 사업단, 본부, 지사별 연체차수 및 미납액을 분석하고 관리합니다.'}
               </p>
             </div>
@@ -490,7 +490,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('firstPay')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'firstPay'
                     ? 'bg-rose-600 text-white shadow-xs'
                     : 'text-slate-300 hover:text-white hover:bg-white/5'
@@ -502,7 +502,7 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('unified')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   activeTab === 'unified'
                     ? 'bg-indigo-600 text-white shadow-xs'
                     : 'text-slate-300 hover:text-white hover:bg-white/5'

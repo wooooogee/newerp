@@ -8813,7 +8813,7 @@ const ERP_Dashboard = () => {
                       {[
                         { 
                           dot: 'bg-rose-500', 
-                          label: '초회납관리 (상조/렌탈)', 
+                          label: '초회납관리', 
                           action: () => {
                             setUnpaidManagementModalTab('firstPay');
                             setIsUnpaidManagementModalOpen(true);
