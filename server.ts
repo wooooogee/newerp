@@ -3799,6 +3799,167 @@ app.post('/api/sheets/excel-sync/decrypt', async (req, res) => {
   }
 });
 
+// 2-4. 헬스케어 엑셀 파일 복호화 및 '결합상품' + '결합 외 상품' 시트 데이터 추출/병합 API (기본 암호: 1234!)
+app.post('/api/sheets/excel-sync/parse-healthcare', async (req, res) => {
+  const { fileBase64, password } = req.body as { fileBase64: string; password?: string };
+  if (!fileBase64) {
+    return res.status(400).json({ error: '파일 데이터가 전달되지 않았습니다.' });
+  }
+
+  const pw = password !== undefined && password !== null && password !== '' ? password : '1234!';
+
+  try {
+    const buffer = Buffer.from(fileBase64, 'base64');
+    let workbook: any = null;
+
+    // 1. XlsxPopulate로 암호 복호화 시도
+    try {
+      // @ts-ignore
+      workbook = await XlsxPopulate.fromDataAsync(buffer, { password: pw });
+    } catch (pwErr: any) {
+      // 암호 없이도 열어보기 시도 (암호가 안 걸려 있는 파일 대비)
+      try {
+        // @ts-ignore
+        workbook = await XlsxPopulate.fromDataAsync(buffer);
+      } catch (noPwErr: any) {
+        console.warn(`[Healthcare Decrypt Failed with password "${pw}"]:`, pwErr.message);
+        return res.status(422).json({
+          error: 'PASSWORD_FAILED',
+          message: `비밀번호가 올바르지 않거나 복호화에 실패했습니다. (기본 암호: 1234!)`
+        });
+      }
+    }
+
+    if (!workbook) {
+      return res.status(400).json({ error: '워크북을 열 수 없습니다.' });
+    }
+
+    // 워크북 내 모든 시트 탐색
+    const allSheets = workbook.sheets();
+    const sheetNames = allSheets.map((s: any) => s.name());
+    console.log(`[Parse Healthcare] Available sheet names in uploaded excel:`, sheetNames);
+
+    const norm = (s: string) => String(s || '').replace(/\s+/g, '').toLowerCase();
+
+    // 1) 결합상품 시트 찾기
+    let sheetCombined = allSheets.find((s: any) => norm(s.name()) === '결합상품');
+    if (!sheetCombined) {
+      sheetCombined = allSheets.find((s: any) => {
+        const n = norm(s.name());
+        return n.includes('결합') && !n.includes('외');
+      });
+    }
+
+    // 2) 결합 외 상품 시트 찾기
+    let sheetNonCombined = allSheets.find((s: any) => {
+      const n = norm(s.name());
+      return n === '결합외상품' || n === '결합외';
+    });
+    if (!sheetNonCombined) {
+      sheetNonCombined = allSheets.find((s: any) => {
+        const n = norm(s.name());
+        return n.includes('결합') && n.includes('외');
+      });
+    }
+    if (!sheetNonCombined) {
+      sheetNonCombined = allSheets.find((s: any) => {
+        const n = norm(s.name());
+        return (n.includes('외상품') || (n.includes('외') && !n.includes('제외'))) && s !== sheetCombined;
+      });
+    }
+
+    // 만약 시트 이름으로 특정되지 않았을 경우 fallback
+    if (!sheetCombined && allSheets.length > 0) {
+      sheetCombined = allSheets[0];
+    }
+    if (!sheetNonCombined && allSheets.length > 1) {
+      sheetNonCombined = allSheets.find((s: any) => s !== sheetCombined) || allSheets[1];
+    }
+
+    const extractRows = (sheetObj: any): any[][] => {
+      if (!sheetObj) return [];
+      const usedRange = sheetObj.usedRange();
+      if (!usedRange) return [];
+      const rawValues = usedRange.value() || [];
+      if (!Array.isArray(rawValues)) return [];
+
+      const formatted = rawValues.map((row: any) => {
+        if (!Array.isArray(row)) return [];
+        return row.map((cell: any) => {
+          if (cell instanceof Date) {
+            return formatDateToYMD(cell);
+          }
+          if (typeof cell === 'number') {
+            return String(cell);
+          }
+          return cell !== null && cell !== undefined ? String(cell) : '';
+        });
+      });
+
+      // 공백 행 제거
+      const filtered = formatted.filter((row: any[]) => row.some(c => String(c).trim() !== ''));
+      return autoRepairRowEncodingSync(filtered);
+    };
+
+    const rowsCombined = extractRows(sheetCombined);
+    const rowsNonCombined = extractRows(sheetNonCombined);
+
+    console.log(`[Parse Healthcare] Sheet '${sheetCombined?.name()}': ${rowsCombined.length} rows, Sheet '${sheetNonCombined?.name()}': ${rowsNonCombined.length} rows`);
+
+    let finalRows: any[][] = [];
+    let combinedCount = 0;
+    let nonCombinedCount = 0;
+
+    if (rowsCombined.length > 0) {
+      finalRows = [...rowsCombined];
+      combinedCount = Math.max(0, rowsCombined.length - 1);
+
+      if (rowsNonCombined.length > 0) {
+        // 결합 외 상품의 0번째 행이 헤더인지 판별
+        const h1 = (rowsCombined[0] || []).map((c: any) => String(c).trim().replace(/\s+/g, ''));
+        const h2 = (rowsNonCombined[0] || []).map((c: any) => String(c).trim().replace(/\s+/g, ''));
+
+        const isH2Header = h2.some(col =>
+          (col && h1.includes(col)) ||
+          col.includes('계약') || col.includes('고객') || col.includes('상품') ||
+          col.includes('성명') || col.includes('순번') || col.includes('접수') ||
+          col.includes('일자') || col.includes('번호')
+        );
+
+        const rowsToAdd = isH2Header ? rowsNonCombined.slice(1) : rowsNonCombined;
+        nonCombinedCount = rowsToAdd.length;
+        finalRows = finalRows.concat(rowsToAdd);
+      }
+    } else if (rowsNonCombined.length > 0) {
+      finalRows = [...rowsNonCombined];
+      nonCombinedCount = Math.max(0, rowsNonCombined.length - 1);
+    }
+
+    if (finalRows.length === 0) {
+      return res.status(400).json({
+        error: '시트에서 추출된 데이터가 없습니다. 엑셀 파일 내용을 확인해 주세요.'
+      });
+    }
+
+    return res.json({
+      success: true,
+      rows: finalRows,
+      totalCount: finalRows.length > 1 ? finalRows.length - 1 : finalRows.length,
+      sheet1Name: sheetCombined?.name() || '결합상품',
+      sheet1Count: combinedCount,
+      sheet2Name: sheetNonCombined?.name() || '결합 외 상품',
+      sheet2Count: nonCombinedCount,
+      allSheetNames: sheetNames
+    });
+  } catch (err: any) {
+    console.error(`[Parse Healthcare Fatal Error]:`, err);
+    return res.status(500).json({
+      error: 'PARSE_FAILED',
+      message: '엑셀 파일을 처리하는 중 오류가 발생했습니다: ' + (err.message || String(err))
+    });
+  }
+});
+
 // 구글 시트 특정 탭에 2차원 데이터를 안전하게 덮어쓰는 헬퍼 (시트 자동생성, 그리드 자동 확장, updateCells 안전 초기화, 청크 분할 쓰기)
 async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, targetTitle: string, rows: any[][]): Promise<number> {
   if (!rows || rows.length === 0) return 0;
@@ -5771,6 +5932,57 @@ app.post('/api/sheets/excel-sync/overwrite-manual-orders', async (req, res) => {
   } catch (err: any) {
     console.error(`[ExcelSync] Overwrite '수기발주' failed:`, err);
     res.status(500).json({ error: err.message || '수기발주 덮어쓰기에 실패했습니다.' });
+  }
+});
+
+// 2-5. 헬스케어 엑셀 데이터를 구글 시트 'KB헬스케어대상자' 탭에 덮어쓰기 API
+app.post('/api/sheets/excel-sync/overwrite-healthcare', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { healthcareRows } = req.body as { healthcareRows?: any[][] };
+  if (!healthcareRows || healthcareRows.length < 1) {
+    return res.status(400).json({ error: '유효한 헬스케어 데이터가 없습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+  if (!sheetId) return res.status(500).json({ error: 'GOOGLE_SHEET_ID 설정이 없습니다.' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    // 시트 목록에서 'KB헬스케어대상자' 또는 유사 시트 찾기
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetList = meta.data.sheets || [];
+    const foundSheet = sheetList.find((s: any) => {
+      const title = String(s.properties?.title || '').replace(/\s+/g, '');
+      return title === 'KB헬스케어대상자' || title.includes('KB헬스케어') || title.includes('헬스케어대상자');
+    });
+
+    const targetSheetTitle = foundSheet?.properties?.title || 'KB헬스케어대상자';
+
+    // 기존 내용 지우고 데이터 안전 덮어쓰기
+    const count = await overwriteSheetDataSafe(sheets, sheetId, targetSheetTitle, healthcareRows);
+
+    // 캐시 무효화
+    sheetDataCache.delete('KB헬스케어대상자');
+    sheetDataCache.delete(targetSheetTitle);
+
+    console.log(`[ExcelSync] Successfully overwrote '${targetSheetTitle}': ${count} rows.`);
+
+    return res.json({
+      success: true,
+      overwrittenCount: count,
+      totalCount: Math.max(0, healthcareRows.length - 1),
+      sheetTitle: targetSheetTitle
+    });
+  } catch (err: any) {
+    console.error(`[ExcelSync] Overwrite KB Healthcare failed:`, err);
+    return res.status(500).json({ error: err.message || 'KB헬스케어대상자 시트 덮어쓰기에 실패했습니다.' });
   }
 });
 

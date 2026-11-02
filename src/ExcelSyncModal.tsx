@@ -21,6 +21,7 @@ import {
   UserCheck,
   Package,
   Calculator,
+  Activity,
   Maximize2,
   Minimize2
 } from 'lucide-react';
@@ -119,6 +120,19 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   const [manualOrderRows, setManualOrderRows] = useState<any[][] | null>(null);
   const [manualOrderFileName, setManualOrderFileName] = useState<string>('');
   const manualOrderInputRef = useRef<HTMLInputElement>(null);
+
+  // 헬스케어 리스트 상태 (암호 기본값: 1234!)
+  const [healthcareFile, setHealthcareFile] = useState<File | null>(null);
+  const [healthcareRows, setHealthcareRows] = useState<any[][] | null>(null);
+  const [healthcareFileName, setHealthcareFileName] = useState<string>('');
+  const [healthcarePassword, setHealthcarePassword] = useState<string>('1234!');
+  const [healthcareDetails, setHealthcareDetails] = useState<{
+    sheet1Name: string;
+    sheet1Count: number;
+    sheet2Name: string;
+    sheet2Count: number;
+  } | null>(null);
+  const healthcareInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -1069,6 +1083,113 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     }
   };
 
+  // 헬스케어 파일 선택 및 복호화/파싱 핸들러 (기본 암호: 1234!)
+  const handleHealthcareFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsLoading(true);
+      setLoadingText(`헬스케어 파일 [${file.name}] 복호화 및 시트(결합상품+결합 외 상품) 분석 중...`);
+
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const fileBase64 = btoa(binary);
+
+      const res = await fetch('/api/sheets/excel-sync/parse-healthcare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileBase64,
+          password: healthcarePassword || '1234!'
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || errData.error || '헬스케어 엑셀 파일 복호화에 실패했습니다.');
+      }
+
+      const data = await res.json();
+      if (!data.rows || data.rows.length < 1) {
+        throw new Error('시트에서 유효한 데이터를 추출하지 못했습니다.');
+      }
+
+      setHealthcareFile(file);
+      setHealthcareRows(data.rows);
+      setHealthcareFileName(file.name);
+      setHealthcareDetails({
+        sheet1Name: data.sheet1Name || '결합상품',
+        sheet1Count: data.sheet1Count || 0,
+        sheet2Name: data.sheet2Name || '결합 외 상품',
+        sheet2Count: data.sheet2Count || 0
+      });
+    } catch (err: any) {
+      console.error('[Healthcare File Parse Error]', err);
+      alert('헬스케어 파일을 읽는 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsLoading(false);
+      if (healthcareInputRef.current) healthcareInputRef.current.value = '';
+    }
+  };
+
+  // 헬스케어 즉시 덮어쓰기 실행 (KB헬스케어대상자 탭의 기존 내용을 지우고 똑같이 붙여넣기)
+  const handleDirectOverwriteHealthcare = async () => {
+    if (!healthcareRows || healthcareRows.length < 1) {
+      alert('헬스케어 엑셀 데이터가 준비되지 않았습니다.');
+      return;
+    }
+
+    const totalCount = Math.max(0, healthcareRows.length - 1);
+    const s1Msg = healthcareDetails ? `\n• ${healthcareDetails.sheet1Name}: ${healthcareDetails.sheet1Count.toLocaleString()}건` : '';
+    const s2Msg = healthcareDetails && healthcareDetails.sheet2Name ? `\n• ${healthcareDetails.sheet2Name}: ${healthcareDetails.sheet2Count.toLocaleString()}건` : '';
+
+    const confirmMsg = `[안전 확인] 구글 시트 [KB헬스케어대상자] 탭의 기존 내용을 모두 지우고, 업로드한 엑셀 파일의 데이터 총 ${totalCount.toLocaleString()}건(결합상품 + 결합 외 상품)을 똑같이 붙여넣기(덮어쓰기)하시겠습니까?${s1Msg}${s2Msg}`;
+
+    const isConfirmed = (window as any).customConfirm
+      ? await (window as any).customConfirm(confirmMsg, 'KB헬스케어대상자 즉시 등록')
+      : window.confirm(confirmMsg);
+
+    if (!isConfirmed) return;
+
+    setIsLoading(true);
+    setLoadingText('구글 시트 [KB헬스케어대상자] 탭의 기존 내용을 지우고 데이터를 붙여넣는 중...');
+
+    try {
+      const res = await fetch('/api/sheets/excel-sync/overwrite-healthcare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ healthcareRows })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'KB헬스케어대상자 시트 덮어쓰기 실패');
+      }
+
+      const data = await res.json();
+      alert(`✓ 구글 시트 [${data.sheetTitle || 'KB헬스케어대상자'}] 탭에 성공적으로 등록되었습니다!\n\n` +
+        `• 기존 내용 초기화 완료\n` +
+        `• 총 반영 데이터: ${(data.overwrittenCount - 1).toLocaleString()}건` +
+        `${s1Msg}${s2Msg}`
+      );
+
+      if (onSyncSuccess) {
+        await onSyncSuccess();
+      }
+    } catch (err: any) {
+      console.error('[Direct Overwrite Healthcare Error]', err);
+      alert('헬스케어 데이터 등록 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // 관리대장 시트에 실제 안전 반영
   const handleExecuteSync = async () => {
     if (!contractRows && !deliveryRows) {
@@ -1197,6 +1318,10 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
     setManualOrderFile(null);
     setManualOrderRows(null);
     setManualOrderFileName('');
+    setHealthcareFile(null);
+    setHealthcareRows(null);
+    setHealthcareFileName('');
+    setHealthcareDetails(null);
     setPreviewStats(null);
     setCompletedResult(null);
   };
@@ -1264,7 +1389,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
             }`}
           >
             <FileSpreadsheet size={14} />
-            <span>전산 엑셀 관리대장 동기화 (원장·배송·사원·수기)</span>
+            <span>전산 엑셀 관리대장 동기화 (원장·배송·사원·수기·헬스케어)</span>
           </button>
           <button
             type="button"
@@ -1639,6 +1764,134 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
                 )}
               </div>
             </div>
+
+            {/* 5. 헬스케어 리스트 카드 */}
+            <div className={`p-4 rounded-2xl border transition-all flex flex-col justify-between md:col-span-2 ${
+              healthcareRows ? 'bg-purple-50/50 border-purple-300' : 'bg-slate-50/70 border-slate-200'
+            }`}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 좌측 정보 영역 */}
+                <div>
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className={`p-1.5 rounded-lg ${healthcareRows ? 'bg-purple-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                        <Activity size={16} />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <h4 className="text-sm font-black text-slate-800">5. 헬스케어 리스트</h4>
+                        <span className="px-1.5 py-0.2 bg-purple-100 text-purple-700 text-[10px] font-bold rounded">
+                          KB헬스케어대상자
+                        </span>
+                      </div>
+                    </div>
+                    {healthcareRows && (
+                      <span className="px-2 py-0.5 bg-purple-100 text-purple-800 text-[11px] font-bold rounded-lg border border-purple-200">
+                        총 {(healthcareRows.length - 1).toLocaleString()}건 준비됨
+                      </span>
+                    )}
+                  </div>
+
+                  {healthcareRows && healthcareDetails ? (
+                    <div className="p-2.5 bg-white rounded-xl border border-purple-200 text-xs mb-2.5 shadow-2xs space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800 truncate mr-2" title={healthcareFileName}>
+                          📄 {healthcareFileName}
+                        </span>
+                        <span className="text-purple-700 font-black text-[11px] shrink-0">
+                          총 {(healthcareRows.length - 1).toLocaleString()}건
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-purple-100 text-[11px]">
+                        <div className="bg-purple-50/80 p-1.5 rounded-lg text-center">
+                          <span className="text-slate-500 block text-[10px]">{healthcareDetails.sheet1Name || '결합상품'}</span>
+                          <strong className="text-purple-800 font-bold">{healthcareDetails.sheet1Count.toLocaleString()}건</strong>
+                        </div>
+                        <div className="bg-indigo-50/80 p-1.5 rounded-lg text-center">
+                          <span className="text-slate-500 block text-[10px]">{healthcareDetails.sheet2Name || '결합 외 상품'}</span>
+                          <strong className="text-indigo-800 font-bold">{healthcareDetails.sheet2Count.toLocaleString()}건</strong>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 bg-white/70 rounded-xl border border-slate-200 text-xs text-slate-600 mb-2.5 space-y-1">
+                      <div className="flex items-center gap-1 text-slate-700 font-bold">
+                        <Info size={12} className="text-purple-600" />
+                        <span>결합상품 + 결합 외 상품 시트 자동 병합</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        암호화된 엑셀 파일을 업로드하면 <strong>[결합상품]</strong>과 <strong>[결합 외 상품]</strong> 시트의 데이터를 자동 추출하여 구글 시트 <strong>[KB헬스케어대상자]</strong> 탭에 똑같이 덮어씁니다.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* 우측 조작 영역 */}
+                <div className="flex flex-col justify-between">
+                  <div className="space-y-1.5">
+                    <div className="px-2.5 py-1 bg-white border border-slate-200 rounded-xl flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5 text-slate-600 text-[11px] font-medium">
+                        <Lock size={12} className="text-purple-500" />
+                        <span>파일 암호:</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={healthcarePassword}
+                        onChange={e => setHealthcarePassword(e.target.value)}
+                        placeholder="1234!"
+                        className="w-24 px-2 py-0.5 text-center font-mono font-bold text-xs bg-slate-50 border border-purple-200 rounded-lg text-purple-900 outline-none focus:ring-1 focus:ring-purple-500"
+                      />
+                    </div>
+
+                    <input
+                      type="file"
+                      ref={healthcareInputRef}
+                      accept=".xlsx, .xls, .csv"
+                      onChange={handleHealthcareFileChange}
+                      className="hidden"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => healthcareInputRef.current?.click()}
+                        disabled={isLoading}
+                        className="flex-1 py-2 px-3 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <Upload size={13} />
+                        {healthcareRows ? '파일 변경' : '헬스케어 파일 선택'}
+                      </button>
+                      {healthcareRows && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHealthcareFile(null);
+                            setHealthcareRows(null);
+                            setHealthcareFileName('');
+                            setHealthcareDetails(null);
+                          }}
+                          className="px-2.5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          취소
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {healthcareRows && (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={handleDirectOverwriteHealthcare}
+                        disabled={isLoading}
+                        className="w-full py-2 px-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <Activity size={13} />
+                        <span>[KB헬스케어대상자] 탭에 기존 내용 지우고 즉시 등록 ({(healthcareRows.length - 1).toLocaleString()}건)</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* 옵션 바 */}
@@ -1652,7 +1905,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
               />
               <span>관리대장 자동 백업 탭 생성</span>
             </label>
-            {(contractRows || deliveryRows || employeeRows || manualOrderRows) && (
+            {(contractRows || deliveryRows || employeeRows || manualOrderRows || healthcareRows) && (
               <button
                 type="button"
                 onClick={handleReset}
