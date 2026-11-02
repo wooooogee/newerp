@@ -3,7 +3,7 @@ import {
   X, Calculator, Building, Calendar, Download, RefreshCw, 
   Search, CheckCircle, Package, DollarSign, Filter, FileSpreadsheet, 
   ChevronRight, ChevronDown, ExternalLink, AlertCircle, ArrowUpRight, CheckSquare, Square,
-  Tag, Info, Layers, Receipt, Coins, FileText, TrendingUp
+  Tag, Info, Layers, Receipt, Coins, FileText, TrendingUp, FileCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplierItem, SupplierProductSetting, loadSuppliersFromStorage } from './SupplierManagementModal';
@@ -16,6 +16,7 @@ import {
   numberToKorean
 } from './CommissionSettlementDetailModal';
 import { autoFitColWidths, applyTableExcelStyle } from './excelStyleUtils';
+import { InstallCertStatusModal, InstallCertItem } from './InstallCertStatusModal';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -190,16 +191,19 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   // 정산 대상 배송완료월: 정산기준월 M의 전월 (M-1월) - 예: 10월 정산기준월 -> 9월 배송완료건 집계
   const targetDeliveryMonth = useMemo(() => getPrevMonthStr(selectedMonth), [selectedMonth]);
 
-  // 메인 탭: 물품 대금 정산 vs 공급 수수료 정산 vs 리치웰페어 손익 결산 (완전 분리)
-  const [mainTab, setMainTab] = useState<'SUPPLY_PRICE' | 'COMMISSION' | 'PROFIT_REPORT'>('SUPPLY_PRICE');
+  // 메인 탭: 물품 대금 정산 vs 공급 수수료 정산 vs 리치웰페어 손익 결산 vs 설치확인서 등록 현황
+  const [mainTab, setMainTab] = useState<'SUPPLY_PRICE' | 'COMMISSION' | 'PROFIT_REPORT' | 'INSTALL_CERT'>('SUPPLY_PRICE');
 
   // 서브 뷰 탭: 총괄 요약표 vs 건별 상세 내역
   const [viewMode, setViewMode] = useState<'SUMMARY' | 'DETAIL'>('SUMMARY');
 
   // 설치확인서 기준 공급수수료 지급월 판정 모드
-  // 'CERT_MONTH': 설치확인서 마감월 당월 정산 (말일/정산일 지급) - 기본값
-  // 'NEXT_MONTH': 설치확인서 마감월 익월 지급 (다음달 지급)
-  const [payoutRuleMode, setPayoutRuleMode] = useState<'CERT_MONTH' | 'NEXT_MONTH'>('CERT_MONTH');
+  // 'NEXT_MONTH': 설치확인서 마감월 익월 지급 (정산마감 10월 -> 11월 25일 지급) - 기본값
+  // 'CERT_MONTH': 설치확인서 마감월 당월 정산
+  const [payoutRuleMode, setPayoutRuleMode] = useState<'CERT_MONTH' | 'NEXT_MONTH'>('NEXT_MONTH');
+
+  // 설치확인서 현황 독립 모달 상태
+  const [isInstallCertModalOpen, setIsInstallCertModalOpen] = useState(false);
 
   // 공급 수수료 탭 필터
   const [certFilter, setCertFilter] = useState<'ALL' | 'PAYABLE' | 'HOLD'>('ALL');
@@ -565,65 +569,56 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         finalCommission = matchedProductSetting.hqCommissions[0]?.commission || 0;
       }
 
-      // 8. 물품대금 및 공급수수료 적격성/보류 여부 판별
+      // 8. 물품대금 및 공급수수료 적격성/보류 여부 판별 (설치확인서 등록 및 마감월 10월 -> 11월 25일 지급 기준 통일)
       const delMonth = extractYearMonth(effectiveDeliveryDate);
 
-      // 설치확인서 정산기준 마감월(certMonth)이 기준 정산 대상월에 부합하는지 여부
-      // - 전월 마감 방식: certMonth === targetDeliveryMonth (예: 10월 마감 -> 11월 정산)
-      // - 익월 정산 방식: getNextMonthStr(certMonth) === selectedMonth
-      // - 리치웰페어 세금계산서 익월 입금월 일치: richDepositMonth === selectedMonth
-      // - 당월 마감 설정: certMonth === selectedMonth && payoutRuleMode === 'CERT_MONTH'
-      const isCertMonthMatched = !!certMonth && (
-        certMonth === targetDeliveryMonth ||
-        getNextMonthStr(certMonth) === selectedMonth ||
-        (richDepositMonth && richDepositMonth === selectedMonth) ||
-        (certMonth === selectedMonth && payoutRuleMode === 'CERT_MONTH')
-      );
+      // 설치확인서 정산기준 마감월(certMonth) 기준 최종 지급월
+      // - 익월 룰: certMonth가 10월이면 지급월은 11월 (pMonth === '2026-11')
+      const effectivePayoutMonth = pMonth || (delMonth ? getNextMonthStr(delMonth) : '');
 
-      // [물품 대금 정산 적격성 판정 - 설치확인서 등록 기준 일치]
       let isSupplyPricePayable = false;
       let isSupplyPriceHold = false;
       let supplyPriceHoldReason = '';
-
-      if (isManualTarget || isCertRegistered || !!manualInfo) {
-        // 수기발주 / 설치확인서 관리 대상 품목 (바디프랜드 등):
-        if (isCertRegistered) {
-          // 설치확인서가 등록 완료된 건:
-          // 1) 사용자가 지정한 정산기준 마감월(certMonth)이 부합하거나,
-          // 2) 마감월 미지정이더라도 배송일자가 targetDeliveryMonth인 건
-          if (isCertMonthMatched || (!certMonth && delMonth === targetDeliveryMonth)) {
-            isSupplyPricePayable = true;
-          }
-        } else {
-          // 설치확인서가 미등록된 건:
-          // 전월 배송 완료 건이더라도 설치확인서가 미등록이면 정산 지급 보류
-          if (delMonth === targetDeliveryMonth) {
-            isSupplyPriceHold = true;
-            supplyPriceHoldReason = '설치확인서 미등록 (물품대금 지급보류)';
-          }
-        }
-      } else {
-        // 설치확인서 관리 대상이 아닌 일반 공급사 품목:
-        // 기존과 동일하게 전월 배송완료 기준 집계
-        if (delMonth === targetDeliveryMonth) {
-          isSupplyPricePayable = true;
-        }
-      }
 
       let isCommPayable = false;
       let isCertHold = false;
       let holdReason = '';
 
-      if (!isCertRegistered) {
-        // 배송완료 처리된 건 중 설치확인서 미등록 건은 모두 '확인서 미등록 보류'
-        isCertHold = true;
-        holdReason = '설치확인서 미등록 (지급보류)';
-      } else if (finalCommission <= 0) {
-        holdReason = '수수료 미설정 (0원)';
-      } else if (pMonth === selectedMonth) {
-        isCommPayable = true;
+      if (isManualTarget || isCertRegistered || !!manualInfo) {
+        // 수기발주 / 설치확인서 관리 대상 품목 (바디프랜드, 쿠쿠 등):
+        if (isCertRegistered) {
+          // 설치확인서 등록 완료 건:
+          // 최종 지급월이 선택된 정산월(selectedMonth, 예: 11월 지급)과 일치하면 실지급 대상!
+          if (effectivePayoutMonth === selectedMonth) {
+            isSupplyPricePayable = true;
+            if (finalCommission > 0) {
+              isCommPayable = true;
+            } else {
+              holdReason = '수수료 미설정 (0원)';
+            }
+          } else {
+            holdReason = `정산월 불일치 (지급월: ${effectivePayoutMonth || '미정'})`;
+          }
+        } else {
+          // 설치확인서 미등록 건: 100% 지급 보류 처리
+          isSupplyPriceHold = true;
+          supplyPriceHoldReason = '설치확인서 미등록 (물품대금 지급보류)';
+          isCertHold = true;
+          holdReason = '설치확인서 미등록 (지급보류)';
+        }
       } else {
-        holdReason = `정산월 불일치 (지급월: ${pMonth})`;
+        // 설치확인서 관리 대상이 아닌 일반 공급사 품목:
+        // 전월 배송완료 기준 집계 (delMonth 익월이 selectedMonth)
+        if (effectivePayoutMonth === selectedMonth || delMonth === targetDeliveryMonth) {
+          isSupplyPricePayable = true;
+          if (finalCommission > 0) {
+            isCommPayable = true;
+          } else {
+            holdReason = '수수료 미설정 (0원)';
+          }
+        } else {
+          holdReason = `정산월 불일치 (배송월: ${delMonth})`;
+        }
       }
 
       const qty = 1; // 렌탈계약번호 1건 = 상품개수 1개
@@ -973,12 +968,14 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   // ==========================================
   const richwelfareProfitSummary = useMemo(() => {
     // 해당 정산월(selectedMonth)의 손익 결산 대상:
-    // 핵심 규칙: W열 세금계산서 작성일이 존재하고, 그 익월 입금월이 selectedMonth와 일치하며, I열 결합원가 입금액이 0보다 큰 건만 포함!
-    // (세금계산서 작성일이 없거나 입금액이 없는 미입금건은 손익 결산 대상에서 제외)
+    // [핵심] 설치확인서 등록 유무 및 지급월(selectedMonth, 10월 마감 -> 11월 25일 지급) 기준으로 공급물품대금 및 공급수수료 정산과 100% 일치화!
     const targetItems = allSettlementItems.filter(item => {
-      return !!item.richwelfareTaxDate &&
-             item.richwelfareDepositMonth === selectedMonth &&
-             (item.richwelfareDeposit || 0) > 0;
+      // 1) 수기발주 및 설치확인서 관리 대상 품목: 설치확인서 등록 완료 + 지급월 일치
+      if (item.isManualOrderTarget || item.installCertStatus === '등록' || item.installCertMonth) {
+        return item.installCertStatus === '등록' && item.payoutMonth === selectedMonth;
+      }
+      // 2) 일반 공급사 품목: 물품대금 지급 대상 건
+      return item.isSupplyPricePayable;
     });
 
     // 공급사별(가나다순) -> 제품명 -> 계약번호 순 정렬
@@ -1062,6 +1059,28 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       supplierProfitList
     };
   }, [allSettlementItems, selectedMonth]);
+
+  // [4] 설치확인서 등록 현황 대장용 아이템 변환 (수기발주 및 바디프랜드/쿠쿠 등 설치확인서 관리 대상)
+  const installCertTableItems = useMemo<InstallCertItem[]>(() => {
+    return allSettlementItems
+      .filter(i => i.isManualOrderTarget || i.installCertStatus === '등록' || i.installCertMonth || i.matchedSupplierName.includes('바디프랜드') || i.matchedSupplierName.includes('쿠쿠'))
+      .map(i => ({
+        contractNo: i.rentalNo,
+        contractDate: i.contractDate,
+        memName: i.memName,
+        recipientName: i.memName,
+        phone: i.phone,
+        rentalProd: i.rentalProdRaw,
+        supplierName: i.matchedSupplierName,
+        deliveryDate: i.deliveryDate,
+        deliveryState: i.deliveryStatus,
+        installCertStatus: i.installCertStatus,
+        installCertDate: i.installCertDate || '',
+        installCertMonth: i.installCertMonth || '',
+        payoutMonth: i.payoutMonth || '',
+        payoutDate: i.payoutDate || ''
+      }));
+  }, [allSettlementItems]);
 
   // 필터링된 상세 건별 목록 (검색, 공급사, 탭, 설치확인서 필터 연동)
   const filteredDetailItems = useMemo(() => {
@@ -1906,6 +1925,16 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
             )}
 
             <button
+              type="button"
+              onClick={() => setIsInstallCertModalOpen(true)}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm cursor-pointer transition-all whitespace-nowrap"
+              title="설치확인서 등록 유무, 정산 마감월, 지급월 현황을 별도 대장 페이지에서 조회합니다"
+            >
+              <FileCheck size={14} />
+              <span>설치확인서 현황 대장</span>
+            </button>
+
+            <button
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer ml-1"
             >
@@ -1914,15 +1943,15 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
           </div>
         </div>
 
-        {/* 메인 탭 네비게이션: 물품 대금 정산 vs 공급 수수료 정산 vs 손익 결산 (완전 분리) */}
-        <div className="px-6 py-2.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between shrink-0 whitespace-nowrap">
-          <div className="flex items-center gap-3">
+        {/* 메인 탭 네비게이션: 물품 대금 정산 vs 공급 수수료 정산 vs 손익 결산 vs 설치확인서 현황 (완전 분리) */}
+        <div className="px-6 py-2.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between shrink-0 whitespace-nowrap overflow-x-auto">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={() => {
                 setMainTab('SUPPLY_PRICE');
                 setViewMode('SUMMARY');
               }}
-              className={`px-5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
                 mainTab === 'SUPPLY_PRICE'
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-900/40'
                   : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700/80'
@@ -1940,7 +1969,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                 setMainTab('COMMISSION');
                 setViewMode('SUMMARY');
               }}
-              className={`px-5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
                 mainTab === 'COMMISSION'
                   ? 'bg-purple-600 text-white shadow-md shadow-purple-900/40'
                   : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700/80'
@@ -1958,7 +1987,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                 setMainTab('PROFIT_REPORT');
                 setViewMode('SUMMARY');
               }}
-              className={`px-5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
                 mainTab === 'PROFIT_REPORT'
                   ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/40'
                   : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700/80'
@@ -1966,8 +1995,22 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
             >
               <Calculator size={15} />
               <span>[3] 리치웰페어 손익 결산 (통합)</span>
-              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/20 text-white font-mono font-bold">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/20 text-white font-mono font-bold">
                 순익 {richwelfareProfitSummary.totalNetProfit.toLocaleString()}원
+              </span>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsInstallCertModalOpen(true);
+              }}
+              className="px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-900/40"
+              title="설치확인서 등록 유무, 정산 마감월, 지급월을 별도의 전용 대장 페이지에서 조회합니다"
+            >
+              <FileCheck size={15} />
+              <span>[4] 설치확인서 등록 현황 (전용 대장 열기)</span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/20 text-white font-mono font-bold">
+                {allSettlementItems.filter(i => i.installCertStatus === '등록').length}건 등록
               </span>
             </button>
           </div>
@@ -3342,6 +3385,13 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         target={detailModalTarget}
         allRecipientItems={detailRecipientAllItems}
         selectedMonth={selectedMonth}
+      />
+
+      {/* 설치확인서 등록 현황 및 정산·지급월 전용 대장 모달 */}
+      <InstallCertStatusModal
+        isOpen={isInstallCertModalOpen}
+        onClose={() => setIsInstallCertModalOpen(false)}
+        items={installCertTableItems}
       />
     </div>
   );

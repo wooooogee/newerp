@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ShieldCheck, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw, ArrowUpDown, Building, Calculator, Sparkles } from 'lucide-react';
+import { X, Search, Save, Download, RefreshCw, Truck, Package, CheckCircle2, Plus, Trash2, Settings, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ShieldCheck, ExternalLink, CheckSquare, Square, FileSpreadsheet, Calendar, Filter, Copy, RotateCcw, ArrowUpDown, Building, Calculator, Sparkles, FileCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ManualOrderReconModal } from './ManualOrderReconModal';
 import { SupplierItem, loadSuppliersFromStorage } from './SupplierManagementModal';
 import { mergeManualOrderStores } from './manualOrderUtils';
+import { InstallCertStatusModal, InstallCertItem } from './InstallCertStatusModal';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -326,6 +327,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(100);
+  const [isInstallCertModalOpen, setIsInstallCertModalOpen] = useState<boolean>(false);
 
   // 모든 필터 조건 원클릭 초기화
   const handleResetAllFilters = useCallback(() => {
@@ -1071,6 +1073,55 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     }));
   }, [extractedOrders, editedStates, editedValues]);
 
+  // 설치확인서 전용 대장용 아이템 변환
+  const installCertItems = useMemo<InstallCertItem[]>(() => {
+    return extractedOrders.map((o) => {
+      const ed = editedValues[o.contractNo];
+      const certStatus: '등록' | '미등록' = ed?.installCertStatus !== undefined
+        ? ed.installCertStatus
+        : (o.installCertStatus ?? '미등록');
+      const certDate = ed?.installCertDate !== undefined
+        ? ed.installCertDate
+        : (o.installCertDate ?? '');
+      const certMonth = ed?.installCertMonth !== undefined
+        ? ed.installCertMonth
+        : (o.installCertMonth ?? (certDate ? certDate.substring(0, 7) : ''));
+
+      let payoutMonth = '';
+      let payoutDate = '지급 보류 (미등록)';
+      if (certStatus === '등록' && certMonth) {
+        const parts = certMonth.split('-');
+        if (parts.length === 2) {
+          const y = parseInt(parts[0], 10);
+          const m = parseInt(parts[1], 10);
+          const nextY = m === 12 ? y + 1 : y;
+          const nextM = m === 12 ? 1 : m + 1;
+          payoutDate = `${nextM}월 25일 지급`;
+          payoutMonth = `${nextY}-${String(nextM).padStart(2, '0')}`;
+        }
+      }
+
+      return {
+        contractNo: o.contractNo,
+        contractDate: o.contractDate || '-',
+        memName: o.memName || '-',
+        recipientName: o.recipientName || o.memName || '-',
+        phone: o.phone || o.recipientPhone || '-',
+        rentalProd: o.rentalProd || '-',
+        supplierName: getMatchedSupplierName(o.rentalProd),
+        deliveryDate: ed?.deliveryDate !== undefined ? ed.deliveryDate : (o.deliveryDate || '-'),
+        deliveryState: editedStates[o.contractNo] || o.deliveryState || '배송완료',
+        installCertStatus: certStatus,
+        installCertDate: certDate,
+        installCertMonth: certMonth,
+        payoutMonth,
+        payoutDate,
+        rowIdx: o.rowIdx,
+        raw: o
+      };
+    });
+  }, [extractedOrders, editedValues, editedStates, getMatchedSupplierName]);
+
   // 계약월 목록 추출 (YYYY-MM)
   const availableContractMonths = useMemo(() => {
     const months = new Set<string>();
@@ -1667,6 +1718,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   공급사 정산
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setIsInstallCertModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-black transition-all cursor-pointer shadow-md shadow-indigo-500/20"
+                title="설치확인서 등록 유무, 정산 마감월, 지급월을 별도의 전용 대장 페이지에서 조회하고 관리합니다"
+              >
+                <FileCheck size={14} />
+                설치확인서 현황
+              </button>
               <button
                 onClick={() => setIsReconModalOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-emerald-500/20"
@@ -3147,6 +3207,48 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         isOpen={isReconModalOpen}
         onClose={() => setIsReconModalOpen(false)}
         manualOrders={completedManualOrdersForRecon}
+      />
+
+      <InstallCertStatusModal
+        isOpen={isInstallCertModalOpen}
+        onClose={() => setIsInstallCertModalOpen(false)}
+        items={installCertItems}
+        onSave={async (updatedItems) => {
+          const sheetUpdates: { rowIdx: number; colIdx: number; newValue: string }[] = [];
+          const nextStores = { ...savedOrderStore };
+
+          Object.keys(updatedItems).forEach(cNo => {
+            const row = extractedOrders.find(o => o.contractNo === cNo);
+            const ed = updatedItems[cNo];
+            if (row?.rowIdx) {
+              sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 24, newValue: ed.installCertDate });
+              sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 25, newValue: ed.installCertMonth });
+            }
+            nextStores[cNo] = { ...(nextStores[cNo] || {}), ...ed };
+            const cDigits = cNo.replace(/[^0-9]/g, '');
+            if (cDigits) nextStores[cDigits] = { ...(nextStores[cDigits] || {}), ...ed };
+          });
+
+          if (sheetUpdates.length > 0) {
+            await fetch('/api/sheets/batch-update', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sheetName: '수기발주', updates: sheetUpdates })
+            });
+          }
+
+          setSavedOrderStore(nextStores);
+          localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(nextStores));
+
+          await fetch('/api/sheets/settings/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ manualOrderStores: nextStores, manualOrderProducts: targetProducts })
+          });
+
+          await fetchOrderSheetData();
+        }}
+        onSyncSuccess={fetchOrderSheetData}
       />
     </AnimatePresence>
   );
