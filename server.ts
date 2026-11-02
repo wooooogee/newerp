@@ -5119,6 +5119,315 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
   }
 });
 
+// 2-1C-3. 초회납 관리 (상조 최초납입일 V열 & 렌탈출금일 AA열) 전용 조회 & 필터링 API
+app.get('/api/sheets/first-pay-unpaid', async (req, res) => {
+  try {
+    const client = await getAuthenticatedClient(req, res);
+    if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+    let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+    if (sheetId && sheetId.includes('spreadsheets/d/')) {
+      const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if (match) sheetId = match[1];
+    }
+    if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
+
+    const forceSync = req.query.forceSync === 'true' || req.query.fresh === 'true';
+    const targetSheetName = '관리대장';
+
+    let sheetRows: any[][] | null = null;
+    const now = Date.now();
+    const cached = sheetDataCache.get(targetSheetName);
+
+    if (!forceSync && cached && (now - cached.timestamp < SHEET_DATA_CACHE_TTL)) {
+      sheetRows = cached.data;
+    }
+
+    if (!sheetRows || sheetRows.length < 2 || forceSync) {
+      const sheets = google.sheets({ version: 'v4', auth: client });
+      let spreadsheet: any;
+      try {
+        spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+      } catch (metaErr: any) {
+        return handleGoogleError(metaErr, res);
+      }
+
+      const sheetsList = spreadsheet.data.sheets || [];
+      const actualSheet = sheetsList.find((s: any) => s.properties?.title === targetSheetName) ||
+                          sheetsList.find((s: any) => s.properties?.title?.includes('회원현황')) ||
+                          sheetsList[0];
+      const actualTitle = actualSheet?.properties?.title || targetSheetName;
+
+      const gRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: `'${actualTitle.replace(/'/g, '')}'!A:ZZ`
+      });
+
+      sheetRows = gRes.data.values || [];
+      if (sheetRows && sheetRows.length > 0) {
+        sheetDataCache.set(targetSheetName, { timestamp: now, data: sheetRows });
+        if (actualTitle !== targetSheetName) {
+          sheetDataCache.set(actualTitle, { timestamp: now, data: sheetRows });
+        }
+      }
+    }
+
+    if (!sheetRows || sheetRows.length < 2) {
+      return res.json({
+        success: true,
+        totalCount: 0,
+        items: [],
+        filterOptions: { divisions: [], hqs: [], branches: [], products: [], statuses: [] },
+        summary: {
+          totalCount: 0,
+          totalUnpaidCount: 0,
+          sangjoUnpaidCount: 0,
+          sangjoPaidCount: 0,
+          rentalUnpaidCount: 0,
+          rentalPaidCount: 0,
+          bothUnpaidCount: 0,
+          bothPaidCount: 0,
+        }
+      });
+    }
+
+    // 사업단(Division) 설정 로드
+    let savedDivisions: any[] = [];
+    try {
+      const setPath = path.join(process.cwd(), '.settings_cache.json');
+      if (fs.existsSync(setPath)) {
+        const rawSettings = JSON.parse(fs.readFileSync(setPath, 'utf-8'));
+        if (Array.isArray(rawSettings.divisions)) {
+          savedDivisions = rawSettings.divisions;
+        }
+      }
+    } catch (e) {
+      console.warn('[FirstPayUnpaid] load divisions error:', e);
+    }
+
+    // 헤더 인덱스 매핑 (관리대장 시트 헤더)
+    const headers = (sheetRows[0] || []).map((h: any) => String(h || '').trim());
+    const findIdx = (keywords: string[]) => {
+      return headers.findIndex((h: string) =>
+        keywords.some(k => h.replace(/\s+/g, '').toLowerCase().includes(k.replace(/\s+/g, '').toLowerCase()))
+      );
+    };
+
+    // A열(0): 계약일자
+    const idxContractDate = findIdx(['계약일자', '계약일', '가입일자']) !== -1 ? findIdx(['계약일자', '계약일', '가입일자']) : 0;
+    // B열(1): 회원상태 / 계약상태
+    const idxStatus = findIdx(['회원상태', '계약상태', '상태']) !== -1 ? findIdx(['회원상태', '계약상태', '상태']) : 1;
+    // C열(2): 회원번호
+    const idxMemberNo = findIdx(['회원번호', '계약번호', '회원코드']) !== -1 ? findIdx(['회원번호', '계약번호', '회원코드']) : 2;
+    // D열(3): 회원명 / 성명
+    const idxName = findIdx(['회원명', '성명', '이름']) !== -1 ? findIdx(['회원명', '성명', '이름']) : 3;
+    // G열(6): 상품명
+    const idxProd = findIdx(['상품명', '상조상품']) !== -1 ? findIdx(['상품명', '상조상품']) : 6;
+    // H열(7): 본부
+    const idxHq = findIdx(['본부명', '본부']) !== -1 ? findIdx(['본부명', '본부']) : 7;
+    // I열(8): 지사
+    const idxBranch = findIdx(['지사명', '지사']) !== -1 ? findIdx(['지사명', '지사']) : 8;
+    // J열(9): 사원명 / 영업사원
+    const idxEmp = findIdx(['사원명', '영업사원', '사원', '담당사원']) !== -1 ? findIdx(['사원명', '영업사원', '사원', '담당사원']) : 9;
+    // K열(10): 렌탈계약번호
+    const idxRentalNo = findIdx(['렌탈계약번호', '렌탈번호', '주문번호']) !== -1 ? findIdx(['렌탈계약번호', '렌탈번호', '주문번호']) : 10;
+    // M열(12): 렌탈상품명 / 제품명
+    const idxProductModel = findIdx(['렌탈상품명', '제품명', '모델명', '렌탈상품', '구좌수']) !== -1 ? findIdx(['렌탈상품명', '제품명', '모델명', '렌탈상품', '구좌수']) : 12;
+    // V열(21): 상조 최초납입일 (관리대장 V열)
+    const foundFirstPayIdx = findIdx(['최초납입일', '상조최초납입일', '상조최초', '초회납']);
+    const idxFirstPay = foundFirstPayIdx !== -1 ? foundFirstPayIdx : 21;
+    // AA열(26): 렌탈출금일 (관리대장 AA열)
+    const foundRentalWithdrawIdx = findIdx(['출금일자', '렌탈출금일', '렌탈출금']);
+    const idxRentalWithdraw = foundRentalWithdrawIdx !== -1 ? foundRentalWithdrawIdx : 26;
+
+    // 표준 날짜 정규화 함수
+    const normalizeDateStr = (val: any): string => formatDateToYMD(val);
+
+    // 납입 여부 판정 함수 (날짜 문자열이 유효하면 납입, 비어있거나 '미납', '-' 등은 미납)
+    const isPaidDate = (val: any): boolean => {
+      if (!val) return false;
+      const s = String(val).trim();
+      if (!s || s === '-' || s === '- -' || s === '-  -' || s === '미납' || s === '출금' || s === 'null' || s === 'undefined' || s.startsWith('###') || s === '취소' || s === '미출금' || s === '반송') {
+        return false;
+      }
+      return /\d{2,4}[./-]\d{1,2}/.test(s) || /^\d{4,8}$/.test(s) || /\d{1,2}월\s*\d{1,2}일/.test(s);
+    };
+
+    // 쿼리 파라미터 필터 조건
+    const qStart = req.query.startContractDate ? String(req.query.startContractDate).trim() : '';
+    const qEnd = req.query.endContractDate ? String(req.query.endContractDate).trim() : '';
+    const qPayFilter = req.query.payFilter ? String(req.query.payFilter).trim() : 'ALL';
+    // 'ALL', 'ALL_UNPAID', 'SANGJO_UNPAID', 'SANGJO_PAID', 'RENTAL_UNPAID', 'RENTAL_PAID', 'BOTH_UNPAID', 'BOTH_PAID'
+    const qDivision = req.query.division ? String(req.query.division).trim() : '';
+    const qHq = req.query.hq ? String(req.query.hq).trim() : '';
+    const qBranch = req.query.branch ? String(req.query.branch).trim() : '';
+    const qProduct = req.query.product ? String(req.query.product).trim() : '';
+    const qStatus = req.query.status ? String(req.query.status).trim() : '';
+    const qSearch = req.query.search ? String(req.query.search).trim().toLowerCase() : '';
+
+    let divisionHqSet: Set<string> | null = null;
+    if (qDivision && savedDivisions.length > 0) {
+      const targetDiv = savedDivisions.find((d: any) => d.id === qDivision || d.name === qDivision);
+      if (targetDiv && Array.isArray(targetDiv.hqNames)) {
+        divisionHqSet = new Set(targetDiv.hqNames.map((h: string) => h.replace(/\s+/g, '').toLowerCase()));
+      }
+    }
+
+    const allHqs = new Set<string>();
+    const allBranches = new Set<string>();
+    const allProducts = new Set<string>();
+    const allStatuses = new Set<string>();
+
+    const filteredItems: any[] = [];
+    let summaryTotalCount = 0;
+    let summaryTotalUnpaidCount = 0;
+    let summarySangjoUnpaidCount = 0;
+    let summarySangjoPaidCount = 0;
+    let summaryRentalUnpaidCount = 0;
+    let summaryRentalPaidCount = 0;
+    let summaryBothUnpaidCount = 0;
+    let summaryBothPaidCount = 0;
+
+    for (let r = 1; r < sheetRows.length; r++) {
+      const row = sheetRows[r];
+      if (!row || row.length === 0) continue;
+
+      const memberNo = String(row[idxMemberNo] || '').trim();
+      const memName = String(row[idxName] || '').trim();
+      const rawContractDate = row[idxContractDate];
+      if (!memberNo && !memName && !rawContractDate) continue;
+
+      const contractDate = normalizeDateStr(rawContractDate);
+      const status = String(row[idxStatus] || '').trim() || '가입';
+      const productName = String(row[idxProd] || '').trim();
+      const rentalNo = String(row[idxRentalNo] || '').trim();
+      const productModel = String(row[idxProductModel] || '').trim();
+      const hq = String(row[idxHq] || '').trim();
+      const branch = String(row[idxBranch] || '').trim();
+      const employee = String(row[idxEmp] || '').trim();
+
+      const rawSangjoFirstPay = row[idxFirstPay];
+      const rawRentalWithdraw = row[idxRentalWithdraw];
+
+      const isSangjoPaid = isPaidDate(rawSangjoFirstPay);
+      const isRentalPaid = isPaidDate(rawRentalWithdraw);
+
+      const sangjoFirstPayDate = isSangjoPaid ? normalizeDateStr(rawSangjoFirstPay) : (rawSangjoFirstPay ? String(rawSangjoFirstPay).trim() : '');
+      const rentalWithdrawDate = isRentalPaid ? normalizeDateStr(rawRentalWithdraw) : (rawRentalWithdraw ? String(rawRentalWithdraw).trim() : '');
+
+      if (hq) allHqs.add(hq);
+      if (branch) allBranches.add(branch);
+      if (productName) allProducts.add(productName);
+      if (status) allStatuses.add(status);
+
+      // 계약일자 필터링 (YYYY-MM 또는 YYYY-MM-DD)
+      if (qStart) {
+        const cDate = contractDate.substring(0, qStart.length);
+        if (cDate && cDate < qStart) continue;
+      }
+      if (qEnd) {
+        const cDate = contractDate.substring(0, qEnd.length);
+        if (cDate && cDate > qEnd) continue;
+      }
+
+      // 사업단(Division) 필터링
+      if (divisionHqSet) {
+        const cleanHq = hq.replace(/\s+/g, '').toLowerCase();
+        let matched = divisionHqSet.has(cleanHq);
+        if (!matched) {
+          for (const divHq of divisionHqSet) {
+            if (cleanHq.includes(divHq) || divHq.includes(cleanHq)) {
+              matched = true;
+              break;
+            }
+          }
+        }
+        if (!matched) continue;
+      }
+
+      // 본부 / 지사 / 상품 / 회원상태 필터링
+      if (qHq && hq !== qHq) continue;
+      if (qBranch && branch !== qBranch) continue;
+      if (qProduct && productName !== qProduct) continue;
+      if (qStatus && status !== qStatus) continue;
+
+      // 검색어 필터링
+      if (qSearch) {
+        const matchSearch =
+          memName.toLowerCase().includes(qSearch) ||
+          memberNo.toLowerCase().includes(qSearch) ||
+          rentalNo.toLowerCase().includes(qSearch) ||
+          productName.toLowerCase().includes(qSearch) ||
+          productModel.toLowerCase().includes(qSearch) ||
+          employee.toLowerCase().includes(qSearch);
+        if (!matchSearch) continue;
+      }
+
+      // 통계 카운트 계산
+      summaryTotalCount++;
+      if (!isSangjoPaid || !isRentalPaid) summaryTotalUnpaidCount++;
+      if (!isSangjoPaid) summarySangjoUnpaidCount++;
+      else summarySangjoPaidCount++;
+      if (!isRentalPaid) summaryRentalUnpaidCount++;
+      else summaryRentalPaidCount++;
+      if (!isSangjoPaid && !isRentalPaid) summaryBothUnpaidCount++;
+      if (isSangjoPaid && isRentalPaid) summaryBothPaidCount++;
+
+      // 미납/납입 상태 필터 적용 (qPayFilter)
+      if (qPayFilter === 'ALL_UNPAID' && (isSangjoPaid && isRentalPaid)) continue;
+      if (qPayFilter === 'SANGJO_UNPAID' && isSangjoPaid) continue;
+      if (qPayFilter === 'SANGJO_PAID' && !isSangjoPaid) continue;
+      if (qPayFilter === 'RENTAL_UNPAID' && isRentalPaid) continue;
+      if (qPayFilter === 'RENTAL_PAID' && !isRentalPaid) continue;
+      if (qPayFilter === 'BOTH_UNPAID' && (isSangjoPaid || isRentalPaid)) continue;
+      if (qPayFilter === 'BOTH_PAID' && (!isSangjoPaid || !isRentalPaid)) continue;
+
+      filteredItems.push({
+        contractDate,
+        status,
+        memName,
+        memberNo,
+        productName,
+        rentalNo,
+        productModel,
+        hq,
+        branch,
+        employee,
+        sangjoFirstPayDate,
+        rentalWithdrawDate,
+        isSangjoPaid,
+        isRentalPaid,
+      });
+    }
+
+    res.json({
+      success: true,
+      totalCount: summaryTotalCount,
+      summary: {
+        totalCount: summaryTotalCount,
+        totalUnpaidCount: summaryTotalUnpaidCount,
+        sangjoUnpaidCount: summarySangjoUnpaidCount,
+        sangjoPaidCount: summarySangjoPaidCount,
+        rentalUnpaidCount: summaryRentalUnpaidCount,
+        rentalPaidCount: summaryRentalPaidCount,
+        bothUnpaidCount: summaryBothUnpaidCount,
+        bothPaidCount: summaryBothPaidCount,
+      },
+      filterOptions: {
+        divisions: savedDivisions.map((d: any) => ({ id: d.id, name: d.name, hqNames: d.hqNames || [] })),
+        hqs: Array.from(allHqs).sort(),
+        branches: Array.from(allBranches).sort(),
+        products: Array.from(allProducts).sort(),
+        statuses: Array.from(allStatuses).sort(),
+      },
+      items: filteredItems,
+    });
+  } catch (err: any) {
+    console.error(`[FirstPayUnpaid] Error:`, err);
+    res.status(500).json({ error: err.message || '초회납 관리 데이터 조회 실패' });
+  }
+});
+
 // 2-1D. 구글 시트 [통합원장] 탭으로부터 서버 캐시 강제 새로고침 API
 app.post('/api/sheets/unified-ledger/sync-from-sheet', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);

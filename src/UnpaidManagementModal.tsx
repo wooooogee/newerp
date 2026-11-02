@@ -18,6 +18,7 @@ import {
   MapPin
 } from 'lucide-react';
 import { autoFitColWidths, applyTableExcelStyle } from './excelStyleUtils';
+import { FirstPayUnpaidTab } from './FirstPayUnpaidTab';
 
 // @ts-ignore
 const getXLSX = () => (window as any).XLSX;
@@ -68,9 +69,23 @@ interface SummaryData {
 interface UnpaidManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: 'unified' | 'firstPay';
 }
 
-export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ isOpen, onClose }) => {
+export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ 
+  isOpen, 
+  onClose,
+  initialTab = 'firstPay' 
+}) => {
+  // 활성 탭: 'firstPay' (초회납관리) | 'unified' (통합원장 미납 대장)
+  const [activeTab, setActiveTab] = useState<'unified' | 'firstPay'>(initialTab);
+
+  useEffect(() => {
+    if (isOpen && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
+
   // 상태 관리
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -432,41 +447,85 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
       <div className="relative w-full max-w-7xl h-[92vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200">
         
         {/* ========================================================= */}
-        {/* 모달 상단 헤더 */}
+        {/* 모달 상단 헤더 & 탭 전환 */}
         {/* ========================================================= */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white shrink-0 shadow-md">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3.5 bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white shrink-0 shadow-md">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-rose-500/20 text-rose-300 rounded-xl border border-rose-500/30">
+            <div className={`p-2.5 rounded-xl border ${
+              activeTab === 'firstPay' 
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' 
+                : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+            }`}>
               <Coins size={22} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold tracking-tight">미납 관리 대장</h2>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                  통합원장 연동
+                <h2 className="text-lg font-bold tracking-tight">
+                  {activeTab === 'firstPay' ? '초회납관리' : '미납 관리 대장'}
+                </h2>
+                <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                  activeTab === 'firstPay'
+                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                    : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                }`}>
+                  {activeTab === 'firstPay' ? '관리대장 연동 (상조 V열 / 렌탈 AA열)' : '통합원장 연동'}
                 </span>
-                {onlyUnpaid && (
+                {activeTab === 'unified' && onlyUnpaid && (
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
                     미납 데이터만 보기 모드
                   </span>
                 )}
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                계약일자별 원장 데이터를 기반으로 사업단, 본부, 지사별 연체차수 및 미납액을 분석하고 관리합니다.
+                {activeTab === 'firstPay'
+                  ? '관리대장 시트의 상조 최초납입일(V열) 및 렌탈출금일(AA열)을 매칭하여 초회납 미납자와 납입완료자를 조회·관리합니다.'
+                  : '계약일자별 원장 데이터를 기반으로 사업단, 본부, 지사별 연체차수 및 미납액을 분석하고 관리합니다.'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => fetchData(true)}
-              disabled={syncing || loading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700/80 hover:bg-slate-600 text-xs font-semibold text-slate-200 border border-slate-600/80 transition-all cursor-pointer disabled:opacity-50"
-              title="구글 시트 '통합원장' 시트로부터 최신 원장 데이터를 즉시 다시 읽어옵니다."
-            >
-              <RefreshCw size={14} className={syncing ? 'animate-spin text-rose-400' : ''} />
-              <span>{syncing ? '원장 동기화 중...' : '시트 최신 동기화'}</span>
-            </button>
+          <div className="flex items-center gap-2.5">
+            {/* 탭 전환 스위처 */}
+            <div className="flex items-center gap-1 bg-slate-950/60 p-1 rounded-xl border border-white/10">
+              <button
+                type="button"
+                onClick={() => setActiveTab('firstPay')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'firstPay'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Coins size={14} />
+                <span>초회납관리</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('unified')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'unified'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <FileSpreadsheet size={14} />
+                <span>통합원장 대장</span>
+              </button>
+            </div>
+
+            {/* 통합원장 동기화 버튼 (통합원장 탭일 때만) */}
+            {activeTab === 'unified' && (
+              <button
+                onClick={() => fetchData(true)}
+                disabled={syncing || loading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-700/80 hover:bg-slate-600 text-xs font-semibold text-slate-200 border border-slate-600/80 transition-all cursor-pointer disabled:opacity-50"
+                title="구글 시트 '통합원장' 시트로부터 최신 원장 데이터를 즉시 다시 읽어옵니다."
+              >
+                <RefreshCw size={14} className={syncing ? 'animate-spin text-rose-400' : ''} />
+                <span>{syncing ? '원장 동기화 중...' : '시트 최신 동기화'}</span>
+              </button>
+            )}
+
             <button
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700/60 rounded-lg transition-colors cursor-pointer"
@@ -475,6 +534,14 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
             </button>
           </div>
         </div>
+
+        {/* ========================================================= */}
+        {/* 탭 본문 영역 */}
+        {/* ========================================================= */}
+        {activeTab === 'firstPay' ? (
+          <FirstPayUnpaidTab />
+        ) : (
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
 
         {/* ========================================================= */}
         {/* 상단 통계 카드 바 */}
@@ -975,6 +1042,8 @@ export const UnpaidManagementModal: React.FC<UnpaidManagementModalProps> = ({ is
             </button>
           </div>
         </div>
+      </div>
+    )}
 
       </div>
     </div>

@@ -137,7 +137,7 @@ export const CopyableMemNos: React.FC<{
     if (!memNosStr || memNosStr.trim() === '' || memNosStr === '-') return [];
     // 낮은 회원번호가 위(앞)로 가도록 오름차순 자연 정렬
     return Array.from(new Set(memNosStr.split(',').map(s => s.trim()).filter(Boolean)))
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+      .sort((a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
   }, [memNosStr]);
 
   if (list.length === 0) return <span className="text-slate-400 font-mono">-</span>;
@@ -378,7 +378,7 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
   const selectedMergedMemNos = useMemo(() => {
     if (matchingContracts.length === 0) return '';
     return Array.from(new Set(matchingContracts.map(c => c.memNo).filter(Boolean)))
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+      .sort((a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
       .join(', ');
   }, [matchingContracts]);
 
@@ -1058,14 +1058,14 @@ export const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       const matched = data.filter(d => (d.rentalNo || '').trim() === rentalNo);
       if (matched.length > 0) {
         const uniqueMemNos = Array.from(new Set(matched.map(d => d.memNo).filter(Boolean)))
-          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+          .sort((a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
         if (uniqueMemNos.length > 0) {
           return uniqueMemNos.join(', ');
         }
       }
     }
     const fallbackList = (record.memNo || '').split(',').map(s => s.trim()).filter(Boolean)
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+      .sort((a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
     return fallbackList.length > 0 ? fallbackList.join(', ') : '-';
   }, [data]);
 

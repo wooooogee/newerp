@@ -1090,6 +1090,7 @@ const ERP_Dashboard = () => {
   const [isManualOrderReconModalOpen, setIsManualOrderReconModalOpen] = useState(false);
   const [isVocManagementModalOpen, setIsVocManagementModalOpen] = useState(false);
   const [isUnpaidManagementModalOpen, setIsUnpaidManagementModalOpen] = useState(false);
+  const [unpaidManagementModalTab, setUnpaidManagementModalTab] = useState<'unified' | 'firstPay'>('firstPay');
 
   // 사이드바 아코디언 메뉴 접힘/열림 상태 (기본값: 접힘)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -8810,7 +8811,22 @@ const ERP_Dashboard = () => {
                   >
                     <div className="pt-2 pl-2 pr-0.5 space-y-1.5 flex flex-col">
                       {[
-                        { dot: 'bg-rose-500', label: '미납 대장 / 조회', action: () => setIsUnpaidManagementModalOpen(true) },
+                        { 
+                          dot: 'bg-rose-500', 
+                          label: '초회납관리 (상조/렌탈)', 
+                          action: () => {
+                            setUnpaidManagementModalTab('firstPay');
+                            setIsUnpaidManagementModalOpen(true);
+                          } 
+                        },
+                        { 
+                          dot: 'bg-indigo-500', 
+                          label: '통합원장 미납 대장', 
+                          action: () => {
+                            setUnpaidManagementModalTab('unified');
+                            setIsUnpaidManagementModalOpen(true);
+                          } 
+                        },
                       ].map((item, idx) => (
                         <motion.button
                           key={idx}
@@ -13560,6 +13576,7 @@ const ERP_Dashboard = () => {
         <UnpaidManagementModal
           isOpen={isUnpaidManagementModalOpen}
           onClose={() => setIsUnpaidManagementModalOpen(false)}
+          initialTab={unpaidManagementModalTab}
         />
         <AnimatePresence>
           <DeliveryStatusModal
