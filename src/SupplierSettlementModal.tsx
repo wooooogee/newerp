@@ -115,9 +115,11 @@ interface SupplierSettlementItem {
   isCertHold: boolean;        // 설치확인서 미등록으로 인한 보류 여부
   commissionHoldReason?: string; // 보류/미지급 사유
   
-  // 물품대금 정산 해당 여부
-  isSupplyPricePayable: boolean;
-  isManualOrderTarget?: boolean; // 수기발주/설치확인서 관리 대상 여부
+  // 물품대금 정산 해당 여부 (설치확인서 등록 기준)
+  isSupplyPricePayable: boolean;     // 설치확인서 등록 기준 실정산 대상 여부
+  isSupplyPriceHold?: boolean;       // 설치확인서 미등록으로 인한 물품대금 지급보류 여부
+  supplyPriceHoldReason?: string;    // 물품대금 보류 사유
+  isManualOrderTarget?: boolean;     // 수기발주/설치확인서 관리 대상 여부
 
   // 리치웰페어 입금 및 손익 결산 필드
   richwelfareDeposit: number;        // [A] 리치웰페어 입금액 (I열 결합원가, VAT포함)
@@ -141,10 +143,12 @@ interface SupplyPriceSummary {
   accountNumber: string;
   accountHolder: string;
   settlementDay: number;
-  productCount: number;          // 정산 상품개수 (전월 배송완료 건수)
+  productCount: number;          // 실정산 대상 상품개수 (설치확인서 등록 완료 기준)
   certRegisteredCount: number;   // 설치확인서 등록 건수
-  certUnregisteredCount: number; // 설치확인서 미등록 건수
-  totalSupplyAmount: number;     // 공급 물품 대금 합계 (VAT포함)
+  certUnregisteredCount: number; // 설치확인서 미등록 보류 건수
+  totalDeliveryCount: number;    // 전체 배송완료 상품개수 (등록 + 미등록)
+  totalSupplyAmount: number;     // 공급 물품 대금 실정산 합계 (설치확인서 등록 건 대상, VAT포함)
+  holdSupplyAmount: number;      // 설치확인서 미등록 보류 물품대금 합계 (VAT포함)
   items: SupplierSettlementItem[];
 }
 
@@ -551,10 +555,47 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       // 8. 물품대금 및 공급수수료 적격성/보류 여부 판별
       const delMonth = extractYearMonth(effectiveDeliveryDate);
 
-      // ⭐ 정산기준월이 M월이면 전월(M-1월) 배송완료 건이 집계 대상
-      // 예: 정산기준월 10월 -> 9월달 배송완료 건 집계
-      // 이때 설치확인서 등록여부는 finalCertStatus ('등록' | '미등록')로 집계 및 카운트
-      const isSupplyPricePayable = !!targetDeliveryMonth && delMonth === targetDeliveryMonth;
+      // 설치확인서 정산기준 마감월(certMonth)이 기준 정산 대상월에 부합하는지 여부
+      // - 전월 마감 방식: certMonth === targetDeliveryMonth (예: 10월 마감 -> 11월 정산)
+      // - 익월 정산 방식: getNextMonthStr(certMonth) === selectedMonth
+      // - 리치웰페어 세금계산서 익월 입금월 일치: richDepositMonth === selectedMonth
+      // - 당월 마감 설정: certMonth === selectedMonth && payoutRuleMode === 'CERT_MONTH'
+      const isCertMonthMatched = !!certMonth && (
+        certMonth === targetDeliveryMonth ||
+        getNextMonthStr(certMonth) === selectedMonth ||
+        (richDepositMonth && richDepositMonth === selectedMonth) ||
+        (certMonth === selectedMonth && payoutRuleMode === 'CERT_MONTH')
+      );
+
+      // [물품 대금 정산 적격성 판정 - 설치확인서 등록 기준 일치]
+      let isSupplyPricePayable = false;
+      let isSupplyPriceHold = false;
+      let supplyPriceHoldReason = '';
+
+      if (isManualTarget || isCertRegistered || !!manualInfo) {
+        // 수기발주 / 설치확인서 관리 대상 품목 (바디프랜드 등):
+        if (isCertRegistered) {
+          // 설치확인서가 등록 완료된 건:
+          // 1) 사용자가 지정한 정산기준 마감월(certMonth)이 부합하거나,
+          // 2) 마감월 미지정이더라도 배송일자가 targetDeliveryMonth인 건
+          if (isCertMonthMatched || (!certMonth && delMonth === targetDeliveryMonth)) {
+            isSupplyPricePayable = true;
+          }
+        } else {
+          // 설치확인서가 미등록된 건:
+          // 전월 배송 완료 건이더라도 설치확인서가 미등록이면 정산 지급 보류
+          if (delMonth === targetDeliveryMonth) {
+            isSupplyPriceHold = true;
+            supplyPriceHoldReason = '설치확인서 미등록 (물품대금 지급보류)';
+          }
+        }
+      } else {
+        // 설치확인서 관리 대상이 아닌 일반 공급사 품목:
+        // 기존과 동일하게 전월 배송완료 기준 집계
+        if (delMonth === targetDeliveryMonth) {
+          isSupplyPricePayable = true;
+        }
+      }
 
       let isCommPayable = false;
       let isCertHold = false;
@@ -633,6 +674,8 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         isCertHold,
         commissionHoldReason: holdReason,
         isSupplyPricePayable,
+        isSupplyPriceHold,
+        supplyPriceHoldReason: supplyPriceHoldReason || undefined,
         isManualOrderTarget: isManualTarget,
         richwelfareDeposit: richDeposit,
         richwelfareTaxDate: richTaxDate || undefined,
@@ -650,7 +693,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
   }, [data, suppliers, selectedMonth, targetDeliveryMonth, effectiveManualStores, manualOrderTargetProducts, payoutRuleMode, richwelfareMap]);
 
   // ==========================================
-  // [1] 물품 대금 집계 (공급사별) - 전월(targetDeliveryMonth) 배송완료 기준
+  // [1] 물품 대금 집계 (공급사별) - 설치확인서 등록 기준 일치 정산
   // ==========================================
   const supplyPriceSummaries = useMemo<SupplyPriceSummary[]>(() => {
     const summaryMap = new Map<string, SupplyPriceSummary>();
@@ -668,60 +711,92 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         productCount: 0,
         certRegisteredCount: 0,
         certUnregisteredCount: 0,
+        totalDeliveryCount: 0,
         totalSupplyAmount: 0,
+        holdSupplyAmount: 0,
         items: []
       });
     });
 
     allSettlementItems.forEach((item) => {
-      // 물품대금은 배송완료월이 targetDeliveryMonth(전월)인 건만 집계
-      if (!item.isSupplyPricePayable) return;
+      // 1) 설치확인서 등록 기준 실정산 대상 건
+      if (item.isSupplyPricePayable) {
+        let supp = summaryMap.get(item.matchedSupplierId);
+        if (!supp) {
+          supp = {
+            supplierId: item.matchedSupplierId,
+            supplierName: item.matchedSupplierName,
+            businessNo: '-',
+            bankName: '-',
+            accountNumber: '-',
+            accountHolder: '-',
+            settlementDay: 31,
+            productCount: 0,
+            certRegisteredCount: 0,
+            certUnregisteredCount: 0,
+            totalDeliveryCount: 0,
+            totalSupplyAmount: 0,
+            holdSupplyAmount: 0,
+            items: []
+          };
+          summaryMap.set(item.matchedSupplierId, supp);
+        }
 
-      let supp = summaryMap.get(item.matchedSupplierId);
-      if (!supp) {
-        supp = {
-          supplierId: item.matchedSupplierId,
-          supplierName: item.matchedSupplierName,
-          businessNo: '-',
-          bankName: '-',
-          accountNumber: '-',
-          accountHolder: '-',
-          settlementDay: 31,
-          productCount: 0,
-          certRegisteredCount: 0,
-          certUnregisteredCount: 0,
-          totalSupplyAmount: 0,
-          items: []
-        };
-        summaryMap.set(item.matchedSupplierId, supp);
-      }
-
-      supp.productCount += item.quantity;
-      if (item.installCertStatus === '등록') {
+        supp.productCount += item.quantity;
         supp.certRegisteredCount += item.quantity;
-      } else {
+        supp.totalDeliveryCount += item.quantity;
+        supp.totalSupplyAmount += item.totalSupplyPrice;
+        supp.items.push(item);
+      } else if (item.isSupplyPriceHold) {
+        // 2) 설치확인서 미등록으로 물품대금 지급 보류된 건
+        let supp = summaryMap.get(item.matchedSupplierId);
+        if (!supp) {
+          supp = {
+            supplierId: item.matchedSupplierId,
+            supplierName: item.matchedSupplierName,
+            businessNo: '-',
+            bankName: '-',
+            accountNumber: '-',
+            accountHolder: '-',
+            settlementDay: 31,
+            productCount: 0,
+            certRegisteredCount: 0,
+            certUnregisteredCount: 0,
+            totalDeliveryCount: 0,
+            totalSupplyAmount: 0,
+            holdSupplyAmount: 0,
+            items: []
+          };
+          summaryMap.set(item.matchedSupplierId, supp);
+        }
+
         supp.certUnregisteredCount += item.quantity;
+        supp.totalDeliveryCount += item.quantity;
+        supp.holdSupplyAmount += item.totalSupplyPrice;
+        supp.items.push(item);
       }
-      supp.totalSupplyAmount += item.totalSupplyPrice;
-      supp.items.push(item);
     });
 
     return Array.from(summaryMap.values());
   }, [suppliers, allSettlementItems]);
 
-  // 물품 대금 전체 KPI (배송완료 상품수, 설치확인서 등록/미등록 건수, 총 물품대금)
+  // 물품 대금 전체 KPI (정산 대상 상품수, 확인서 등록/미등록 건수, 총 물품대금)
   const supplyPriceTotalStats = useMemo(() => {
     let productCount = 0;
     let certRegisteredCount = 0;
     let certUnregisteredCount = 0;
+    let totalDeliveryCount = 0;
     let totalSupplyAmount = 0;
+    let holdSupplyAmount = 0;
     supplyPriceSummaries.forEach(s => {
       productCount += s.productCount;
       certRegisteredCount += s.certRegisteredCount;
       certUnregisteredCount += s.certUnregisteredCount;
+      totalDeliveryCount += s.totalDeliveryCount;
       totalSupplyAmount += s.totalSupplyAmount;
+      holdSupplyAmount += s.holdSupplyAmount;
     });
-    return { productCount, certRegisteredCount, certUnregisteredCount, totalSupplyAmount };
+    return { productCount, certRegisteredCount, certUnregisteredCount, totalDeliveryCount, totalSupplyAmount, holdSupplyAmount };
   }, [supplyPriceSummaries]);
 
   // 선택된 특정 공급사 요약 정보
@@ -1000,13 +1075,17 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       const matchSupplier = selectedSupplierId === 'ALL' || item.matchedSupplierId === selectedSupplierId;
       if (!matchSupplier) return false;
 
-      // 물품대금 탭인 경우 (전월 배송완료 건)
+      // 물품대금 탭인 경우 (설치확인서 등록 기준)
       if (mainTab === 'SUPPLY_PRICE') {
-        if (!item.isSupplyPricePayable) return false;
         if (certFilter === 'PAYABLE') {
-          if (item.installCertStatus !== '등록') return false;
+          // 설치확인서 등록 완료 실정산 대상 건
+          if (!item.isSupplyPricePayable) return false;
         } else if (certFilter === 'HOLD') {
-          if (item.installCertStatus === '등록') return false;
+          // 설치확인서 미등록 보류 건
+          if (!item.isSupplyPriceHold) return false;
+        } else {
+          // ALL 모드: 실정산 대상 건 또는 확인서 미등록 보류 건 모두 표시
+          if (!item.isSupplyPricePayable && !item.isSupplyPriceHold) return false;
         }
       }
 
@@ -1070,11 +1149,11 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
 
     // 1. 공급사별 물품대금 총괄 요약 시트
     const summaryRows: any[][] = [
-      [`리치웰페어 - 공급 물품대금 정산 총괄표 (${selectedMonth} 기준 - ${targetDeliveryMonth} 배송완료분)`],
-      [`정산 기준: 정산기준월 ${selectedMonth} (전월 ${targetDeliveryMonth} 배송완료 건 집계, VAT 부가세 포함, 상품개수 기준)`],
+      [`리치웰페어 - 공급 물품대금 정산 총괄표 (${selectedMonth} 기준 - 설치확인서 등록 기준)`],
+      [`정산 기준: 정산기준월 ${selectedMonth} (전월 ${targetDeliveryMonth} 마감/배송완료분 중 설치확인서 등록 기준, VAT 부가세 포함)`],
       [`출력일시: ${new Date().toLocaleString()}`],
       [],
-      ['공급사명', '사업자등록번호', '정산은행', '계좌번호', '예금주', '정산일', '배송완료 상품수', '설치확인서 등록', '설치확인서 미등록', '총 공급 물품대금 (VAT포함)']
+      ['공급사명', '사업자등록번호', '정산은행', '계좌번호', '예금주', '정산일', '정산 대상 상품수', '설치확인서 등록', '설치확인서 미등록(보류)', '총 공급 물품대금 (VAT포함)']
     ];
 
     const targetSummaries = targetSupplierId && targetSupplierId !== 'ALL'
@@ -1965,7 +2044,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      전체 ({supplyPriceTotalStats.productCount})
+                      전체 ({supplyPriceTotalStats.totalDeliveryCount})
                     </button>
                     <button
                       onClick={() => setCertFilter('PAYABLE')}
@@ -1976,7 +2055,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                       }`}
                     >
                       <CheckCircle size={11} />
-                      <span>등록 ({supplyPriceTotalStats.certRegisteredCount})</span>
+                      <span>등록 정산대상 ({supplyPriceTotalStats.productCount})</span>
                     </button>
                     <button
                       onClick={() => setCertFilter('HOLD')}
@@ -1987,7 +2066,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                       }`}
                     >
                       <AlertCircle size={11} />
-                      <span>미등록 ({supplyPriceTotalStats.certUnregisteredCount})</span>
+                      <span>미등록 보류 ({supplyPriceTotalStats.certUnregisteredCount})</span>
                     </button>
                   </div>
                 </div>
@@ -2128,7 +2207,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
             <div className="bg-white p-3.5 rounded-xl border border-blue-100 shadow-2xs flex items-center justify-between">
               <div>
                 <p className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-1">
-                  <span>{targetDeliveryMonth ? `${targetDeliveryMonth}월 배송완료` : '전월 배송완료'} 상품</span>
+                  <span>{targetDeliveryMonth ? `${targetDeliveryMonth}월 마감` : '전월 마감'} 정산 상품 (확인서 등록 기준)</span>
                   {selectedSupplierSummary && (
                     <span className="text-blue-600 font-bold">({selectedSupplierSummary.supplierName})</span>
                   )}
@@ -2143,7 +2222,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                   </span>
                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300 text-[10px] font-bold">
                     <AlertCircle size={10} />
-                    <span>미등록 {(selectedSupplierSummary ? selectedSupplierSummary.certUnregisteredCount : supplyPriceTotalStats.certUnregisteredCount).toLocaleString()}건</span>
+                    <span>미등록(보류) {(selectedSupplierSummary ? selectedSupplierSummary.certUnregisteredCount : supplyPriceTotalStats.certUnregisteredCount).toLocaleString()}건</span>
                   </span>
                 </div>
               </div>
@@ -2155,12 +2234,12 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
             {/* 카드 2: 총 공급 물품대금 합계 (전체) */}
             <div className="bg-white p-3.5 rounded-xl border border-blue-100 shadow-2xs flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold text-blue-700 uppercase">총 공급 물품대금 합계 (전체)</p>
+                <p className="text-[11px] font-bold text-blue-700 uppercase">총 공급 물품대금 합계 (정산 대상)</p>
                 <h3 className="text-xl font-black text-blue-700 mt-0.5 font-mono">
                   {supplyPriceTotalStats.totalSupplyAmount.toLocaleString()} <span className="text-xs font-bold text-blue-500">원</span>
                 </h3>
                 <p className="text-[10px] text-blue-500 mt-0.5 font-medium">
-                  {targetDeliveryMonth ? `${targetDeliveryMonth}월` : '전월'} 배송완료 {supplyPriceTotalStats.productCount}건 전체 합계 (VAT포함)
+                  설치확인서 등록 기준 {supplyPriceTotalStats.productCount}건 전체 합계 (VAT포함)
                 </p>
               </div>
               <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
@@ -2401,9 +2480,18 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                         <th className="p-3.5">사업자등록번호</th>
                         <th className="p-3.5">정산 지급계좌</th>
                         <th className="p-3.5 text-center">정산일</th>
-                        <th className="p-3.5 text-right font-black text-slate-900">배송완료 상품수</th>
-                        <th className="p-3.5 text-center font-black text-emerald-800">설치확인서 등록</th>
-                        <th className="p-3.5 text-center font-black text-amber-800">설치확인서 미등록</th>
+                        <th className="p-3.5 text-right font-black text-slate-900">
+                          정산 대상 상품수
+                          <span className="block text-[10px] text-slate-400 font-normal">(확인서 등록 기준)</span>
+                        </th>
+                        <th className="p-3.5 text-center font-black text-emerald-800">
+                          설치확인서 등록
+                          <span className="block text-[10px] text-emerald-600 font-normal">(정산 대상)</span>
+                        </th>
+                        <th className="p-3.5 text-center font-black text-amber-800">
+                          설치확인서 미등록
+                          <span className="block text-[10px] text-amber-600 font-normal">(지급 보류)</span>
+                        </th>
                         <th className="p-3.5 text-right font-black text-blue-900 pr-5">공급 물품대금 합계 (VAT포함)</th>
                         <th className="p-3.5 text-center w-28">명세서 다운로드</th>
                       </tr>
@@ -2535,15 +2623,19 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
                             <td className="p-3 font-mono text-slate-500">{item.contractDate}</td>
                             <td className="p-3 font-mono font-bold text-emerald-700">{item.deliveryDate}</td>
                             <td className="p-3 text-center">
-                              {item.installCertStatus === '등록' ? (
+                              {item.isSupplyPricePayable ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
                                   <CheckCircle size={10} />
-                                  <span>등록</span>
+                                  <span>등록 (정산대상)</span>
+                                </span>
+                              ) : item.isSupplyPriceHold ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300 text-[11px] font-bold" title={item.supplyPriceHoldReason || '설치확인서 미등록으로 지급보류'}>
+                                  <AlertCircle size={10} />
+                                  <span>미등록 (보류)</span>
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-300 text-[11px] font-bold">
-                                  <AlertCircle size={10} />
-                                  <span>미등록</span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-medium">
+                                  <span>{item.installCertStatus}</span>
                                 </span>
                               )}
                             </td>
