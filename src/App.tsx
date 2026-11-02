@@ -13577,6 +13577,12 @@ const ERP_Dashboard = () => {
           isOpen={isUnpaidManagementModalOpen}
           onClose={() => setIsUnpaidManagementModalOpen(false)}
           initialTab={unpaidManagementModalTab}
+          currentUser={currentUser}
+          isHQStaff={isHQStaff}
+          userHqNames={userHqNames}
+          isBranchStaff={isBranchStaff}
+          userBranchNames={userBranchNames}
+          isManager={isManager}
         />
         <AnimatePresence>
           <DeliveryStatusModal

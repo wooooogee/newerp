@@ -77,9 +77,20 @@ export type PayFilterType =
 
 interface FirstPayUnpaidTabProps {
   onRefreshParent?: () => void;
+  isHQStaff?: boolean;
+  userHqNames?: string[];
+  isBranchStaff?: boolean;
+  userBranchNames?: string[];
+  isManager?: boolean;
 }
 
-export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
+export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = ({
+  isHQStaff = false,
+  userHqNames = [],
+  isBranchStaff = false,
+  userBranchNames = [],
+  isManager = false,
+}) => {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [items, setItems] = useState<FirstPayUnpaidItem[]>([]);
@@ -106,13 +117,20 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
   const [endMonth, setEndMonth] = useState('');
   const [payFilter, setPayFilter] = useState<PayFilterType>('ALL');
 
-  // 계층 필터
+  // 계층 필터: 본부 계정인 경우 해당 본부로 기본값 고정
   const [selectedDivision, setSelectedDivision] = useState('');
-  const [selectedHq, setSelectedHq] = useState('');
-  const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedHq, setSelectedHq] = useState(() => (isHQStaff && userHqNames.length > 0 ? userHqNames[0] : ''));
+  const [selectedBranch, setSelectedBranch] = useState(() => (isBranchStaff && userBranchNames.length > 0 ? userBranchNames[0] : ''));
   const [selectedProduct, setSelectedProduct] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('가입');
   const [searchKeyword, setSearchKeyword] = useState('');
+
+  // 본부 계정 로그인 시 selectedHq 자동 동기화
+  useEffect(() => {
+    if (isHQStaff && userHqNames.length > 0 && !selectedHq) {
+      setSelectedHq(userHqNames[0]);
+    }
+  }, [isHQStaff, userHqNames]);
 
   // 정렬 상태 (기본 계약일 내림차순)
   const [sortField, setSortField] = useState<keyof FirstPayUnpaidItem>('contractDate');
@@ -122,8 +140,11 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
-  // 사업단 캐스케이딩 본부 목록
+  // 사업단 캐스케이딩 본부 목록 (본부 계정이면 본인 본부만)
   const availableHqs = useMemo(() => {
+    if (isHQStaff && userHqNames.length > 0) {
+      return userHqNames;
+    }
     if (!selectedDivision) return filterOptions.hqs;
     const div = filterOptions.divisions.find(d => d.id === selectedDivision || d.name === selectedDivision);
     if (!div || !Array.isArray(div.hqNames) || div.hqNames.length === 0) {
@@ -139,11 +160,13 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
       }
       return false;
     });
-  }, [selectedDivision, filterOptions.divisions, filterOptions.hqs]);
+  }, [isHQStaff, userHqNames, selectedDivision, filterOptions.divisions, filterOptions.hqs]);
 
   const handleDivisionChange = (divVal: string) => {
     setSelectedDivision(divVal);
-    setSelectedHq('');
+    if (!isHQStaff) {
+      setSelectedHq('');
+    }
   };
 
   // 데이터 로드
@@ -157,7 +180,15 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
       if (endMonth) params.append('endContractDate', endMonth);
       if (payFilter) params.append('payFilter', payFilter);
       if (selectedDivision) params.append('division', selectedDivision);
-      if (selectedHq) params.append('hq', selectedHq);
+
+      // 본부 계정인 경우 본인 본부 정보 반드시 전달
+      if (isHQStaff && userHqNames.length > 0) {
+        params.append('authHqs', userHqNames.join(','));
+        params.append('hq', selectedHq || userHqNames[0]);
+      } else if (selectedHq) {
+        params.append('hq', selectedHq);
+      }
+
       if (selectedBranch) params.append('branch', selectedBranch);
       if (selectedProduct) params.append('product', selectedProduct);
       if (selectedStatus) params.append('status', selectedStatus);
@@ -168,9 +199,57 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
       if (!res.ok) throw new Error('초회납 관리 데이터 조회에 실패했습니다.');
 
       const data = await res.json();
-      setItems(data.items || []);
-      if (data.filterOptions) setFilterOptions(data.filterOptions);
-      if (data.summary) setSummary(data.summary);
+
+      // 클라이언트 단 본부 권한 2중 검증 필터링
+      let rawItems: FirstPayUnpaidItem[] = data.items || [];
+      if (isHQStaff && userHqNames.length > 0) {
+        const normUserHqs = userHqNames.map(u => (u || '').replace(/[\s()본부]/g, '').toLowerCase());
+        rawItems = rawItems.filter(item => {
+          const normItemHq = (item.hq || '').replace(/[\s()본부]/g, '').toLowerCase();
+          return normUserHqs.some(uh => normItemHq === uh || normItemHq.includes(uh) || uh.includes(normItemHq));
+        });
+
+        // 본부 계정에 맞게 클라이언트 단 요약 통계 재계산
+        let totalCount = rawItems.length;
+        let totalUnpaidCount = 0;
+        let sangjoUnpaidCount = 0;
+        let sangjoPaidCount = 0;
+        let rentalUnpaidCount = 0;
+        let rentalPaidCount = 0;
+        let bothUnpaidCount = 0;
+        let bothPaidCount = 0;
+
+        rawItems.forEach(item => {
+          if (!item.isSangjoPaid || !item.isRentalPaid) totalUnpaidCount++;
+          if (!item.isSangjoPaid) sangjoUnpaidCount++;
+          else sangjoPaidCount++;
+          if (!item.isRentalPaid) rentalUnpaidCount++;
+          else rentalPaidCount++;
+          if (!item.isSangjoPaid && !item.isRentalPaid) bothUnpaidCount++;
+          if (item.isSangjoPaid && item.isRentalPaid) bothPaidCount++;
+        });
+
+        setSummary({
+          totalCount,
+          totalUnpaidCount,
+          sangjoUnpaidCount,
+          sangjoPaidCount,
+          rentalUnpaidCount,
+          rentalPaidCount,
+          bothUnpaidCount,
+          bothPaidCount,
+        });
+      } else {
+        if (data.summary) setSummary(data.summary);
+      }
+
+      setItems(rawItems);
+      if (data.filterOptions) {
+        setFilterOptions({
+          ...data.filterOptions,
+          hqs: isHQStaff && userHqNames.length > 0 ? userHqNames : data.filterOptions.hqs,
+        });
+      }
       setCurrentPage(1);
     } catch (err: any) {
       console.error('Fetch first-pay unpaid error:', err);
@@ -361,7 +440,7 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex-1 min-h-0 flex flex-col h-full bg-slate-50 overflow-hidden">
       {/* ========================================================= */}
       {/* 1. 상단 통계 요약 카드 */}
       {/* ========================================================= */}
@@ -629,10 +708,15 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
             <select
               value={selectedDivision}
               onChange={(e) => handleDivisionChange(e.target.value)}
-              className="w-full pl-7 pr-2.5 py-1.5 bg-indigo-50/50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-hidden focus:border-indigo-500 shadow-2xs"
+              disabled={isHQStaff}
+              className={`w-full pl-7 pr-2.5 py-1.5 border rounded-lg text-xs font-bold focus:outline-hidden ${
+                isHQStaff
+                  ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                  : 'bg-indigo-50/50 border-indigo-200 text-indigo-900 focus:border-indigo-500 shadow-2xs'
+              }`}
             >
-              <option value="">전체 사업단 ({filterOptions.divisions.length})</option>
-              {filterOptions.divisions.map((d) => (
+              <option value="">{isHQStaff ? '사업단 선택 제한' : `전체 사업단 (${filterOptions.divisions.length})`}</option>
+              {!isHQStaff && filterOptions.divisions.map((d) => (
                 <option key={d.id} value={d.id}>{d.name}</option>
               ))}
             </select>
@@ -646,11 +730,18 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
             <select
               value={selectedHq}
               onChange={(e) => setSelectedHq(e.target.value)}
-              className="w-full pl-7 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-hidden focus:border-indigo-500"
+              disabled={isHQStaff && userHqNames.length <= 1}
+              className={`w-full pl-7 pr-2.5 py-1.5 border rounded-lg text-xs font-semibold focus:outline-hidden ${
+                isHQStaff
+                  ? 'bg-amber-50/80 border-amber-300 text-amber-900 font-bold'
+                  : 'bg-slate-50 border-slate-200 text-slate-700 focus:border-indigo-500'
+              }`}
             >
-              <option value="">
-                {selectedDivision ? `소속 본부 (${availableHqs.length})` : `전체 본부 (${filterOptions.hqs.length})`}
-              </option>
+              {!isHQStaff && (
+                <option value="">
+                  {selectedDivision ? `소속 본부 (${availableHqs.length})` : `전체 본부 (${filterOptions.hqs.length})`}
+                </option>
+              )}
               {availableHqs.map((h) => (
                 <option key={h} value={h}>{h}</option>
               ))}
@@ -722,7 +813,7 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
           계약일 회원상태 회원명 회원번호 상품명 렌탈번호 제품명 본부 지사 영업사원 최초납입일 렌탈출금일
       */}
       {/* ========================================================= */}
-      <div className="flex-1 overflow-auto bg-slate-100/50">
+      <div className="flex-1 min-h-0 overflow-auto bg-slate-100/50">
         {loading ? (
           <div className="h-full flex flex-col items-center justify-center text-slate-400">
             <RefreshCw size={36} className="animate-spin text-indigo-500 mb-3" />
@@ -943,7 +1034,7 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = () => {
       {/* ========================================================= */}
       {/* 4. 하단 페이지네이션 & 정보 바 */}
       {/* ========================================================= */}
-      <div className="flex flex-wrap items-center justify-between px-6 py-3 bg-white border-t border-slate-200 text-xs text-slate-600 shrink-0">
+      <div className="flex flex-wrap items-center justify-between px-6 py-2.5 bg-white border-t border-slate-200 text-xs text-slate-600 shrink-0 z-20 shadow-xs">
         <div className="flex items-center gap-3">
           <span>
             총 <strong className="text-slate-900 font-mono">{sortedItems.length.toLocaleString()}</strong>건 중{' '}

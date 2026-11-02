@@ -4959,6 +4959,50 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
     const qStatus = req.query.status ? String(req.query.status).trim() : '';
     const qSearch = req.query.search ? String(req.query.search).trim().toLowerCase() : '';
 
+    // 로그인 사용자 권한 확인 (본부 계정 필터링)
+    let authUser: any = null;
+    if ((req as any).signedCookies?.user_auth) {
+      try {
+        authUser = JSON.parse((req as any).signedCookies.user_auth);
+      } catch (e) {}
+    }
+
+    const isUserAdmin = authUser && (
+      authUser.role === 'admin' ||
+      authUser.role === 'admin최고' ||
+      authUser.role === '총괄' ||
+      authUser.role === '관리자' ||
+      authUser.role === '대표' ||
+      authUser.role === '대표모바일' ||
+      authUser.role === 'CEO' ||
+      authUser.role === 'ceo'
+    );
+
+    const allowedHqs: string[] = [];
+    if (authUser && !isUserAdmin) {
+      if (authUser.orgs && authUser.orgs.length > 0) {
+        authUser.orgs
+          .filter((o: any) => o.role === '총무' || o.role === '본부' || o.role === '본부모바일')
+          .forEach((o: any) => {
+            const h = (o.orgName || '').replace(/[\s()본부]/g, '').toLowerCase();
+            if (h) allowedHqs.push(h);
+          });
+      } else if (authUser.role === '총무' || authUser.role === '본부' || authUser.role === '본부모바일') {
+        const h = (authUser.orgName || '').replace(/[\s()본부]/g, '').toLowerCase();
+        if (h) allowedHqs.push(h);
+      }
+    }
+
+    const clientAuthHqsStr = req.query.authHqs ? String(req.query.authHqs).trim() : '';
+    if (clientAuthHqsStr) {
+      const parts = clientAuthHqsStr.split(',').map(s => s.replace(/[\s()본부]/g, '').toLowerCase()).filter(Boolean);
+      parts.forEach(p => {
+        if (!allowedHqs.includes(p)) allowedHqs.push(p);
+      });
+    }
+
+    const isHqRestricted = !isUserAdmin && allowedHqs.length > 0;
+
     // 사업단(Division) 필터링 대상 본부 목록 확인
     let divisionHqSet: Set<string> | null = null;
     if (qDivision && savedDivisions.length > 0) {
@@ -5003,6 +5047,13 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
       const hq = String(row[idxHq !== -1 ? idxHq : 38] || '').trim();
       const branch = String(row[idxBranch !== -1 ? idxBranch : 9] || '').trim();
       const employee = String(row[idxEmp !== -1 ? idxEmp : 10] || '').trim();
+
+      // 본부 권한 필터링 (특정 본부 계정은 해당 본부만 열람 가능)
+      if (isHqRestricted) {
+        const normHq = hq.replace(/[\s()본부]/g, '').toLowerCase();
+        const isAllowed = allowedHqs.some(ah => normHq === ah || normHq.includes(ah) || ah.includes(normHq));
+        if (!isAllowed) continue;
+      }
 
       if (hq) allHqs.add(hq);
       if (branch) allBranches.add(branch);
@@ -5265,6 +5316,50 @@ app.get('/api/sheets/first-pay-unpaid', async (req, res) => {
     const qStatus = req.query.status ? String(req.query.status).trim() : '';
     const qSearch = req.query.search ? String(req.query.search).trim().toLowerCase() : '';
 
+    // 로그인 사용자 권한 확인 (본부 계정 필터링)
+    let authUser: any = null;
+    if ((req as any).signedCookies?.user_auth) {
+      try {
+        authUser = JSON.parse((req as any).signedCookies.user_auth);
+      } catch (e) {}
+    }
+
+    const isUserAdmin = authUser && (
+      authUser.role === 'admin' ||
+      authUser.role === 'admin최고' ||
+      authUser.role === '총괄' ||
+      authUser.role === '관리자' ||
+      authUser.role === '대표' ||
+      authUser.role === '대표모바일' ||
+      authUser.role === 'CEO' ||
+      authUser.role === 'ceo'
+    );
+
+    const allowedHqs: string[] = [];
+    if (authUser && !isUserAdmin) {
+      if (authUser.orgs && authUser.orgs.length > 0) {
+        authUser.orgs
+          .filter((o: any) => o.role === '총무' || o.role === '본부' || o.role === '본부모바일')
+          .forEach((o: any) => {
+            const h = (o.orgName || '').replace(/[\s()본부]/g, '').toLowerCase();
+            if (h) allowedHqs.push(h);
+          });
+      } else if (authUser.role === '총무' || authUser.role === '본부' || authUser.role === '본부모바일') {
+        const h = (authUser.orgName || '').replace(/[\s()본부]/g, '').toLowerCase();
+        if (h) allowedHqs.push(h);
+      }
+    }
+
+    const clientAuthHqsStr = req.query.authHqs ? String(req.query.authHqs).trim() : '';
+    if (clientAuthHqsStr) {
+      const parts = clientAuthHqsStr.split(',').map(s => s.replace(/[\s()본부]/g, '').toLowerCase()).filter(Boolean);
+      parts.forEach(p => {
+        if (!allowedHqs.includes(p)) allowedHqs.push(p);
+      });
+    }
+
+    const isHqRestricted = !isUserAdmin && allowedHqs.length > 0;
+
     let divisionHqSet: Set<string> | null = null;
     if (qDivision && savedDivisions.length > 0) {
       const targetDiv = savedDivisions.find((d: any) => d.id === qDivision || d.name === qDivision);
@@ -5305,6 +5400,13 @@ app.get('/api/sheets/first-pay-unpaid', async (req, res) => {
       const hq = String(row[idxHq] || '').trim();
       const branch = String(row[idxBranch] || '').trim();
       const employee = String(row[idxEmp] || '').trim();
+
+      // 본부 권한 필터링 (특정 본부 계정은 해당 본부만 열람 가능)
+      if (isHqRestricted) {
+        const normHq = hq.replace(/[\s()본부]/g, '').toLowerCase();
+        const isAllowed = allowedHqs.some(ah => normHq === ah || normHq.includes(ah) || ah.includes(normHq));
+        if (!isAllowed) continue;
+      }
 
       const rawSangjoFirstPay = row[idxFirstPay];
       const rawRentalWithdraw = row[idxRentalWithdraw];
