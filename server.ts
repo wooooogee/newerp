@@ -3960,6 +3960,128 @@ app.post('/api/sheets/excel-sync/parse-healthcare', async (req, res) => {
   }
 });
 
+// 2-6. 리치웰페어 엑셀 파일 내 '내역서' 시트 데이터 추출 API
+app.post('/api/sheets/excel-sync/parse-richwelfare', async (req, res) => {
+  const { fileBase64, password } = req.body as { fileBase64: string; password?: string };
+  if (!fileBase64) {
+    return res.status(400).json({ error: '파일 데이터가 전달되지 않았습니다.' });
+  }
+
+  try {
+    const buffer = Buffer.from(fileBase64, 'base64');
+    let workbook: any = null;
+
+    if (password) {
+      try {
+        // @ts-ignore
+        workbook = await XlsxPopulate.fromDataAsync(buffer, { password });
+      } catch (pwErr) {
+        try {
+          // @ts-ignore
+          workbook = await XlsxPopulate.fromDataAsync(buffer);
+        } catch (noPwErr) {
+          return res.status(422).json({
+            error: 'PASSWORD_FAILED',
+            message: '비밀번호가 올바르지 않거나 복호화에 실패했습니다.'
+          });
+        }
+      }
+    } else {
+      try {
+        // @ts-ignore
+        workbook = await XlsxPopulate.fromDataAsync(buffer);
+      } catch (err: any) {
+        try {
+          // @ts-ignore
+          workbook = await XlsxPopulate.fromDataAsync(buffer, { password: '1111' });
+        } catch (err2: any) {
+          try {
+            // @ts-ignore
+            workbook = await XlsxPopulate.fromDataAsync(buffer, { password: '1234!' });
+          } catch (err3: any) {
+            return res.status(422).json({
+              error: 'OPEN_FAILED',
+              message: '엑셀 파일을 열 수 없습니다. 암호화된 파일인 경우 비밀번호를 입력해 주세요.'
+            });
+          }
+        }
+      }
+    }
+
+    if (!workbook) {
+      return res.status(400).json({ error: '워크북을 열 수 없습니다.' });
+    }
+
+    const allSheets = workbook.sheets();
+    const sheetNames = allSheets.map((s: any) => s.name());
+    console.log(`[Parse Richwelfare] Available sheet names:`, sheetNames);
+
+    const norm = (s: string) => String(s || '').replace(/\s+/g, '').toLowerCase();
+
+    // '내역서' 시트 찾기
+    let targetSheet = allSheets.find((s: any) => norm(s.name()) === '내역서');
+    if (!targetSheet) {
+      targetSheet = allSheets.find((s: any) => norm(s.name()).includes('내역서'));
+    }
+    if (!targetSheet) {
+      targetSheet = allSheets.find((s: any) => norm(s.name()).includes('내역'));
+    }
+    if (!targetSheet) {
+      targetSheet = allSheets.find((s: any) => norm(s.name()).includes('리치웰페어') || norm(s.name()).includes('물품대금'));
+    }
+    if (!targetSheet && allSheets.length > 0) {
+      targetSheet = allSheets[0];
+    }
+
+    if (!targetSheet) {
+      return res.status(400).json({ error: '내역서 시트를 찾을 수 없습니다.' });
+    }
+
+    const matchedSheetName = targetSheet.name();
+    const usedRange = targetSheet.usedRange();
+    if (!usedRange) {
+      return res.status(400).json({ error: `'${matchedSheetName}' 시트에 데이터가 비어 있습니다.` });
+    }
+
+    const rawValues = usedRange.value() || [];
+    if (!Array.isArray(rawValues) || rawValues.length === 0) {
+      return res.status(400).json({ error: `'${matchedSheetName}' 시트에 유효한 데이터가 없습니다.` });
+    }
+
+    const formatted = rawValues.map((row: any) => {
+      if (!Array.isArray(row)) return [];
+      return row.map((cell: any) => {
+        if (cell instanceof Date) {
+          return formatDateToYMD(cell);
+        }
+        if (typeof cell === 'number') {
+          return String(cell);
+        }
+        return cell !== null && cell !== undefined ? String(cell) : '';
+      });
+    });
+
+    const nonBlank = formatted.filter((row: any[]) => row.some(c => String(c).trim() !== ''));
+    const safeRows = autoRepairRowEncodingSync(nonBlank);
+
+    console.log(`[Parse Richwelfare] Sheet '${matchedSheetName}': Extracted ${safeRows.length} rows.`);
+
+    return res.json({
+      success: true,
+      rows: safeRows,
+      totalCount: safeRows.length > 1 ? safeRows.length - 1 : safeRows.length,
+      sheetName: matchedSheetName,
+      allSheetNames: sheetNames
+    });
+  } catch (err: any) {
+    console.error(`[Parse Richwelfare Fatal Error]:`, err);
+    return res.status(500).json({
+      error: 'PARSE_FAILED',
+      message: '리치웰페어 엑셀 파일을 처리하는 중 오류가 발생했습니다: ' + (err.message || String(err))
+    });
+  }
+});
+
 // 구글 시트 특정 탭에 2차원 데이터를 안전하게 덮어쓰는 헬퍼 (시트 자동생성, 그리드 자동 확장, updateCells 안전 초기화, 청크 분할 쓰기)
 async function overwriteSheetDataSafe(sheets: any, spreadsheetId: string, targetTitle: string, rows: any[][]): Promise<number> {
   if (!rows || rows.length === 0) return 0;
@@ -5983,6 +6105,56 @@ app.post('/api/sheets/excel-sync/overwrite-healthcare', async (req, res) => {
   } catch (err: any) {
     console.error(`[ExcelSync] Overwrite KB Healthcare failed:`, err);
     return res.status(500).json({ error: err.message || 'KB헬스케어대상자 시트 덮어쓰기에 실패했습니다.' });
+  }
+});
+
+// 2-7. 리치웰페어 엑셀 데이터를 구글 시트 '리치웰페어' 탭에 덮어쓰기 API
+app.post('/api/sheets/excel-sync/overwrite-richwelfare', async (req, res) => {
+  const client = await getAuthenticatedClient(req, res);
+  if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
+
+  const { richwelfareRows } = req.body as { richwelfareRows?: any[][] };
+  if (!richwelfareRows || richwelfareRows.length < 1) {
+    return res.status(400).json({ error: '유효한 리치웰페어 데이터가 없습니다.' });
+  }
+
+  let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
+  if (sheetId && sheetId.includes('spreadsheets/d/')) {
+    const match = sheetId.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (match) sheetId = match[1];
+  }
+  if (!sheetId) return res.status(500).json({ error: 'GOOGLE_SHEET_ID 설정이 없습니다.' });
+
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+    const sheetList = meta.data.sheets || [];
+    const foundSheet = sheetList.find((s: any) => {
+      const title = String(s.properties?.title || '').replace(/\s+/g, '');
+      return title === '리치웰페어' || title.includes('리치웰페어');
+    });
+
+    const targetSheetTitle = foundSheet?.properties?.title || '리치웰페어';
+
+    // 기존 내용 지우고 데이터 안전 덮어쓰기 (overwriteSheetDataSafe가 셀 내용 전체 초기화 후 안전 쓰기)
+    const count = await overwriteSheetDataSafe(sheets, sheetId, targetSheetTitle, richwelfareRows);
+
+    // 캐시 무효화
+    sheetDataCache.delete('리치웰페어');
+    sheetDataCache.delete(targetSheetTitle);
+
+    console.log(`[ExcelSync] Successfully overwrote '${targetSheetTitle}': ${count} rows.`);
+
+    return res.json({
+      success: true,
+      overwrittenCount: count,
+      totalCount: Math.max(0, richwelfareRows.length - 1),
+      sheetTitle: targetSheetTitle
+    });
+  } catch (err: any) {
+    console.error(`[ExcelSync] Overwrite Richwelfare failed:`, err);
+    return res.status(500).json({ error: err.message || '리치웰페어 시트 덮어쓰기에 실패했습니다.' });
   }
 });
 
