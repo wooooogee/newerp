@@ -15,19 +15,21 @@ export interface BatchContractLookupModalProps {
 
 export interface ExtractedContractItem {
   rawRowIdx?: number;
-  status: string;             // 1. 가입상태 (B열)
-  memNo: string;              // 2. 회원번호 (C열)
-  rentalNo: string;           // 3. 렌탈번호 (K열)
-  memName: string;            // 4. 회원명 (D열)
-  prodName: string;           // 5. 상품명 (G열)
-  rentalProd: string;         // 6. 렌탈상품명 (M열)
-  firstPayDate: string;       // 7. 최초납입일 (V열)
-  rentalWithdrawDate: string; // 8. 렌탈출금일 (AA열)
-  expectedDeliveryDate: string; // 9. 배송예정일 (AC열)
-  deliveryDate: string;       // 10. 배송일자 (N열)
-  hq: string;                 // 11. 본부명 (H열)
-  branch: string;             // 12. 지사명 (I열)
-  empName: string;            // 13. 사원명 (J열)
+  contractStatus: string;     // 계약상태 (1열, B열: 가입, 해약, 취소)
+  joinStatus: string;         // 가입상태 (24열, Y열: 결합상품배송요청, 렌탈1회차출금 대기중 등 전산 상태)
+  memNo: string;              // 회원번호 (2열, C열: 계약번호)
+  rentalNo: string;           // 렌탈번호 (10열, K열: 렌탈계약번호)
+  memName: string;            // 회원명 (3열, D열)
+  prodName: string;           // 상품명 (6열, G열: 상조상품명)
+  rentalProd: string;         // 제품명 / 렌탈상품명 (12열, M열: 2구좌_[테라웨이브]테라웨이브G... 등 제품명)
+  firstPayDate: string;       // 최초납입일 (21열, V열: 상조출금일)
+  rentalWithdrawDate: string; // 렌탈출금일 (26열, AA열)
+  docRegistered: string;      // 상조가입신청서 (19열, T열: 계약서등록유무 O/X)
+  expectedDeliveryDate: string; // 배송예정일 (28열, AC열)
+  deliveryDate: string;       // 배송일자 (13열, N열)
+  hq: string;                 // 본부명 (7열, H열)
+  branch: string;             // 지사명 (8열, I열)
+  empName: string;            // 사원명 (9열, J열)
   raw?: any[];
 }
 
@@ -102,21 +104,38 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
   // 활성 헤더
   const activeHeaders = freshHeaders || headers || [];
 
-  // 컬럼 인덱스 매핑 (동적 탐색 + 기본값 안전 매핑)
+  // 컬럼 인덱스 매핑 (동적 탐색 + 관리대장 실제 인덱스 안전 매핑)
   const colIndexes = useMemo(() => {
     return {
-      status: findColIndex(activeHeaders, ['회원상태', '계약상태', '가입상태', '상태'], 1),
+      // 1열 (B열): 계약상태 (가입, 해약, 취소)
+      contractStatus: findColIndex(activeHeaders, ['계약상태', '회원상태'], 1),
+      // 24열 (Y열): 가입상태 / 전산상태 (결합상품배송요청, 렌탈1회차출금 대기중 등)
+      joinStatus: findColIndex(activeHeaders, ['상태', '가입상태', '진행상태'], 24),
+      // 2열 (C열): 회원번호
       memNo: findColIndex(activeHeaders, ['회원번호', '계약번호', '회원코드'], 2),
+      // 3열 (D열): 회원명
       memName: findColIndex(activeHeaders, ['회원명', '고객명', '성함', '가입자명'], 3),
+      // 6열 (G열): 상품명 (상조상품)
       prodName: findColIndex(activeHeaders, ['상품명', '상조상품', '가입상품'], 6),
+      // 7열 (H열): 본부명
       hq: findColIndex(activeHeaders, ['본부명', '본부'], 7),
+      // 8열 (I열): 지사명
       branch: findColIndex(activeHeaders, ['지사명', '지사', '지점'], 8),
+      // 9열 (J열): 사원명
       empName: findColIndex(activeHeaders, ['사원명', '영업사원', '사원', '담당자'], 9),
+      // 10열 (K열): 렌탈계약번호
       rentalNo: findColIndex(activeHeaders, ['렌탈계약번호', '렌탈번호', '렌탈코드', '주문번호'], 10),
-      rentalProd: findColIndex(activeHeaders, ['렌탈상품명', '렌탈상품', '지원상품', '구좌수'], 12),
+      // 12열 (M열): 렌탈상품명 / 제품명
+      rentalProd: findColIndex(activeHeaders, ['렌탈상품명', '제품명', '렌탈계약상품', '모델명', '렌탈상품', '지원상품'], 12),
+      // 13열 (N열): 배송일자
       deliveryDate: findColIndex(activeHeaders, ['배송일자', '배송완료일', '배송일'], 13),
+      // 19열 (T열): 계약서등록유무 (상조가입신청서)
+      docRegistered: findColIndex(activeHeaders, ['계약서등록유무', '계약서등록', '계약서', '신청서'], 19),
+      // 21열 (V열): 최초납입일 (상조출금)
       firstPayDate: findColIndex(activeHeaders, ['최초납입일', '상조출금', '초회납입일', '초회납', '1회차납입일'], 21),
+      // 26열 (AA열): 렌탈출금일 (출금일자)
       rentalWithdrawDate: findColIndex(activeHeaders, ['출금일자', '렌탈출금일', '렌탈출금', '렌탈납입일'], 26),
+      // 28열 (AC열): 배송예정일
       expectedDeliveryDate: findColIndex(activeHeaders, ['배송예정일', '배송예정일자', '배송예정'], 28),
     };
   }, [activeHeaders]);
@@ -134,7 +153,8 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
         };
         return {
           rawRowIdx: idx + 2,
-          status: getVal(colIndexes.status) || '가입',
+          contractStatus: getVal(colIndexes.contractStatus) || '가입',
+          joinStatus: getVal(colIndexes.joinStatus) || '-',
           memNo: getVal(colIndexes.memNo),
           rentalNo: getVal(colIndexes.rentalNo),
           memName: getVal(colIndexes.memName),
@@ -142,6 +162,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
           rentalProd: getVal(colIndexes.rentalProd),
           firstPayDate: getVal(colIndexes.firstPayDate),
           rentalWithdrawDate: getVal(colIndexes.rentalWithdrawDate),
+          docRegistered: getVal(colIndexes.docRegistered),
           expectedDeliveryDate: getVal(colIndexes.expectedDeliveryDate),
           deliveryDate: getVal(colIndexes.deliveryDate),
           hq: getVal(colIndexes.hq),
@@ -174,7 +195,8 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
 
       return {
         rawRowIdx: item.originalRowIdx || idx + 2,
-        status: getVal(colIndexes.status, 'status') || '가입',
+        contractStatus: getVal(colIndexes.contractStatus, 'status') || '가입',
+        joinStatus: getVal(colIndexes.joinStatus) || (item.raw && item.raw[24] ? String(item.raw[24]).trim() : '-'),
         memNo: getVal(colIndexes.memNo, 'memNo'),
         rentalNo: getVal(colIndexes.rentalNo, 'rentalNo'),
         memName: getVal(colIndexes.memName, 'memName'),
@@ -182,6 +204,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
         rentalProd: getVal(colIndexes.rentalProd, 'rentalProd'),
         firstPayDate: getVal(colIndexes.firstPayDate),
         rentalWithdrawDate: getVal(colIndexes.rentalWithdrawDate),
+        docRegistered: getVal(colIndexes.docRegistered) || (item.raw && item.raw[19] ? String(item.raw[19]).trim() : (item.paymentStatus || '')),
         expectedDeliveryDate: getVal(colIndexes.expectedDeliveryDate, 'expectedDeliveryDate'),
         deliveryDate: getVal(colIndexes.deliveryDate, 'deliveryDate'),
         hq: getVal(colIndexes.hq, 'hq'),
@@ -315,7 +338,8 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
           matched: false,
           matchType: '미조회',
           data: {
-            status: '미조회',
+            contractStatus: '미조회',
+            joinStatus: '미조회',
             memNo: inputKey.startsWith('J') ? inputKey : '',
             rentalNo: !inputKey.startsWith('J') ? inputKey : '',
             memName: '-',
@@ -323,6 +347,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
             rentalProd: '-',
             firstPayDate: '-',
             rentalWithdrawDate: '-',
+            docRegistered: '-',
             expectedDeliveryDate: '-',
             deliveryDate: '-',
             hq: '-',
@@ -343,18 +368,19 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
       if (filterTab === 'matched' && !row.matched) return false;
       if (filterTab === 'unmatched' && row.matched) return false;
 
-      // 2. 가입상태 필터
+      // 2. 계약상태 필터
       if (statusFilter !== 'all') {
-        if (statusFilter === '가입' && !row.data.status.includes('가입') && !row.data.status.includes('정상')) return false;
-        if (statusFilter === '취소해약' && !row.data.status.includes('해약') && !row.data.status.includes('취소')) return false;
-        if (statusFilter === '기타' && (row.data.status.includes('가입') || row.data.status.includes('해약') || row.data.status.includes('취소'))) return false;
+        const cs = row.data.contractStatus;
+        if (statusFilter === '가입' && !cs.includes('가입') && !cs.includes('정상')) return false;
+        if (statusFilter === '취소해약' && !cs.includes('해약') && !cs.includes('취소')) return false;
+        if (statusFilter === '기타' && (cs.includes('가입') || cs.includes('해약') || cs.includes('취소'))) return false;
       }
 
       // 3. 2차 검색어 (회원명, 지사명, 상품명, 사원명 등)
       if (subSearch.trim()) {
         const q = subSearch.trim().toLowerCase();
         const d = row.data;
-        const text = `${row.inputKey} ${d.memNo} ${d.rentalNo} ${d.memName} ${d.prodName} ${d.rentalProd} ${d.hq} ${d.branch} ${d.empName} ${d.status}`.toLowerCase();
+        const text = `${row.inputKey} ${d.memNo} ${d.rentalNo} ${d.memName} ${d.prodName} ${d.rentalProd} ${d.hq} ${d.branch} ${d.empName} ${d.contractStatus} ${d.joinStatus}`.toLowerCase();
         if (!text.includes(q)) return false;
       }
 
@@ -367,8 +393,8 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
     const total = lookupResults.length;
     const matched = lookupResults.filter(r => r.matched).length;
     const unmatched = total - matched;
-    const joinCount = lookupResults.filter(r => r.matched && (r.data.status.includes('가입') || r.data.status.includes('정상'))).length;
-    const cancelCount = lookupResults.filter(r => r.matched && (r.data.status.includes('해약') || r.data.status.includes('취소'))).length;
+    const joinCount = lookupResults.filter(r => r.matched && (r.data.contractStatus.includes('가입') || r.data.contractStatus.includes('정상'))).length;
+    const cancelCount = lookupResults.filter(r => r.matched && (r.data.contractStatus.includes('해약') || r.data.contractStatus.includes('취소'))).length;
     return { total, matched, unmatched, joinCount, cancelCount };
   }, [lookupResults]);
 
@@ -386,8 +412,8 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
     }
 
     const tsvHeaders = [
-      'No', '입력번호', '매칭구분', '가입상태', '회원번호', '렌탈번호', '회원명', '상품명',
-      '렌탈상품명', '최초납입일', '렌탈출금일', '배송예정일', '배송일자', '본부명', '지사명', '사원명'
+      'No', '입력번호', '매칭구분', '계약상태', '가입상태', '회원번호', '렌탈번호', '회원명', '상품명',
+      '제품명(렌탈상품명)', '최초납입일', '렌탈출금일', '상조가입신청서', '배송예정일', '배송일자', '본부명', '지사명', '사원명'
     ].join('\t');
 
     const tsvRows = filteredResults.map(r => {
@@ -396,7 +422,8 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
         r.seq,
         r.inputKey,
         r.matchType || '-',
-        d.status,
+        d.contractStatus,
+        d.joinStatus,
         d.memNo,
         d.rentalNo,
         d.memName,
@@ -404,6 +431,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
         d.rentalProd,
         d.firstPayDate,
         d.rentalWithdrawDate,
+        d.docRegistered,
         d.expectedDeliveryDate,
         d.deliveryDate,
         d.hq,
@@ -442,8 +470,8 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
 
     const excelRows = [
       [
-        'No', '입력번호', '매칭구분', '가입상태', '회원번호', '렌탈번호', '회원명', '상품명',
-        '렌탈상품명', '최초납입일', '렌탈출금일', '배송예정일', '배송일자', '본부명', '지사명', '사원명'
+        'No', '입력번호', '매칭구분', '계약상태', '가입상태', '회원번호', '렌탈번호', '회원명', '상품명',
+        '제품명(렌탈상품명)', '최초납입일', '렌탈출금일', '상조가입신청서', '배송예정일', '배송일자', '본부명', '지사명', '사원명'
       ],
       ...filteredResults.map(r => {
         const d = r.data;
@@ -451,7 +479,8 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
           r.seq,
           r.inputKey,
           r.matchType || '-',
-          d.status,
+          d.contractStatus,
+          d.joinStatus,
           d.memNo,
           d.rentalNo,
           d.memName,
@@ -459,6 +488,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
           d.rentalProd,
           d.firstPayDate,
           d.rentalWithdrawDate,
+          d.docRegistered,
           d.expectedDeliveryDate,
           d.deliveryDate,
           d.hq,
@@ -469,7 +499,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(excelRows);
-    ws['!cols'] = autoFitColWidths(excelRows, 10, 40);
+    ws['!cols'] = autoFitColWidths(excelRows, 10, 45);
     applyTableExcelStyle(ws, 'EMERALD');
 
     const wb = XLSX.utils.book_new();
@@ -526,7 +556,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                 )}
               </div>
               <p className="text-[12px] text-slate-400">
-                계약번호(회원번호) 또는 렌탈번호를 한 줄에 하나씩 입력하면 관리대장의 13개 핵심 정보를 한 줄에 일괄 표시합니다.
+                계약상태·가입상태, 제품명(렌탈상품명), 최초납입일, 렌탈출금일, 배송예정·완료일 등 핵심 정보를 한 줄에 일괄 표시합니다.
               </p>
             </div>
           </div>
@@ -642,7 +672,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                 value={inputText}
                 onChange={e => setInputText(e.target.value)}
                 rows={4}
-                placeholder={`조회할 계약번호(회원번호) 또는 렌탈번호를 한 줄에 하나씩 입력하거나 엑셀에서 복사하여 붙여넣으세요.\n\n예시:\nJ2610013827\nJ2610013826\nJ2610013710\n12269608`}
+                placeholder={`조회할 계약번호(회원번호) 또는 렌탈번호를 한 줄에 하나씩 입력하거나 엑셀에서 복사하여 붙여넣으세요.\n\n예시:\nJ2610013827\nJ2610013826\nJ2610013710\n12385285`}
                 className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-800 placeholder:text-slate-400 resize-y shadow-inner leading-relaxed"
               />
             </div>
@@ -702,16 +732,16 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
               </button>
             </div>
 
-            {/* 가입상태 빠른 필터 */}
+            {/* 계약상태 빠른 필터 */}
             <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200 text-xs">
-              <span className="text-slate-500 font-bold">상태:</span>
+              <span className="text-slate-500 font-bold">계약상태:</span>
               <select
                 value={statusFilter}
                 onChange={e => setStatusFilter(e.target.value)}
                 className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
               >
                 <option value="all">전체 상태</option>
-                <option value="가입">가입 / 유지 ({stats.joinCount}건)</option>
+                <option value="가입">가입 / 정상 ({stats.joinCount}건)</option>
                 <option value="취소해약">해약 / 취소 ({stats.cancelCount}건)</option>
                 <option value="기타">기타 상태</option>
               </select>
@@ -726,7 +756,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                 type="text"
                 value={subSearch}
                 onChange={e => setSubSearch(e.target.value)}
-                placeholder="결과 내 검색 (회원명, 지사, 사원 등)..."
+                placeholder="결과 내 검색 (회원명, 제품명, 사원 등)..."
                 className="pl-8 pr-3 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 w-52 sm:w-64 text-slate-800 placeholder:text-slate-400"
               />
               {subSearch && (
@@ -781,14 +811,19 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                   <th className="px-2.5 py-2.5 text-center w-12 border-b border-slate-800 whitespace-nowrap">No</th>
                   <th className="px-3 py-2.5 text-left border-b border-slate-800 whitespace-nowrap">입력번호</th>
                   <th className="px-2.5 py-2.5 text-center border-b border-slate-800 whitespace-nowrap">매칭구분</th>
-                  <th className="px-3 py-2.5 text-center border-b border-slate-800 whitespace-nowrap">가입상태</th>
+                  {/* 요청 반영 1: 계약상태(1열 B열) */}
+                  <th className="px-3 py-2.5 text-center border-b border-slate-800 whitespace-nowrap bg-slate-800/80">계약상태</th>
+                  {/* 요청 반영 2: 가입상태(24열 Y열) */}
+                  <th className="px-3 py-2.5 text-center border-b border-slate-800 whitespace-nowrap bg-teal-950/60 text-teal-200">가입상태</th>
                   <th className="px-3 py-2.5 text-left border-b border-slate-800 whitespace-nowrap">회원번호(계약번호)</th>
                   <th className="px-3 py-2.5 text-left border-b border-slate-800 whitespace-nowrap">렌탈번호</th>
                   <th className="px-3 py-2.5 text-left border-b border-slate-800 whitespace-nowrap">회원명</th>
-                  <th className="px-3 py-2.5 text-left border-b border-slate-800 whitespace-nowrap min-w-[130px]">상품명</th>
-                  <th className="px-3 py-2.5 text-left border-b border-slate-800 whitespace-nowrap min-w-[160px]">렌탈상품명</th>
+                  <th className="px-3 py-2.5 text-left border-b border-slate-800 whitespace-nowrap min-w-[120px]">상품명</th>
+                  {/* 요청 반영 3: 제품명(12열 M열) */}
+                  <th className="px-3 py-2.5 text-left border-b border-slate-800 whitespace-nowrap min-w-[180px] bg-emerald-950/50 text-emerald-200">제품명 (렌탈상품명)</th>
                   <th className="px-3 py-2.5 text-center border-b border-slate-800 whitespace-nowrap bg-indigo-950/40 text-indigo-200">최초납입일(상조)</th>
                   <th className="px-3 py-2.5 text-center border-b border-slate-800 whitespace-nowrap bg-teal-950/40 text-teal-200">렌탈출금일</th>
+                  <th className="px-2.5 py-2.5 text-center border-b border-slate-800 whitespace-nowrap">상조신청서</th>
                   <th className="px-3 py-2.5 text-center border-b border-slate-800 whitespace-nowrap bg-blue-950/40 text-blue-200">배송예정일</th>
                   <th className="px-3 py-2.5 text-center border-b border-slate-800 whitespace-nowrap bg-sky-950/40 text-sky-200">배송일자</th>
                   <th className="px-3 py-2.5 text-left border-b border-slate-800 whitespace-nowrap">본부명</th>
@@ -802,8 +837,9 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                 {filteredResults.map(r => {
                   const d = r.data;
                   const isUnmatched = !r.matched;
-                  const isJoin = d.status.includes('가입') || d.status.includes('정상');
-                  const isCancel = d.status.includes('해약') || d.status.includes('취소') || d.status.includes('중도해지');
+                  const isJoin = d.contractStatus.includes('가입') || d.contractStatus.includes('정상');
+                  const isCancel = d.contractStatus.includes('해약') || d.contractStatus.includes('취소') || d.contractStatus.includes('중도해지');
+                  const isDocReg = d.docRegistered === 'O' || d.docRegistered === 'ㅇ';
 
                   return (
                     <tr
@@ -850,7 +886,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                         )}
                       </td>
 
-                      {/* 1. 가입상태 */}
+                      {/* 1. 계약상태 (1열 B열) */}
                       <td className="px-3 py-2 text-center whitespace-nowrap">
                         {isUnmatched ? (
                           <span className="px-2 py-0.5 rounded-md text-[11px] font-black bg-slate-100 text-slate-400">
@@ -866,12 +902,25 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                                 : 'bg-amber-100 text-amber-800 border border-amber-300'
                             }`}
                           >
-                            {d.status || '가입'}
+                            {d.contractStatus || '가입'}
                           </span>
                         )}
                       </td>
 
-                      {/* 2. 회원번호 */}
+                      {/* 2. 가입상태 (24열 Y열: 결합상품배송요청 등) */}
+                      <td className="px-3 py-2 text-center whitespace-nowrap bg-teal-50/20">
+                        {isUnmatched ? (
+                          <span className="text-slate-300">-</span>
+                        ) : d.joinStatus && d.joinStatus !== '-' ? (
+                          <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-bold bg-teal-100 text-teal-900 border border-teal-300" title={d.joinStatus}>
+                            {d.joinStatus}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">-</span>
+                        )}
+                      </td>
+
+                      {/* 3. 회원번호 (계약번호) */}
                       <td
                         onClick={() => handleCopyCell(d.memNo, `mem-${r.seq}`)}
                         className="px-3 py-2 font-mono font-black text-slate-900 cursor-pointer hover:text-teal-600 whitespace-nowrap"
@@ -885,7 +934,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                         </div>
                       </td>
 
-                      {/* 3. 렌탈번호 */}
+                      {/* 4. 렌탈번호 */}
                       <td
                         onClick={() => handleCopyCell(d.rentalNo, `rent-${r.seq}`)}
                         className="px-3 py-2 font-mono font-semibold text-slate-700 cursor-pointer hover:text-teal-600 whitespace-nowrap"
@@ -899,22 +948,31 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                         </div>
                       </td>
 
-                      {/* 4. 회원명 */}
+                      {/* 5. 회원명 */}
                       <td className="px-3 py-2 font-bold text-slate-900 whitespace-nowrap">
                         {d.memName || '-'}
                       </td>
 
-                      {/* 5. 상품명 */}
+                      {/* 6. 상품명 */}
                       <td className="px-3 py-2 text-slate-800 whitespace-nowrap" title={d.prodName}>
                         {d.prodName || '-'}
                       </td>
 
-                      {/* 6. 렌탈상품명 */}
-                      <td className="px-3 py-2 text-slate-700 whitespace-nowrap" title={d.rentalProd}>
-                        {d.rentalProd || '-'}
+                      {/* 7. 제품명 (렌탈상품명: M열 12열) */}
+                      <td 
+                        onClick={() => handleCopyCell(d.rentalProd, `prod-${r.seq}`)}
+                        className="px-3 py-2 text-emerald-900 font-semibold whitespace-nowrap cursor-pointer hover:text-emerald-700 bg-emerald-50/20" 
+                        title={`클릭하여 복사: ${d.rentalProd}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>{d.rentalProd || '-'}</span>
+                          {copiedCell === `prod-${r.seq}` && (
+                            <span className="text-[10px] text-emerald-600 font-bold">복사됨</span>
+                          )}
+                        </div>
                       </td>
 
-                      {/* 7. 최초납입일 (상조) */}
+                      {/* 8. 최초납입일 (상조) */}
                       <td className="px-3 py-2 text-center font-mono whitespace-nowrap bg-indigo-50/30">
                         {d.firstPayDate ? (
                           <span className="font-bold text-indigo-700">{d.firstPayDate}</span>
@@ -923,7 +981,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                         )}
                       </td>
 
-                      {/* 8. 렌탈출금일 */}
+                      {/* 9. 렌탈출금일 */}
                       <td className="px-3 py-2 text-center font-mono whitespace-nowrap bg-teal-50/30">
                         {d.rentalWithdrawDate ? (
                           <span className="font-bold text-teal-700">{d.rentalWithdrawDate}</span>
@@ -932,7 +990,22 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                         )}
                       </td>
 
-                      {/* 9. 배송예정일 */}
+                      {/* 10. 상조가입신청서 (T열 O/X) */}
+                      <td className="px-2.5 py-2 text-center whitespace-nowrap">
+                        {isUnmatched ? (
+                          <span className="text-slate-300">-</span>
+                        ) : isDocReg ? (
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black bg-blue-100 text-blue-700 border border-blue-200">
+                            O
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black bg-rose-100 text-rose-700 border border-rose-200">
+                            {d.docRegistered || 'X'}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* 11. 배송예정일 */}
                       <td className="px-3 py-2 text-center font-mono whitespace-nowrap bg-blue-50/30">
                         {d.expectedDeliveryDate ? (
                           <span className="font-bold text-blue-700">{d.expectedDeliveryDate}</span>
@@ -941,7 +1014,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                         )}
                       </td>
 
-                      {/* 10. 배송일자 */}
+                      {/* 12. 배송일자 */}
                       <td className="px-3 py-2 text-center font-mono whitespace-nowrap bg-sky-50/30">
                         {d.deliveryDate ? (
                           <span className="font-bold text-sky-800">{d.deliveryDate}</span>
@@ -950,17 +1023,17 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
                         )}
                       </td>
 
-                      {/* 11. 본부명 */}
+                      {/* 13. 본부명 */}
                       <td className="px-3 py-2 text-slate-800 whitespace-nowrap">
                         {d.hq || '-'}
                       </td>
 
-                      {/* 12. 지사명 */}
+                      {/* 14. 지사명 */}
                       <td className="px-3 py-2 text-slate-800 whitespace-nowrap font-semibold">
                         {d.branch || '-'}
                       </td>
 
-                      {/* 13. 사원명 */}
+                      {/* 15. 사원명 */}
                       <td className="px-3 py-2 text-slate-800 whitespace-nowrap">
                         {d.empName || '-'}
                       </td>
@@ -978,7 +1051,7 @@ export const BatchContractLookupModal: React.FC<BatchContractLookupModalProps> =
         <div className="px-5 py-2.5 bg-slate-900 text-white flex items-center justify-between text-xs shrink-0 border-t border-slate-800">
           <div className="flex items-center gap-4 text-slate-400">
             <span>
-              💡 테이블의 회원번호나 렌탈번호를 클릭하시면 즉시 클립보드에 복사됩니다.
+              💡 테이블의 회원번호, 렌탈번호, 제품명을 클릭하시면 즉시 클립보드에 복사됩니다.
             </span>
             <span className="hidden md:inline">
               | [엑셀 다운로드] 또는 [클립보드 복사]를 통해 원본 그대로 엑셀에서 작업하실 수 있습니다.

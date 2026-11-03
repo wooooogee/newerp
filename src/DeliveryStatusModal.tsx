@@ -13,6 +13,16 @@ interface DeliveryStatusModalProps {
   onBatchUpdateDeliveryMemos?: (updates: { rowIdx: number, val: string }[]) => void;
 }
 
+// 유효한 납입/출금 날짜인지 판정하는 헬퍼 (미출금/미납/- 등은 false)
+const isPaidDate = (val: any): boolean => {
+  if (!val) return false;
+  const s = String(val).trim();
+  if (!s || s === '-' || s === '- -' || s === '-  -' || s === '미납' || s === '미출금' || s === 'null' || s === 'undefined' || s.startsWith('###')) {
+    return false;
+  }
+  return /\b(19\d\d|20\d\d)\b|\d{4}[-./]\d{1,2}[-./]\d{1,2}/.test(s);
+};
+
 // 날짜 표시 통일 헬퍼 (YYYY-MM-DD 형식으로 포맷팅)
 const formatDate = (val: any): string => {
   if (!val) return '-';
@@ -52,6 +62,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [isUnpaidRental, setIsUnpaidRental] = useState(false);
   const [isUnpaidMutualAid, setIsUnpaidMutualAid] = useState(false);
+  const [isUnregisteredDocOnly, setIsUnregisteredDocOnly] = useState(false);
   const [isDeliveryCompleted, setIsDeliveryCompleted] = useState(false);
   const [memoDrafts, setMemoDrafts] = useState<Record<string, string>>({});
   const itemsPerPage = 12;
@@ -59,7 +70,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
   // 필터가 변경될 때 페이지 1로 초기화
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [filterMonth, productFilter, hqFilter, searchTerm, sortOrder, isUnpaidRental, isUnpaidMutualAid, isDeliveryCompleted]);
+  }, [filterMonth, productFilter, hqFilter, searchTerm, sortOrder, isUnpaidRental, isUnpaidMutualAid, isUnregisteredDocOnly, isDeliveryCompleted]);
 
   // 조건: 상태가 '가입'이고 (배송완료 체크 시 '배송완료', 미체크 시 '배송대기') 데이터 + 렌탈번호 중복 제거
   const baseData = useMemo(() => {
@@ -166,11 +177,18 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
         if (hasRentalPayDate) return false;
       }
 
-      // 상조 미출금 필터 (관리대장 시트 V열 row[21] 상조출금 값이 출금날짜가 아니고 하이픈/공백/빈값인 경우)
+      // 상조 미출금 필터 (관리대장 시트 V열 row[21] 상조출금 값이 정상 출금날짜가 있는 출금완료 건은 제외)
       if (isUnpaidMutualAid) {
         const firstPayVal = item.raw && item.raw[21] ? String(item.raw[21]).trim() : '';
-        const isUnpaid = !firstPayVal || firstPayVal.includes('-') || !/\d{4}/.test(firstPayVal);
-        if (!isUnpaid) return false;
+        if (isPaidDate(firstPayVal)) return false;
+      }
+
+      // 상조가입신청서 X 필터 (관리대장 시트 T열 row[19] 계약서등록유무가 'O'가 아닌 미등록/X 건만 조회)
+      if (isUnregisteredDocOnly) {
+        const docVal = item.raw && item.raw[19] !== undefined && item.raw[19] !== null
+          ? String(item.raw[19]).trim().toUpperCase()
+          : String(item.paymentStatus || '').trim().toUpperCase();
+        if (docVal === 'O' || docVal === 'ㅇ') return false;
       }
 
       return true;
@@ -181,7 +199,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
         return a.contractDate.localeCompare(b.contractDate);
       }
     });
-  }, [baseData, filterMonth, productFilter, hqFilter, searchTerm, sortOrder, isUnpaidRental, isUnpaidMutualAid]);
+  }, [baseData, filterMonth, productFilter, hqFilter, searchTerm, sortOrder, isUnpaidRental, isUnpaidMutualAid, isUnregisteredDocOnly]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
   const paginatedData = useMemo(() => {
@@ -208,6 +226,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
       '본부명': item.hq,
       '지사명': item.branch || '',
       '사원명': item.empName,
+      '상조가입신청서': item.raw && item.raw[19] !== undefined && item.raw[19] !== null ? String(item.raw[19]).trim() : (item.paymentStatus || 'X'),
       '상조출금일': formatDate(item.raw && item.raw[21]),
       '렌탈출금일': formatDate(item.raw && item.raw[26]),
       '배송예정일': formatDate(item.expectedDeliveryDate || (item.raw && item.raw[28])),
@@ -228,6 +247,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
       { wch: 22 }, // 본부명
       { wch: 22 }, // 지사명
       { wch: 16 }, // 사원명
+      { wch: 15 }, // 상조가입신청서
       { wch: 18 }, // 상조출금일
       { wch: 18 }, // 렌탈출금일
       { wch: 18 }, // 배송예정일
@@ -342,6 +362,15 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
                   <label className="flex items-center gap-1.5 text-sm text-slate-700 cursor-pointer hover:text-slate-900">
                     <input 
                       type="checkbox" 
+                      checked={isUnregisteredDocOnly}
+                      onChange={(e) => setIsUnregisteredDocOnly(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                    />
+                    <span className="text-amber-700 font-medium">상조가입신청서 X</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-sm text-slate-700 cursor-pointer hover:text-slate-900">
+                    <input 
+                      type="checkbox" 
                       checked={isDeliveryCompleted}
                       onChange={(e) => setIsDeliveryCompleted(e.target.checked)}
                       className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
@@ -417,6 +446,7 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
                       <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">본부명</th>
                       <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">지사명</th>
                       <th className="px-2.5 py-2.5 font-bold whitespace-nowrap">사원명</th>
+                      <th className="px-2.5 py-2.5 font-bold text-center whitespace-nowrap">상조가입신청서</th>
                       <th className="px-2.5 py-2.5 font-bold text-center whitespace-nowrap">상조출금일</th>
                       <th className="px-2.5 py-2.5 font-bold text-center whitespace-nowrap">렌탈출금일</th>
                       <th className="px-2.5 py-2.5 font-bold text-center whitespace-nowrap">배송예정일</th>
@@ -428,11 +458,15 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
                   <tbody className="divide-y divide-slate-100 text-[11px] whitespace-nowrap">
                     {paginatedData.length === 0 ? (
                       <tr>
-                        <td colSpan={15} className="p-8 text-center text-slate-400">조회된 데이터가 없습니다.</td>
+                        <td colSpan={16} className="p-8 text-center text-slate-400">조회된 데이터가 없습니다.</td>
                       </tr>
                     ) : (
                       paginatedData.map((item, idx) => {
                         const isOverdue = parseInt(item.memo || '0', 10) >= 1;
+                        const contractDocReg = item.raw && item.raw[19] !== undefined && item.raw[19] !== null
+                          ? String(item.raw[19]).trim().toUpperCase()
+                          : String(item.paymentStatus || '').trim().toUpperCase();
+                        const isDocRegistered = contractDocReg === 'O' || contractDocReg === 'ㅇ';
                         const mutualAidPayVal = formatDate(item.raw && item.raw[21]);
                         const rentalPayVal = formatDate(item.raw && item.raw[26]);
                         const expectedDeliveryDateVal = formatDate(item.expectedDeliveryDate || (item.raw && item.raw[28]));
@@ -457,6 +491,17 @@ export const DeliveryStatusModal: React.FC<DeliveryStatusModalProps> = ({
                           <td className="px-2.5 py-2 text-slate-600 whitespace-nowrap">{item.hq}</td>
                           <td className="px-2.5 py-2 text-slate-600 whitespace-nowrap">{item.branch || '-'}</td>
                           <td className="px-2.5 py-2 text-slate-600 whitespace-nowrap">{item.empName}</td>
+                          <td className="px-2.5 py-2 text-center whitespace-nowrap">
+                            {isDocRegistered ? (
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-black bg-blue-100 text-blue-700 border border-blue-200" title="상조가입신청서 등록 완료(O)">
+                                O
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-black bg-rose-100 text-rose-700 border border-rose-200" title="상조가입신청서 미등록(X)">
+                                {contractDocReg || 'X'}
+                              </span>
+                            )}
+                          </td>
                           <td className="px-2.5 py-2 text-center font-mono text-slate-700 whitespace-nowrap">{mutualAidPayVal}</td>
                           <td className="px-2.5 py-2 text-center font-mono text-slate-700 whitespace-nowrap">{rentalPayVal}</td>
                           <td className="px-2.5 py-2 text-center font-mono text-blue-700 font-semibold whitespace-nowrap">{expectedDeliveryDateVal}</td>
