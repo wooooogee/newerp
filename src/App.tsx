@@ -719,7 +719,7 @@ const ERP_Dashboard = () => {
     if (!currentUser) return [];
     if (currentUser.orgs && currentUser.orgs.length > 0) {
       return currentUser.orgs
-        .filter(o => o.role === '총무' || o.role === '본부')
+        .filter(o => o.role === '총무' || o.role === '본부' || o.role === '본부모바일')
         .map(o => (o.orgName || '').replace(/[\s()본부]/g, ''));
     }
     return [(currentUser.orgName || '').replace(/[\s()본부]/g, '')];

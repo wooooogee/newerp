@@ -5378,7 +5378,11 @@ app.get('/api/sheets/unpaid-management', async (req, res) => {
       }
 
       // 2순위: 본부 필터링
-      if (qHq && hq !== qHq) continue;
+      if (qHq && qHq !== '전체') {
+        const normQHq = qHq.replace(/[\s()본부]/g, '').toLowerCase();
+        const normHq = hq.replace(/[\s()본부]/g, '').toLowerCase();
+        if (normHq !== normQHq && !normHq.includes(normQHq) && !normQHq.includes(normHq)) continue;
+      }
 
       // 3순위: 지사 필터링 (원장의 순수 지사 컬럼)
       if (qBranch && branch !== qBranch) continue;
@@ -5731,7 +5735,11 @@ app.get('/api/sheets/first-pay-unpaid', async (req, res) => {
       }
 
       // 본부 / 지사 / 상품 / 회원상태 필터링
-      if (qHq && hq !== qHq) continue;
+      if (qHq && qHq !== '전체') {
+        const normQHq = qHq.replace(/[\s()본부]/g, '').toLowerCase();
+        const normHq = hq.replace(/[\s()본부]/g, '').toLowerCase();
+        if (normHq !== normQHq && !normHq.includes(normQHq) && !normQHq.includes(normHq)) continue;
+      }
       if (qBranch && branch !== qBranch) continue;
       if (qProduct && productName !== qProduct) continue;
       if (qStatus && status !== qStatus) continue;

@@ -117,17 +117,17 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = ({
   const [endMonth, setEndMonth] = useState('');
   const [payFilter, setPayFilter] = useState<PayFilterType>('ALL');
 
-  // 계층 필터: 본부 계정인 경우 해당 본부로 기본값 고정
+  // 계층 필터: 단일 본부 계정인 경우만 해당 본부로 기본값 고정, 다중 본부 계정(굿라이프 등)은 전체('')로 시작하여 전체 노출
   const [selectedDivision, setSelectedDivision] = useState('');
-  const [selectedHq, setSelectedHq] = useState(() => (isHQStaff && userHqNames.length > 0 ? userHqNames[0] : ''));
+  const [selectedHq, setSelectedHq] = useState(() => (isHQStaff && userHqNames.length === 1 ? userHqNames[0] : ''));
   const [selectedBranch, setSelectedBranch] = useState(() => (isBranchStaff && userBranchNames.length > 0 ? userBranchNames[0] : ''));
   const [selectedProduct, setSelectedProduct] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('가입');
   const [searchKeyword, setSearchKeyword] = useState('');
 
-  // 본부 계정 로그인 시 selectedHq 자동 동기화
+  // 단일 본부 계정 로그인 시 selectedHq 자동 동기화 (다중 본부는 전체 유지)
   useEffect(() => {
-    if (isHQStaff && userHqNames.length > 0 && !selectedHq) {
+    if (isHQStaff && userHqNames.length === 1 && !selectedHq) {
       setSelectedHq(userHqNames[0]);
     }
   }, [isHQStaff, userHqNames]);
@@ -184,8 +184,11 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = ({
       // 본부 계정인 경우 본인 본부 정보 반드시 전달
       if (isHQStaff && userHqNames.length > 0) {
         params.append('authHqs', userHqNames.join(','));
-        params.append('hq', selectedHq || userHqNames[0]);
-      } else if (selectedHq) {
+        // 특정 본부를 명시적으로 선택했을 때만 hq 파라미터 전달 (전체일 때는 생략하여 모든 권한 본부 조회)
+        if (selectedHq && selectedHq !== '전체') {
+          params.append('hq', selectedHq);
+        }
+      } else if (selectedHq && selectedHq !== '전체') {
         params.append('hq', selectedHq);
       }
 
@@ -202,12 +205,22 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = ({
 
       // 클라이언트 단 본부 권한 2중 검증 필터링
       let rawItems: FirstPayUnpaidItem[] = data.items || [];
+      const normOrg = (s: string) => (s || '').replace(/[\s()본부지사지점모바일]/g, '').toLowerCase();
+
       if (isHQStaff && userHqNames.length > 0) {
-        const normUserHqs = userHqNames.map(u => (u || '').replace(/[\s()본부]/g, '').toLowerCase());
+        const normUserHqs = userHqNames.map(normOrg).filter(Boolean);
         rawItems = rawItems.filter(item => {
-          const normItemHq = (item.hq || '').replace(/[\s()본부]/g, '').toLowerCase();
+          const normItemHq = normOrg(item.hq);
           return normUserHqs.some(uh => normItemHq === uh || normItemHq.includes(uh) || uh.includes(normItemHq));
         });
+
+        if (selectedHq && selectedHq !== '전체') {
+          const normSelected = normOrg(selectedHq);
+          rawItems = rawItems.filter(item => {
+            const normItemHq = normOrg(item.hq);
+            return normItemHq === normSelected || normItemHq.includes(normSelected) || normSelected.includes(normItemHq);
+          });
+        }
 
         // 본부 계정에 맞게 클라이언트 단 요약 통계 재계산
         let totalCount = rawItems.length;
@@ -732,14 +745,18 @@ export const FirstPayUnpaidTab: React.FC<FirstPayUnpaidTabProps> = ({
               onChange={(e) => setSelectedHq(e.target.value)}
               disabled={isHQStaff && userHqNames.length <= 1}
               className={`w-full pl-7 pr-2.5 py-1.5 border rounded-lg text-xs font-semibold focus:outline-hidden ${
-                isHQStaff
+                isHQStaff && userHqNames.length <= 1
                   ? 'bg-amber-50/80 border-amber-300 text-amber-900 font-bold'
                   : 'bg-slate-50 border-slate-200 text-slate-700 focus:border-indigo-500'
               }`}
             >
-              {!isHQStaff && (
+              {(!isHQStaff || userHqNames.length > 1) && (
                 <option value="">
-                  {selectedDivision ? `소속 본부 (${availableHqs.length})` : `전체 본부 (${filterOptions.hqs.length})`}
+                  {isHQStaff 
+                    ? `담당 본부 전체 (${availableHqs.length}개)` 
+                    : selectedDivision 
+                      ? `소속 본부 (${availableHqs.length})` 
+                      : `전체 본부 (${filterOptions.hqs.length})`}
                 </option>
               )}
               {availableHqs.map((h) => (
