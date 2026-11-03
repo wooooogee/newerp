@@ -1481,6 +1481,10 @@ export const ExcelCopyTab: React.FC = () => {
                                   handleCellClick(r, c, strVal);
                                 }
                               }}
+                              onContextMenu={e => {
+                                e.preventDefault();
+                                handleFilterByCellValue(c, strVal);
+                              }}
                               onCopy={e => {
                                 const pureText = strVal.replace(/[\r\n\t]/g, ' ').trim();
                                 e.clipboardData.setData('text/plain', pureText);
@@ -1491,7 +1495,7 @@ export const ExcelCopyTab: React.FC = () => {
                                 });
                                 setTimeout(() => setToastMessage(null), 1800);
                               }}
-                              className={`px-2.5 py-1.5 border border-slate-200 font-mono text-xs max-w-[240px] truncate cursor-pointer transition-all relative group/cell select-text ${
+                              className={`px-3 py-1.5 border border-slate-200 font-mono text-xs max-w-[240px] truncate cursor-pointer transition-all select-text ${
                                 isEditing
                                   ? 'p-0 bg-white ring-2 ring-indigo-500'
                                   : isSearchMatch
@@ -1500,51 +1504,25 @@ export const ExcelCopyTab: React.FC = () => {
                                   ? 'bg-indigo-50/40 border-indigo-200 text-indigo-950 font-bold'
                                   : 'hover:bg-slate-100 text-slate-800'
                               }`}
-                              title={`[${coord}] ${strVal || '(빈 셀)'}\n• 클릭: 원클릭 복사\n• 호버 깔때기: 이 값으로 필터\n• 더블클릭: 편집`}
+                              title={`[${coord}] ${strVal || '(빈 셀)'}\n• 클릭: 원클릭 복사\n• 우클릭: 이 값으로 열 필터링\n• 더블클릭: 편집`}
                             >
                               {isEditing ? (
-                                <div className="flex items-center">
-                                  <input
-                                    autoFocus
-                                    type="text"
-                                    value={editingCell.text}
-                                    onChange={e =>
-                                      setEditingCell({ ...editingCell, text: e.target.value })
-                                    }
-                                    onKeyDown={e => {
-                                      if (e.key === 'Enter') handleSaveCellEdit();
-                                      if (e.key === 'Escape') setEditingCell(null);
-                                    }}
-                                    onBlur={handleSaveCellEdit}
-                                    className="w-full px-2 py-1 text-xs font-mono font-bold bg-white focus:outline-none"
-                                  />
-                                </div>
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  value={editingCell.text}
+                                  onChange={e =>
+                                    setEditingCell({ ...editingCell, text: e.target.value })
+                                  }
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') handleSaveCellEdit();
+                                    if (e.key === 'Escape') setEditingCell(null);
+                                  }}
+                                  onBlur={handleSaveCellEdit}
+                                  className="w-full px-2 py-1 text-xs font-mono font-bold bg-white focus:outline-none"
+                                />
                               ) : (
-                                <div className="flex items-center justify-between gap-1 select-text">
-                                  <span className="truncate select-text">{strVal}</span>
-
-                                  {/* 호버 시 동작 버튼들: select-none 처리로 드래그 선택 시 절대 잡히지 않음 */}
-                                  <div
-                                    aria-hidden="true"
-                                    className="opacity-0 group-hover/cell:opacity-100 transition-opacity flex items-center gap-1 shrink-0 select-none pointer-events-auto"
-                                  >
-                                    <button
-                                      type="button"
-                                      tabIndex={-1}
-                                      onClick={e => {
-                                        e.stopPropagation();
-                                        handleFilterByCellValue(c, strVal);
-                                      }}
-                                      className="p-1 hover:bg-amber-100 text-amber-700 rounded transition-colors select-none"
-                                      title={`이 값 ("${strVal}")으로 ${colIndexToLetter(c)}열 필터링`}
-                                    >
-                                      <Filter size={11} className="pointer-events-none select-none" />
-                                    </button>
-                                    <span className="text-indigo-500 select-none pointer-events-none">
-                                      <Copy size={11} />
-                                    </span>
-                                  </div>
-                                </div>
+                                <span className="truncate select-text block">{strVal}</span>
                               )}
                             </td>
                           );
