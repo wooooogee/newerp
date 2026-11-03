@@ -23,6 +23,7 @@ import { BranchNoteModal } from './BranchNoteModal';
 import { IndividualSalesMobileView } from './IndividualSalesMobileView';
 import { CeoDashboardMobileView } from './CeoDashboardMobileView';
 import { AdvancedSearchModal } from './AdvancedSearchModal';
+import { BatchContractLookupModal } from './BatchContractLookupModal';
 import { CommissionNotesModal } from './CommissionNotesModal';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { VocManagementModal } from './VocManagementModal';
@@ -1159,6 +1160,9 @@ const ERP_Dashboard = () => {
 
   // 조건별 통합 검색 모달 상태
   const [isAdvancedSearchModalOpen, setIsAdvancedSearchModalOpen] = useState(false);
+
+  // 계약/렌탈번호 일괄 조회 모달 상태
+  const [isBatchLookupModalOpen, setIsBatchLookupModalOpen] = useState(false);
 
   // 유지수수료 내역 및 관리 모달 상태
   const [mHistoryHqFilter, setMHistoryHqFilter] = useState('전체');
@@ -8937,6 +8941,14 @@ const ERP_Dashboard = () => {
                 >
                   <Filter size={13} className="text-blue-400" />
                   <span className="hidden sm:inline">조건별 검색</span>
+                </button>
+                <button
+                  onClick={() => setIsBatchLookupModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md transition-all cursor-pointer shrink-0"
+                  title="계약번호 또는 렌탈번호를 여러 줄 붙여넣어 13개 핵심 관리대장 정보를 한 줄에 일괄 조회합니다"
+                >
+                  <Search size={13} className="text-emerald-200" />
+                  <span className="hidden sm:inline">계약·렌탈 일괄조회</span>
                 </button>
                 {isAdmin && (
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -18143,6 +18155,13 @@ const ERP_Dashboard = () => {
           onClose={() => setIsAdvancedSearchModalOpen(false)}
           data={data}
           allHqs={uniqueHqs.filter(h => h !== '전체')}
+        />
+
+        <BatchContractLookupModal
+          isOpen={isBatchLookupModalOpen}
+          onClose={() => setIsBatchLookupModalOpen(false)}
+          data={data}
+          headers={headers}
         />
 </div>
     </div>
