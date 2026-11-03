@@ -1487,30 +1487,30 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         </div>
 
         {/* 상단 탭 전환 바 */}
-        <div className="flex border-b border-slate-200 bg-slate-100/70 px-6 pt-2 shrink-0 gap-2">
+        <div className="flex border-b border-slate-200 bg-slate-100/70 px-6 pt-2 shrink-0 gap-2 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('SYNC')}
-            className={`py-2 px-3.5 text-xs font-black border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`py-2 px-3.5 text-xs font-black border-b-2 transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'SYNC'
                 ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-xl shadow-2xs'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             <FileSpreadsheet size={14} />
-            <span>전산 엑셀 관리대장 동기화 (원장·배송·사원·수기·헬스케어·리치웰페어)</span>
+            <span>전산 엑셀 업로드</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('ENEX')}
-            className={`py-2 px-3.5 text-xs font-black border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`py-2 px-3.5 text-xs font-black border-b-2 transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'ENEX'
                 ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-xl shadow-2xs'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             <Calculator size={14} />
-            <span>에넥스 수수료 정산 대사 & 지급완료</span>
+            <span>에넥스 수수료 대사</span>
             <span className="px-1.5 py-0.2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-black rounded-full shadow-2xs">
               NEW
             </span>
@@ -1518,14 +1518,14 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('COPY')}
-            className={`py-2 px-3.5 text-xs font-black border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`py-2 px-3.5 text-xs font-black border-b-2 transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'COPY'
                 ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-xl shadow-2xs'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             <Copy size={14} />
-            <span>엑셀복사</span>
+            <span>엑셀내용 복사기능</span>
             <span className="px-1.5 py-0.2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[10px] font-black rounded-full shadow-2xs">
               원클릭
             </span>
