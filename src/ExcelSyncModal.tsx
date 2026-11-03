@@ -24,9 +24,11 @@ import {
   Activity,
   Receipt,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Copy
 } from 'lucide-react';
 import { EnexReconciliationTab } from './components/EnexReconciliationTab';
+import { ExcelCopyTab } from './components/ExcelCopyTab';
 
 interface ExcelSyncModalProps {
   isOpen: boolean;
@@ -62,7 +64,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
   data = [],
   hqSettings = []
 }) => {
-  const [activeTab, setActiveTab] = useState<'SYNC' | 'ENEX'>('SYNC');
+  const [activeTab, setActiveTab] = useState<'SYNC' | 'ENEX' | 'COPY'>('SYNC');
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [contractRows, setContractRows] = useState<any[][] | null>(null);
@@ -1452,7 +1454,7 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
         className={`relative bg-white flex flex-col border border-slate-100 z-10 transition-all duration-200 ${
           isFullscreen
             ? 'fixed inset-0 w-screen h-screen max-w-none max-h-none rounded-none shadow-none'
-            : activeTab === 'ENEX'
+            : (activeTab === 'ENEX' || activeTab === 'COPY')
               ? 'w-[98vw] max-w-[1880px] h-[95vh] max-h-[95vh] rounded-3xl shadow-2xl'
               : 'w-full max-w-4xl max-h-[92vh] rounded-3xl shadow-2xl'
         }`}
@@ -1511,6 +1513,21 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
             <span>에넥스 수수료 정산 대사 & 지급완료</span>
             <span className="px-1.5 py-0.2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-black rounded-full shadow-2xs">
               NEW
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('COPY')}
+            className={`py-2 px-3.5 text-xs font-black border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'COPY'
+                ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-xl shadow-2xs'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Copy size={14} />
+            <span>엑셀복사</span>
+            <span className="px-1.5 py-0.2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[10px] font-black rounded-full shadow-2xs">
+              원클릭
             </span>
           </button>
         </div>
@@ -2306,9 +2323,13 @@ export const ExcelSyncModal: React.FC<ExcelSyncModalProps> = ({
           </div>
         </div>
           </>
-        ) : (
+        ) : activeTab === 'ENEX' ? (
           <div className="flex-1 overflow-y-auto p-5">
             <EnexReconciliationTab erpData={data} currentUser={currentUser} hqSettings={hqSettings} />
+          </div>
+        ) : (
+          <div className="flex-1 overflow-hidden p-5 flex flex-col min-h-0 bg-slate-50/50">
+            <ExcelCopyTab />
           </div>
         )}
 
