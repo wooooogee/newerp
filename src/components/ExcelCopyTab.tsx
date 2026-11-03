@@ -24,14 +24,19 @@ import {
   Sparkles,
   HelpCircle,
   Filter,
+  FilterX,
   ArrowRight,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   Maximize2,
   Crosshair,
   ExternalLink,
   Sliders,
   CheckSquare,
   Square,
-  X
+  X,
+  ChevronDown
 } from 'lucide-react';
 
 // 열 인덱스 (0-based) -> 열 문자 (A, B, ... Z, AA, AB ...)
@@ -93,6 +98,21 @@ export interface PresetTemplate {
   }>;
 }
 
+// 열별 필터 규칙
+export interface ColumnFilterRule {
+  textQuery: string;               // 텍스트 포함 검색
+  selectedValues?: string[];       // 특정 고유값들만 선택된 경우
+}
+
+export type ColumnFiltersState = {
+  [colIndex: number]: ColumnFilterRule;
+};
+
+export interface ColumnSortState {
+  colIndex: number;
+  direction: 'asc' | 'desc';
+}
+
 const PRESET_STORAGE_KEY = 'erp_excel_copy_presets_v1';
 
 export const ExcelCopyTab: React.FC = () => {
@@ -130,6 +150,19 @@ export const ExcelCopyTab: React.FC = () => {
   // 복사 토스트 알림
   const [toastMessage, setToastMessage] = useState<{ title: string; value: string } | null>(null);
 
+  // =================== 필터 및 정렬 상태 ===================
+  // 열별 필터 조건 { [colIndex]: { textQuery, selectedValues } }
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>({});
+
+  // 열별 정렬 상태
+  const [sortState, setSortState] = useState<ColumnSortState | null>(null);
+
+  // 열 필터 드롭다운 팝오버 열림 상태 (어느 열이 열렸는지)
+  const [activeFilterCol, setActiveFilterCol] = useState<number | null>(null);
+
+  // 열 하단 인라인 빠른 필터 입력행 표시 여부
+  const [showQuickFilterRow, setShowQuickFilterRow] = useState<boolean>(true);
+
   // 프리셋 모달 상태
   const [isPresetModalOpen, setIsPresetModalOpen] = useState<boolean>(false);
   const [presetNameInput, setPresetNameInput] = useState<string>('');
@@ -158,6 +191,22 @@ export const ExcelCopyTab: React.FC = () => {
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const filterPopoverRef = useRef<HTMLDivElement>(null);
+
+  // 외부 클릭 시 열 필터 팝오버 닫기
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (filterPopoverRef.current && !filterPopoverRef.current.contains(e.target as Node)) {
+        setActiveFilterCol(null);
+      }
+    };
+    if (activeFilterCol !== null) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [activeFilterCol]);
 
   // 프리셋 저장
   const savePresetsToStorage = (newPresets: PresetTemplate[]) => {
@@ -174,6 +223,8 @@ export const ExcelCopyTab: React.FC = () => {
     setIsLoading(true);
     setFileName(file.name);
     setFileSize(file.size);
+    setColumnFilters({});
+    setSortState(null);
 
     try {
       const XLSX = (window as any).XLSX;
@@ -184,14 +235,12 @@ export const ExcelCopyTab: React.FC = () => {
       }
 
       const buffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
 
       // 워크북 읽기
       let workbook: any = null;
       try {
         workbook = XLSX.read(buffer, { type: 'array', cellDates: true, codepage: 949, raw: false, cellText: false });
       } catch (err) {
-        // UTF-8 텍스트 재시도
         try {
           const text = new TextDecoder('utf-8').decode(buffer);
           workbook = XLSX.read(text, { type: 'string', cellDates: true, raw: false, cellText: false });
@@ -246,7 +295,7 @@ export const ExcelCopyTab: React.FC = () => {
           }
         }
 
-        // 만약 헤더가 없거나 모두 비어있으면 1~5개 기본 열 생성
+        // 헤더가 없거나 모두 비어있으면 1~5개 기본 열 생성
         if (detectedFields.length === 0) {
           for (let c = 0; c < Math.min(colCount || 5, 8); c++) {
             const letter = colIndexToLetter(c);
@@ -306,18 +355,177 @@ export const ExcelCopyTab: React.FC = () => {
     });
   }, []);
 
+  // 총 행 수
+  const totalRowCount = sheetData.length;
+  // 데이터 시작 행 (0행이 헤더이면 1, 0행뿐이면 0)
+  const dataStartRow = totalRowCount > 1 ? 1 : 0;
+  const totalDataRows = Math.max(0, totalRowCount - dataStartRow);
+
+  // 최대 열 수 계산
+  const maxColCount = useMemo(() => {
+    let max = 0;
+    const checkLimit = Math.min(sheetData.length, 100);
+    for (let i = 0; i < checkLimit; i++) {
+      if (sheetData[i]?.length > max) max = sheetData[i].length;
+    }
+    return Math.max(max, 10);
+  }, [sheetData]);
+
+  // =================== 필터 및 정렬 계산 로직 ===================
+  // 필터가 적용된 유효 행 인덱스 목록
+  const filteredRowIndices = useMemo(() => {
+    if (!sheetData || sheetData.length === 0) return [];
+    const indices: number[] = [];
+
+    // 활성화된 필터 목록 추출
+    const activeFilters = (Object.entries(columnFilters) as [string, ColumnFilterRule][]).filter(([_, rule]) => {
+      if (!rule) return false;
+      const hasQuery = Boolean(rule.textQuery && rule.textQuery.trim() !== '');
+      const hasSelected = Boolean(rule.selectedValues && rule.selectedValues.length > 0);
+      return hasQuery || hasSelected;
+    });
+
+    for (let r = dataStartRow; r < sheetData.length; r++) {
+      const row = sheetData[r] || [];
+      let isMatch = true;
+
+      for (const [colStr, rule] of activeFilters) {
+        const c = parseInt(colStr, 10);
+        const cellRaw = row[c];
+        const cellVal = String(cellRaw ?? '').trim();
+        const displayVal = cellVal === '' ? '(빈 셀)' : cellVal;
+
+        // 1. 텍스트 검색어 필터
+        if (rule.textQuery && rule.textQuery.trim() !== '') {
+          const q = rule.textQuery.trim().toLowerCase();
+          if (!cellVal.toLowerCase().includes(q)) {
+            isMatch = false;
+            break;
+          }
+        }
+
+        // 2. 고유값 선택 필터
+        if (rule.selectedValues && rule.selectedValues.length > 0) {
+          if (!rule.selectedValues.includes(displayVal)) {
+            isMatch = false;
+            break;
+          }
+        }
+      }
+
+      if (isMatch) {
+        indices.push(r);
+      }
+    }
+
+    // 정렬 수행
+    if (sortState) {
+      const { colIndex, direction } = sortState;
+      indices.sort((a, b) => {
+        const valA = String(sheetData[a]?.[colIndex] ?? '').trim();
+        const valB = String(sheetData[b]?.[colIndex] ?? '').trim();
+
+        const numA = parseFloat(valA.replace(/,/g, ''));
+        const numB = parseFloat(valB.replace(/,/g, ''));
+        if (!isNaN(numA) && !isNaN(numB) && !isNaN(Number(valA)) && !isNaN(Number(valB))) {
+          return direction === 'asc' ? numA - numB : numB - numA;
+        }
+
+        return direction === 'asc' ? valA.localeCompare(valB, 'ko') : valB.localeCompare(valA, 'ko');
+      });
+    }
+
+    return indices;
+  }, [sheetData, columnFilters, sortState, dataStartRow]);
+
+  // 활성 필터 개수
+  const activeFilterCount = useMemo(() => {
+    return (Object.values(columnFilters) as ColumnFilterRule[]).filter(r => {
+      if (!r) return false;
+      return (r.textQuery && r.textQuery.trim() !== '') || (r.selectedValues && r.selectedValues.length > 0);
+    }).length;
+  }, [columnFilters]);
+
+  // 현재 필터된 행 목록 안에서 activeRowIndex의 위치
+  const currentFilteredPosition = useMemo(() => {
+    const idx = filteredRowIndices.indexOf(activeRowIndex);
+    return idx >= 0 ? idx : 0;
+  }, [filteredRowIndices, activeRowIndex]);
+
+  // 필터가 변경되어 현재 activeRowIndex가 필터 결과에 없으면 필터의 첫 행으로 자동 이동
+  useEffect(() => {
+    if (filteredRowIndices.length > 0 && !filteredRowIndices.includes(activeRowIndex)) {
+      setActiveRowIndex(filteredRowIndices[0]);
+    }
+  }, [filteredRowIndices, activeRowIndex]);
+
+  // 특정 열의 고유값 목록 (카운트 포함) 추출
+  const getColumnUniqueValues = useCallback((colIndex: number) => {
+    const map = new Map<string, number>();
+    for (let r = dataStartRow; r < sheetData.length; r++) {
+      const val = String(sheetData[r]?.[colIndex] ?? '').trim();
+      const displayVal = val === '' ? '(빈 셀)' : val;
+      map.set(displayVal, (map.get(displayVal) || 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [sheetData, dataStartRow]);
+
+  // 셀 값으로 즉시 필터 걸기 (원클릭 필터)
+  const handleFilterByCellValue = (colIndex: number, cellVal: string) => {
+    const displayVal = cellVal.trim() === '' ? '(빈 셀)' : cellVal.trim();
+    setColumnFilters(prev => ({
+      ...prev,
+      [colIndex]: {
+        textQuery: '',
+        selectedValues: [displayVal]
+      }
+    }));
+    setToastMessage({
+      title: '셀 값으로 필터 적용',
+      value: `${colIndexToLetter(colIndex)}열 = "${displayVal}"`
+    });
+  };
+
+  // 특정 열 필터 해제
+  const handleClearColumnFilter = (colIndex: number) => {
+    setColumnFilters(prev => {
+      const next = { ...prev };
+      delete next[colIndex];
+      return next;
+    });
+  };
+
+  // 모든 필터 및 정렬 초기화
+  const handleClearAllFilters = () => {
+    setColumnFilters({});
+    setSortState(null);
+    setToastMessage({
+      title: '필터 초기화',
+      value: '모든 열 필터가 해제되었습니다.'
+    });
+  };
+
+  // 정렬 토글 (asc -> desc -> none)
+  const handleToggleSort = (colIndex: number) => {
+    if (!sortState || sortState.colIndex !== colIndex) {
+      setSortState({ colIndex, direction: 'asc' });
+    } else if (sortState.direction === 'asc') {
+      setSortState({ colIndex, direction: 'desc' });
+    } else {
+      setSortState(null);
+    }
+  };
+
   // 특정 필드의 현재 행 또는 지정 셀 값 계산
   const getFieldValue = useCallback((field: CopyFieldItem, rowIndex: number): string => {
     if (!sheetData || sheetData.length === 0) return '';
 
     if (field.posType === 'column') {
-      // 열 기준: 현재 활성 행의 특정 열 값
       const row = sheetData[rowIndex];
       if (!row) return '';
       const c = field.colIndex ?? letterToColIndex(field.colLetter);
       return String(row[c] ?? '').trim();
     } else {
-      // 고정 셀 좌표 기준: 예: 'A1', 'B5'
       const parsed = parseCellCoord(field.cellCoord);
       if (!parsed) return '';
       const row = sheetData[parsed.r];
@@ -326,7 +534,7 @@ export const ExcelCopyTab: React.FC = () => {
     }
   }, [sheetData]);
 
-  // 셀 위치 수정 핸들러 (열 문자 또는 고정 셀 좌표 입력)
+  // 셀 위치 수정 핸들러
   const handleUpdateFieldPosition = (fieldId: string, newPositionStr: string) => {
     const raw = newPositionStr.trim().toUpperCase();
 
@@ -334,7 +542,6 @@ export const ExcelCopyTab: React.FC = () => {
       prev.map(f => {
         if (f.id !== fieldId) return f;
 
-        // 고정 셀 좌표인지 (예: 'B3', 'A10') 확인
         const cellCoordMatch = raw.match(/^([A-Z]+)([0-9]+)$/);
         if (cellCoordMatch) {
           const colL = cellCoordMatch[1];
@@ -348,7 +555,6 @@ export const ExcelCopyTab: React.FC = () => {
           };
         }
 
-        // 단순 열 문자 (예: 'A', 'B', 'C', 'A열')
         const colOnlyMatch = raw.replace(/[^A-Z]/g, '');
         if (colOnlyMatch) {
           const colIdx = letterToColIndex(colOnlyMatch);
@@ -430,7 +636,6 @@ export const ExcelCopyTab: React.FC = () => {
 
     setWorkbookSheets(prev => {
       const current = prev[currentSheetName] ? [...prev[currentSheetName]] : [];
-      // 행 확장 필요 시
       while (current.length <= r) {
         current.push([]);
       }
@@ -450,21 +655,11 @@ export const ExcelCopyTab: React.FC = () => {
     copyToClipboard(text, `[수정 및 복사] ${formatCellCoord(r, c)}: ${text}`);
   };
 
-  // 행 전체 탭(\t) 구분 일괄 복사 (엑셀/테이블 등에 통째로 붙여넣기 편리)
+  // 행 전체 탭(\t) 구분 일괄 복사
   const handleCopyAllTabSeparated = () => {
     const values = fields.map(f => getFieldValue(f, activeRowIndex));
     const tabJoined = values.join('\t');
     copyToClipboard(tabJoined, `[행 ${activeRowIndex + 1} 전체 복사] (탭 구분)`);
-  };
-
-  // 행 전체 쉼표(CSV) 일괄 복사
-  const handleCopyAllCommaSeparated = () => {
-    const values = fields.map(f => {
-      const val = getFieldValue(f, activeRowIndex);
-      return val.includes(',') ? `"${val}"` : val;
-    });
-    const commaJoined = values.join(', ');
-    copyToClipboard(commaJoined, `[행 ${activeRowIndex + 1} 전체 복사] (쉼표 구분)`);
   };
 
   // 프리셋 불러오기
@@ -504,22 +699,32 @@ export const ExcelCopyTab: React.FC = () => {
     alert(`'${newPreset.name}' 서식이 저장되었습니다.`);
   };
 
-  // 행 수 계산
-  const totalRowCount = sheetData.length;
-  // 최대 열 수 계산
-  const maxColCount = useMemo(() => {
-    let max = 0;
-    const checkLimit = Math.min(sheetData.length, 100);
-    for (let i = 0; i < checkLimit; i++) {
-      if (sheetData[i]?.length > max) max = sheetData[i].length;
+  // 행 네비게이터: 이전 행 이동
+  const handlePrevRow = () => {
+    if (filteredRowIndices.length === 0) return;
+    const currentIdx = filteredRowIndices.indexOf(activeRowIndex);
+    if (currentIdx > 0) {
+      setActiveRowIndex(filteredRowIndices[currentIdx - 1]);
+    } else {
+      setActiveRowIndex(filteredRowIndices[0]);
     }
-    return Math.max(max, 10);
-  }, [sheetData]);
+  };
+
+  // 행 네비게이터: 다음 행 이동
+  const handleNextRow = () => {
+    if (filteredRowIndices.length === 0) return;
+    const currentIdx = filteredRowIndices.indexOf(activeRowIndex);
+    if (currentIdx >= 0 && currentIdx < filteredRowIndices.length - 1) {
+      setActiveRowIndex(filteredRowIndices[currentIdx + 1]);
+    } else {
+      setActiveRowIndex(filteredRowIndices[filteredRowIndices.length - 1]);
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full space-y-4">
+    <div className="flex flex-col h-full space-y-3">
       {/* 1. 상단 컨트롤 및 파일 업로드 헤더 바 */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs flex flex-wrap items-center justify-between gap-3 shrink-0">
+      <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-3">
           <input
             type="file"
@@ -555,7 +760,7 @@ export const ExcelCopyTab: React.FC = () => {
             </div>
           )}
 
-          {/* 시트 전환 탭 (시트가 2개 이상일 때) */}
+          {/* 시트 전환 탭 */}
           {sheetNames.length > 1 && (
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
               <span className="text-[11px] font-bold text-slate-500 px-1.5">시트:</span>
@@ -563,7 +768,11 @@ export const ExcelCopyTab: React.FC = () => {
                 <button
                   key={name}
                   type="button"
-                  onClick={() => setCurrentSheetName(name)}
+                  onClick={() => {
+                    setCurrentSheetName(name);
+                    setColumnFilters({});
+                    setSortState(null);
+                  }}
                   className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                     currentSheetName === name
                       ? 'bg-white text-indigo-700 shadow-2xs'
@@ -577,8 +786,23 @@ export const ExcelCopyTab: React.FC = () => {
           )}
         </div>
 
-        {/* 우측 레이아웃 변경 & 프리셋 버튼 */}
+        {/* 우측 도구 모음 */}
         <div className="flex items-center gap-2">
+          {/* 빠른 필터 행 토글 버튼 */}
+          <button
+            type="button"
+            onClick={() => setShowQuickFilterRow(prev => !prev)}
+            className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border shadow-2xs ${
+              showQuickFilterRow
+                ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+            title="테이블 헤더 하단에 각 열별 인라인 검색 필터 입력창 토글"
+          >
+            <Filter size={13} className={showQuickFilterRow ? 'text-indigo-600' : 'text-slate-400'} />
+            <span>열별 필터 입력줄 {showQuickFilterRow ? 'ON' : 'OFF'}</span>
+          </button>
+
           {/* 프리셋 버튼 */}
           <button
             type="button"
@@ -629,6 +853,32 @@ export const ExcelCopyTab: React.FC = () => {
         </div>
       </div>
 
+      {/* 활성 필터 알림 및 초기화 바 */}
+      {activeFilterCount > 0 && (
+        <div className="p-2.5 px-4 bg-gradient-to-r from-amber-50 to-indigo-50 border border-amber-200/80 rounded-2xl flex items-center justify-between gap-3 text-xs shrink-0 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <span className="p-1 bg-amber-500 text-white rounded-lg">
+              <Filter size={13} />
+            </span>
+            <span className="font-bold text-slate-800">
+              필터 적용 중: <strong className="text-indigo-700 font-black">{activeFilterCount}개 열</strong>에 필터가 걸려 있습니다.
+            </span>
+            <span className="px-2 py-0.5 bg-white border border-indigo-200 text-indigo-800 text-[11px] font-black rounded-lg">
+              {filteredRowIndices.length.toLocaleString()}건 표시 / 전체 {totalDataRows.toLocaleString()}건
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleClearAllFilters}
+            className="py-1 px-3 bg-white hover:bg-rose-50 text-rose-600 hover:text-rose-700 border border-rose-200 rounded-xl text-xs font-black transition-all flex items-center gap-1 cursor-pointer shadow-2xs"
+          >
+            <FilterX size={12} />
+            <span>모든 필터 초기화</span>
+          </button>
+        </div>
+      )}
+
       {/* 파일이 없을 때의 가이드 안내 카드 */}
       {!fileName && (
         <div className="flex-1 flex flex-col items-center justify-center p-12 bg-white rounded-3xl border-2 border-dashed border-slate-200 text-center space-y-4">
@@ -642,7 +892,7 @@ export const ExcelCopyTab: React.FC = () => {
             <p className="text-xs text-slate-500 leading-relaxed">
               정산서, 발주서, 회원목록 등 어떤 엑셀이든 업로드하면 항목별 값을{' '}
               <strong className="text-indigo-600 font-bold">단 한 번의 클릭</strong>으로 복사할 수 있는 편리한 작업 패널이 생성됩니다.
-              셀 위치(A1, B2...)를 자유롭게 수정하여 원하는 위치의 값을 손쉽게 복사하세요.
+              열마다/셀마다 필터를 걸어 원하는 행만 쏙 골라내어 복사하세요.
             </p>
           </div>
           <button
@@ -656,6 +906,8 @@ export const ExcelCopyTab: React.FC = () => {
           <div className="flex items-center gap-4 text-[11px] text-slate-400 font-medium">
             <span>✨ 모든 셀 클릭 즉시 복사</span>
             <span>·</span>
+            <span>🔍 각 열별·셀별 즉시 필터링</span>
+            <span>·</span>
             <span>🎯 셀 위치(A1, B2) 실시간 수정</span>
             <span>·</span>
             <span>📑 행(Row) 탐색 및 한 줄 전체 복사</span>
@@ -663,9 +915,9 @@ export const ExcelCopyTab: React.FC = () => {
         </div>
       )}
 
-      {/* 파일이 있을 때의 본체 컨텐츠 (분할 레이아웃 or 단독 레이아웃) */}
+      {/* 파일이 있을 때의 본체 컨텐츠 */}
       {fileName && (
-        <div className="flex-1 flex flex-col md:flex-row gap-4 min-h-0 overflow-hidden">
+        <div className="flex-1 flex flex-col md:flex-row gap-3 min-h-0 overflow-hidden">
           {/* ======================= 좌측/상단: 원클릭 복사 카드 보드 ======================= */}
           {(layoutMode === 'split' || layoutMode === 'cards') && (
             <div
@@ -674,14 +926,14 @@ export const ExcelCopyTab: React.FC = () => {
               }`}
             >
               {/* 카드 패널 상단: 행 네비게이터 & 일괄 복사 버튼 */}
-              <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
                 {/* 행 네비게이터 */}
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-black text-slate-700 mr-1">현재 작업 행:</span>
                   <button
                     type="button"
-                    onClick={() => setActiveRowIndex(prev => Math.max(0, prev - 1))}
-                    disabled={activeRowIndex <= 0}
+                    onClick={handlePrevRow}
+                    disabled={filteredRowIndices.length === 0 || currentFilteredPosition <= 0}
                     className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 disabled:opacity-30 cursor-pointer shadow-2xs transition-colors"
                     title="이전 행 (Alt + ←)"
                   >
@@ -703,13 +955,19 @@ export const ExcelCopyTab: React.FC = () => {
                       }}
                       className="w-12 text-center text-xs font-black text-indigo-700 focus:outline-none"
                     />
-                    <span className="text-[11px] font-bold text-slate-400">/ {totalRowCount}</span>
+                    <span className="text-[11px] font-bold text-slate-400">
+                      / {filteredRowIndices.length.toLocaleString()}건
+                      {activeFilterCount > 0 && ` (필터됨)`}
+                    </span>
                   </div>
 
                   <button
                     type="button"
-                    onClick={() => setActiveRowIndex(prev => Math.min(totalRowCount - 1, prev + 1))}
-                    disabled={activeRowIndex >= totalRowCount - 1}
+                    onClick={handleNextRow}
+                    disabled={
+                      filteredRowIndices.length === 0 ||
+                      currentFilteredPosition >= filteredRowIndices.length - 1
+                    }
                     className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 disabled:opacity-30 cursor-pointer shadow-2xs transition-colors"
                     title="다음 행 (Alt + →)"
                   >
@@ -760,7 +1018,7 @@ export const ExcelCopyTab: React.FC = () => {
               )}
 
               {/* 복사 카드 목록 스크롤 영역 */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-2.5">
                 {fields.length === 0 ? (
                   <div className="py-12 text-center text-slate-400 space-y-2">
                     <HelpCircle size={28} className="mx-auto text-slate-300" />
@@ -777,10 +1035,6 @@ export const ExcelCopyTab: React.FC = () => {
                   fields.map((field, idx) => {
                     const cellVal = getFieldValue(field, activeRowIndex);
                     const isTargetPicking = pickingTargetId === field.id;
-                    const positionLabel =
-                      field.posType === 'column'
-                        ? `${field.colLetter}열 (A${activeRowIndex + 1})`
-                        : field.cellCoord;
 
                     return (
                       <div
@@ -799,7 +1053,6 @@ export const ExcelCopyTab: React.FC = () => {
                             <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-black flex items-center justify-center shrink-0">
                               {idx + 1}
                             </span>
-                            {/* 필드 이름 인라인 수정 */}
                             <input
                               type="text"
                               value={field.name}
@@ -852,7 +1105,6 @@ export const ExcelCopyTab: React.FC = () => {
 
                         {/* 값 영역 및 원클릭 복사 버튼 */}
                         <div className="flex items-center gap-2">
-                          {/* 복사 대상 텍스트 박스 */}
                           <div
                             onClick={() => copyToClipboard(cellVal, field.name, field.id)}
                             className={`flex-1 px-3 py-2 rounded-lg border text-xs font-mono font-medium truncate cursor-pointer transition-all flex items-center justify-between ${
@@ -870,7 +1122,6 @@ export const ExcelCopyTab: React.FC = () => {
                             </span>
                           </div>
 
-                          {/* 원클릭 복사 버튼 */}
                           <button
                             type="button"
                             onClick={() => copyToClipboard(cellVal, field.name, field.id)}
@@ -907,33 +1158,36 @@ export const ExcelCopyTab: React.FC = () => {
             </div>
           )}
 
-          {/* ======================= 우측/하단: 전체 시트 스프레드시트 뷰어 ======================= */}
+          {/* ======================= 우측/하단: 전체 시트 스프레드시트 뷰어 (필터 탑재) ======================= */}
           {(layoutMode === 'split' || layoutMode === 'grid') && (
-            <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden min-w-0">
+            <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden min-w-0 relative">
               {/* 시트 툴바 */}
-              <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="p-2.5 px-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1.5">
                     <Table size={15} className="text-indigo-600" />
                     <span className="text-xs font-black text-slate-800">
-                      엑셀 시트 뷰어 ({currentSheetName})
+                      시트: {currentSheetName}
                     </span>
                   </div>
                   <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-black rounded-full">
-                    모든 셀 원클릭 복사
+                    셀 클릭: 원클릭 복사
+                  </span>
+                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-full">
+                    셀 호버: 즉시 필터
                   </span>
                 </div>
 
-                {/* 시트 내 검색 인풋 */}
+                {/* 시트 내 텍스트 전체 검색 */}
                 <div className="flex items-center gap-2">
                   <div className="relative">
                     <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="시트 내 셀 검색..."
+                      placeholder="셀 내용 실시간 검색..."
                       value={sheetSearch}
                       onChange={e => setSheetSearch(e.target.value)}
-                      className="pl-7 pr-3 py-1 bg-white border border-slate-300 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 w-36 sm:w-48"
+                      className="pl-7 pr-3 py-1 bg-white border border-slate-300 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 w-36 sm:w-44"
                     />
                     {sheetSearch && (
                       <button
@@ -945,7 +1199,7 @@ export const ExcelCopyTab: React.FC = () => {
                       </button>
                     )}
                   </div>
-                  <span className="text-[11px] text-slate-400 hidden sm:inline">
+                  <span className="text-[11px] text-slate-400 hidden lg:inline">
                     더블클릭: 셀 편집
                   </span>
                 </div>
@@ -955,139 +1209,478 @@ export const ExcelCopyTab: React.FC = () => {
               <div className="flex-1 overflow-auto bg-slate-100/50 relative">
                 <table className="border-collapse table-auto text-xs bg-white min-w-full">
                   <thead>
-                    <tr className="bg-slate-100 text-slate-600 sticky top-0 z-10 shadow-2xs">
+                    {/* 1. 컬럼 헤더 행 (A, B, C... + 필터 버튼 + 정렬 버튼) */}
+                    <tr className="bg-slate-100 text-slate-700 sticky top-0 z-20 shadow-2xs border-b border-slate-300">
                       {/* 행 번호 컬럼 헤더 */}
-                      <th className="w-12 px-2 py-1.5 border border-slate-300 font-mono text-[11px] font-black bg-slate-200/80 text-center sticky left-0 z-20">
+                      <th className="w-12 px-2 py-2 border border-slate-300 font-mono text-[11px] font-black bg-slate-200/90 text-center sticky left-0 z-30">
                         #
                       </th>
+
                       {Array.from({ length: maxColCount }).map((_, c) => {
                         const letter = colIndexToLetter(c);
                         const isMapped = fields.some(
                           f => f.posType === 'column' && (f.colIndex === c || f.colLetter === letter)
                         );
+                        const filterRule = columnFilters[c];
+                        const isFiltered = Boolean(
+                          filterRule &&
+                          ((filterRule.textQuery && filterRule.textQuery.trim() !== '') ||
+                            (filterRule.selectedValues && filterRule.selectedValues.length > 0))
+                        );
+                        const isSorted = sortState && sortState.colIndex === c;
+                        const headerName = sheetData[0]?.[c] ? String(sheetData[0][c]) : '';
+
                         return (
                           <th
                             key={c}
-                            className={`px-3 py-1.5 border border-slate-300 font-mono text-[11px] font-bold text-center select-none ${
-                              isMapped ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-600'
+                            className={`px-2.5 py-1.5 border border-slate-300 select-none transition-colors relative ${
+                              isFiltered
+                                ? 'bg-amber-100/90 text-amber-950 font-black'
+                                : isMapped
+                                ? 'bg-indigo-100 text-indigo-900 font-bold'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                             }`}
                           >
-                            {letter}
+                            <div className="flex items-center justify-between gap-1.5 min-w-[90px]">
+                              {/* 열 문자 및 헤더명 */}
+                              <div
+                                onClick={() => handleToggleSort(c)}
+                                className="flex items-center gap-1 cursor-pointer hover:text-indigo-600 truncate flex-1"
+                                title={`클릭하여 ${letter}열 정렬 (현재: ${isSorted ? (sortState.direction === 'asc' ? '오름차순' : '내림차순') : '기본'})`}
+                              >
+                                <span className="font-mono text-xs font-black">{letter}</span>
+                                {headerName && (
+                                  <span className="text-[11px] font-medium text-slate-500 truncate max-w-[80px]">
+                                    ({headerName})
+                                  </span>
+                                )}
+                                {isSorted && (
+                                  <span className="text-indigo-600 font-black shrink-0">
+                                    {sortState.direction === 'asc' ? '▲' : '▼'}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* 열 필터 버튼 (깔때기) */}
+                              <button
+                                type="button"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setActiveFilterCol(activeFilterCol === c ? null : c);
+                                }}
+                                className={`p-1 rounded-md transition-all cursor-pointer shrink-0 ${
+                                  isFiltered
+                                    ? 'bg-amber-500 text-white shadow-xs'
+                                    : 'text-slate-400 hover:text-slate-700 hover:bg-slate-300/60'
+                                }`}
+                                title={`${letter}열 필터 설정 (검색 및 고유값 선택)`}
+                              >
+                                <Filter size={12} />
+                              </button>
+                            </div>
                           </th>
                         );
                       })}
                     </tr>
-                  </thead>
-                  <tbody>
-                    {sheetData.slice(0, 300).map((row, r) => {
-                      const isActiveRow = r === activeRowIndex;
-                      return (
-                        <tr
-                          key={r}
-                          className={`hover:bg-indigo-50/30 transition-colors ${
-                            isActiveRow ? 'bg-indigo-50/70 font-semibold' : ''
-                          }`}
-                        >
-                          {/* 행 번호 헤더 */}
-                          <td
-                            onClick={() => setActiveRowIndex(r)}
-                            className={`w-12 px-2 py-1.5 border border-slate-300 font-mono text-[11px] text-center select-none cursor-pointer sticky left-0 z-10 ${
-                              isActiveRow
-                                ? 'bg-indigo-600 text-white font-black'
-                                : 'bg-slate-100/80 text-slate-500 hover:bg-slate-200'
-                            }`}
-                            title="이 행을 작업 행으로 선택"
-                          >
-                            {r + 1}
-                          </td>
 
-                          {/* 각 셀 데이터 */}
-                          {Array.from({ length: maxColCount }).map((_, c) => {
-                            const rawVal = row ? row[c] : '';
-                            const strVal = String(rawVal ?? '');
-                            const coord = formatCellCoord(r, c);
-
-                            // 현재 셀이 복사 필드에 매핑되어 있는지 확인
-                            const mappedField = fields.find(f => {
-                              if (f.posType === 'cell') {
-                                return f.cellCoord === coord;
-                              }
-                              return isActiveRow && (f.colIndex === c || f.colLetter === colIndexToLetter(c));
-                            });
-
-                            // 검색어 매칭 여부
-                            const isSearchMatch =
-                              sheetSearch.trim().length > 0 &&
-                              strVal.toLowerCase().includes(sheetSearch.trim().toLowerCase());
-
-                            // 현재 셀 편집 중인지
-                            const isEditing = editingCell?.r === r && editingCell?.c === c;
-
-                            return (
-                              <td
-                                key={c}
-                                onDoubleClick={e => {
-                                  e.stopPropagation();
-                                  setEditingCell({ r, c, text: strVal });
-                                }}
-                                onClick={() => {
-                                  if (!isEditing) {
-                                    handleCellClick(r, c, strVal);
-                                  }
-                                }}
-                                className={`px-2.5 py-1.5 border border-slate-200 font-mono text-xs max-w-[240px] truncate cursor-pointer transition-all relative group/cell ${
-                                  isEditing
-                                    ? 'p-0 bg-white ring-2 ring-indigo-500'
-                                    : isSearchMatch
-                                    ? 'bg-amber-100 font-black text-amber-900 ring-2 ring-amber-400'
-                                    : mappedField
-                                    ? 'bg-indigo-50/40 border-indigo-200 text-indigo-950 font-bold'
-                                    : 'hover:bg-slate-100 text-slate-800'
-                                }`}
-                                title={`[${coord}] ${strVal || '(빈 셀)'}\n클릭 시 복사 / 더블클릭 시 편집`}
-                              >
-                                {isEditing ? (
-                                  <div className="flex items-center">
-                                    <input
-                                      autoFocus
-                                      type="text"
-                                      value={editingCell.text}
-                                      onChange={e =>
-                                        setEditingCell({ ...editingCell, text: e.target.value })
+                    {/* 2. 빠른 인라인 필터 입력행 (showQuickFilterRow가 켜져 있을 때) */}
+                    {showQuickFilterRow && (
+                      <tr className="bg-slate-50 sticky top-[33px] z-20 shadow-2xs border-b-2 border-indigo-200">
+                        <th className="w-12 px-1 py-1 border border-slate-300 bg-slate-100 text-slate-400 font-mono text-[10px] text-center sticky left-0 z-30">
+                          필터
+                        </th>
+                        {Array.from({ length: maxColCount }).map((_, c) => {
+                          const currentVal = columnFilters[c]?.textQuery || '';
+                          return (
+                            <th key={c} className="p-1 border border-slate-300 bg-slate-50">
+                              <div className="relative flex items-center">
+                                <input
+                                  type="text"
+                                  placeholder="검색 필터..."
+                                  value={currentVal}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setColumnFilters(prev => ({
+                                      ...prev,
+                                      [c]: {
+                                        ...prev[c],
+                                        textQuery: val
                                       }
-                                      onKeyDown={e => {
-                                        if (e.key === 'Enter') handleSaveCellEdit();
-                                        if (e.key === 'Escape') setEditingCell(null);
-                                      }}
-                                      onBlur={handleSaveCellEdit}
-                                      className="w-full px-2 py-1 text-xs font-mono font-bold bg-white focus:outline-none"
-                                    />
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center justify-between gap-1">
-                                    <span className="truncate">{strVal}</span>
-
-                                    {/* 호버 시 복사 아이콘 */}
-                                    <span className="opacity-0 group-hover/cell:opacity-100 transition-opacity text-indigo-500 shrink-0">
-                                      <Copy size={11} />
-                                    </span>
-                                  </div>
+                                    }));
+                                  }}
+                                  className={`w-full px-1.5 py-0.5 text-[11px] font-mono rounded border transition-all focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                                    currentVal
+                                      ? 'bg-amber-50 border-amber-400 font-bold text-amber-900'
+                                      : 'bg-white border-slate-200 text-slate-700'
+                                  }`}
+                                />
+                                {currentVal && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleClearColumnFilter(c)}
+                                    className="absolute right-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                                    title="필터 지우기"
+                                  >
+                                    <X size={11} />
+                                  </button>
                                 )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
+                              </div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    )}
+                  </thead>
+
+                  <tbody>
+                    {/* 데이터 행 렌더링 (필터된 행만 표시) */}
+                    {filteredRowIndices.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={maxColCount + 1}
+                          className="py-16 text-center text-slate-400 space-y-2 bg-white"
+                        >
+                          <FilterX size={28} className="mx-auto text-slate-300" />
+                          <p className="text-xs font-bold text-slate-600">
+                            필터 조건과 일치하는 행이 없습니다.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleClearAllFilters}
+                            className="py-1.5 px-3 bg-indigo-600 text-white text-xs font-bold rounded-lg cursor-pointer"
+                          >
+                            모든 필터 초기화
+                          </button>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredRowIndices.slice(0, 300).map((r, rowOrderIdx) => {
+                        const row = sheetData[r];
+                        const isActiveRow = r === activeRowIndex;
+                        return (
+                          <tr
+                            key={r}
+                            className={`hover:bg-indigo-50/30 transition-colors ${
+                              isActiveRow ? 'bg-indigo-50/70 font-semibold' : ''
+                            }`}
+                          >
+                            {/* 행 번호 헤더 */}
+                            <td
+                              onClick={() => setActiveRowIndex(r)}
+                              className={`w-12 px-2 py-1.5 border border-slate-300 font-mono text-[11px] text-center select-none cursor-pointer sticky left-0 z-10 ${
+                                isActiveRow
+                                  ? 'bg-indigo-600 text-white font-black'
+                                  : 'bg-slate-100/80 text-slate-500 hover:bg-slate-200'
+                              }`}
+                              title="이 행을 작업 행으로 선택"
+                            >
+                              {r + 1}
+                            </td>
+
+                            {/* 각 셀 데이터 */}
+                            {Array.from({ length: maxColCount }).map((_, c) => {
+                              const rawVal = row ? row[c] : '';
+                              const strVal = String(rawVal ?? '');
+                              const coord = formatCellCoord(r, c);
+
+                              // 현재 셀이 복사 필드에 매핑되어 있는지 확인
+                              const mappedField = fields.find(f => {
+                                if (f.posType === 'cell') {
+                                  return f.cellCoord === coord;
+                                }
+                                return isActiveRow && (f.colIndex === c || f.colLetter === colIndexToLetter(c));
+                              });
+
+                              // 검색어 매칭 여부
+                              const isSearchMatch =
+                                sheetSearch.trim().length > 0 &&
+                                strVal.toLowerCase().includes(sheetSearch.trim().toLowerCase());
+
+                              // 현재 셀 편집 중인지
+                              const isEditing = editingCell?.r === r && editingCell?.c === c;
+
+                              return (
+                                <td
+                                  key={c}
+                                  onDoubleClick={e => {
+                                    e.stopPropagation();
+                                    setEditingCell({ r, c, text: strVal });
+                                  }}
+                                  onClick={() => {
+                                    if (!isEditing) {
+                                      handleCellClick(r, c, strVal);
+                                    }
+                                  }}
+                                  className={`px-2.5 py-1.5 border border-slate-200 font-mono text-xs max-w-[240px] truncate cursor-pointer transition-all relative group/cell ${
+                                    isEditing
+                                      ? 'p-0 bg-white ring-2 ring-indigo-500'
+                                      : isSearchMatch
+                                      ? 'bg-amber-100 font-black text-amber-900 ring-2 ring-amber-400'
+                                      : mappedField
+                                      ? 'bg-indigo-50/40 border-indigo-200 text-indigo-950 font-bold'
+                                      : 'hover:bg-slate-100 text-slate-800'
+                                  }`}
+                                  title={`[${coord}] ${strVal || '(빈 셀)'}\n• 클릭: 원클릭 복사\n• 호버 깔때기: 이 값으로 필터\n• 더블클릭: 편집`}
+                                >
+                                  {isEditing ? (
+                                    <div className="flex items-center">
+                                      <input
+                                        autoFocus
+                                        type="text"
+                                        value={editingCell.text}
+                                        onChange={e =>
+                                          setEditingCell({ ...editingCell, text: e.target.value })
+                                        }
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') handleSaveCellEdit();
+                                          if (e.key === 'Escape') setEditingCell(null);
+                                        }}
+                                        onBlur={handleSaveCellEdit}
+                                        className="w-full px-2 py-1 text-xs font-mono font-bold bg-white focus:outline-none"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className="truncate">{strVal}</span>
+
+                                      {/* 호버 시 동작 버튼들 (원클릭 필터 & 복사) */}
+                                      <div className="opacity-0 group-hover/cell:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+                                        {/* 셀 값으로 즉시 필터 걸기 */}
+                                        <button
+                                          type="button"
+                                          onClick={e => {
+                                            e.stopPropagation();
+                                            handleFilterByCellValue(c, strVal);
+                                          }}
+                                          className="p-1 hover:bg-amber-100 text-amber-700 rounded transition-colors"
+                                          title={`이 값 ("${strVal}")으로 ${colIndexToLetter(c)}열 필터링`}
+                                        >
+                                          <Filter size={11} />
+                                        </button>
+                                        {/* 복사 아이콘 */}
+                                        <span className="text-indigo-500">
+                                          <Copy size={11} />
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
 
-                {sheetData.length > 300 && (
+                {filteredRowIndices.length > 300 && (
                   <div className="p-3 bg-slate-50 border-t border-slate-200 text-center text-xs text-slate-500">
-                    성능 최적화를 위해 상위 300행을 표시 중입니다. (전체 {sheetData.length}행 중)
+                    성능 최적화를 위해 필터된 상위 300행을 표시 중입니다. (필터 결과 {filteredRowIndices.length}행 중)
                   </div>
                 )}
               </div>
+
+              {/* ======================= 열 필터 드롭다운 팝오버 ======================= */}
+              {activeFilterCol !== null && (
+                <div
+                  ref={filterPopoverRef}
+                  className="absolute top-12 left-16 z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-72 space-y-3.5 animate-in fade-in zoom-in-95 duration-150"
+                  style={{
+                    maxHeight: '440px'
+                  }}
+                >
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Filter size={14} className="text-indigo-600" />
+                      <h4 className="text-xs font-black text-slate-800">
+                        {colIndexToLetter(activeFilterCol)}열 필터 설정
+                        {sheetData[0]?.[activeFilterCol] && (
+                          <span className="font-normal text-slate-500 ml-1">
+                            ({String(sheetData[0][activeFilterCol])})
+                          </span>
+                        )}
+                      </h4>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveFilterCol(null)}
+                      className="p-1 text-slate-400 hover:text-slate-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  {/* 정렬 버튼 */}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSortState({ colIndex: activeFilterCol, direction: 'asc' });
+                        setActiveFilterCol(null);
+                      }}
+                      className={`py-1.5 px-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1 cursor-pointer transition-all ${
+                        sortState?.colIndex === activeFilterCol && sortState.direction === 'asc'
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      <ArrowUp size={12} />
+                      <span>오름차순 정렬</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSortState({ colIndex: activeFilterCol, direction: 'desc' });
+                        setActiveFilterCol(null);
+                      }}
+                      className={`py-1.5 px-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1 cursor-pointer transition-all ${
+                        sortState?.colIndex === activeFilterCol && sortState.direction === 'desc'
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      <ArrowDown size={12} />
+                      <span>내림차순 정렬</span>
+                    </button>
+                  </div>
+
+                  {/* 텍스트 검색 */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-500">텍스트 포함 검색</label>
+                    <input
+                      type="text"
+                      placeholder="검색어 입력..."
+                      value={columnFilters[activeFilterCol]?.textQuery || ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setColumnFilters(prev => ({
+                          ...prev,
+                          [activeFilterCol]: {
+                            ...prev[activeFilterCol],
+                            textQuery: val
+                          }
+                        }));
+                      }}
+                      className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  {/* 고유값 목록 체크박스 */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
+                      <span>고유값 선택 ({getColumnUniqueValues(activeFilterCol).length})</span>
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setColumnFilters(prev => {
+                              const next = { ...prev };
+                              if (next[activeFilterCol]) {
+                                next[activeFilterCol] = {
+                                  ...next[activeFilterCol],
+                                  selectedValues: undefined
+                                };
+                              }
+                              return next;
+                            });
+                          }}
+                          className="text-indigo-600 hover:underline cursor-pointer"
+                        >
+                          전체
+                        </button>
+                        <span>·</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setColumnFilters(prev => ({
+                              ...prev,
+                              [activeFilterCol]: {
+                                ...prev[activeFilterCol],
+                                selectedValues: []
+                              }
+                            }));
+                          }}
+                          className="text-slate-400 hover:underline cursor-pointer"
+                        >
+                          해제
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl p-1.5 bg-slate-50/50 space-y-1">
+                      {getColumnUniqueValues(activeFilterCol).slice(0, 50).map(([val, count]) => {
+                        const selectedList = columnFilters[activeFilterCol]?.selectedValues;
+                        const isChecked = !selectedList || selectedList.includes(val);
+
+                        return (
+                          <label
+                            key={val}
+                            className="flex items-center justify-between px-2 py-1 hover:bg-white rounded-lg text-xs cursor-pointer select-none"
+                          >
+                            <div className="flex items-center gap-1.5 truncate mr-2">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={e => {
+                                  const checked = e.target.checked;
+                                  setColumnFilters(prev => {
+                                    const currentSelected =
+                                      prev[activeFilterCol]?.selectedValues !== undefined
+                                        ? [...prev[activeFilterCol].selectedValues!]
+                                        : getColumnUniqueValues(activeFilterCol).map(v => v[0]);
+
+                                    let newSelected: string[];
+                                    if (checked) {
+                                      newSelected = [...currentSelected, val];
+                                    } else {
+                                      newSelected = currentSelected.filter(item => item !== val);
+                                    }
+
+                                    return {
+                                      ...prev,
+                                      [activeFilterCol]: {
+                                        ...prev[activeFilterCol],
+                                        selectedValues: newSelected
+                                      }
+                                    };
+                                  });
+                                }}
+                                className="rounded text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span className="truncate font-mono">{val}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-bold shrink-0">
+                              {count}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 팝오버 하단 액션 버튼 */}
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleClearColumnFilter(activeFilterCol);
+                        setActiveFilterCol(null);
+                      }}
+                      className="text-xs font-bold text-rose-500 hover:underline cursor-pointer"
+                    >
+                      이 열 필터 해제
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveFilterCol(null)}
+                      className="py-1.5 px-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl cursor-pointer"
+                    >
+                      확인
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1108,7 +1701,7 @@ export const ExcelCopyTab: React.FC = () => {
             <div>
               <p className="text-[11px] font-bold text-slate-400">{toastMessage.title}</p>
               <p className="text-xs font-black text-emerald-300 font-mono">
-                "{toastMessage.value}" 복사됨!
+                "{toastMessage.value}"
               </p>
             </div>
           </motion.div>
