@@ -368,7 +368,10 @@ export const ExcelCopyTab: React.FC = () => {
     if (!text && text !== '0') {
       text = '';
     }
-    const cleanText = String(text);
+    // 불필요한 줄바꿈, 탭, 제어문자 및 앞뒤 공백을 철저하게 제거하여 순수 텍스트만 추출
+    const cleanText = String(text ?? '')
+      .replace(/[\r\n\t]/g, ' ')
+      .trim();
 
     navigator.clipboard.writeText(cleanText).then(() => {
       if (fieldId) {
@@ -1478,7 +1481,17 @@ export const ExcelCopyTab: React.FC = () => {
                                   handleCellClick(r, c, strVal);
                                 }
                               }}
-                              className={`px-2.5 py-1.5 border border-slate-200 font-mono text-xs max-w-[240px] truncate cursor-pointer transition-all relative group/cell ${
+                              onCopy={e => {
+                                const pureText = strVal.replace(/[\r\n\t]/g, ' ').trim();
+                                e.clipboardData.setData('text/plain', pureText);
+                                e.preventDefault();
+                                setToastMessage({
+                                  title: '복사 완료',
+                                  value: pureText
+                                });
+                                setTimeout(() => setToastMessage(null), 1800);
+                              }}
+                              className={`px-2.5 py-1.5 border border-slate-200 font-mono text-xs max-w-[240px] truncate cursor-pointer transition-all relative group/cell select-text ${
                                 isEditing
                                   ? 'p-0 bg-white ring-2 ring-indigo-500'
                                   : isSearchMatch
@@ -1507,23 +1520,27 @@ export const ExcelCopyTab: React.FC = () => {
                                   />
                                 </div>
                               ) : (
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="truncate">{strVal}</span>
+                                <div className="flex items-center justify-between gap-1 select-text">
+                                  <span className="truncate select-text">{strVal}</span>
 
-                                  {/* 호버 시 동작 버튼들 (원클릭 필터 & 복사) */}
-                                  <div className="opacity-0 group-hover/cell:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+                                  {/* 호버 시 동작 버튼들: select-none 처리로 드래그 선택 시 절대 잡히지 않음 */}
+                                  <div
+                                    aria-hidden="true"
+                                    className="opacity-0 group-hover/cell:opacity-100 transition-opacity flex items-center gap-1 shrink-0 select-none pointer-events-auto"
+                                  >
                                     <button
                                       type="button"
+                                      tabIndex={-1}
                                       onClick={e => {
                                         e.stopPropagation();
                                         handleFilterByCellValue(c, strVal);
                                       }}
-                                      className="p-1 hover:bg-amber-100 text-amber-700 rounded transition-colors"
+                                      className="p-1 hover:bg-amber-100 text-amber-700 rounded transition-colors select-none"
                                       title={`이 값 ("${strVal}")으로 ${colIndexToLetter(c)}열 필터링`}
                                     >
-                                      <Filter size={11} />
+                                      <Filter size={11} className="pointer-events-none select-none" />
                                     </button>
-                                    <span className="text-indigo-500">
+                                    <span className="text-indigo-500 select-none pointer-events-none">
                                       <Copy size={11} />
                                     </span>
                                   </div>
@@ -1864,7 +1881,17 @@ export const ExcelCopyTab: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <div
                       onClick={() => copyToClipboard(cellVal, field.name, field.id)}
-                      className={`flex-1 px-3 py-2 rounded-lg border text-xs font-mono font-medium truncate cursor-pointer transition-all ${
+                      onCopy={e => {
+                        const pureText = cellVal.replace(/[\r\n\t]/g, ' ').trim();
+                        e.clipboardData.setData('text/plain', pureText);
+                        e.preventDefault();
+                        setToastMessage({
+                          title: '복사 완료',
+                          value: pureText
+                        });
+                        setTimeout(() => setToastMessage(null), 1800);
+                      }}
+                      className={`flex-1 px-3 py-2 rounded-lg border text-xs font-mono font-medium truncate cursor-pointer transition-all select-text ${
                         field.copied
                           ? 'bg-emerald-100/60 border-emerald-300 text-emerald-900'
                           : cellVal
@@ -1873,7 +1900,7 @@ export const ExcelCopyTab: React.FC = () => {
                       }`}
                       title="클릭하여 복사"
                     >
-                      <span className="truncate">{cellVal || '(빈 값)'}</span>
+                      <span className="truncate select-text">{cellVal || '(빈 값)'}</span>
                     </div>
 
                     <button
