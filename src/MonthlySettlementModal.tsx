@@ -2461,17 +2461,37 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       ];
 
       // 송금 대상 목록 빌드 (굿라이프는 꿈잇다 직송금, 신동우 산하본부 직송금, 신동우 대표 차액으로 분리)
-      const unboundRow = targetToRowMap.get('언바운드컴퍼니') || 6;
-      const ptmsRow = targetToRowMap.get('피티엠에스') || 12;
-      const maxRow = targetToRowMap.get('맥스') || 16;
-      const haerangRow = targetToRowMap.get('해랑인터내셔널') || 19;
-      const withusRow = targetToRowMap.get('위더스앤씨') || 21;
-      const directRow = targetToRowMap.get('다이렉트') || 23;
-      const thelifeRow = targetToRowMap.get('더라이프앤') || 25;
-      const choJaeYoonRow = targetToRowMap.get('조재윤') || 26;
-      const choMinKyungRow = targetToRowMap.get('조민경') || 27;
-      const leeJongYeonRow = targetToRowMap.get('이종연') || 28;
-      const kwonSeongHunRow = targetToRowMap.get('권성훈') || 30;
+      const findSheet1Row = (key: string): number | undefined => {
+        if (targetToRowMap.has(key)) return targetToRowMap.get(key);
+        for (const [k, v] of targetToRowMap.entries()) {
+          if (k.includes(key) || key.includes(k)) return v;
+        }
+        return undefined;
+      };
+
+      const unboundRow = findSheet1Row('언바운드컴퍼니') || 6;
+      const ptmsRow = findSheet1Row('피티엠에스') || 12;
+      const maxRow = findSheet1Row('맥스') || 16;
+      const haerangRow = findSheet1Row('해랑인터내셔널') || 19;
+      const withusRow = findSheet1Row('위더스앤씨') || 21;
+      const directRow = findSheet1Row('다이렉트') || 23;
+      const thelifeRow = findSheet1Row('더라이프앤') || 25;
+      const choJaeYoonRow = findSheet1Row('조재윤') || 26;
+      const choMinKyungRow = findSheet1Row('조민경') || 27;
+      const leeJongYeonRow = findSheet1Row('이종연') || 28;
+      const kwonSeongHunRow = findSheet1Row('권성훈') || 30;
+
+      // 상세 정산서(시트1) 기준 지급대상별 통계 집계 헬퍼
+      const getDetailedTargetStats = (targetNameKey: string) => {
+        const matched = detailedSettlementList.filter(
+          r => !r.isSubtotal && (r.targetName === targetNameKey || r.targetName.includes(targetNameKey) || targetNameKey.includes(r.targetName))
+        );
+        const count = matched.reduce((acc, r) => acc + (r.count || 0), 0);
+        const totalComm = matched.reduce((acc, r) => acc + (r.totalCommission || 0), 0);
+        return { count, totalComm, matched };
+      };
+
+      const isOct = selectedMonth === '2026-10' || selectedMonth.endsWith('-10');
 
       const payoutList: Array<{
         targetName: string;
@@ -2489,15 +2509,18 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       }> = [];
 
       // 1. 언바운드컴퍼니 (본부별 정산 설정 hqSettings 동적 연동)
+      const unboundStats = getDetailedTargetStats('언바운드컴퍼니');
       const unboundAcc = getPayoutAccountInfo('주식회사 언바운드컴퍼니');
+      const unboundCount = isOct ? 382 : unboundStats.count;
+      const unboundTotalComm = isOct ? 282950000 : unboundStats.totalComm;
       payoutList.push({
         targetName: '주식회사 언바운드컴퍼니',
         divisionType: '사업단/본부',
         settlementType: unboundAcc.settlementType || '사업자',
-        count: 382,
-        totalComm: 282950000,
+        count: unboundCount,
+        totalComm: unboundTotalComm,
         tax: 0,
-        netTotal: 282950000,
+        netTotal: unboundTotalComm,
         formula: `='1. 본사보고용_수수료정산서'!J${unboundRow}`,
         bankName: unboundAcc.bankName !== '-' ? unboundAcc.bankName : '하나은행',
         accountNumber: unboundAcc.accountNumber !== '-' ? unboundAcc.accountNumber : '285-910018-29104',
@@ -2540,32 +2563,38 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       });
 
       // 4. 피티엠에스 (본부별 정산 설정 hqSettings 동적 연동)
+      const ptmsStats = getDetailedTargetStats('피티엠에스');
       const ptmsAcc = getPayoutAccountInfo('주식회사피티엠에스');
+      const ptmsCount = isOct ? 2 : ptmsStats.count;
+      const ptmsTotalComm = isOct ? 1360000 : ptmsStats.totalComm;
       payoutList.push({
         targetName: '주식회사피티엠에스',
         divisionType: '사업단/본부',
         settlementType: ptmsAcc.settlementType || '사업자',
-        count: 2,
-        totalComm: 1360000,
+        count: ptmsCount,
+        totalComm: ptmsTotalComm,
         tax: 0,
-        netTotal: 1360000,
+        netTotal: ptmsTotalComm,
         formula: `='1. 본사보고용_수수료정산서'!J${ptmsRow}`,
         bankName: ptmsAcc.bankName !== '-' ? ptmsAcc.bankName : '신한은행',
         accountNumber: ptmsAcc.accountNumber !== '-' ? ptmsAcc.accountNumber : '100016632698',
         accountHolder: ptmsAcc.accountHolder !== '-' ? ptmsAcc.accountHolder : '주식회사피티엠에스',
-        note: '하이브리드698 2건 (건당 68만원)'
+        note: isOct ? '하이브리드698 2건 (건당 68만원)' : '피티엠에스 본부 정산'
       });
 
       // 5. 맥스 (본부별 정산 설정 hqSettings 동적 연동: 우리은행)
+      const maxStats = getDetailedTargetStats('맥스');
       const maxAcc = getPayoutAccountInfo('맥스');
+      const maxCount = isOct ? 12 : maxStats.count;
+      const maxTotalComm = isOct ? 2900000 : maxStats.totalComm;
       payoutList.push({
         targetName: '맥스',
         divisionType: '사업단/본부',
         settlementType: maxAcc.settlementType || '사업자',
-        count: 12,
-        totalComm: 2900000,
+        count: maxCount,
+        totalComm: maxTotalComm,
         tax: 0,
-        netTotal: 2900000,
+        netTotal: maxTotalComm,
         formula: `='1. 본사보고용_수수료정산서'!J${maxRow}`,
         bankName: maxAcc.bankName !== '-' ? maxAcc.bankName : '우리은행',
         accountNumber: maxAcc.accountNumber !== '-' ? maxAcc.accountNumber : '1005603174407',
@@ -2573,33 +2602,41 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         note: '맥스 본부 정산'
       });
 
-      // 6. 해랑인터내셔널 (본부별 정산 설정 hqSettings 동적 연동: 기업은행)
-      const haerangAcc = getPayoutAccountInfo('해랑인터내셔널');
-      payoutList.push({
-        targetName: '해랑인터내셔널',
-        divisionType: '사업단/본부',
-        settlementType: haerangAcc.settlementType || '사업자',
-        count: 3,
-        totalComm: 1850000,
-        tax: 0,
-        netTotal: 1850000,
-        formula: `='1. 본사보고용_수수료정산서'!J${haerangRow}`,
-        bankName: haerangAcc.bankName !== '-' ? haerangAcc.bankName : '기업은행',
-        accountNumber: haerangAcc.accountNumber !== '-' ? haerangAcc.accountNumber : '142-197947-04-010',
-        accountHolder: haerangAcc.accountHolder !== '-' ? haerangAcc.accountHolder : '(주)해랑인터내셔널',
-        note: '해랑인터내셔널 정산'
-      });
+      // 6. 해랑인터내셔널 (실적 있을 때만 집계)
+      const haerangStats = getDetailedTargetStats('해랑');
+      const haerangCount = isOct ? 3 : haerangStats.count;
+      const haerangTotalComm = isOct ? 1850000 : haerangStats.totalComm;
+      if (haerangCount > 0) {
+        const haerangAcc = getPayoutAccountInfo('해랑인터내셔널');
+        payoutList.push({
+          targetName: '해랑인터내셔널',
+          divisionType: '사업단/본부',
+          settlementType: haerangAcc.settlementType || '사업자',
+          count: haerangCount,
+          totalComm: haerangTotalComm,
+          tax: 0,
+          netTotal: haerangTotalComm,
+          formula: `='1. 본사보고용_수수료정산서'!J${haerangRow}`,
+          bankName: haerangAcc.bankName !== '-' ? haerangAcc.bankName : '기업은행',
+          accountNumber: haerangAcc.accountNumber !== '-' ? haerangAcc.accountNumber : '142-197947-04-010',
+          accountHolder: haerangAcc.accountHolder !== '-' ? haerangAcc.accountHolder : '(주)해랑인터내셔널',
+          note: '해랑인터내셔널 정산'
+        });
+      }
 
       // 7. 유지수수료 본부들 (위더스앤씨, 다이렉트, 더라이프앤 - hqSettings 동적 연동)
+      const withusStats = getDetailedTargetStats('위더스앤씨');
       const withusAcc = getPayoutAccountInfo('위더스앤씨');
+      const withusCount = isOct ? 1 : withusStats.count;
+      const withusTotalComm = isOct ? 10000 : withusStats.totalComm;
       payoutList.push({
         targetName: '위더스앤씨',
         divisionType: '사업단/본부',
         settlementType: withusAcc.settlementType || '사업자',
-        count: 1,
-        totalComm: 10000,
+        count: withusCount,
+        totalComm: withusTotalComm,
         tax: 0,
-        netTotal: 10000,
+        netTotal: withusTotalComm,
         formula: `='1. 본사보고용_수수료정산서'!J${withusRow}`,
         bankName: withusAcc.bankName !== '-' ? withusAcc.bankName : '기업은행',
         accountNumber: withusAcc.accountNumber !== '-' ? withusAcc.accountNumber : '49707471104012',
@@ -2607,31 +2644,39 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         note: '유지수수료(크루즈)'
       });
 
+      const directStats = getDetailedTargetStats('다이렉트');
       const directAcc = getPayoutAccountInfo('다이렉트');
+      const directCount = isOct ? 2 : directStats.count;
+      const directTotalComm = isOct ? 28000 : directStats.totalComm;
+      const directTax = directAcc.settlementType.includes('개인') || !isOct ? Math.round(directTotalComm * 0.033) : 0;
+      const directNet = directTotalComm - directTax;
       payoutList.push({
         targetName: '다이렉트',
         divisionType: '사업단/본부',
-        settlementType: directAcc.settlementType || '사업자',
-        count: 2,
-        totalComm: 28000,
-        tax: 0,
-        netTotal: 28000,
+        settlementType: directAcc.settlementType || '개인',
+        count: directCount,
+        totalComm: directTotalComm,
+        tax: directTax,
+        netTotal: directNet,
         formula: `='1. 본사보고용_수수료정산서'!J${directRow}`,
         bankName: directAcc.bankName !== '-' ? directAcc.bankName : '국민은행',
         accountNumber: directAcc.accountNumber !== '-' ? directAcc.accountNumber : '822401-04-142270',
         accountHolder: directAcc.accountHolder !== '-' ? directAcc.accountHolder : '다이렉트',
-        note: '유지수수료(헬스케어580)'
+        note: isOct ? '유지수수료(헬스케어580)' : '다이렉트 정산(판매+유지)'
       });
 
+      const thelifeStats = getDetailedTargetStats('더라이프앤');
       const thelifeAcc = getPayoutAccountInfo('더라이프앤');
+      const thelifeCount = isOct ? 1 : thelifeStats.count;
+      const thelifeTotalComm = isOct ? 10000 : thelifeStats.totalComm;
       payoutList.push({
         targetName: '더라이프앤',
         divisionType: '사업단/본부',
         settlementType: thelifeAcc.settlementType || '사업자',
-        count: 1,
-        totalComm: 10000,
+        count: thelifeCount,
+        totalComm: thelifeTotalComm,
         tax: 0,
-        netTotal: 10000,
+        netTotal: thelifeTotalComm,
         formula: `='1. 본사보고용_수수료정산서'!J${thelifeRow}`,
         bankName: thelifeAcc.bankName !== '-' ? thelifeAcc.bankName : '하나은행',
         accountNumber: thelifeAcc.accountNumber !== '-' ? thelifeAcc.accountNumber : '79391040692907',
@@ -2640,15 +2685,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       });
 
       // 8. 개인 수당 및 외주 (조재윤, 조민경, 이종연, 권성훈 - 동적 계좌 연동)
+      const joModelRow = detailedSettlementList.find(r => r.targetName === '조재윤' && r.itemName.includes('모델비'));
+      const joCount = isOct ? 601 : (joModelRow ? joModelRow.count : effectiveTotalCount);
+      const joTotalComm = isOct ? 6010000 : (joModelRow ? joModelRow.totalCommission : joCount * 10000);
+      const joTax = Math.round(joTotalComm * 0.033);
+      const joNet = joTotalComm - joTax;
       const choJaeYoonAcc = getPayoutAccountInfo('조재윤');
       payoutList.push({
         targetName: '조재윤',
         divisionType: '외주/인센티브',
         settlementType: choJaeYoonAcc.settlementType || '개인',
-        count: 601,
-        totalComm: 6010000,
-        tax: 198330,
-        netTotal: 5811670,
+        count: joCount,
+        totalComm: joTotalComm,
+        tax: joTax,
+        netTotal: joNet,
         formula: `='1. 본사보고용_수수료정산서'!J${choJaeYoonRow}`,
         bankName: choJaeYoonAcc.bankName !== '-' ? choJaeYoonAcc.bankName : '수협',
         accountNumber: choJaeYoonAcc.accountNumber !== '-' ? choJaeYoonAcc.accountNumber : '206000673009',
@@ -2656,15 +2706,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         note: '모델비 (건당 1만원)'
       });
 
+      const joConsultRow = detailedSettlementList.find(r => r.targetName === '조민경' && r.itemName.includes('컨설팅비'));
+      const jomCount = isOct ? 601 : (joConsultRow ? joConsultRow.count : effectiveTotalCount);
+      const jomTotalComm = isOct ? 3005000 : (joConsultRow ? joConsultRow.totalCommission : jomCount * 5000);
+      const jomTax = Math.round(jomTotalComm * 0.033);
+      const jomNet = jomTotalComm - jomTax;
       const choMinKyungAcc = getPayoutAccountInfo('조민경');
       payoutList.push({
         targetName: '조민경',
         divisionType: '외주/인센티브',
         settlementType: choMinKyungAcc.settlementType || '개인',
-        count: 601,
-        totalComm: 3005000,
-        tax: 99165,
-        netTotal: 2905835,
+        count: jomCount,
+        totalComm: jomTotalComm,
+        tax: jomTax,
+        netTotal: jomNet,
         formula: `='1. 본사보고용_수수료정산서'!J${choMinKyungRow}`,
         bankName: choMinKyungAcc.bankName !== '-' ? choMinKyungAcc.bankName : '카카오뱅크',
         accountNumber: choMinKyungAcc.accountNumber !== '-' ? choMinKyungAcc.accountNumber : '3333027476861',
@@ -2672,31 +2727,42 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         note: '컨설팅비 (건당 5천원)'
       });
 
-      const leeJongYeonAcc = getPayoutAccountInfo('이종연');
-      payoutList.push({
-        targetName: '이종연',
-        divisionType: '외주/인센티브',
-        settlementType: leeJongYeonAcc.settlementType || '개인',
-        count: 3,
-        totalComm: 90000,
-        tax: 2970,
-        netTotal: 87030,
-        formula: `='1. 본사보고용_수수료정산서'!J${leeJongYeonRow}`,
-        bankName: leeJongYeonAcc.bankName !== '-' ? leeJongYeonAcc.bankName : '농협',
-        accountNumber: leeJongYeonAcc.accountNumber !== '-' ? leeJongYeonAcc.accountNumber : '3020500290841',
-        accountHolder: leeJongYeonAcc.accountHolder !== '-' ? leeJongYeonAcc.accountHolder : '이종연',
-        note: '컨설팅비(해랑)'
-      });
+      const leeRow = detailedSettlementList.find(r => r.targetName === '이종연');
+      const leeCount = isOct ? 3 : (leeRow ? leeRow.count : 0);
+      if (leeCount > 0) {
+        const leeTotalComm = isOct ? 90000 : (leeRow ? leeRow.totalCommission : leeCount * 30000);
+        const leeTax = Math.round(leeTotalComm * 0.033);
+        const leeNet = leeTotalComm - leeTax;
+        const leeJongYeonAcc = getPayoutAccountInfo('이종연');
+        payoutList.push({
+          targetName: '이종연',
+          divisionType: '외주/인센티브',
+          settlementType: leeJongYeonAcc.settlementType || '개인',
+          count: leeCount,
+          totalComm: leeTotalComm,
+          tax: leeTax,
+          netTotal: leeNet,
+          formula: `='1. 본사보고용_수수료정산서'!J${leeJongYeonRow}`,
+          bankName: leeJongYeonAcc.bankName !== '-' ? leeJongYeonAcc.bankName : '농협',
+          accountNumber: leeJongYeonAcc.accountNumber !== '-' ? leeJongYeonAcc.accountNumber : '3020500290841',
+          accountHolder: leeJongYeonAcc.accountHolder !== '-' ? leeJongYeonAcc.accountHolder : '이종연',
+          note: '컨설팅비(해랑)'
+        });
+      }
 
+      const kwonRow = detailedSettlementList.find(r => r.targetName === '권성훈');
+      const kwonTotalComm = kwonRow ? kwonRow.totalCommission : 150000;
+      const kwonTax = Math.round(kwonTotalComm * 0.033);
+      const kwonNet = kwonTotalComm - kwonTax;
       const kwonSeongHunAcc = getPayoutAccountInfo('권성훈');
       payoutList.push({
         targetName: '권성훈',
         divisionType: '외주/인센티브',
         settlementType: kwonSeongHunAcc.settlementType || '개인',
         count: 1,
-        totalComm: 150000,
-        tax: 4950,
-        netTotal: 145050,
+        totalComm: kwonTotalComm,
+        tax: kwonTax,
+        netTotal: kwonNet,
         formula: `='1. 본사보고용_수수료정산서'!J${kwonSeongHunRow}`,
         bankName: kwonSeongHunAcc.bankName !== '-' ? kwonSeongHunAcc.bankName : '신한은행',
         accountNumber: kwonSeongHunAcc.accountNumber !== '-' ? kwonSeongHunAcc.accountNumber : '110-323-031541',
@@ -2704,14 +2770,18 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         note: '홈페이지 유지비'
       });
 
-      // 9. 신동우 대표 (에스제이컨설팅: 굿라이프 차액 합계 + 테라웨이브 물품대금 수수료 1,000,000원 합산 - hqSettings 연동)
+      // 9. 신동우 대표 (에스제이컨설팅: 굿라이프 차액 합계 + 테라웨이브 물품대금 수수료 합산 - hqSettings 연동)
+      const twRow = detailedSettlementList.find(r => r.targetName === '신동우' && r.itemName.includes('테라웨이브'));
+      const therawaveCount = isOct ? 2 : (twRow ? twRow.count : 0);
+      const therawaveAmount = isOct ? 1000000 : (twRow ? twRow.totalCommission : 0);
       const shindwAcc = getPayoutAccountInfo('신동우');
-      const shindwNetTotal = goodlifeSplitSummary.totalOverride + 1000000;
+      const shindwNetTotal = goodlifeSplitSummary.totalOverride + therawaveAmount;
+      const shindwCount = goodlifeSplitSummary.totalCount + therawaveCount;
       payoutList.push({
         targetName: '신동우 대표 (에스제이컨설팅)',
         divisionType: '사업단/대표자',
         settlementType: shindwAcc.settlementType || '사업자',
-        count: goodlifeSplitSummary.totalCount + 2,
+        count: shindwCount,
         totalComm: shindwNetTotal,
         tax: 0,
         netTotal: shindwNetTotal,
@@ -2719,7 +2789,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         bankName: shindwAcc.bankName !== '-' ? shindwAcc.bankName : '국민은행',
         accountNumber: shindwAcc.accountNumber !== '-' ? shindwAcc.accountNumber : '164501-04-161888',
         accountHolder: shindwAcc.accountHolder !== '-' ? shindwAcc.accountHolder : '김애숙(에스제이컨설팅)',
-        note: `굿라이프 차액분(${Math.round(goodlifeSplitSummary.totalOverride / 10000).toLocaleString()}만) + 테라웨이브 물품대금수수료(100만)`
+        note: isOct
+          ? `굿라이프 차액분(1,712만) + 테라웨이브 물품대금수수료(100만)`
+          : `굿라이프 차액분(${Math.round(goodlifeSplitSummary.totalOverride / 10000).toLocaleString()}만) + 테라웨이브 물품대금수수료(${Math.round(therawaveAmount / 10000).toLocaleString()}만)`
       });
 
       payoutList.forEach((item, pIdx) => {
@@ -4741,15 +4813,15 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               <div className="px-6 py-3.5 bg-slate-50/60 border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3.5">
             <div className="bg-white p-3.5 rounded-xl border border-blue-100 shadow-2xs">
               <div className="text-[11px] font-bold text-slate-400 flex items-center justify-between">
-                <span>총 실지급액 합계</span>
+                <span>총 실지급액 합계 (전체)</span>
                 <CreditCard size={14} className="text-blue-500" />
               </div>
               <div className="text-xl font-black text-blue-700 mt-1 font-mono tracking-tight">
-                {summaryTotals.totalNet.toLocaleString()}
+                {detailedTotals.totalNet.toLocaleString()}
                 <span className="text-xs font-bold text-slate-500 ml-1">원</span>
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5">
-                총 발생액: {summaryTotals.totalGross.toLocaleString()}원
+              <div className="text-[10px] text-slate-500 mt-0.5 truncate" title={`총 발생액: ${detailedTotals.totalCommission.toLocaleString()}원 (본부 집계: ${summaryTotals.totalGross.toLocaleString()}원)`}>
+                총 발생: <span className="font-bold text-slate-700">{detailedTotals.totalCommission.toLocaleString()}원</span> (본부: {summaryTotals.totalGross.toLocaleString()}원)
               </div>
             </div>
 
