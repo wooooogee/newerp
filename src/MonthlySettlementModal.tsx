@@ -2801,8 +2801,25 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         const isPersonal = (matchedHqSetting?.settlementType || stat.settlementType || '').includes('개인') ||
                           (matchedHqSetting?.settlementType || stat.settlementType || '').includes('프리랜서');
 
-        if (isPersonal && items.length > 0) {
-          // 개인/프리랜서 2단계 분배: 영업사원 수수료 및 지점장 수당
+        // [상품별 수수료 및 구간 설정 보유 여부 확인]
+        // 1) 상품별 수수료 및 구간 설정이 있는 개인/프리랜서 본부: 영업사원 및 지점장 수당 2단계 분배
+        // 2) 계좌번호만 등록되어 있는 본부: 등록된 본부 계좌번호로 특별수당/정산 3.3% 원천징수 후 단일 송금
+        const hasProductRules = Boolean(
+          matchedHqSetting &&
+          Array.isArray(matchedHqSetting.productRules) &&
+          matchedHqSetting.productRules.length > 0 &&
+          matchedHqSetting.productRules.some((pr: any) =>
+            (pr.totalAmount > 0) ||
+            (pr.salesAmount > 0) ||
+            (pr.salespersonFee > 0) ||
+            (pr.tier1Price > 0) ||
+            (pr.applyOverriding) ||
+            (matchedHqSetting.enableOverriding)
+          )
+        );
+
+        if (isPersonal && hasProductRules && items.length > 0) {
+          // [케이스 1: 상품별 수수료/구간 설정이 있는 개인/프리랜서 본부 -> 영업사원 수수료 및 지점장 수당 2단계 분배]
           const pMap = new Map<string, {
             name: string;
             branch: string;
@@ -2882,22 +2899,28 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             });
           });
         } else {
-          // 사업자 본부
+          // [케이스 2: 계좌번호만 등록되어 특별수당으로 정산되는 본부 또는 일반 사업자 본부]
           const acc = getPayoutAccountInfo(hqName);
-          const tax = acc.settlementType.includes('개인') ? Math.round(totalCommission * 0.033) : 0;
+          const applyTax = isPersonal || acc.settlementType.includes('개인');
+          const tax = applyTax ? Math.round(totalCommission * 0.033) : 0;
           const net = totalCommission - tax;
+          // 본부별 수수료 설정(hqSettings)에 세팅되어 있는 계좌번호 최우선 적용
+          const finalBankName = (matchedHqSetting?.bankName && matchedHqSetting.bankName !== '-') ? matchedHqSetting.bankName : acc.bankName;
+          const finalAccNum = (matchedHqSetting?.accountNumber && matchedHqSetting.accountNumber !== '-') ? matchedHqSetting.accountNumber : acc.accountNumber;
+          const finalAccHolder = (matchedHqSetting?.accountHolder && matchedHqSetting.accountHolder !== '-') ? matchedHqSetting.accountHolder : acc.accountHolder;
+
           payoutList.push({
             targetName: hqName,
-            divisionType: '사업단/본부',
-            settlementType: acc.settlementType || '사업자',
+            divisionType: isPersonal ? `${hqName} (특별수당)` : '사업단/본부',
+            settlementType: isPersonal ? '개인' : (acc.settlementType || '사업자'),
             count: totalCount,
             totalComm: totalCommission,
             tax: tax,
             netTotal: net,
-            bankName: acc.bankName !== '-' ? acc.bankName : '-',
-            accountNumber: acc.accountNumber !== '-' ? acc.accountNumber : '-',
-            accountHolder: acc.accountHolder !== '-' ? acc.accountHolder : hqName,
-            note: `${hqName} 정산`
+            bankName: finalBankName !== '-' ? finalBankName : '-',
+            accountNumber: finalAccNum !== '-' ? finalAccNum : '-',
+            accountHolder: finalAccHolder !== '-' ? finalAccHolder : hqName,
+            note: isPersonal ? `${hqName} 특별수당 (3.3% 원천징수)` : `${hqName} 본부 정산`
           });
         }
       });
@@ -2928,6 +2951,23 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         });
         const isPersonal = (matchedHqSetting?.settlementType || '').includes('개인') || (matchedHqSetting?.settlementType || '').includes('프리랜서');
 
+        // [상품별 수수료 및 구간 설정 보유 여부 확인]
+        // 1) 상품별 수수료 및 구간 설정이 있는 개인/프리랜서 본부: 영업사원 및 지점장 수당 2단계 분배
+        // 2) 계좌번호만 등록되어 있는 본부: 등록된 본부 계좌번호로 특별수당/정산 3.3% 원천징수 후 단일 송금
+        const hasProductRules = Boolean(
+          matchedHqSetting &&
+          Array.isArray(matchedHqSetting.productRules) &&
+          matchedHqSetting.productRules.length > 0 &&
+          matchedHqSetting.productRules.some((pr: any) =>
+            (pr.totalAmount > 0) ||
+            (pr.salesAmount > 0) ||
+            (pr.salespersonFee > 0) ||
+            (pr.tier1Price > 0) ||
+            (pr.applyOverriding) ||
+            (matchedHqSetting.enableOverriding)
+          )
+        );
+
         let items = (data || []).filter(d => {
           const pDate = d.payDate || '';
           const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
@@ -2935,7 +2975,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           return itemMonth === selectedMonth && (d.hq === target || d.branchOffice === target);
         });
 
-        if (isPersonal && items.length > 0) {
+        if (isPersonal && hasProductRules && items.length > 0) {
           const pMap = new Map<string, {
             name: string;
             branch: string;
@@ -3015,21 +3055,28 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             });
           });
         } else {
+          // [케이스 2: 계좌번호만 등록되어 특별수당으로 정산되는 본부 또는 일반 사업자 본부]
           const acc = getPayoutAccountInfo(target);
-          const tax = acc.settlementType.includes('개인') ? Math.round(totalComm * 0.033) : 0;
+          const applyTax = isPersonal || acc.settlementType.includes('개인');
+          const tax = applyTax ? Math.round(totalComm * 0.033) : 0;
           const net = totalComm - tax;
+          // 본부별 수수료 설정(hqSettings)에 세팅되어 있는 계좌번호 최우선 적용
+          const finalBankName = (matchedHqSetting?.bankName && matchedHqSetting.bankName !== '-') ? matchedHqSetting.bankName : acc.bankName;
+          const finalAccNum = (matchedHqSetting?.accountNumber && matchedHqSetting.accountNumber !== '-') ? matchedHqSetting.accountNumber : acc.accountNumber;
+          const finalAccHolder = (matchedHqSetting?.accountHolder && matchedHqSetting.accountHolder !== '-') ? matchedHqSetting.accountHolder : acc.accountHolder;
+
           payoutList.push({
             targetName: target,
-            divisionType: '사업단/본부',
-            settlementType: acc.settlementType || '사업자',
+            divisionType: isPersonal ? `${target} (특별수당)` : '사업단/본부',
+            settlementType: isPersonal ? '개인' : (acc.settlementType || '사업자'),
             count,
             totalComm,
             tax,
             netTotal: net,
-            bankName: acc.bankName !== '-' ? acc.bankName : '-',
-            accountNumber: acc.accountNumber !== '-' ? acc.accountNumber : '-',
-            accountHolder: acc.accountHolder !== '-' ? acc.accountHolder : target,
-            note: `${target} 정산`
+            bankName: finalBankName !== '-' ? finalBankName : '-',
+            accountNumber: finalAccNum !== '-' ? finalAccNum : '-',
+            accountHolder: finalAccHolder !== '-' ? finalAccHolder : target,
+            note: isPersonal ? `${target} 특별수당 (3.3% 원천징수)` : `${target} 정산`
           });
         }
       });
