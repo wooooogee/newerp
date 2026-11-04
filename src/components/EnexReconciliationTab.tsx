@@ -118,6 +118,10 @@ export interface EnexReconciliationRow {
   erpMatched: boolean;       // 우리 ERP 데이터 매칭 여부
   erpData?: any;             // 매칭된 ERP 계약 원본
   orderIndex: number;        // 원본 행 번호
+  sourceFileName?: string;   // 출처 엑셀 파일명
+  fileIndex?: number;        // 정산서 차수 순번 (1: 1차, 2: 2차 등)
+  isDuplicateContract?: boolean; // 복수 정산서 중복 계약 여부 (취소/환수/재정산건)
+  duplicateTag?: string;     // 중복/환수 구분 태그 ('1차 정산건', '2차 환수건' 등)
 }
 
 export interface EnexSettlementHistoryItem {
@@ -198,7 +202,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
 
   // 필터 및 검색 상태
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [filterResult, setFilterResult] = useState<'ALL' | 'MATCH' | 'MISMATCH'>('ALL');
+  const [filterResult, setFilterResult] = useState<'ALL' | 'MATCH' | 'MISMATCH' | 'DUPLICATE'>('ALL');
   const [filterRate, setFilterRate] = useState<'ALL' | '26' | '30'>('ALL');
   const [filterDateStart, setFilterDateStart] = useState<string>('');
   const [filterDateEnd, setFilterDateEnd] = useState<string>('');
@@ -510,7 +514,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     return { price: 550000, matchedProdName: '더좋은하이브리드698', defaultPayoutFee: 0 };
   };
 
-  // 단일 행 재계산 헬퍼 (계산수수료, 지급수수료합계, 순익 산출)
+  // 단일 행 재계산 헬퍼 (계산수수료, 지급수수료합계, 순익 산출 - 음수 환수건 정상 부호 처리)
   const calculateRowMetrics = (
     sales: number,
     feeRate: number,
@@ -520,15 +524,20 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     enexFee: number,
     unitPayoutFee: number = 0
   ) => {
-    const financialFee = Math.round(sales * feeRate);
-    const totalSupplyPrice = unitPrice * accountCount;
+    // 취소/환수 건 (매출액 또는 에넥스 수수료가 음수) 판별
+    const isNegative = sales < 0 || enexFee < 0;
+    const sign = isNegative ? -1 : 1;
+    const absSales = Math.abs(sales);
+
+    const financialFee = sign * Math.round(absSales * feeRate);
+    const totalSupplyPrice = sign * (unitPrice * accountCount);
     // 계산수수료 = 매출액 - 금융수수료 - 공급가합계 + 추가수수료
-    const calculatedFee = sales - financialFee - totalSupplyPrice + (extraFee || 0);
+    const calculatedFee = sales - financialFee - totalSupplyPrice + (sign * (extraFee || 0));
     const diff = calculatedFee - enexFee;
     const reconResult: '일치' | '확인필요' = Math.abs(diff) < 1 ? '일치' : '확인필요';
 
-    // 지급수수료 합계 = 구좌당 지급수수료 * 적용구좌
-    const totalPayoutFee = Math.round((unitPayoutFee || 0) * accountCount);
+    // 지급수수료 합계 = 구좌당 지급수수료 * 적용구좌 (음수 환수건은 지급수수료도 음수로 차감)
+    const totalPayoutFee = sign * Math.round((unitPayoutFee || 0) * accountCount);
     // 순익 = 계산수수료 - 지급수수료합계
     const netProfit = calculatedFee - totalPayoutFee;
 
@@ -536,7 +545,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   };
 
   // 단일 워크북 파싱 헬퍼 (Sheet 1 요약 + Sheet 3 상세 원시 행 추출)
-  const parseWorkbookToRaw = (wb: any, sourceFileName: string) => {
+  const parseWorkbookToRaw = (wb: any, sourceFileName: string, fileIndex: number = 1) => {
     // ==========================================
     // 1. 첫 번째 시트 (정산 요약) 파싱
     // ==========================================
@@ -723,9 +732,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         accountCount = 2;
       } else if (remark.includes('1구좌')) {
         accountCount = 1;
-      } else if (salesAmount === 6840000) {
+      } else if (salesAmount === 6840000 || salesAmount === -6840000) {
         accountCount = 3;
-      } else if (salesAmount === 3960000 || salesAmount === 4560000) {
+      } else if (salesAmount === 3960000 || salesAmount === 4560000 || salesAmount === -3960000 || salesAmount === -4560000) {
         accountCount = 2;
       }
 
@@ -748,9 +757,11 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       }
 
       let feeRate = isYellow ? policySettings.yellowFeeRate : policySettings.baseFeeRate;
-      if (!isYellow && salesAmount > 0) {
-        const diffYellow = Math.abs((salesAmount - Math.round(salesAmount * policySettings.yellowFeeRate)) - enexFee);
-        const diffBase = Math.abs((salesAmount - Math.round(salesAmount * policySettings.baseFeeRate)) - enexFee);
+      if (!isYellow && salesAmount !== 0) {
+        const absS = Math.abs(salesAmount);
+        const absEf = Math.abs(enexFee);
+        const diffYellow = Math.abs((absS - Math.round(absS * policySettings.yellowFeeRate)) - absEf);
+        const diffBase = Math.abs((absS - Math.round(absS * policySettings.baseFeeRate)) - absEf);
         if (diffYellow % 50000 === 0 && diffBase % 50000 !== 0) {
           feeRate = policySettings.yellowFeeRate;
           isYellow = true;
@@ -790,14 +801,15 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         matchedErp,
         initialSangjoName,
         rowIdx: r + 1,
-        sourceFileName
+        sourceFileName,
+        fileIndex
       });
     }
 
     return { summary: parsedSummary, rawExtracted };
   };
 
-  // 원시 행 목록 기반 전체 수수료 정밀 산출 및 행 완성 헬퍼
+  // 원시 행 목록 기반 전체 수수료 정밀 산출 및 행 완성 헬퍼 (중복 및 환수 건 구분 표기)
   const buildReconRowsFromRaw = (rawItems: any[], policy: EnexPolicySettings): EnexReconciliationRow[] => {
     // 1. 전체 데이터 기준 본부별 실적 건수 및 상품별 건수 사전 집계
     const hqCountMap: Record<string, number> = {};
@@ -826,9 +838,9 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         item.initialSangjoName,
         item.applianceProdName,
         item.combineModel,
-        item.salesAmount,
+        Math.abs(item.salesAmount),
         feeRate,
-        item.enexFee,
+        Math.abs(item.enexFee),
         item.accountCount,
         policy.productRules,
         extraFee
@@ -924,14 +936,18 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         isYellow: item.isYellow,
         erpMatched: !!item.matchedErp,
         erpData: item.matchedErp,
-        orderIndex: item.rowIdx
+        orderIndex: item.rowIdx,
+        sourceFileName: item.sourceFileName,
+        fileIndex: item.fileIndex,
+        isDuplicateContract: item.isDuplicateContract,
+        duplicateTag: item.duplicateTag
       });
     }
 
     return rows;
   };
 
-  // 복수 엑셀 파일 일괄 파싱 및 데이터 병합 엔진
+  // 복수 엑셀 파일 일괄 파싱 및 데이터 병합 엔진 (중복 계약건 삭제 없이 둘 다 보존 & 환수/정산 구분)
   const processAndMergeFiles = async (fileList: FileList | File[], isAppend: boolean = false) => {
     const files = Array.from(fileList);
     if (!files || files.length === 0) return;
@@ -941,13 +957,15 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     try {
       const parsedResults: { summary: EnexSummary; rawExtracted: any[]; fileName: string }[] = [];
 
-      for (const file of files) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileIdx = isAppend ? (uploadedFileNames.length + i + 1) : (i + 1);
         const buffer = await file.arrayBuffer();
         const wb = XLSX.read(buffer, { cellStyles: true, type: 'array' });
         if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
           throw new Error(`[${file.name}] 유효한 엑셀 파일이 아닙니다.`);
         }
-        const parsed = parseWorkbookToRaw(wb, file.name);
+        const parsed = parseWorkbookToRaw(wb, file.name, fileIdx);
         parsedResults.push({ ...parsed, fileName: file.name });
       }
 
@@ -962,21 +980,36 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         : `${uniqueNames.join(' + ')}`;
       setFileName(displayFileName);
 
-      // 원시 행 목록 병합 (동일 계약번호 중복 방지 - 뒤에 온 파일 우선)
+      // 원시 행 목록 병합: 덮어쓰지 않고 모든 행을 100% 보존 (둘 다 표기!)
       const existingRaw = isAppend ? rawExtractedList : [];
       const newRaw = parsedResults.flatMap(p => p.rawExtracted);
+      const mergedRaw = [...existingRaw, ...newRaw];
 
-      const contractMap = new Map<string, any>();
-      existingRaw.forEach(r => {
-        const k = String(r.contractNo || '').trim();
-        if (k) contractMap.set(k, r);
-      });
-      newRaw.forEach(r => {
-        const k = String(r.contractNo || '').trim();
-        if (k) contractMap.set(k, r);
+      // 전체 mergedRaw에서 동일 계약번호 출현 빈도 집계 (취소/환수 중복건 판별)
+      const contractCountMap = new Map<string, number>();
+      mergedRaw.forEach(item => {
+        const k = String(item.contractNo || '').trim();
+        if (k) contractCountMap.set(k, (contractCountMap.get(k) || 0) + 1);
       });
 
-      const mergedRaw = Array.from(contractMap.values());
+      // 중복 계약건 태그 부여 (환수건 vs 정상정산건 명확히 구분)
+      mergedRaw.forEach(item => {
+        const k = String(item.contractNo || '').trim();
+        const count = contractCountMap.get(k) || 0;
+        if (count > 1) {
+          item.isDuplicateContract = true;
+          const isNegative = item.salesAmount < 0 || item.enexFee < 0;
+          if (isNegative) {
+            item.duplicateTag = `${item.fileIndex || 1}차 취소/환수건`;
+          } else {
+            item.duplicateTag = `${item.fileIndex || 1}차 정산건`;
+          }
+        } else {
+          item.isDuplicateContract = false;
+          item.duplicateTag = undefined;
+        }
+      });
+
       setRawExtractedList(mergedRaw);
 
       // 전체 병합 데이터 기준 대사 행 생성
@@ -1017,8 +1050,12 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         setRecordTitle('에넥스 위탁판매 수수료 지급완료');
       }
 
+      const dupCount = finalReconRows.filter(r => r.isDuplicateContract).length;
       if (uniqueNames.length > 1) {
-        alert(`[정산서 파일 통합 완료]\n\n총 ${uniqueNames.length}개 정산서 파일에서 ${finalReconRows.length}건의 대사 데이터가 성공적으로 하나로 통합되었습니다.`);
+        alert(
+          `[정산서 파일 통합 완료]\n\n총 ${uniqueNames.length}개 파일에서 ${finalReconRows.length}건의 대사 데이터가 성공적으로 하나로 통합되었습니다.` +
+          (dupCount > 0 ? `\n\n※ 취소/환수 관련 중복 계약건: 총 ${dupCount}건 (둘 다 유지되며 '[환수건]' 뱃지로 구분 표기됨)` : '')
+        );
       }
     } catch (err: any) {
       console.error('Error parsing enex excel:', err);
@@ -1429,6 +1466,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
 
       if (filterResult === 'MATCH' && row.reconResult !== '일치') return false;
       if (filterResult === 'MISMATCH' && row.reconResult !== '확인필요') return false;
+      if (filterResult === 'DUPLICATE' && !row.isDuplicateContract) return false;
 
       if (filterRate === '26' && row.feeRate !== policySettings.baseFeeRate) return false;
       if (filterRate === '30' && row.feeRate !== policySettings.yellowFeeRate) return false;
@@ -1445,6 +1483,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     const totalCount = reconRows.length;
     const matchCount = reconRows.filter(r => r.reconResult === '일치').length;
     const mismatchCount = totalCount - matchCount;
+    const duplicateCount = reconRows.filter(r => r.isDuplicateContract).length;
 
     const rate26Count = reconRows.filter(r => r.feeRate === policySettings.baseFeeRate).length;
     const rate30Count = reconRows.filter(r => r.feeRate === policySettings.yellowFeeRate).length;
@@ -1465,6 +1504,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
       totalCount,
       matchCount,
       mismatchCount,
+      duplicateCount,
       rate26Count,
       rate30Count,
       filteredCount: filteredRows.length,
@@ -1510,14 +1550,16 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         '대조결과',
         '지급수수료(구좌당)',
         '지급수수료합계',
-        '순익(계산-지급)'
+        '순익(계산-지급)',
+        '정산구분'
       ];
 
       const wsData: any[][] = [headers];
 
       filteredRows.forEach((r, idx) => {
         const rowNum = idx + 2; // 엑셀 행 번호 (1-based, 1행 헤더)
-        // H: 매출액, I: 적용구좌, J: 금융수수료율, K: 구좌당공급가, L: 금융수수료, M: 공급가합계, N: 계산수수료, O: 에넥스수수료, P: 차액, Q: 대조결과, R: 구좌당지급수수료, S: 지급수수료합계, T: 순익
+        // H: 매출액, I: 적용구좌, J: 금융수수료율, K: 구좌당공급가, L: 금융수수료, M: 공급가합계, N: 계산수수료, O: 에넥스수수료, P: 차액, Q: 대조결과, R: 구좌당지급수수료, S: 지급수수료합계, T: 순익, U: 정산구분
+        const settleCategory = r.duplicateTag || (r.salesAmount < 0 || r.enexFee < 0 ? '취소/환수건' : (r.fileIndex ? `${r.fileIndex}차 정산건` : '정상정산'));
         wsData.push([
           r.contractNo,
           r.branchOffice,
@@ -1547,7 +1589,8 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
           // 지급수수료합계 수식: 구좌당지급수수료 * 적용구좌
           { t: 'n', f: `R${rowNum}*I${rowNum}`, v: r.totalPayoutFee || 0, z: '#,##0' },
           // 순익 수식: 계산수수료 - 지급수수료합계
-          { t: 'n', f: `N${rowNum}-S${rowNum}`, v: r.netProfit || 0, z: '#,##0' }
+          { t: 'n', f: `N${rowNum}-S${rowNum}`, v: r.netProfit || 0, z: '#,##0' },
+          settleCategory
         ]);
       });
 
@@ -1572,7 +1615,8 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         '',
         '',
         { t: 'n', f: `SUM(S2:S${totalRowNum - 1})`, v: stats.filteredTotalPayoutFee, z: '#,##0' },
-        { t: 'n', f: `SUM(T2:T${totalRowNum - 1})`, v: stats.filteredTotalNetProfit, z: '#,##0' }
+        { t: 'n', f: `SUM(T2:T${totalRowNum - 1})`, v: stats.filteredTotalNetProfit, z: '#,##0' },
+        ''
       ]);
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -1597,7 +1641,8 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         { wch: 11 }, // 대조결과
         { wch: 16 }, // 지급수수료(구좌당)
         { wch: 16 }, // 지급수수료합계
-        { wch: 16 }  // 순익
+        { wch: 16 }, // 순익
+        { wch: 18 }  // 정산구분 (환수/차수)
       ];
 
       // ==========================================
@@ -2144,6 +2189,11 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                     확인필요: {stats.mismatchCount.toLocaleString()}건
                   </span>
                 )}
+                {stats.duplicateCount > 0 && (
+                  <span className="px-2 py-0.5 bg-amber-100 text-amber-900 text-[11px] font-bold rounded-md border border-amber-200" title="1차/2차 정산서 간 중복 발생 건 (취소/환수 및 재정산 건)">
+                    중복·환수: {stats.duplicateCount.toLocaleString()}건
+                  </span>
+                )}
               </div>
             </div>
 
@@ -2284,6 +2334,20 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               >
                 확인필요 ({stats.mismatchCount})
               </button>
+              {stats.duplicateCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFilterResult('DUPLICATE')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    filterResult === 'DUPLICATE'
+                      ? 'bg-amber-600 text-white shadow-2xs font-black'
+                      : 'text-amber-800 hover:text-amber-900 bg-amber-50/80 border border-amber-200'
+                  }`}
+                  title="1차/2차 정산서 간 중복 계약건 (취소/환수 및 재정산 건만 모아보기)"
+                >
+                  중복·환수건 ({stats.duplicateCount})
+                </button>
+              )}
             </div>
 
             {/* 금융수수료율 필터 */}
@@ -2409,28 +2473,61 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
                 {filteredRows.map((r, idx) => {
                   const isMatch = r.reconResult === '일치';
+                  const isNegative = r.salesAmount < 0 || r.enexFee < 0;
+                  const rowBg = isNegative
+                    ? 'bg-rose-50/70 hover:bg-rose-100/60 border-l-4 border-l-rose-500'
+                    : r.isDuplicateContract
+                    ? 'bg-amber-50/40 hover:bg-amber-100/50 border-l-4 border-l-amber-500'
+                    : !isMatch
+                    ? 'bg-rose-50/40 hover:bg-rose-100/40'
+                    : r.isYellow
+                    ? 'bg-amber-50/30 hover:bg-amber-100/30'
+                    : 'hover:bg-slate-50';
+
                   return (
                     <tr
                       key={idx}
-                      className={`hover:bg-slate-50 transition-colors ${
-                        !isMatch ? 'bg-rose-50/50' : r.isYellow ? 'bg-amber-50/30' : ''
-                      }`}
+                      className={`transition-colors ${rowBg}`}
                     >
                       <td className="py-1.5 px-1.5 text-center text-slate-400 font-mono text-[10px]">
                         {idx + 1}
                       </td>
 
                       {/* 1. 계약번호 */}
-                      <td className="py-1.5 px-2 text-center font-mono font-bold text-slate-900 whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1">
-                          {r.isYellow && (
-                            <span className="w-2 h-2 rounded-full bg-amber-400 ring-2 ring-amber-200" title="A열 노란색 음영 (30% 요율)" />
-                          )}
-                          <span>{r.contractNo}</span>
-                          {r.erpMatched && (
-                            <span className="px-1 py-0.2 bg-emerald-100 text-emerald-800 text-[9px] font-bold rounded">
-                              ERP
+                      <td className="py-1.5 px-2 text-center font-mono font-bold whitespace-nowrap">
+                        <div className="flex flex-col items-center gap-0.5">
+                          <div className="flex items-center justify-center gap-1">
+                            {r.isYellow && (
+                              <span className="w-2 h-2 rounded-full bg-amber-400 ring-2 ring-amber-200" title="A열 노란색 음영 (30% 요율)" />
+                            )}
+                            <span className={isNegative ? 'text-rose-700 font-black' : 'text-slate-900'}>
+                              {r.contractNo}
                             </span>
+                            {r.erpMatched && (
+                              <span className="px-1 py-0.2 bg-emerald-100 text-emerald-800 text-[9px] font-bold rounded">
+                                ERP
+                              </span>
+                            )}
+                          </div>
+                          {/* 중복/환수/차수 뱃지 (동일 계약건 취소/환수 분리 표기) */}
+                          {r.isDuplicateContract && (
+                            <div className="flex items-center gap-1 mt-0.5 flex-wrap justify-center">
+                              {r.fileIndex && (
+                                <span className="px-1 py-0.2 bg-slate-200 text-slate-700 text-[9px] font-black rounded" title={`정산서 순번: ${r.fileIndex}번째 파일`}>
+                                  {r.fileIndex}차
+                                </span>
+                              )}
+                              <span
+                                className={`px-1.5 py-0.2 text-[9px] font-black rounded border ${
+                                  isNegative
+                                    ? 'bg-rose-100 text-rose-800 border-rose-300 shadow-2xs'
+                                    : 'bg-amber-100 text-amber-900 border-amber-300'
+                                }`}
+                                title={isNegative ? '해약/취소로 인한 환수(차감) 정산건' : '기존 정산건'}
+                              >
+                                {r.duplicateTag || (isNegative ? '취소/환수건' : '정산건')}
+                              </span>
+                            </div>
                           )}
                         </div>
                       </td>
@@ -2478,7 +2575,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
 
                       {/* 7. 매출액 */}
                       {viewMode !== 'PROFIT' && (
-                        <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                        <td className={`py-1.5 px-2 text-right font-mono font-bold whitespace-nowrap ${isNegative ? 'text-rose-700' : 'text-slate-900'}`}>
                           {r.salesAmount.toLocaleString()}원
                         </td>
                       )}
@@ -2527,14 +2624,14 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
 
                       {/* 11. 금융수수료 */}
                       {viewMode !== 'PROFIT' && (
-                        <td className="py-1.5 px-2 text-right font-mono text-slate-600 whitespace-nowrap">
+                        <td className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${isNegative ? 'text-rose-600' : 'text-slate-600'}`}>
                           {r.financialFee.toLocaleString()}원
                         </td>
                       )}
 
                       {/* 12. 공급가합계 */}
                       {viewMode !== 'PROFIT' && (
-                        <td className="py-1.5 px-2 text-right font-mono text-slate-600 whitespace-nowrap">
+                        <td className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${isNegative ? 'text-rose-600' : 'text-slate-600'}`}>
                           {r.totalSupplyPrice.toLocaleString()}원
                         </td>
                       )}
@@ -2542,7 +2639,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
                       {/* 13. 계산수수료 */}
                       <td className="py-1.5 px-2 text-right whitespace-nowrap">
                         <div className="flex flex-col items-end">
-                          <span className="font-mono font-bold text-indigo-700">
+                          <span className={`font-mono font-bold ${isNegative ? 'text-rose-700' : 'text-indigo-700'}`}>
                             {r.calculatedFee.toLocaleString()}원
                           </span>
                           {r.extraFee > 0 && (
@@ -2555,7 +2652,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
 
                       {/* 14. 에넥스수수료 */}
                       {viewMode !== 'PROFIT' && (
-                        <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                        <td className={`py-1.5 px-2 text-right font-mono font-bold whitespace-nowrap ${isNegative ? 'text-rose-700' : 'text-slate-900'}`}>
                           {r.enexFee.toLocaleString()}원
                         </td>
                       )}
