@@ -143,6 +143,8 @@ interface ProductRule {
   tier3Price: number;
   tierCountBasis?: 'all' | 'self' | 'group'; // 구간 집계 기준: 'all'=본부 전체 상품 실적 합계, 'self'=해당 상품 단독 실적, 'group'=지정 상품군 실적 합산
   tierGroupProducts?: string[]; // group일 때 묶을 상품명 목록
+  salespersonFee?: number; // 개인/프리랜서용: 영업사원 수수료
+  branchManagerFee?: number; // 개인/프리랜서용: 지점장 수당
   applyOverriding?: boolean;
   overriding?: {
     salesperson: number;
@@ -158,6 +160,120 @@ interface ProductRule {
     tiers: { startMonth: number, endMonth: number, amount: number }[];
   }[];
 }
+
+export interface EmployeeBankInfo {
+  empCode: string;
+  hq: string;
+  branch: string;
+  name: string;
+  position: string; // 직위/직책 (예: '지회장', '지점장', '사원' 등)
+  accountHolder: string; // 예금주
+  residentNo: string; // 예금주주민번호 / 주민등록번호
+  bankName: string; // 은행명
+  accountNumber: string; // 계좌번호
+  phone?: string;
+}
+
+export const parseEmployeeRows = (rows: any[][]): EmployeeBankInfo[] => {
+  if (!Array.isArray(rows) || rows.length < 2) return [];
+  const headers = (rows[0] || []).map((h: any) => String(h || '').replace(/\s+/g, ''));
+  
+  const findCol = (keywords: string[], fallbackIdx: number) => {
+    for (const kw of keywords) {
+      const idx = headers.findIndex(h => h.includes(kw));
+      if (idx !== -1) return idx;
+    }
+    return fallbackIdx;
+  };
+
+  const codeIdx = findCol(['사원코드', '사번', '코드'], 1);
+  const hqIdx = findCol(['본부명', '본부'], 2);
+  const branchIdx = findCol(['지사명', '지사', '지점'], 3);
+  const nameIdx = findCol(['사원명', '성명', '이름'], 5);
+  const resNoIdx = findCol(['예금주주민', '주민등록번호', '주민번호'], 6);
+  const posIdx = findCol(['직위', '직책', '직급'], 7);
+  const holderIdx = findCol(['예금주명', '예금주'], 12);
+  const bankIdx = findCol(['은행명', '은행'], 14);
+  const acctIdx = findCol(['계좌번호', '계좌'], 15);
+  const phoneIdx = findCol(['휴대폰', '전화번호', '핸드폰', '연락처'], 11);
+
+  return rows.slice(1).map(r => {
+    const name = String(r[nameIdx] || '').trim();
+    const holder = String(r[holderIdx] || '').trim();
+    return {
+      empCode: String(r[codeIdx] || '').trim(),
+      hq: String(r[hqIdx] || '').trim(),
+      branch: String(r[branchIdx] || '').trim(),
+      name,
+      position: String(r[posIdx] || '').trim(),
+      accountHolder: holder || name,
+      residentNo: String(r[resNoIdx] || '').trim(),
+      bankName: String(r[bankIdx] || '').trim(),
+      accountNumber: String(r[acctIdx] || '').trim(),
+      phone: String(r[phoneIdx] || '').trim()
+    };
+  }).filter(e => e.name || e.branch);
+};
+
+export const findBranchManager = (branchName: string, hqName: string, employees: EmployeeBankInfo[]): EmployeeBankInfo | null => {
+  if (!branchName) return null;
+  const cleanBr = branchName.trim().replace(/\s+/g, '');
+  const cleanHq = (hqName || '').trim().replace(/\s+/g, '');
+
+  const branchEmps = employees.filter(e => {
+    const eBranch = (e.branch || '').replace(/\s+/g, '');
+    const eHq = (e.hq || '').replace(/\s+/g, '');
+    if (cleanHq && eHq && !eHq.includes(cleanHq) && !cleanHq.includes(eHq)) return false;
+    return eBranch === cleanBr || eBranch.includes(cleanBr) || cleanBr.includes(eBranch);
+  });
+
+  // 1순위: 직위에 '지회장' 포함 (사용자 명시 규칙: 사원리스트 시트에서 지사명과 직위(H열)에 '지회장' 값이 지점장)
+  const jihwejang = branchEmps.find(e => e.position && e.position.includes('지회장'));
+  if (jihwejang) return jihwejang;
+
+  // 2순위: 직위에 '지점장' 포함
+  const bm = branchEmps.find(e => e.position && e.position.includes('지점장'));
+  if (bm) return bm;
+
+  // 3순위: 직위에 '지사장' 포함
+  const jisa = branchEmps.find(e => e.position && e.position.includes('지사장'));
+  if (jisa) return jisa;
+
+  // 4순위: 지사명 자체가 사원 이름과 일치하는 사람
+  const nameMatch = branchEmps.find(e => e.name && (cleanBr.includes(e.name) || e.name === cleanBr));
+  if (nameMatch) return nameMatch;
+
+  // 5순위: 전체 사원 중 지사명과 이름이 같은 사람
+  const globalMatch = employees.find(e => e.name && (cleanBr === e.name || cleanBr.includes(e.name)));
+  if (globalMatch) return globalMatch;
+
+  return null;
+};
+
+export const findEmployeeInfo = (empName: string, branchName: string, hqName: string, employees: EmployeeBankInfo[]): EmployeeBankInfo | null => {
+  if (!empName) return null;
+  const cleanName = empName.trim().replace(/\s+/g, '');
+  const cleanBr = (branchName || '').trim().replace(/\s+/g, '');
+  const cleanHq = (hqName || '').trim().replace(/\s+/g, '');
+
+  const fullMatch = employees.find(e => 
+    e.name === cleanName && 
+    (!cleanBr || (e.branch || '').replace(/\s+/g, '') === cleanBr) &&
+    (!cleanHq || (e.hq || '').replace(/\s+/g, '') === cleanHq)
+  );
+  if (fullMatch) return fullMatch;
+
+  const branchMatch = employees.find(e => 
+    e.name === cleanName && 
+    (!cleanBr || (e.branch || '').replace(/\s+/g, '') === cleanBr)
+  );
+  if (branchMatch) return branchMatch;
+
+  const nameMatch = employees.find(e => e.name === cleanName);
+  if (nameMatch) return nameMatch;
+
+  return null;
+};
 
 interface HQSetting {
   id: string;
@@ -832,6 +948,7 @@ const ERP_Dashboard = () => {
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [isOrgChartModalOpen, setIsOrgChartModalOpen] = useState(false);
   const [cachedEmpRows, setCachedEmpRows] = useState<any[][]>([]);
+  const parsedEmployees = React.useMemo(() => parseEmployeeRows(cachedEmpRows), [cachedEmpRows]);
   const [dashboardView, setDashboardView] = useState<'product' | 'hq'>('product');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('전체');
   const [isMemoHistoryModalOpen, setIsMemoHistoryModalOpen] = useState(false);
@@ -3065,7 +3182,7 @@ const ERP_Dashboard = () => {
     // ERP 데이터 각 행은 이미 1구좌 단위이므로 단가 그대로 지급 (2구좌 계약은 2행, 3구좌 계약은 3행으로 분할 등록되어 있음)
     let totalCommission = unitPrice;
     let salesComm = salesPart;
-    const promoFee = Math.max(0, totalCommission - salesComm);
+    let promoFee = Math.max(0, totalCommission - salesComm);
 
     // 지급일자 산출 (글로벌 인센티브 및 조재윤, 조민경용)
     const displayPayDate = getDisplayPayDate(item);
@@ -3077,9 +3194,61 @@ const ERP_Dashboard = () => {
     let withholdingTax = 0;
     let supplyAmount = totalCommission; // 기본값은 전체수수료
 
-    if (settlementType.includes('개인')) {
-      // 개인: 설정액에서 3.3% 공제
-      withholdingTax = Math.floor(totalCommission * 0.033);
+    const isPersonalFreelance = settlementType.includes('개인');
+    let salespersonFee = 0;
+    let salespersonTax = 0;
+    let salespersonNet = 0;
+    let branchManagerFee = 0;
+    let branchManagerTax = 0;
+    let branchManagerNet = 0;
+    let branchManagerName = '';
+    let isBranchManagerSelfSale = false;
+    let salespersonBankInfo: EmployeeBankInfo | null = null;
+    let branchManagerBankInfo: EmployeeBankInfo | null = null;
+
+    if (isPersonalFreelance) {
+      // 1. 개인/프리랜서 2단계 수수료(영업사원 수수료 + 지점장 수당) 산출
+      const baseSpFee = pRule?.salespersonFee ?? pRule?.overriding?.salesperson ?? pRule?.salesAmount ?? 0;
+      const baseBmFee = pRule?.branchManagerFee ?? pRule?.overriding?.branchManager ?? Math.max(0, (pRule?.totalAmount || 0) - (pRule?.salesAmount || 0));
+
+      salespersonFee = baseSpFee;
+      branchManagerFee = baseBmFee;
+
+      // 구간별 단가 인상분이 있는 경우
+      const ruleTotal = pRule?.totalAmount || (baseSpFee + baseBmFee);
+      if (unitPrice > ruleTotal && ruleTotal > 0) {
+        const diff = unitPrice - ruleTotal;
+        salespersonFee += diff;
+      }
+
+      totalCommission = salespersonFee + branchManagerFee;
+      salesComm = salespersonFee;
+      promoFee = branchManagerFee; // 개인/프리랜서 모드에서 관리자 수당을 촉진비 컬럼과도 호환 유지
+
+      // 2. 사원리스트에서 지사명 + 직위 '지회장' 매칭
+      const bmInfo = findBranchManager(item.branch, item.hq, parsedEmployees);
+      if (bmInfo) {
+        branchManagerName = bmInfo.name;
+        branchManagerBankInfo = bmInfo;
+      } else {
+        branchManagerName = item.branch || '지점장미지정';
+      }
+
+      // 3. 지점장 본인 판매 여부 (A안: 본인 판매 시 영업사원수수료 + 지점장수당 모두 수령)
+      if (branchManagerName && item.empName && branchManagerName.trim() === item.empName.trim()) {
+        isBranchManagerSelfSale = true;
+      }
+
+      // 4. 영업사원 계좌 및 신원 정보 매핑
+      salespersonBankInfo = findEmployeeInfo(item.empName, item.branch, item.hq, parsedEmployees);
+
+      // 5. 각각 3.3% 원천징수 계산
+      salespersonTax = Math.floor(salespersonFee * 0.033);
+      salespersonNet = salespersonFee - salespersonTax;
+      branchManagerTax = Math.floor(branchManagerFee * 0.033);
+      branchManagerNet = branchManagerFee - branchManagerTax;
+
+      withholdingTax = salespersonTax + branchManagerTax;
       vat = 0;
       supplyAmount = totalCommission;
     } else {
@@ -3106,7 +3275,19 @@ const ERP_Dashboard = () => {
       supplyAmount,
       productRule,
       achievedCount: count,
-      tierBasis: basis
+      tierBasis: basis,
+      // 개인/프리랜서 전용 확장 필드
+      isPersonalFreelance,
+      salespersonFee,
+      salespersonTax,
+      salespersonNet,
+      salespersonBankInfo,
+      branchManagerName,
+      branchManagerFee,
+      branchManagerTax,
+      branchManagerNet,
+      branchManagerBankInfo,
+      isBranchManagerSelfSale
     };
   };
 
@@ -7521,6 +7702,160 @@ const ERP_Dashboard = () => {
 
       XLSX.utils.book_append_sheet(wb, ws, "정산내역");
 
+      // 개인/프리랜서 본부인 경우 [개인별 지급 명세] 시트 추가 (사원리스트 계좌/주민번호 연동)
+      if (isIndiv) {
+        const pRows: any[][] = [];
+        pRows.push([`[ ${hqName} 개인별 수수료 지급 명세 (3.3% 원천징수 공제) ]`]);
+        pRows.push([`지급일자: ${payDateDisplay}`]);
+        pRows.push([]);
+        pRows.push([
+          'No', '구분', '성명', '소속지사', '예금주', '예금주주민번호', '은행명', '계좌번호',
+          '실적건수', '영업사원수수료', '지점장수당', '유지수수료', '지급총액', '원천세(3.3%)', '최종 실지급액'
+        ]);
+
+        const pMap = new Map<string, {
+          name: string;
+          branch: string;
+          roles: Set<string>;
+          salesCount: number;
+          salesFee: number;
+          branchFee: number;
+          maintenanceFee: number;
+          bankInfo: EmployeeBankInfo | null;
+        }>();
+
+        items.forEach(item => {
+          if (item.status.includes('취소')) return;
+          const details = calculateCommissionDetails(item, stats);
+          const spName = (item.empName || '').trim();
+          const bmName = (details.branchManagerName || '').trim();
+          const spFee = details.salespersonFee ?? details.salesComm ?? 0;
+          const bmFee = details.branchManagerFee ?? (details.totalCommission - spFee);
+
+          if (spName) {
+            if (!pMap.has(spName)) {
+              pMap.set(spName, {
+                name: spName,
+                branch: item.branch || '-',
+                roles: new Set(['영업사원']),
+                salesCount: 0,
+                salesFee: 0,
+                branchFee: 0,
+                maintenanceFee: 0,
+                bankInfo: details.salespersonBankInfo || findEmployeeInfo(spName, item.branch, hqName, parsedEmployees)
+              });
+            }
+            const spEntry = pMap.get(spName)!;
+            spEntry.roles.add('영업사원');
+            spEntry.salesCount += 1;
+            spEntry.salesFee += spFee;
+          }
+
+          if (bmName && bmName !== '지점장미지정') {
+            if (!pMap.has(bmName)) {
+              pMap.set(bmName, {
+                name: bmName,
+                branch: item.branch || '-',
+                roles: new Set(['지점장']),
+                salesCount: 0,
+                salesFee: 0,
+                branchFee: 0,
+                maintenanceFee: 0,
+                bankInfo: details.branchManagerBankInfo || findEmployeeInfo(bmName, item.branch, hqName, parsedEmployees)
+              });
+            }
+            const bmEntry = pMap.get(bmName)!;
+            bmEntry.roles.add('지점장');
+            bmEntry.branchFee += bmFee;
+          }
+        });
+
+        hqMaintenancePayouts.forEach(payout => {
+          const originContract = filteredData.find(d => d.resNo === payout.resNo);
+          const empName = originContract ? (originContract.empName || '').trim() : '';
+          if (empName) {
+            if (!pMap.has(empName)) {
+              pMap.set(empName, {
+                name: empName,
+                branch: originContract?.branch || '-',
+                roles: new Set(['영업사원']),
+                salesCount: 0,
+                salesFee: 0,
+                branchFee: 0,
+                maintenanceFee: 0,
+                bankInfo: findEmployeeInfo(empName, originContract?.branch || '', hqName, parsedEmployees)
+              });
+            }
+            pMap.get(empName)!.maintenanceFee += payout.amount;
+          }
+        });
+
+        const pList = Array.from(pMap.values()).map(e => {
+          const gross = e.salesFee + e.branchFee + e.maintenanceFee;
+          const tax = Math.floor(gross * 0.033);
+          const net = gross - tax;
+          return { ...e, gross, tax, net };
+        }).sort((a, b) => b.gross - a.gross);
+
+        let totCount = 0; let totSp = 0; let totBm = 0; let totMaint = 0; let totGross = 0; let totTax = 0; let totNet = 0;
+
+        pList.forEach((p, idx) => {
+          const isBoth = p.roles.has('영업사원') && p.roles.has('지점장');
+          const roleLabel = isBoth ? '지점장(본인판매)' : (p.roles.has('지점장') ? '지점장' : '영업사원');
+          totCount += p.salesCount;
+          totSp += p.salesFee;
+          totBm += p.branchFee;
+          totMaint += p.maintenanceFee;
+          totGross += p.gross;
+          totTax += p.tax;
+          totNet += p.net;
+
+          pRows.push([
+            idx + 1,
+            roleLabel,
+            p.name,
+            p.branch,
+            p.bankInfo?.accountHolder || p.name,
+            p.bankInfo?.residentNo || '-',
+            p.bankInfo?.bankName || '-',
+            p.bankInfo?.accountNumber || '-',
+            p.salesCount > 0 ? p.salesCount : '-',
+            { v: p.salesFee, t: 'n', z: '#,##0' },
+            { v: p.branchFee, t: 'n', z: '#,##0' },
+            { v: p.maintenanceFee, t: 'n', z: '#,##0' },
+            { v: p.gross, t: 'n', z: '#,##0' },
+            { v: p.tax, t: 'n', z: '#,##0' },
+            { v: p.net, t: 'n', z: '#,##0' }
+          ]);
+        });
+
+        pRows.push([
+          '합계', '', `총 ${pList.length}명`, '', '', '', '', '',
+          totCount > 0 ? totCount : '-',
+          { v: totSp, t: 'n', z: '#,##0' },
+          { v: totBm, t: 'n', z: '#,##0' },
+          { v: totMaint, t: 'n', z: '#,##0' },
+          { v: totGross, t: 'n', z: '#,##0' },
+          { v: totTax, t: 'n', z: '#,##0' },
+          { v: totNet, t: 'n', z: '#,##0' }
+        ]);
+
+        const personalWs = XLSX.utils.aoa_to_sheet(pRows);
+        const pColWidths = pRows.reduce((acc, row) => {
+          row.forEach((cell, i) => {
+            let str = '';
+            if (cell && typeof cell === 'object' && cell.v !== undefined) str = cell.v.toString();
+            else if (cell !== null && cell !== undefined) str = cell.toString();
+            const len = str.split('').reduce((a: number, c: string) => a + (c.charCodeAt(0) > 127 ? 2.2 : 1.1), 0);
+            if (!acc[i] || len > acc[i]) acc[i] = len;
+          });
+          return acc;
+        }, [] as number[]);
+        personalWs['!cols'] = pColWidths.map(w => ({ wch: Math.min(w + 4, 40) }));
+
+        XLSX.utils.book_append_sheet(wb, personalWs, "개인별지급명세");
+      }
+
       if (!wb.Workbook) wb.Workbook = {};
       if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
       wb.Workbook.CalcPr.fullCalcOnLoad = true;
@@ -11415,6 +11750,18 @@ const ERP_Dashboard = () => {
 
                             {/* Product Rules Unified Table (Scrolling together with parent) */}
                             <div className="p-5">
+                              {s.settlementType?.includes('개인') && (
+                                <div className="mb-4 p-3.5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex flex-col md:flex-row md:items-center justify-between gap-2 shadow-xs">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-black text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200 text-[11px]">개인/프리랜서 2단계 수수료</span>
+                                    <span>다단계판매 규제 준수를 위해 <strong>[영업사원 수수료]</strong>와 <strong>[지점장 수당]</strong> 2단계로만 설정되며, 각각 3.3% 원천징수 후 지급됩니다.</span>
+                                  </div>
+                                  <div className="text-[11px] font-bold text-indigo-600 bg-white/80 px-2.5 py-1 rounded-lg border border-indigo-200 shrink-0">
+                                    ✓ 지점장은 사원리스트 직위(H열) '지회장' 기준 자동 매칭 (지점장 본인 판매 시 2가지 수당 모두 수령)
+                                  </div>
+                                </div>
+                              )}
+
                               <div className="flex justify-between items-center mb-4">
                                 <h5 className="text-sm font-black text-slate-800 flex items-center gap-2">
                                   <Package size={16} className="text-blue-500" />
@@ -11428,6 +11775,7 @@ const ERP_Dashboard = () => {
                                       productName: name, totalAmount: 0, salesAmount: 0,
                                       tier1Count: 0, tier1Price: 0, tier2Count: 0, tier2Price: 0, tier3Count: 0, tier3Price: 0,
                                       tierCountBasis: 'self', tierGroupProducts: [],
+                                      salespersonFee: 0, branchManagerFee: 0,
                                       applyOverriding: false, applyMaintenance: false, maintenanceRules: []
                                     };
                                     setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: [...h.productRules, newRule] } : h));
@@ -11441,181 +11789,253 @@ const ERP_Dashboard = () => {
                               <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm bg-white">
                                 <table className="w-full text-[12px] border-collapse">
                                   <thead>
-                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black uppercase tracking-tighter">
-                                      <th className="px-4 py-3 text-left w-[20%]">상품명</th>
-                                      <th className="px-3 py-3 text-right w-[10%]">전체</th>
-                                      <th className="px-3 py-3 text-right w-[10%]">판매</th>
-                                      <th className="px-3 py-3 text-right text-orange-600 w-[10%]">촉진</th>
-                                      <th className="px-2 py-3 text-center w-[7%]">오버라이딩</th>
-                                      <th className="px-2 py-3 text-center w-[7%]">유지수수료</th>
-                                      <th className="px-3 py-3 text-center border-l border-slate-100 bg-blue-50/30 w-[32%]">구간별 수수료 (실적기준 / 건 / 단가)</th>
-                                      <th className="px-2 py-3 text-center w-[4%]">삭제</th>
-                                    </tr>
+                                    {s.settlementType?.includes('개인') ? (
+                                      <tr className="bg-indigo-50/80 border-b border-indigo-200 text-indigo-900 font-black uppercase tracking-tighter">
+                                        <th className="px-4 py-3 text-left w-[22%]">상품명</th>
+                                        <th className="px-3 py-3 text-right w-[14%] text-blue-700">영업사원 수수료 (₩)</th>
+                                        <th className="px-3 py-3 text-right w-[14%] text-purple-700">지점장 수당 (₩)</th>
+                                        <th className="px-3 py-3 text-right w-[12%] text-slate-700">합계 수수료</th>
+                                        <th className="px-2 py-3 text-center w-[6%]">유지수수료</th>
+                                        <th className="px-3 py-3 text-center border-l border-slate-100 bg-blue-50/30 w-[28%]">구간별 수수료 (실적기준 / 건 / 단가)</th>
+                                        <th className="px-2 py-3 text-center w-[4%]">삭제</th>
+                                      </tr>
+                                    ) : (
+                                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black uppercase tracking-tighter">
+                                        <th className="px-4 py-3 text-left w-[20%]">상품명</th>
+                                        <th className="px-3 py-3 text-right w-[10%]">전체</th>
+                                        <th className="px-3 py-3 text-right w-[10%]">판매</th>
+                                        <th className="px-3 py-3 text-right text-orange-600 w-[10%]">촉진</th>
+                                        <th className="px-2 py-3 text-center w-[7%]">오버라이딩</th>
+                                        <th className="px-2 py-3 text-center w-[7%]">유지수수료</th>
+                                        <th className="px-3 py-3 text-center border-l border-slate-100 bg-blue-50/30 w-[32%]">구간별 수수료 (실적기준 / 건 / 단가)</th>
+                                        <th className="px-2 py-3 text-center w-[4%]">삭제</th>
+                                      </tr>
+                                    )}
                                   </thead>
                                   <tbody className="divide-y divide-slate-100">
-                                    {s.productRules.map((pr, pIdx) => (
-                                      <React.Fragment key={pIdx}>
-                                      <tr className="hover:bg-slate-50 transition-colors">
-                                        <td className="px-4 py-3 font-bold text-slate-700 w-[20%] align-middle">
-                                          <input
-                                            type="text" value={pr.productName}
-                                            onChange={(e) => {
-                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, productName: e.target.value } : r);
-                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                            }}
-                                            className="w-full bg-transparent border-0 font-bold outline-none focus:text-blue-600"
-                                          />
-                                        </td>
-                                        <td className="px-3 py-3 w-[10%] align-middle">
-                                          <input
-                                            type="text" value={pr.totalAmount !== undefined && pr.totalAmount !== null ? pr.totalAmount.toLocaleString() : "0"}
-                                            onChange={(e) => {
-                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, totalAmount: parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0 } : r);
-                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                            }}
-                                            className="w-full bg-transparent border-0 text-right font-black outline-none"
-                                          />
-                                        </td>
-                                        <td className="px-3 py-3 w-[10%] align-middle">
-                                          <input
-                                            type="text" value={pr.salesAmount !== undefined && pr.salesAmount !== null ? pr.salesAmount.toLocaleString() : "0"}
-                                            onChange={(e) => {
-                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, salesAmount: parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0 } : r);
-                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                            }}
-                                            className="w-full bg-transparent border-0 text-right font-bold text-blue-600 outline-none"
-                                          />
-                                        </td>
-                                        <td className="px-3 py-3 text-right font-bold text-orange-500 w-[10%] align-middle">
-                                          {(pr.totalAmount - pr.salesAmount).toLocaleString()}
-                                        </td>
-                                        <td className="px-2 py-3 text-center align-middle w-[7%]">
-                                          <div className="flex flex-col items-center justify-center">
-                                            <input type="checkbox" checked={pr.applyOverriding === true} onChange={(e) => {
-                                              const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, applyOverriding: e.target.checked } : r);
-                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                            }} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" />
-                                          </div>
-                                        </td>
-                                        <td className="px-2 py-3 text-center align-middle w-[7%]">
-                                          <div className="flex flex-col items-center justify-center">
-                                            <input type="checkbox" checked={parseBooleanValue(pr.applyMaintenance)} onChange={(e) => {
-                                              const updated = s.productRules.map((r, i) => {
-                                                if (i !== pIdx) return r;
-                                                const newR = { ...r, applyMaintenance: e.target.checked };
-                                                if (e.target.checked && (!newR.maintenanceRules || newR.maintenanceRules.length === 0)) {
-                                                  newR.maintenanceRules = [{ id: Date.now().toString(), applyStartDate: '', applyEndDate: '', tiers: [{ startMonth: 2, endMonth: 36, amount: 0 }] }];
-                                                }
-                                                return newR;
-                                              });
-                                              setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                            }} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer" />
-                                          </div>
-                                        </td>
-                                        <td className="px-3 py-3 border-l border-slate-100 bg-blue-50/10 align-middle w-[32%]">
-                                          <div className="flex flex-col gap-2">
-                                            {/* 실적 건수 판정 기준 */}
-                                            <div className="flex items-center gap-1.5 bg-white p-1 rounded-md border border-slate-200">
-                                              <span className="text-[10px] font-bold text-slate-500 shrink-0">기준:</span>
-                                              <select
-                                                value={pr.tierCountBasis || 'self'}
-                                                onChange={(e) => {
-                                                  const val = e.target.value as 'all' | 'self' | 'group';
-                                                  const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, tierCountBasis: val } : r);
-                                                  setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                                }}
-                                                className="w-full text-[11px] font-bold text-slate-700 bg-transparent outline-none cursor-pointer"
-                                              >
-                                                <option value="self">📦 해당 상품 단독 건수</option>
-                                                <option value="all">🌐 본부 전체 상품 합산</option>
-                                                <option value="group">🗂️ 지정 상품군 합산</option>
-                                              </select>
-                                            </div>
+                                    {s.productRules.map((pr, pIdx) => {
+                                      const isPersonalMode = s.settlementType?.includes('개인');
+                                      const currSp = pr.salespersonFee ?? pr.overriding?.salesperson ?? pr.salesAmount ?? 0;
+                                      const currBm = pr.branchManagerFee ?? pr.overriding?.branchManager ?? Math.max(0, (pr.totalAmount || 0) - (pr.salesAmount || 0));
 
-                                            {/* 지정 상품군 선택 팝업/영역 */}
-                                            {pr.tierCountBasis === 'group' && (
-                                              <div className="bg-indigo-50/70 p-2 rounded-lg border border-indigo-100 text-[10px]">
-                                                <div className="font-bold text-indigo-700 mb-1 flex items-center justify-between">
-                                                  <span>합산할 상품 선택:</span>
-                                                  <span className="text-[9px] text-indigo-500 font-normal">{(pr.tierGroupProducts || []).length}개 선택됨</span>
+                                      return (
+                                        <React.Fragment key={pIdx}>
+                                        <tr className="hover:bg-slate-50 transition-colors">
+                                          <td className="px-4 py-3 font-bold text-slate-700 w-[20%] align-middle">
+                                            <input
+                                              type="text" value={pr.productName}
+                                              onChange={(e) => {
+                                                const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, productName: e.target.value } : r);
+                                                setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                              }}
+                                              className="w-full bg-transparent border-0 font-bold outline-none focus:text-blue-600"
+                                            />
+                                          </td>
+                                          {isPersonalMode ? (
+                                            <>
+                                              <td className="px-3 py-3 w-[14%] align-middle">
+                                                <input
+                                                  type="text"
+                                                  value={currSp !== undefined && currSp !== null ? currSp.toLocaleString() : "0"}
+                                                  onChange={(e) => {
+                                                    const val = parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0;
+                                                    const updated = s.productRules.map((r, i) => {
+                                                      if (i !== pIdx) return r;
+                                                      const bm = r.branchManagerFee ?? r.overriding?.branchManager ?? Math.max(0, (r.totalAmount || 0) - (r.salesAmount || 0));
+                                                      return {
+                                                        ...r,
+                                                        salespersonFee: val,
+                                                        salesAmount: val,
+                                                        totalAmount: val + bm,
+                                                        overriding: { ...(r.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 }), salesperson: val, teamLeader: 0, branchManager: bm, hqManager: 0 }
+                                                      };
+                                                    });
+                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                  }}
+                                                  className="w-full bg-transparent border-0 text-right font-black text-blue-600 outline-none"
+                                                  placeholder="0"
+                                                />
+                                              </td>
+                                              <td className="px-3 py-3 w-[14%] align-middle">
+                                                <input
+                                                  type="text"
+                                                  value={currBm !== undefined && currBm !== null ? currBm.toLocaleString() : "0"}
+                                                  onChange={(e) => {
+                                                    const val = parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0;
+                                                    const updated = s.productRules.map((r, i) => {
+                                                      if (i !== pIdx) return r;
+                                                      const sp = r.salespersonFee ?? r.overriding?.salesperson ?? r.salesAmount ?? 0;
+                                                      return {
+                                                        ...r,
+                                                        branchManagerFee: val,
+                                                        totalAmount: sp + val,
+                                                        overriding: { ...(r.overriding || { salesperson: 0, teamLeader: 0, branchManager: 0, hqManager: 0 }), salesperson: sp, teamLeader: 0, branchManager: val, hqManager: 0 }
+                                                      };
+                                                    });
+                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                  }}
+                                                  className="w-full bg-transparent border-0 text-right font-black text-purple-600 outline-none"
+                                                  placeholder="0"
+                                                />
+                                              </td>
+                                              <td className="px-3 py-3 text-right font-black text-slate-800 w-[12%] align-middle font-mono">
+                                                {(currSp + currBm).toLocaleString()}원
+                                              </td>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <td className="px-3 py-3 w-[10%] align-middle">
+                                                <input
+                                                  type="text" value={pr.totalAmount !== undefined && pr.totalAmount !== null ? pr.totalAmount.toLocaleString() : "0"}
+                                                  onChange={(e) => {
+                                                    const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, totalAmount: parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0 } : r);
+                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                  }}
+                                                  className="w-full bg-transparent border-0 text-right font-black outline-none"
+                                                />
+                                              </td>
+                                              <td className="px-3 py-3 w-[10%] align-middle">
+                                                <input
+                                                  type="text" value={pr.salesAmount !== undefined && pr.salesAmount !== null ? pr.salesAmount.toLocaleString() : "0"}
+                                                  onChange={(e) => {
+                                                    const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, salesAmount: parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0 } : r);
+                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                  }}
+                                                  className="w-full bg-transparent border-0 text-right font-bold text-blue-600 outline-none"
+                                                />
+                                              </td>
+                                              <td className="px-3 py-3 text-right font-bold text-orange-500 w-[10%] align-middle">
+                                                {(pr.totalAmount - pr.salesAmount).toLocaleString()}
+                                              </td>
+                                              <td className="px-2 py-3 text-center align-middle w-[7%]">
+                                                <div className="flex flex-col items-center justify-center">
+                                                  <input type="checkbox" checked={pr.applyOverriding === true} onChange={(e) => {
+                                                    const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, applyOverriding: e.target.checked } : r);
+                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                  }} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" />
                                                 </div>
-                                                <div className="max-h-24 overflow-y-auto space-y-1 bg-white p-1.5 rounded border border-indigo-100">
-                                                  {s.productRules.map(otherPr => (
-                                                    <label key={otherPr.productName} className="flex items-center gap-1.5 text-[11px] cursor-pointer hover:bg-slate-50 p-0.5 rounded">
+                                              </td>
+                                            </>
+                                          )}
+                                          <td className="px-2 py-3 text-center align-middle w-[7%]">
+                                            <div className="flex flex-col items-center justify-center">
+                                              <input type="checkbox" checked={parseBooleanValue(pr.applyMaintenance)} onChange={(e) => {
+                                                const updated = s.productRules.map((r, i) => {
+                                                  if (i !== pIdx) return r;
+                                                  const newR = { ...r, applyMaintenance: e.target.checked };
+                                                  if (e.target.checked && (!newR.maintenanceRules || newR.maintenanceRules.length === 0)) {
+                                                    newR.maintenanceRules = [{ id: Date.now().toString(), applyStartDate: '', applyEndDate: '', tiers: [{ startMonth: 2, endMonth: 36, amount: 0 }] }];
+                                                  }
+                                                  return newR;
+                                                });
+                                                setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                              }} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer" />
+                                            </div>
+                                          </td>
+                                          <td className="px-3 py-3 border-l border-slate-100 bg-blue-50/10 align-middle w-[32%]">
+                                            <div className="flex flex-col gap-2">
+                                              {/* 실적 건수 판정 기준 */}
+                                              <div className="flex items-center gap-1.5 bg-white p-1 rounded-md border border-slate-200">
+                                                <span className="text-[10px] font-bold text-slate-500 shrink-0">기준:</span>
+                                                <select
+                                                  value={pr.tierCountBasis || 'self'}
+                                                  onChange={(e) => {
+                                                    const val = e.target.value as 'all' | 'self' | 'group';
+                                                    const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, tierCountBasis: val } : r);
+                                                    setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                  }}
+                                                  className="w-full text-[11px] font-bold text-slate-700 bg-transparent outline-none cursor-pointer"
+                                                >
+                                                  <option value="self">📦 해당 상품 단독 건수</option>
+                                                  <option value="all">🌐 본부 전체 상품 합산</option>
+                                                  <option value="group">🗂️ 지정 상품군 합산</option>
+                                                </select>
+                                              </div>
+
+                                              {/* 지정 상품군 선택 팝업/영역 */}
+                                              {pr.tierCountBasis === 'group' && (
+                                                <div className="bg-indigo-50/70 p-2 rounded-lg border border-indigo-100 text-[10px]">
+                                                  <div className="font-bold text-indigo-700 mb-1 flex items-center justify-between">
+                                                    <span>합산할 상품 선택:</span>
+                                                    <span className="text-[9px] text-indigo-500 font-normal">{(pr.tierGroupProducts || []).length}개 선택됨</span>
+                                                  </div>
+                                                  <div className="max-h-24 overflow-y-auto space-y-1 bg-white p-1.5 rounded border border-indigo-100">
+                                                    {s.productRules.map(otherPr => (
+                                                      <label key={otherPr.productName} className="flex items-center gap-1.5 text-[11px] cursor-pointer hover:bg-slate-50 p-0.5 rounded">
+                                                        <input
+                                                          type="checkbox"
+                                                          checked={(pr.tierGroupProducts || []).includes(otherPr.productName)}
+                                                          onChange={(e) => {
+                                                            const current = pr.tierGroupProducts || [];
+                                                            const next = e.target.checked
+                                                              ? [...current, otherPr.productName]
+                                                              : current.filter(p => p !== otherPr.productName);
+                                                            const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, tierGroupProducts: next } : r);
+                                                            setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                          }}
+                                                          className="w-3.5 h-3.5 text-indigo-600 rounded"
+                                                        />
+                                                        <span className="truncate">{otherPr.productName}</span>
+                                                      </label>
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              )}
+
+                                              {/* 1, 2, 3 구간 건수/단가 입력 */}
+                                              <div className="flex flex-col gap-1">
+                                                {[1, 2, 3].map(t => (
+                                                  <div key={t} className="flex items-center justify-between gap-1 bg-white p-1 px-1.5 rounded border border-slate-100 shadow-xs">
+                                                    <span className="text-[10px] font-black text-indigo-400 min-w-[12px]">{t}</span>
+                                                    <div className="flex items-center gap-0.5">
                                                       <input
-                                                        type="checkbox"
-                                                        checked={(pr.tierGroupProducts || []).includes(otherPr.productName)}
+                                                        type="text"
+                                                        value={(pr as any)[`tier${t}Count`] !== undefined && (pr as any)[`tier${t}Count`] !== null && (pr as any)[`tier${t}Count`] !== 0 ? (pr as any)[`tier${t}Count`] : ""}
                                                         onChange={(e) => {
-                                                          const current = pr.tierGroupProducts || [];
-                                                          const next = e.target.checked
-                                                            ? [...current, otherPr.productName]
-                                                            : current.filter(p => p !== otherPr.productName);
-                                                          const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, tierGroupProducts: next } : r);
+                                                          const val = parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0;
+                                                          const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Count`]: val } : r);
                                                           setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
                                                         }}
-                                                        className="w-3.5 h-3.5 text-indigo-600 rounded"
+                                                        className="w-9 text-[11px] text-center outline-none bg-slate-50/70 rounded border border-slate-200 py-0.5"
+                                                        placeholder="0"
                                                       />
-                                                      <span className="truncate">{otherPr.productName}</span>
-                                                    </label>
-                                                  ))}
-                                                </div>
+                                                      <span className="text-[9px] text-slate-400">건↑</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-0.5">
+                                                      <input
+                                                        type="text"
+                                                        value={(pr as any)[`tier${t}Price`] !== undefined && (pr as any)[`tier${t}Price`] !== null && (pr as any)[`tier${t}Price`] !== 0 ? Number((pr as any)[`tier${t}Price`]).toLocaleString() : ""}
+                                                        onChange={(e) => {
+                                                          const val = parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0;
+                                                          const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: val } : r);
+                                                          setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                        }}
+                                                        className="w-20 text-[11px] text-right outline-none font-bold text-indigo-600 bg-slate-50/70 rounded border border-slate-200 py-0.5 pr-1"
+                                                        placeholder="0"
+                                                      />
+                                                      <span className="text-[9px] text-slate-400">원</span>
+                                                    </div>
+                                                  </div>
+                                                ))}
                                               </div>
-                                            )}
-
-                                            {/* 1, 2, 3 구간 건수/단가 입력 */}
-                                            <div className="flex flex-col gap-1">
-                                              {[1, 2, 3].map(t => (
-                                                <div key={t} className="flex items-center justify-between gap-1 bg-white p-1 px-1.5 rounded border border-slate-100 shadow-xs">
-                                                  <span className="text-[10px] font-black text-indigo-400 min-w-[12px]">{t}</span>
-                                                  <div className="flex items-center gap-0.5">
-                                                    <input
-                                                      type="text"
-                                                      value={(pr as any)[`tier${t}Count`] !== undefined && (pr as any)[`tier${t}Count`] !== null && (pr as any)[`tier${t}Count`] !== 0 ? (pr as any)[`tier${t}Count`] : ""}
-                                                      onChange={(e) => {
-                                                        const val = parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0;
-                                                        const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Count`]: val } : r);
-                                                        setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                                      }}
-                                                      className="w-9 text-[11px] text-center outline-none bg-slate-50/70 rounded border border-slate-200 py-0.5"
-                                                      placeholder="0"
-                                                    />
-                                                    <span className="text-[9px] text-slate-400">건↑</span>
-                                                  </div>
-                                                  <div className="flex items-center gap-0.5">
-                                                    <input
-                                                      type="text"
-                                                      value={(pr as any)[`tier${t}Price`] !== undefined && (pr as any)[`tier${t}Price`] !== null && (pr as any)[`tier${t}Price`] !== 0 ? Number((pr as any)[`tier${t}Price`]).toLocaleString() : ""}
-                                                      onChange={(e) => {
-                                                        const val = parseInt(e.target.value.replace(/[^0-9]/g, "")) || 0;
-                                                        const updated = s.productRules.map((r, i) => i === pIdx ? { ...r, [`tier${t}Price`]: val } : r);
-                                                        setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                                      }}
-                                                      className="w-20 text-[11px] text-right outline-none font-bold text-indigo-600 bg-slate-50/70 rounded border border-slate-200 py-0.5 pr-1"
-                                                      placeholder="0"
-                                                    />
-                                                    <span className="text-[9px] text-slate-400">원</span>
-                                                  </div>
-                                                </div>
-                                              ))}
                                             </div>
-                                          </div>
-                                        </td>
-                                        <td className="px-2 py-3 text-center align-middle w-[4%]">
-                                          <button
-                                            onClick={async () => {
-                                              if (await (window as any).customConfirm('삭제하시겠습니까?')) {
-                                                const updated = s.productRules.filter((_, i) => i !== pIdx);
-                                                setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
-                                              }
-                                            }}
-                                            className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded transition-colors"
-                                            title="상품 삭제"
-                                          >
-                                            <X size={14} />
-                                          </button>
-                                        </td>
-                                      </tr>
-                                      {pr.applyOverriding === true && (
+                                          </td>
+                                          <td className="px-2 py-3 text-center align-middle w-[4%]">
+                                            <button
+                                              onClick={async () => {
+                                                if (await (window as any).customConfirm('삭제하시겠습니까?')) {
+                                                  const updated = s.productRules.filter((_, i) => i !== pIdx);
+                                                  setHqSettings(hqSettings.map(h => h.id === s.id ? { ...h, productRules: updated } : h));
+                                                }
+                                              }}
+                                              className="p-1.5 hover:bg-rose-50 text-slate-300 hover:text-rose-500 rounded transition-colors"
+                                              title="상품 삭제"
+                                            >
+                                              <X size={14} />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                        {!isPersonalMode && pr.applyOverriding === true && (
                                         <tr className="bg-indigo-50/40 border-b border-indigo-100">
                                           <td colSpan={8} className="px-6 py-4">
                                             <div className="flex flex-col gap-2">
@@ -11783,7 +12203,8 @@ const ERP_Dashboard = () => {
                                         </tr>
                                       )}
                                       </React.Fragment>
-                                    ))}
+                                    );
+                                  })}
                                   </tbody>
                                 </table>
                                 {s.productRules.length === 0 && (
@@ -13710,6 +14131,7 @@ const ERP_Dashboard = () => {
             calculateCommissionDetails={calculateCommissionDetails}
             onExportHqSettlement={exportProfessionalSettlement}
             calculateMaintenancePayouts={calculateMaintenancePayouts}
+            cachedEmpRows={cachedEmpRows}
           />
           <CustomDialog
             isOpen={dialogState.isOpen}
