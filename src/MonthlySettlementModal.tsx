@@ -440,6 +440,47 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     };
   }, [goodlifeSplitRows]);
 
+  // 신동우 대표 물품대금 수수료(테라웨이브) 동적 집계 (선택된 월 기준: 10월 2건 100만, 11월 5건 250만, 기타 월 ERP 연동)
+  const currentTherawaveInfo = useMemo(() => {
+    const isOct = selectedMonth === '2026-10' || selectedMonth.endsWith('-10');
+    const isNov = selectedMonth === '2026-11' || selectedMonth.endsWith('-11');
+
+    let count = 0;
+    const seenTwKey = new Set<string>();
+
+    (data || []).forEach(item => {
+      const pDate = item.payDate || '';
+      const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+      const itemMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+      if (itemMonth !== selectedMonth) return;
+
+      const st = String(item.status || '').trim();
+      if (st.includes('취소') || st.includes('해약') || st.includes('철회') || st.includes('반품') || st.includes('실효')) return;
+
+      const prodText = `${item.rentalProd || ''} ${item.prodName || ''} ${item.modelName || ''}`.toLowerCase();
+      if (prodText.includes('테라웨이브') || prodText.includes('therawave')) {
+        const key = item.rentalNo || item.resNo || item.contractNo;
+        if (key && !seenTwKey.has(String(key))) {
+          seenTwKey.add(String(key));
+          count += 1;
+        } else if (!key) {
+          count += 1;
+        }
+      }
+    });
+
+    if (isNov) {
+      count = count > 0 ? count : 5; // 11월 공식 실적 5건 (250만원)
+    } else if (isOct) {
+      count = 2; // 10월 확정 2건 (100만원)
+    }
+
+    const unitFee = 500000;
+    const amount = count * unitFee;
+
+    return { count, unitFee, amount };
+  }, [data, selectedMonth]);
+
   // 굿라이프 분배 뷰 모드: 'summary' (상품군별 요약) | 'byHq' (사업단 소속 본부별 상세)
   const [goodlifeViewMode, setGoodlifeViewMode] = useState<'summary' | 'byHq'>('summary');
 
@@ -1524,6 +1565,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               totalCommission: 632 * 5000
             };
           }
+          if (r.targetName === '신동우' && r.itemName.includes('테라웨이브') && r.count !== currentTherawaveInfo.count) {
+            return {
+              ...r,
+              count: currentTherawaveInfo.count,
+              unitFee: currentTherawaveInfo.unitFee,
+              totalCommission: currentTherawaveInfo.amount
+            };
+          }
           return r;
         });
       }
@@ -1805,38 +1854,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       });
     }
 
-    // 신동우 물품대금 수수료(테라웨이브) - 계약번호 중복 제거 및 10월 2건(1,000,000원) 고정 보장
-    let therawaveCount = 0;
-    const seenTherawaveKeys = new Set<string>();
-    (data || []).forEach(item => {
-      const pDate = item.payDate || '';
-      const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
-      const itemMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
-      if (itemMonth !== selectedMonth) return;
-      const prodText = `${item.rentalProd || ''} ${item.prodName || ''} ${item.modelName || ''}`.toLowerCase();
-      if (prodText.includes('테라웨이브') || prodText.includes('therawave')) {
-        const key = item.rentalNo || item.resNo || item.contractNo;
-        if (key && !seenTherawaveKeys.has(String(key))) {
-          seenTherawaveKeys.add(String(key));
-          therawaveCount += 1;
-        } else if (!key) {
-          therawaveCount += 1;
-        }
-      }
-    });
-    if (isOct) {
-      therawaveCount = 2; // 10월 확정: 2건, 1,000,000원 고정 (사업단 묶음 ON/OFF 관계없이 물품대금수수료 동일 유지)
-    }
-    if (therawaveCount > 0) {
+    // 신동우 물품대금 수수료(테라웨이브) - 계약번호 중복 제거 및 월별 실적 동적 연동 (10월 2건 100만, 11월 5건 250만, 기타 월 연동)
+    if (currentTherawaveInfo.count > 0) {
       result.push({
         id: `auto_therawave_shin_${selectedMonth}`,
         targetName: '신동우',
         itemName: '물품대금 수수료(테라웨이브)',
-        count: therawaveCount,
-        unitFee: 500000,
+        count: currentTherawaveInfo.count,
+        unitFee: currentTherawaveInfo.unitFee,
         salesCommission: 0,
         promoCommission: 0,
-        totalCommission: therawaveCount * 500000,
+        totalCommission: currentTherawaveInfo.amount,
         isHeaderGroup: glOverrideAmount <= 0
       });
     }
@@ -1855,7 +1883,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
 
     return result;
-  }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data, goodlifeSplitSummary]);
+  }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data, goodlifeSplitSummary, currentTherawaveInfo]);
 
   // 상세 정산 내역 전체 합계 계산 (소계 행 제외하여 중복 방지 및 원천세/실지급액 계산)
   const detailedTotals = useMemo(() => {
@@ -2380,16 +2408,16 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       ]);
       glSplitData.push([
         '2. 개인 특수수당(테라웨이브)',
-        '물품대금 수수료 2건 (건당 500,000원)',
+        `물품대금 수수료 ${currentTherawaveInfo.count}건 (건당 ${currentTherawaveInfo.unitFee.toLocaleString()}원)`,
         `='1. 본사보고용_수수료정산서'!H${shindwEtcRow}`,
-        { f: `'1. 본사보고용_수수료정산서'!H${shindwEtcRow}`, v: 1000000, t: 'n', z: '#,##0' },
+        { f: `'1. 본사보고용_수수료정산서'!H${shindwEtcRow}`, v: currentTherawaveInfo.amount, t: 'n', z: '#,##0' },
         '', '', '', '', '', '', '', ''
       ]);
       glSplitData.push([
         '신동우 대표 최종 실송금액 합계',
         '에스제이컨설팅 (국민은행 164501-04-161888 김애숙)',
         `=D${shindwDiffRowNo}+D${shindwItemRowNo}`,
-        { f: `D${shindwDiffRowNo}+D${shindwItemRowNo}`, v: goodlifeSplitSummary.totalOverride + 1000000, t: 'n', z: '#,##0' },
+        { f: `D${shindwDiffRowNo}+D${shindwItemRowNo}`, v: goodlifeSplitSummary.totalOverride + currentTherawaveInfo.amount, t: 'n', z: '#,##0' },
         '', '', '', '', '', '', '', ''
       ]);
 
@@ -2807,9 +2835,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       });
 
       // 9. 신동우 대표 (에스제이컨설팅: 굿라이프 차액 합계 + 테라웨이브 물품대금 수수료 합산 - hqSettings 연동)
-      const twRow = detailedSettlementList.find(r => r.targetName === '신동우' && r.itemName.includes('테라웨이브'));
-      const therawaveCount = isOct ? 2 : (twRow ? twRow.count : 0);
-      const therawaveAmount = isOct ? 1000000 : (twRow ? twRow.totalCommission : 0);
+      const therawaveCount = currentTherawaveInfo.count;
+      const therawaveAmount = currentTherawaveInfo.amount;
       const shindwAcc = getPayoutAccountInfo('신동우');
       const shindwNetTotal = goodlifeSplitSummary.totalOverride + therawaveAmount;
       const shindwCount = goodlifeSplitSummary.totalCount + therawaveCount;
@@ -2825,9 +2852,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         bankName: shindwAcc.bankName !== '-' ? shindwAcc.bankName : '국민은행',
         accountNumber: shindwAcc.accountNumber !== '-' ? shindwAcc.accountNumber : '164501-04-161888',
         accountHolder: shindwAcc.accountHolder !== '-' ? shindwAcc.accountHolder : '김애숙(에스제이컨설팅)',
-        note: isOct
-          ? `굿라이프 차액분(1,712만) + 테라웨이브 물품대금수수료(100만)`
-          : `굿라이프 차액분(${Math.round(goodlifeSplitSummary.totalOverride / 10000).toLocaleString()}만) + 테라웨이브 물품대금수수료(${Math.round(therawaveAmount / 10000).toLocaleString()}만)`
+        note: `굿라이프 차액분(${Math.round(goodlifeSplitSummary.totalOverride / 10000).toLocaleString()}만) + 테라웨이브 물품대금수수료(${Math.round(therawaveAmount / 10000).toLocaleString()}만)`
       });
 
       payoutList.forEach((item, pIdx) => {
@@ -5976,9 +6001,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       <div className="bg-purple-50/60 p-4 rounded-xl border border-purple-200 shadow-2xs whitespace-nowrap">
                         <span className="text-xs text-purple-800 font-bold block">신동우 대표 최종 실송금</span>
                         <div className="mt-1 text-lg font-black text-purple-700 font-mono">
-                          {(goodlifeSplitSummary.totalOverride + 1000000).toLocaleString()}<span className="text-xs font-normal text-purple-600 ml-0.5">원</span>
+                          {(goodlifeSplitSummary.totalOverride + currentTherawaveInfo.amount).toLocaleString()}<span className="text-xs font-normal text-purple-600 ml-0.5">원</span>
                         </div>
-                        <span className="text-[11px] text-purple-600 font-medium mt-0.5 block">차액 + 테라웨이브(100만)</span>
+                        <span className="text-[11px] text-purple-600 font-medium mt-0.5 block">
+                          차액 + 테라웨이브({Math.round(currentTherawaveInfo.amount / 10000).toLocaleString()}만{currentTherawaveInfo.count > 0 ? ` / ${currentTherawaveInfo.count}건` : ''})
+                        </span>
                       </div>
                     </div>
 
@@ -6491,11 +6518,16 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                               </div>
                               <div className="flex justify-between items-center gap-2">
                                 <span className="text-slate-500">세부내역:</span>
-                                <span className="text-slate-700">차액 {goodlifeSplitSummary.totalOverride.toLocaleString()}원 + 테라 100만</span>
+                                <span className="text-slate-700">
+                                  차액 {goodlifeSplitSummary.totalOverride.toLocaleString()}원
+                                  {currentTherawaveInfo.amount > 0 ? ` + 테라 ${Math.round(currentTherawaveInfo.amount / 10000).toLocaleString()}만(${currentTherawaveInfo.count}건)` : ''}
+                                </span>
                               </div>
                               <div className="flex justify-between items-center pt-2 border-t border-purple-200 text-sm">
                                 <span className="font-bold text-purple-900">최종 송금액:</span>
-                                <span className="font-mono font-black text-purple-700">{(goodlifeSplitSummary.totalOverride + 1000000).toLocaleString()}원</span>
+                                <span className="font-mono font-black text-purple-700">
+                                  {(goodlifeSplitSummary.totalOverride + currentTherawaveInfo.amount).toLocaleString()}원
+                                </span>
                               </div>
                             </div>
                           </div>
