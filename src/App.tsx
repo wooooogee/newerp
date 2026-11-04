@@ -5034,8 +5034,11 @@ const ERP_Dashboard = () => {
       const processedRentalNos = new Set<string>();
 
       data.forEach(item => {
-        // 1) 취소 및 해약 건은 특수수당 지급 대상 제외
-        if (item.status?.includes('취소') || item.status?.includes('해약')) return;
+        // 1) 계약상태 검증: 오직 '가입'(또는 '정상') 상태인 유효 계약 건만 엄격 인정 (취소, 해약, 철회, 반품, 실효 제외)
+        const st = String(item.status || '').trim();
+        const isJoined = st === '가입' || st === '정상' || st.includes('가입') || (st === '' && !item.cancelDate);
+        if (!isJoined) return;
+        if (st.includes('취소') || st.includes('해약') || st.includes('철회') || st.includes('반품') || st.includes('실효')) return;
 
         // 2) 배송완료 확인: 배송일자가 없거나 '-'이거나 배송완료 상태가 아니면 수당 지급 제외
         const isDelivered = (item.deliveryStatus && item.deliveryStatus.includes('완료')) || 

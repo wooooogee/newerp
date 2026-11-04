@@ -745,9 +745,12 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
     const statsMap = new Map<string, HqMonthlyStat>();
 
-    // 1) 해당 월의 계약 건 필터링 및 본부별 수수료 집계
+    // 1) 해당 월의 계약 건 필터링 및 본부별 수수료 집계 (오직 계약상태가 '가입'인 건만 엄격 집계)
     (data || []).forEach(item => {
-      if ((item.status?.includes('취소') || item.status?.includes('해약')) && !item.payDate?.trim()) return;
+      const st = String(item.status || '').trim();
+      const isJoined = st === '가입' || st === '정상' || st.includes('가입') || (st === '' && !item.cancelDate);
+      if (!isJoined) return;
+      if (st.includes('취소') || st.includes('해약') || st.includes('철회') || st.includes('반품') || st.includes('실효')) return;
 
       const pDate = item.payDate || '';
       const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
@@ -866,8 +869,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         const matchedItems: any[] = [];
 
         (data || []).forEach(item => {
-          // 1) 취소 및 해약 건은 특수수당 지급 대상 제외
-          if (item.status?.includes('취소') || item.status?.includes('해약')) return;
+          // 1) 계약상태가 반드시 '가입' 또는 '정상'인 유효 건만 수당 지급 대상 인정 (취소, 해약, 철회, 반품, 실효 제외)
+          const st = String(item.status || '').trim();
+          const isJoined = st === '가입' || st === '정상' || st.includes('가입') || (st === '' && !item.cancelDate);
+          if (!isJoined) return;
+          if (st.includes('취소') || st.includes('해약') || st.includes('철회') || st.includes('반품') || st.includes('실효')) return;
 
           // 2) 배송완료 확인: 배송일자가 없거나 '-'이거나 배송완료 상태가 아니면 수당 지급 제외
           const isDelivered = (item.deliveryStatus && item.deliveryStatus.includes('완료')) || 
@@ -1081,8 +1087,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             const stat = statsMap.get(targetName)!;
             stat.specialSum += finalAmount;
             stat.specialItems.push(...matchedItems);
-            stat.count = (stat.items?.length || 0) + stat.specialItems.length;
-            stat.accountCount = (stat.accountCount || 0) + matchedItems.length;
+            // 권성훈 등 고정비 항목은 1건 고정
+            const isFixed = targetName.includes('권성훈') || targetName.includes('홈페이지');
+            stat.count = isFixed ? 1 : ((stat.items?.length || 0) + stat.specialItems.length);
+            stat.accountCount = isFixed ? 1 : ((stat.accountCount || 0) + (isFixed ? 1 : matchedItems.length));
           }
         }
       });
@@ -3409,7 +3417,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     let totalNet = 0;
 
     filteredAndSortedStats.forEach(s => {
-      totalCount += s.count;
+      // ⭐ [핵심 보정] 총 실적 건수는 순수 영업 계약 실적(s.items.length)만을 합산하여, 외주/인센티브(조재윤 모델비, 조민경 컨설팅비 등)의 중복 누적으로 인한 총 건수 왜곡(2,893건 등) 방지
+      const pureSalesCount = (s.items && s.items.length > 0) ? s.items.length : (s.generalSum > 0 ? s.count : 0);
+      totalCount += pureSalesCount;
       totalSales += s.salesSum;
       totalPromo += s.promoSum;
       totalGeneral += s.generalSum;

@@ -577,7 +577,13 @@ export function PresidentReportModal({
   const computeMonthEndDefaults = (overrideSuppliers?: SupplierItem[]) => {
     const targetMonthClean = selectedMonth.replace(/[^0-9]/g, '');
     const validItems = (data || []).filter(item => {
-      if (item.status?.includes('취소') || item.status?.includes('해약')) return false;
+      // 1) 계약상태 검증: 오직 '가입'(또는 '정상') 상태만 엄격히 카운트 (취소, 해약, 철회, 반품, 실효 등 비가입 상태 제외)
+      const st = String(item.status || '').trim();
+      const isJoined = st === '가입' || st === '정상' || st.includes('가입');
+      if (!isJoined) return false;
+      if (st.includes('취소') || st.includes('해약') || st.includes('철회') || st.includes('반품') || st.includes('실효')) return false;
+
+      // 2) 배송완료 검증: 배송완료 상태이거나 유효한 배송일자가 있는 건만 인정
       const isDelivered = (item.deliveryStatus && item.deliveryStatus.includes('완료')) ||
                           (item.deliveryDate && item.deliveryDate !== '-' && item.deliveryDate.trim() !== '');
       if (!isDelivered) return false;
@@ -835,7 +841,10 @@ export function PresidentReportModal({
       const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
       const itemMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
       if (itemMonth !== selectedMonth) return;
-      if (item.status?.includes('취소') || item.status?.includes('해약')) return;
+      const st = String(item.status || '').trim();
+      const isJoined = st === '가입' || st === '정상' || st.includes('가입');
+      if (!isJoined) return;
+      if (st.includes('취소') || st.includes('해약') || st.includes('철회') || st.includes('반품') || st.includes('실효')) return;
 
       rawMonthCount += 1;
 
@@ -857,17 +866,39 @@ export function PresidentReportModal({
 
     let initialSpecialList: typeof specialExpenseList = [];
     if (enexProfitSummary?.extraDeductions && Array.isArray(enexProfitSummary.extraDeductions) && enexProfitSummary.extraDeductions.length > 0) {
-      initialSpecialList = enexProfitSummary.extraDeductions.map((e: any, idx: number) => ({
-        id: `spec-${idx}`,
-        category: e.category || '지출차감',
-        name: e.name || '지출항목',
-        // 권성훈은 전체 상품/제품 건수에 해당 안 되고 고정지급 (1건 고정)
-        count: (e.name && e.name.includes('권성훈')) ? 1 : (e.count || 1),
-        amount: e.amount || 0,
-        note: (e.name && e.name.includes('권성훈'))
-          ? `${monthNum}월 홈페이지 유지보수비 (고정지급)`
-          : (e.remark || e.accountInfo || `${monthNum}월 지급 수수료`)
-      }));
+      initialSpecialList = enexProfitSummary.extraDeductions.map((e: any, idx: number) => {
+        let finalCount = e.count || 1;
+        let finalAmount = e.amount || 0;
+        let finalNote = e.remark || e.accountInfo || `${monthNum}월 지급 수수료`;
+
+        // 1) 권성훈: 전체 상품 건수와 무관한 고정지급 (1건 고정, 150,000원)
+        if (e.name && e.name.includes('권성훈')) {
+          finalCount = 1;
+          finalAmount = 150000;
+          finalNote = `${monthNum}월 홈페이지 유지보수비 (고정지급)`;
+        }
+        // 2) 조재윤: 테이블 2 영업실적 총 건수(632건)와 100% 일치 (건당 1만원)
+        else if (e.name && e.name.includes('조재윤')) {
+          finalCount = effectiveTotalCount;
+          finalAmount = effectiveTotalCount * 10000;
+          finalNote = `${monthNum}월 모델비 (건당 1만원)`;
+        }
+        // 3) 조민경: 테이블 2 영업실적 총 건수(632건)와 100% 일치 (건당 5천원)
+        else if (e.name && e.name.includes('조민경')) {
+          finalCount = effectiveTotalCount;
+          finalAmount = effectiveTotalCount * 5000;
+          finalNote = `${monthNum}월 컨설팅비 (건당 5천원)`;
+        }
+
+        return {
+          id: `spec-${idx}`,
+          category: e.category || '지출차감',
+          name: e.name || '지출항목',
+          count: finalCount,
+          amount: finalAmount,
+          note: finalNote
+        };
+      });
     } else if (isOct) {
       initialSpecialList = [
         { id: 's-1', category: '특수수당', name: '신동우 대표', count: '211', amount: 16720000, note: '10월 지급 수수료' },
