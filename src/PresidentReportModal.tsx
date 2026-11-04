@@ -865,8 +865,16 @@ export function PresidentReportModal({
     const effectiveTotalCount = totalBCount;
     const effectiveTherawaveCount = isNov ? 5 : (isOct ? 2 : rawTherawaveCount);
 
+    // enexProfitSummary의 지급월이 현재 선택된 selectedMonth와 정확히 일치할 때만 대사 차감항목을 연동
+    const enexMonthClean = String(enexProfitSummary?.payoutMonthDisplay || '').replace(/[^0-9]/g, '');
+    const isEnexMonthMatched = Boolean(
+      enexProfitSummary &&
+      enexMonthClean &&
+      (enexMonthClean === String(monthNum) || enexMonthClean.endsWith(String(monthNum).padStart(2, '0')))
+    );
+
     let initialSpecialList: typeof specialExpenseList = [];
-    if (enexProfitSummary?.extraDeductions && Array.isArray(enexProfitSummary.extraDeductions) && enexProfitSummary.extraDeductions.length > 0) {
+    if (isEnexMonthMatched && enexProfitSummary?.extraDeductions && Array.isArray(enexProfitSummary.extraDeductions) && enexProfitSummary.extraDeductions.length > 0) {
       initialSpecialList = enexProfitSummary.extraDeductions.map((e: any, idx: number) => {
         let finalCount = e.count || 1;
         let finalAmount = e.amount || 0;
@@ -878,13 +886,13 @@ export function PresidentReportModal({
           finalAmount = 150000;
           finalNote = `${monthNum}월 홈페이지 유지보수비 (고정지급)`;
         }
-        // 2) 조재윤: 테이블 2 영업실적 총 건수(632건)와 100% 일치 (건당 1만원)
+        // 2) 조재윤: 테이블 2 영업실적 총 건수와 100% 일치 (건당 1만원)
         else if (e.name && e.name.includes('조재윤')) {
           finalCount = effectiveTotalCount;
           finalAmount = effectiveTotalCount * 10000;
           finalNote = `${monthNum}월 모델비 (건당 1만원)`;
         }
-        // 3) 조민경: 테이블 2 영업실적 총 건수(632건)와 100% 일치 (건당 5천원)
+        // 3) 조민경: 테이블 2 영업실적 총 건수와 100% 일치 (건당 5천원)
         else if (e.name && e.name.includes('조민경')) {
           finalCount = effectiveTotalCount;
           finalAmount = effectiveTotalCount * 5000;
@@ -909,12 +917,12 @@ export function PresidentReportModal({
         { id: 's-5', category: '모델비', name: '조재윤', count: 601, amount: 6010000, note: '10월 지급 수수료 (건당 1만원)' },
         { id: 's-6', category: '유지수수료', name: '본부 유지수수료', count: 8, amount: 88000, note: '10월 회차 유지수수료' }
       ];
-    } else {
-      // 11월 및 이후 월 공식 실시간 동적 연동
+    } else if (isNov) {
+      // 11월 공식 실시간 동적 연동 (11월 실적 기준: 총 371건, 19,620,000원 + 모델비 632건 + 컨설팅비 632건 + 권성훈 + 유지수수료 11건)
       const shinOverride = 17120000;
-      const therawaveAmount = effectiveTherawaveCount * 500000;
+      const therawaveAmount = 5 * 500000; // 11월 테라웨이브 5건 (250만)
       const shinTotalAmount = shinOverride + therawaveAmount;
-      const shinTotalCount = 366 + effectiveTherawaveCount;
+      const shinTotalCount = 366 + 5; // 굿라이프 366건 + 테라웨이브 5건 = 371건
 
       initialSpecialList = [
         {
@@ -923,15 +931,15 @@ export function PresidentReportModal({
           name: '신동우 대표',
           count: shinTotalCount,
           amount: shinTotalAmount,
-          note: `${monthNum}월 굿라이프 차액(1,712만) + 테라웨이브(250만)`
+          note: '11월 굿라이프 차액(1,712만) + 테라웨이브(250만)'
         },
         {
           id: 's-3',
           category: '유지보수',
           name: '권성훈',
-          count: 1, // 권성훈은 전체 상품, 전체 제품에 해당 안 되고 고정지급 (1건 고정)
+          count: 1,
           amount: 150000,
-          note: `${monthNum}월 홈페이지 유지보수비 (고정지급)`
+          note: '11월 홈페이지 유지보수비 (고정)'
         },
         {
           id: 's-4',
@@ -939,7 +947,7 @@ export function PresidentReportModal({
           name: '조민경',
           count: effectiveTotalCount,
           amount: effectiveTotalCount * 5000,
-          note: `${monthNum}월 지급 수수료 (건당 5천원)`
+          note: '11월 컨설팅비 (건당 5천원)'
         },
         {
           id: 's-5',
@@ -947,7 +955,55 @@ export function PresidentReportModal({
           name: '조재윤',
           count: effectiveTotalCount,
           amount: effectiveTotalCount * 10000,
-          note: `${monthNum}월 지급 수수료 (건당 1만원)`
+          note: '11월 모델비 (건당 1만원)'
+        },
+        {
+          id: 's-6',
+          category: '유지수수료',
+          name: '본부 유지수수료',
+          count: 11,
+          amount: 118000,
+          note: '11월 회차 유지수수료'
+        }
+      ];
+    } else {
+      // 12월 및 이후 월 공식 실시간 동적 연동
+      const therawaveAmount = effectiveTherawaveCount * 500000;
+      const goodlifeCount = initialHqProductList.filter(r => r.hqName === '굿라이프').reduce((s, r) => s + r.count, 0);
+      const shinTotalCount = goodlifeCount + effectiveTherawaveCount;
+
+      initialSpecialList = [
+        {
+          id: 's-1',
+          category: '특수수당',
+          name: '신동우 대표',
+          count: shinTotalCount,
+          amount: 17120000 + therawaveAmount,
+          note: `${monthNum}월 굿라이프 차액 + 테라웨이브 수수료`
+        },
+        {
+          id: 's-3',
+          category: '유지보수',
+          name: '권성훈',
+          count: 1,
+          amount: 150000,
+          note: `${monthNum}월 홈페이지 유지보수비 (고정)`
+        },
+        {
+          id: 's-4',
+          category: '컨설팅',
+          name: '조민경',
+          count: effectiveTotalCount,
+          amount: effectiveTotalCount * 5000,
+          note: `${monthNum}월 컨설팅비 (건당 5천원)`
+        },
+        {
+          id: 's-5',
+          category: '모델비',
+          name: '조재윤',
+          count: effectiveTotalCount,
+          amount: effectiveTotalCount * 10000,
+          note: `${monthNum}월 모델비 (건당 1만원)`
         },
         {
           id: 's-6',
@@ -1337,7 +1393,7 @@ export function PresidentReportModal({
                   ...item,
                   count: 1,
                   amount: 150000,
-                  note: `${monthN}월 홈페이지 유지보수비 (고정지급)`
+                  note: `${monthN}월 홈페이지 유지보수비 (고정)`
                 };
               }
               // 2) 조재윤: 테이블 2 영업실적 총 건수와 실시간 일치 (건당 1만원)
@@ -1368,7 +1424,7 @@ export function PresidentReportModal({
                 };
               }
               // 5) 본부 유지수수료
-              if (isNovMonth && item.name && item.name.includes('본부 유지수수료')) {
+              if (isNovMonth && (item.name && (item.name.includes('유지수수료') || item.category === '유지수수료'))) {
                 return {
                   ...item,
                   count: 11,
@@ -1392,7 +1448,11 @@ export function PresidentReportModal({
               cached.metrics.d_operatingProfit = cached.metrics.a_enexDeposit - cached.metrics.b_salesCommission - newC;
               cached.metrics.i_finalNetProfit = cached.metrics.d_operatingProfit + cached.metrics.h_supplyProfit;
             }
-            setMetrics(cached.metrics);
+            setMetrics({ ...cached.metrics, c_specialAndMaintenance: newC });
+            try {
+              cached.specialExpenseList = migratedSpecial;
+              localStorage.setItem(cacheKey, JSON.stringify(cached));
+            } catch (e) {}
           }
           // 공급사 제품별 세부 내역 및 총괄 요약 마이그레이션 (11월 바디프랜드 확인서 등록건 30개 동기화)
           if (Array.isArray(cached.supplierProductDetailList)) {
