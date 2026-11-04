@@ -7815,7 +7815,10 @@ const ERP_Dashboard = () => {
 
         pList.forEach((p, idx) => {
           const isBoth = p.roles.has('영업사원') && p.roles.has('지점장');
-          const roleLabel = isBoth ? '지점장(본인판매)' : (p.roles.has('지점장') ? '지점장' : '영업사원');
+          const isHqLeader = p.bankInfo?.position?.includes('본부장');
+          const isJihwe = p.bankInfo?.position?.includes('지회장');
+          const managerTitle = isHqLeader ? '본부장 겸 지회장' : (isJihwe ? '지회장' : '지점장');
+          const roleLabel = isBoth ? `${managerTitle}(본인판매)` : (p.roles.has('지점장') ? managerTitle : '영업사원');
           totCount += p.salesCount;
           totSp += p.salesFee;
           totBm += p.branchFee;

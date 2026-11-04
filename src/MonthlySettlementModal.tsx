@@ -5268,7 +5268,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                                   <tbody className="divide-y divide-slate-100">
                                     {personalPayoutList.map((p, pIdx) => {
                                       const isBoth = p.roles.has('영업사원') && p.roles.has('지점장');
-                                      const roleLabel = isBoth ? '지점장(본인판매)' : (p.roles.has('지점장') ? '지점장' : '영업사원');
+                                      const isHqLeader = p.bankInfo?.position?.includes('본부장');
+                                      const isJihwe = p.bankInfo?.position?.includes('지회장');
+                                      const managerTitle = isHqLeader ? '본부장 겸 지회장' : (isJihwe ? '지회장' : '지점장');
+                                      const roleLabel = isBoth ? `${managerTitle}(본인판매)` : (p.roles.has('지점장') ? managerTitle : '영업사원');
                                       const roleBadgeClass = isBoth
                                         ? 'bg-purple-100 text-purple-700 border-purple-200'
                                         : (p.roles.has('지점장') ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-blue-100 text-blue-700 border-blue-200');
