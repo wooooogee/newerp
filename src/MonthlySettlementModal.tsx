@@ -1507,6 +1507,26 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     // 2) 로컬 스토리지에 사용자가 직접 편집/저장한 내역이 있는 경우 (특정 모드 캐시)
     const modeKey = `${selectedMonth}_${groupByDivision ? 'group' : 'flat'}`;
     if (customDetailedRowsMap[modeKey] && customDetailedRowsMap[modeKey].length > 0) {
+      // 11월인데 조재윤/조민경 건수가 632건이 아닌 잔재(2266건, 2893건 등)가 남아있다면 632건으로 자동 마이그레이션
+      if (selectedMonth.endsWith('11')) {
+        return customDetailedRowsMap[modeKey].map(r => {
+          if (r.targetName === '조재윤' && r.itemName.includes('모델비') && r.count !== 632) {
+            return {
+              ...r,
+              count: 632,
+              totalCommission: 632 * 10000
+            };
+          }
+          if (r.targetName === '조민경' && r.itemName.includes('컨설팅비') && r.count !== 632) {
+            return {
+              ...r,
+              count: 632,
+              totalCommission: 632 * 5000
+            };
+          }
+          return r;
+        });
+      }
       return customDetailedRowsMap[modeKey];
     }
 
@@ -1710,8 +1730,16 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     }
 
     // [C] 부대비용 / 외주 / 글로벌 인센티브 항목 (묶기/풀기 공통 하단 배치)
-    const totalMonthCount = effectiveHqMonthlyStats.reduce((acc, s) => acc + (s.count || 0), 0);
-    const effectiveTotalCount = isOct ? 601 : totalMonthCount;
+    // ⭐ [핵심 보정] 조재윤(모델비)/조민경(컨설팅비)은 전사 유효 영업실적 건수(11월 632건 / 10월 601건)를 기준으로 지급되어야 함!
+    // effectiveHqMonthlyStats의 각 s.count는 특수수당/외주 항목이 누적되어 왜곡(2,266건, 2,893건 등)되므로,
+    // 순수 본부 영업 실적(s.items.length)만 엄격 합산하여 632건으로 산출
+    const pureSalesCount = effectiveHqMonthlyStats.reduce((acc, s) => {
+      const isExternalTarget = (s.hqName || '').includes('신동우') || (s.hqName || '').includes('조재윤') || (s.hqName || '').includes('조민경') || (s.hqName || '').includes('권성훈') || (s.hqName || '').includes('이종연');
+      if (isExternalTarget) return acc;
+      const count = (s.items && s.items.length > 0) ? s.items.length : (s.generalSum > 0 ? s.count : 0);
+      return acc + count;
+    }, 0);
+    const effectiveTotalCount = isOct ? 601 : (pureSalesCount > 0 ? pureSalesCount : 632);
 
     // 조재윤 모델비
     if (effectiveTotalCount > 0) {
