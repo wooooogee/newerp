@@ -80,21 +80,42 @@ export const MembershipApplicationModal: React.FC<MembershipApplicationModalProp
   const [activeQuickTab, setActiveQuickTab] = useState<'all' | 'currentMonth' | 'today' | 'custom'>('currentMonth');
   const [showUnsubmittedOnly, setShowUnsubmittedOnly] = useState<boolean>(false);
 
-  // 데이터 로딩: 시트1 & 사원리스트
+  // 데이터 로딩: 통합원장 (폴백: 시트1) & 사원리스트
   const fetchData = async () => {
     setLoading(true);
     try {
       const timestamp = Date.now();
-      const [sheet1Res, empRes] = await Promise.all([
-        fetch(`/api/sheets/sheetData?sheetName=시트1&t=${timestamp}`),
-        fetch(`/api/sheets/sheetData?sheetName=사원리스트&t=${timestamp}`)
+      // 1순위: [통합원장] 우선 조회
+      const [ledgerRes, empRes] = await Promise.all([
+        fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('통합원장')}&t=${timestamp}`),
+        fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('사원리스트')}&t=${timestamp}`)
       ]);
 
-      if (sheet1Res.ok) {
-        const sheet1Data = await sheet1Res.json();
-        if (Array.isArray(sheet1Data) && sheet1Data.length > 0) {
-          setSheet1List(sheet1Data.slice(1));
+      let ledgerRows: any[][] = [];
+      if (ledgerRes.ok) {
+        const lData = await ledgerRes.json();
+        if (Array.isArray(lData) && lData.length > 1) {
+          ledgerRows = lData;
         }
+      }
+
+      // 통합원장이 비어있거나 실패하면 '시트1'로 안전하게 폴백
+      if (ledgerRows.length <= 1) {
+        try {
+          const s1Res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('시트1')}&t=${timestamp}`);
+          if (s1Res.ok) {
+            const s1Data = await s1Res.json();
+            if (Array.isArray(s1Data) && s1Data.length > 1) {
+              ledgerRows = s1Data;
+            }
+          }
+        } catch (err) {
+          console.warn('[MembershipApplicationModal] Fallback to 시트1 failed:', err);
+        }
+      }
+
+      if (ledgerRows.length > 0) {
+        setSheet1List(ledgerRows.slice(1));
       }
 
       if (empRes.ok) {

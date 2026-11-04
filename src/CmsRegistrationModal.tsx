@@ -284,6 +284,22 @@ const parseContractDate = (val: any): { dateStr: string; monthStr: string } => {
     };
   }
 
+  // 5. 엑셀 시리얼 넘버 5자리 (예: 45865 -> 2025-08-01)
+  if (/^\d{5}$/.test(str)) {
+    const serial = parseInt(str, 10);
+    if (serial >= 30000 && serial <= 60000) {
+      const utcDays = serial - 25569;
+      const date = new Date(utcDays * 86400 * 1000);
+      const yyyy = String(date.getUTCFullYear());
+      const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(date.getUTCDate()).padStart(2, '0');
+      return {
+        dateStr: `${yyyy}-${mm}-${dd}`,
+        monthStr: `${yyyy}-${mm}`
+      };
+    }
+  }
+
   // 5. 순수 숫자 6자리 (YYMMDD) (예: '260922')
   if (digits.length === 6) {
     const yyyy = `20${digits.substring(0, 2)}`;
@@ -325,7 +341,7 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
     }
   };
 
-  // 🌟 [최신 데이터 보장 로드] 구글 시트 '시트1' 우선 로드 + 통합원장/캐시 스마트 병합 폴백
+  // 🌟 [최신 데이터 보장 로드] 구글 시트 '통합원장' 우선 로드 + '시트1'/캐시 스마트 병합 폴백
   const fetchSheet1Data = useCallback(async (forceSync = false) => {
     setIsLoading(true);
     try {
@@ -333,21 +349,37 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
       let loadedRows: any[][] = [];
       let sourceName = '';
 
-      // 1순위: 구글 시트 [시트1] 최신 데이터 직접 조회 (방금 업로드한 최신 원장 데이터 즉시 반영)
+      // 1순위: 구글 시트 [통합원장] 최신 데이터 직접 조회
       try {
-        const sRes = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('시트1')}&fresh=true&t=${timestamp}`);
-        if (sRes.ok) {
-          const sJson = await sRes.json();
-          if (Array.isArray(sJson) && sJson.length > 1) {
-            loadedRows = sJson;
-            sourceName = '시트1 (구글 시트 최신)';
+        const uRes = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('통합원장')}&fresh=true&t=${timestamp}`);
+        if (uRes.ok) {
+          const uJson = await uRes.json();
+          if (Array.isArray(uJson) && uJson.length > 1) {
+            loadedRows = uJson;
+            sourceName = '통합원장 (구글 시트 최신)';
           }
         }
-      } catch (sErr) {
-        console.warn('[CmsRegistrationModal] sheet1 fetch error:', sErr);
+      } catch (uErr) {
+        console.warn('[CmsRegistrationModal] unified-ledger fetch error:', uErr);
       }
 
-      // 2순위: 시트1 데이터가 비어있거나 부족할 때 /api/sheets/unified-ledger/data?cms=true 조회
+      // 2순위: 통합원장 데이터가 비어있거나 부족할 때 '시트1' 조회
+      if (!loadedRows || loadedRows.length < 2) {
+        try {
+          const sRes = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('시트1')}&fresh=true&t=${timestamp}`);
+          if (sRes.ok) {
+            const sJson = await sRes.json();
+            if (Array.isArray(sJson) && sJson.length > 1) {
+              loadedRows = sJson;
+              sourceName = '시트1 (구글 시트 폴백)';
+            }
+          }
+        } catch (sErr) {
+          console.warn('[CmsRegistrationModal] sheet1 fallback error:', sErr);
+        }
+      }
+
+      // 3순위: 로컬 캐시 /api/sheets/unified-ledger/data?cms=true 조회
       if (!loadedRows || loadedRows.length < 2) {
         try {
           if (forceSync) {
@@ -359,11 +391,11 @@ export const CmsRegistrationModal: React.FC<CmsRegistrationModalProps> = ({
             const rows = uJson.data || uJson.ledgerRows || uJson.rows;
             if (Array.isArray(rows) && rows.length > 1) {
               loadedRows = rows;
-              sourceName = uJson.source === 'cache' ? '원장 캐시' : '통합원장 (구글 시트)';
+              sourceName = uJson.source === 'cache' ? '원장 캐시' : '통합원장 캐시';
             }
           }
         } catch (uErr) {
-          console.warn('[CmsRegistrationModal] unified-ledger fallback:', uErr);
+          console.warn('[CmsRegistrationModal] unified-ledger cache fallback:', uErr);
         }
       }
 
