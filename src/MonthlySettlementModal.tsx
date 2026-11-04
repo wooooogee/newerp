@@ -3867,8 +3867,6 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     }, 100);
   };
 
-  if (!isOpen) return null;
-
   // 개인/프리랜서 본부의 상세 모달용 개인별(영업사원/지점장) 수수료 지급 명세 (사원리스트 계좌/주민번호 연동)
   const personalPayoutList = useMemo(() => {
     if (!selectedHqDetail || !selectedHqDetail.settlementType?.includes('개인')) return [];
@@ -3974,6 +3972,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       };
     }).sort((a, b) => b.grossTotal - a.grossTotal);
   }, [selectedHqDetail, globalStatsMap, parsedEmployees, calculateCommissionDetails]);
+
+  if (!isOpen) return null;
 
   return (
     <AnimatePresence>
