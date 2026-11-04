@@ -851,7 +851,8 @@ export function PresidentReportModal({
       }
     });
 
-    const effectiveTotalCount = isNov ? 2893 : (isOct ? 601 : (rawMonthCount > 0 ? rawMonthCount : 2893));
+    const totalBCount = initialHqProductList.reduce((s, r) => s + r.count, 0) || (isOct ? 601 : 632);
+    const effectiveTotalCount = totalBCount;
     const effectiveTherawaveCount = isNov ? 5 : (isOct ? 2 : rawTherawaveCount);
 
     let initialSpecialList: typeof specialExpenseList = [];
@@ -1266,6 +1267,11 @@ export function PresidentReportModal({
             const isNovMonth = cleanM.endsWith('11');
             const monthN = parseInt(cleanM.slice(-2), 10) || 11;
 
+            const bSalesTotalCount = Array.isArray(cached.hqProductSalesList)
+              ? cached.hqProductSalesList.reduce((s: number, r: any) => s + (Number(r.count) || 0), 0)
+              : (isNovMonth ? 632 : 601);
+            const effectiveSalesCount = bSalesTotalCount > 0 ? bSalesTotalCount : (isNovMonth ? 632 : 601);
+
             const migratedSpecial = cached.specialExpenseList.map((item: any) => {
               // 1) 권성훈: 전체 상품 건수와 무관한 고정지급 (1건 고정, 150,000원)
               if (item.name && item.name.includes('권성훈')) {
@@ -1276,40 +1282,41 @@ export function PresidentReportModal({
                   note: `${monthN}월 홈페이지 유지보수비 (고정지급)`
                 };
               }
-              // 2) 11월인데 10월 잔재 데이터(601건 등)가 남아있는 경우 최신 11월 정산 건수로 보정
-              if (isNovMonth) {
-                if (item.name && item.name.includes('조재윤')) {
-                  return {
-                    ...item,
-                    count: 2893,
-                    amount: 28930000,
-                    note: '11월 모델비 (건당 1만원)'
-                  };
-                }
-                if (item.name && item.name.includes('조민경')) {
-                  return {
-                    ...item,
-                    count: 2893,
-                    amount: 14465000,
-                    note: '11월 컨설팅비 (건당 5천원)'
-                  };
-                }
-                if (item.name && item.name.includes('신동우')) {
-                  return {
-                    ...item,
-                    count: 371,
-                    amount: 19620000,
-                    note: '11월 굿라이프 차액(1,712만) + 테라웨이브(250만)'
-                  };
-                }
-                if (item.name && item.name.includes('본부 유지수수료')) {
-                  return {
-                    ...item,
-                    count: 11,
-                    amount: 118000,
-                    note: '11월 회차 유지수수료'
-                  };
-                }
+              // 2) 조재윤: 테이블 2 영업실적 총 건수와 실시간 일치 (건당 1만원)
+              if (item.name && item.name.includes('조재윤')) {
+                return {
+                  ...item,
+                  count: effectiveSalesCount,
+                  amount: effectiveSalesCount * 10000,
+                  note: `${monthN}월 모델비 (건당 1만원)`
+                };
+              }
+              // 3) 조민경: 테이블 2 영업실적 총 건수와 실시간 일치 (건당 5천원)
+              if (item.name && item.name.includes('조민경')) {
+                return {
+                  ...item,
+                  count: effectiveSalesCount,
+                  amount: effectiveSalesCount * 5000,
+                  note: `${monthN}월 컨설팅비 (건당 5천원)`
+                };
+              }
+              // 4) 신동우: 11월 굿라이프 차액분 + 테라웨이브
+              if (isNovMonth && item.name && item.name.includes('신동우')) {
+                return {
+                  ...item,
+                  count: 371,
+                  amount: 19620000,
+                  note: '11월 굿라이프 차액(1,712만) + 테라웨이브(250만)'
+                };
+              }
+              // 5) 본부 유지수수료
+              if (isNovMonth && item.name && item.name.includes('본부 유지수수료')) {
+                return {
+                  ...item,
+                  count: 11,
+                  amount: 118000,
+                  note: '11월 회차 유지수수료'
+                };
               }
               return item;
             }).filter((item: any) => {
