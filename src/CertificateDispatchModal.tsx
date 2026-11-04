@@ -82,6 +82,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
   const [dispatchStatusFilter, setDispatchStatusFilter] = useState<'notSent' | 'sent'>('notSent');
   const [postDispatchedNos, setPostDispatchedNos] = useState<Set<string>>(new Set());
   const [mobileDispatchedNos, setMobileDispatchedNos] = useState<Set<string>>(new Set());
+  const [historyDetailMap, setHistoryDetailMap] = useState<Map<string, any>>(new Map());
 
   // 인라인 수정 상태 관리: { [itemId: number]: { [fieldName: string]: any } }
   const [editedItems, setEditedItems] = useState<Record<number, Record<string, any>>>({});
@@ -135,13 +136,32 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             const historyData = await historyRes.json();
             const postNos = new Set<string>();
             const mobileNos = new Set<string>();
+            const historyMap = new Map<string, any>();
+
             if (historyData && historyData.length > 1) {
-              // 1행(데이터 행)부터 모든 셀을 전수 조사하여 회원번호 패턴 추출
+              // 1행(데이터 행)부터 모든 셀을 전수 조사하여 회원번호 패턴 추출 및 주소/상세 정보 매핑
               historyData.slice(1).forEach((raw: any) => {
                 if (Array.isArray(raw)) {
-                  const type = String(raw[1] || '').trim();
-                  const isPost = type === '우편';
-                  const isMobile = type === '모바일' || type === '알림톡';
+                  const rawType = String(raw[1] || '').trim();
+                  const isPost = rawType === '우편';
+                  const isMobile = rawType === '모바일' || rawType === '알림톡';
+
+                  const info = {
+                    dispatchDate: String(raw[0] || '').trim(),
+                    type: rawType,
+                    phone: String(raw[4] || '').trim(),
+                    memName: String(raw[5] || raw[2] || '').trim(),
+                    birthDate: String(raw[7] || '').trim(),
+                    contractDate: String(raw[8] || '').trim(),
+                    prodName: String(raw[9] || '').trim(),
+                    monthlyPay1: String(raw[10] || '').trim(),
+                    monthlyPay2: String(raw[11] || '').trim(),
+                    zipCode: String(raw[12] || '').trim().replace(/-/g, ''),
+                    address: String(raw[13] || '').trim(),
+                    empName: String(raw[14] || '').trim(),
+                    empPhone: String(raw[15] || '').trim(),
+                  };
+
                   raw.forEach((cellVal: any, cellIdx: number) => {
                     if (cellIdx === 0 || cellIdx === 1) return;
                     if (cellVal) {
@@ -158,6 +178,9 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
                           if (isPost || (!isPost && !isMobile)) {
                             postNos.add(cleanTok);
                           }
+                          if (!historyMap.has(cleanTok)) {
+                            historyMap.set(cleanTok, info);
+                          }
                         }
                       });
                     }
@@ -167,6 +190,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
             }
             setPostDispatchedNos(postNos);
             setMobileDispatchedNos(mobileNos);
+            setHistoryDetailMap(historyMap);
           }
         } catch (error) {
           console.error('Failed to load additional sheet data:', error);
@@ -215,10 +239,13 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       }
     });
 
+    const handledSheet1MemNos = new Set<string>();
+
     const items = sheet1List
       .map((raw, idx) => {
         const memNo = String(raw[1] || '').trim();
         const memNoKey = memNo.toUpperCase();
+        if (memNoKey) handledSheet1MemNos.add(memNoKey);
         const maintenanceItem = maintenanceItemMap.get(memNoKey);
 
         // 핵심 요구사항: 회원상태는 관리대장 시트에서 회원번호로 매칭하여 가져옴
@@ -316,12 +343,135 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
 
+    // =========================================================================
+    // Fallback 보완: 시트1에 누락되어 있어도 관리대장에 '가입' 상태로 등록된 건 자동 복원
+    // =========================================================================
+    const fallbackItems: typeof items = [];
+    let fallbackIdx = sheet1List.length + 1000;
+
+    const allMaintenanceCandidates = new Map<string, { mItem?: any; mSheetRow?: any }>();
+
+    maintenanceSheetList.forEach((r: any) => {
+      const memNo = String(r[2] || '').trim();
+      const memNoKey = memNo.toUpperCase();
+      if (memNoKey) {
+        if (!allMaintenanceCandidates.has(memNoKey)) {
+          allMaintenanceCandidates.set(memNoKey, { mSheetRow: r });
+        } else {
+          allMaintenanceCandidates.get(memNoKey)!.mSheetRow = r;
+        }
+      }
+    });
+
+    data.forEach(item => {
+      if (item.memNo) {
+        const memNo = String(item.memNo).trim();
+        const memNoKey = memNo.toUpperCase();
+        if (!allMaintenanceCandidates.has(memNoKey)) {
+          allMaintenanceCandidates.set(memNoKey, { mItem: item });
+        } else {
+          allMaintenanceCandidates.get(memNoKey)!.mItem = item;
+        }
+      }
+    });
+
+    allMaintenanceCandidates.forEach(({ mItem, mSheetRow }, memNoKey) => {
+      if (handledSheet1MemNos.has(memNoKey)) return;
+
+      const status = String(maintenanceStatusMap.get(memNoKey) || mItem?.status || (mSheetRow && mSheetRow[1]) || '').trim();
+      if (status !== '가입') return;
+
+      handledSheet1MemNos.add(memNoKey);
+
+      const histInfo = historyDetailMap.get(memNoKey);
+      const isPostDispatched = postDispatchedNos.has(memNoKey);
+      const isMobileDispatched = mobileDispatchedNos.has(memNoKey);
+      const cert = (isPostDispatched || isMobileDispatched) ? '발송' : '미발송';
+
+      const memNo = mItem?.memNo || (mSheetRow && mSheetRow[2]) || memNoKey;
+      const memName = String(mItem?.memName || (mSheetRow && mSheetRow[3]) || histInfo?.memName || '').trim();
+      const resNo = String(mItem?.resNo || (mSheetRow && mSheetRow[4]) || '').trim();
+      const phone = String(mItem?.phone || (mSheetRow && mSheetRow[5]) || histInfo?.phone || '').trim();
+      const prodName = String(mItem?.prodName || (mSheetRow && mSheetRow[6]) || histInfo?.prodName || '').trim();
+      const hq = String(mItem?.hq || (mSheetRow && mSheetRow[7]) || '').trim();
+      const empCode = String(mItem?.empCode || (mSheetRow && mSheetRow[39]) || '').trim();
+      const empName = String(mItem?.empName || (mSheetRow && mSheetRow[9]) || histInfo?.empName || '').trim();
+
+      const rawCDate = String(mItem?.contractDate || (mSheetRow && mSheetRow[0]) || histInfo?.contractDate || '').trim();
+      const contractDate = normalizeContractDate(rawCDate);
+
+      const maintenanceVVal = String(maintenanceVColMap.get(memNoKey) || (mItem?.raw && mItem.raw[21]) || (mSheetRow && mSheetRow[21]) || '').trim();
+      const isFirstPaid = isPaidFirstPay(maintenanceVVal || mItem?.payDate);
+      const rawFirstPay = maintenanceVVal || String(mItem?.payDate || '').trim();
+      const firstPayDate = normalizeContractDate(rawFirstPay);
+
+      let zipCode = String(histInfo?.zipCode || mItem?.zipCode || (mItem?.raw && mItem.raw[44]) || '').trim();
+      if (zipCode.includes('-')) zipCode = zipCode.replace(/-/g, '');
+
+      const address = String(histInfo?.address || mItem?.address || (mItem?.raw && mItem.raw[45]) || '').trim();
+      const isPost = histInfo?.type === '우편' || isPostDispatched;
+      const workAddress = isPost ? '우편' : (mItem?.workAddress || '');
+      const deliveryType = histInfo?.type || (isPostDispatched ? '우편' : '');
+      const rentalNo = String(mItem?.rentalNo || (mSheetRow && mSheetRow[10]) || '').trim();
+
+      // 사원연락처 매핑
+      let empPhone = histInfo?.empPhone || '';
+      if (!empPhone && empList.length > 0) {
+        let emp = empCode ? empList.find(e => String(e[1] || '').trim() === empCode) : null;
+        if (!emp && empName) emp = empList.find(e => String(e[5] || '').trim() === empName);
+        if (emp) empPhone = String(emp[11] || '').trim();
+      }
+
+      // 월불입금 매핑
+      let monthlyPay1 = histInfo?.monthlyPay1 || '';
+      let monthlyPay2 = histInfo?.monthlyPay2 || '';
+      if ((!monthlyPay1 || !monthlyPay2) && prodName && paymentList.length > 0) {
+        const payment = paymentList.find(p => p[0] === prodName);
+        if (payment) {
+          if (!monthlyPay1) monthlyPay1 = String(payment[4] || '');
+          if (!monthlyPay2) monthlyPay2 = String(payment[5] || '');
+        }
+      }
+
+      // 생년월일 추출
+      let birthDate = histInfo?.birthDate || '';
+      if (!birthDate && resNo && resNo.length >= 6) {
+        const cleanResNo = resNo.replace(/[^0-9]/g, '');
+        birthDate = cleanResNo.length >= 6 ? cleanResNo.substring(0, 6) : resNo.substring(0, 6);
+      }
+
+      const customerKey = getCustomerKey(memName, phone, resNo);
+
+      fallbackItems.push({
+        id: fallbackIdx++,
+        customerKey,
+        isPostDispatched,
+        isMobileDispatched,
+        isFirstPaid,
+        firstPayVVal: maintenanceVVal,
+        extracted: {
+          customerKey,
+          isPostDispatched,
+          isMobileDispatched,
+          isFirstPaid,
+          status, contractDate, memNo, memName, resNo, prodName, firstPayDate,
+          hq, empCode, empName, zipCode, address, workAddress, cert, deliveryType, rentalNo,
+          empPhone, monthlyPay1, monthlyPay2, birthDate, phone,
+          rentalNo2: '', rentalNo3: '', rentalNo4: '',
+          allMemNos: [memNo].filter(Boolean),
+          allCustomerMemNos: [memNo].filter(Boolean)
+        }
+      });
+    });
+
+    const allItems = [...items, ...fallbackItems];
+
     // 동일 고객(동일 가입자)별 우편 희망 여부 및 [발송 상태별] 회원번호 수집
     const customerPostMap = new Map<string, boolean>();
     // 고객키 + 발송여부(미발송 vs 발송완료) 기준으로 회원번호를 분리하여 이미 발송된 번호가 미발송 건에 섞이지 않도록 방지
     const customerStatusNosMap = new Map<string, Set<string>>();
 
-    items.forEach(item => {
+    allItems.forEach(item => {
       const cKey = item.customerKey;
       const ext = item.extracted;
       const isPost = String(ext.workAddress || '').trim() === '우편'
@@ -342,7 +492,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     });
 
     // 동일 가입자 중 하나라도 우편이면 '우편' 전파 및 동일 발송상태 구좌 회원번호만 매핑
-    items.forEach(item => {
+    allItems.forEach(item => {
       const cKey = item.customerKey;
       if (customerPostMap.get(cKey)) {
         item.extracted.workAddress = '우편';
@@ -353,8 +503,8 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
     });
 
     if (isConsolidated) {
-      const groups = new Map<string, typeof items>();
-      items.forEach(item => {
+      const groups = new Map<string, typeof allItems>();
+      allItems.forEach(item => {
         const ext = item.extracted;
         // 동일 고객 + 상품명 + [발송상태] + [초회납납입여부]별로 그룹핑 (초회납 여부와 발송여부가 다른 건이 절대 합쳐지지 않도록 분리)
         const sentKey = (item.isPostDispatched ? 'p1' : 'p0') + '_' + (item.isMobileDispatched ? 'm1' : 'm0');
@@ -397,7 +547,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
       });
     }
 
-    return items.map((item, i) => {
+    return allItems.map((item, i) => {
       const statusGroupKey = item.customerKey + '_' + (item.isPostDispatched ? 'p1' : 'p0') + '_' + (item.isMobileDispatched ? 'm1' : 'm0');
       return {
         ...item,
@@ -415,7 +565,7 @@ export const CertificateDispatchModal: React.FC<CertificateDispatchModalProps> =
         }
       };
     });
-  }, [sheet1List, empList, paymentList, data, isConsolidated, postDispatchedNos, mobileDispatchedNos, maintenanceSheetList]);
+  }, [sheet1List, empList, paymentList, data, isConsolidated, postDispatchedNos, mobileDispatchedNos, maintenanceSheetList, historyDetailMap]);
 
   // 계약일자 연도 목록 추출 (YYYY)
   const availableYears = useMemo(() => {

@@ -247,6 +247,20 @@ export const findBranchManager = (branchName: string, hqName: string, employees:
   const globalMatch = employees.find(e => e.name && (cleanBr === e.name || cleanBr.includes(e.name)));
   if (globalMatch) return globalMatch;
 
+  // 6순위: 해당 지사 소속 중 직위에 '본부장' 포함 (본부장 지회장 겸직)
+  const hqLeaderInBranch = branchEmps.find(e => e.position && e.position.includes('본부장'));
+  if (hqLeaderInBranch) return hqLeaderInBranch;
+
+  // 7순위: 해당 본부 소속 중 직위에 '본부장' 포함 (본부 직할 지사이면서 사원리스트 지사가 미입력된 경우 겸직 자동 매칭)
+  if (cleanHq) {
+    const hqEmps = employees.filter(e => {
+      const eHq = (e.hq || '').replace(/\s+/g, '');
+      return eHq && (eHq.includes(cleanHq) || cleanHq.includes(eHq));
+    });
+    const hqLeader = hqEmps.find(e => e.position && e.position.includes('본부장'));
+    if (hqLeader) return hqLeader;
+  }
+
   return null;
 };
 
