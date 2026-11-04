@@ -147,9 +147,12 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   hqSettings = []
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const appendFileInputRef = useRef<HTMLInputElement>(null);
 
   // 업로드 파일 및 파싱 상태
   const [fileName, setFileName] = useState<string>('');
+  const [uploadedFileNames, setUploadedFileNames] = useState<string[]>([]);
+  const [rawExtractedList, setRawExtractedList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [summaryData, setSummaryData] = useState<EnexSummary | null>(null);
   const [reconRows, setReconRows] = useState<EnexReconciliationRow[]>([]);
@@ -532,454 +535,476 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
     return { financialFee, totalSupplyPrice, calculatedFee, diff, reconResult, totalPayoutFee, netProfit };
   };
 
-  // 엑셀 파일 업로드 및 파싱
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // 단일 워크북 파싱 헬퍼 (Sheet 1 요약 + Sheet 3 상세 원시 행 추출)
+  const parseWorkbookToRaw = (wb: any, sourceFileName: string) => {
+    // ==========================================
+    // 1. 첫 번째 시트 (정산 요약) 파싱
+    // ==========================================
+    const sheet1Name = wb.SheetNames[0];
+    const sheet1 = wb.Sheets[sheet1Name];
+    const sheet1Rows: any[][] = XLSX.utils.sheet_to_json(sheet1, { header: 1, defval: '' });
 
-    setFileName(file.name);
+    let parsedSummary: EnexSummary = {
+      title: sheet1Name,
+      totalCount: 0,
+      totalSales: 0,
+      basicFee: 0,
+      refundFee: 0,
+      totalFee: 0
+    };
+
+    for (let r = 0; r < Math.min(sheet1Rows.length, 3); r++) {
+      const rowStr = sheet1Rows[r].join(' ');
+      if (rowStr.includes('스마트렌탈') || rowStr.includes('수수료 정산서') || rowStr.includes('정산서')) {
+        parsedSummary.title = (sheet1Rows[r][0] || sheet1Rows[r][1] || rowStr).trim();
+        break;
+      }
+    }
+
+    let sumHeaderRowIdx = -1;
+    for (let r = 0; r < Math.min(sheet1Rows.length, 10); r++) {
+      const rowText = (sheet1Rows[r] || []).map(c => String(c).replace(/\s+/g, '')).join('|');
+      if (
+        rowText.includes('총매출금액') ||
+        rowText.includes('총매출') ||
+        (rowText.includes('기본수수료') && rowText.includes('수수료합계'))
+      ) {
+        sumHeaderRowIdx = r;
+        break;
+      }
+    }
+
+    if (sumHeaderRowIdx !== -1 && sumHeaderRowIdx + 1 < sheet1Rows.length) {
+      const hRow = sheet1Rows[sumHeaderRowIdx].map(c => String(c).replace(/\s+/g, ''));
+      const valRow = sheet1Rows[sumHeaderRowIdx + 1];
+
+      const idxCount = hRow.findIndex(h => h.includes('실적') || h.includes('건수'));
+      const idxSales = hRow.findIndex(h => h.includes('총매출') || h.includes('결합매출'));
+      const idxBasic = hRow.findIndex(h => h.includes('기본수수료'));
+      const idxRefund = hRow.findIndex(h => h.includes('환수수수료') || h.includes('환수'));
+      const idxTotal = hRow.findIndex(h => h.includes('수수료합계') || h.includes('수수료(total)'));
+
+      if (idxCount !== -1) parsedSummary.totalCount = Number(valRow[idxCount]) || 0;
+      if (idxSales !== -1) parsedSummary.totalSales = Number(valRow[idxSales]) || 0;
+      if (idxBasic !== -1) parsedSummary.basicFee = Number(valRow[idxBasic]) || 0;
+      if (idxRefund !== -1) parsedSummary.refundFee = Number(valRow[idxRefund]) || 0;
+      if (idxTotal !== -1) parsedSummary.totalFee = Number(valRow[idxTotal]) || 0;
+    }
+
+    // ==========================================
+    // 2. 세 번째 시트 (모델별상세) 스마트 탐색 및 파싱
+    // ==========================================
+    let detailSheetName = '';
+    const foundDetailSheet = wb.SheetNames.find((s: string) => s.includes('모델별상세') || s.includes('모델별') || s.includes('상세'));
+    if (foundDetailSheet) {
+      detailSheetName = foundDetailSheet;
+    } else if (wb.SheetNames.length >= 3) {
+      detailSheetName = wb.SheetNames[2];
+    } else {
+      const foundAlt = wb.SheetNames.find((s: string) => s.includes('판매') || s.includes('가입') || s.includes('리스트'));
+      detailSheetName = foundAlt || wb.SheetNames[wb.SheetNames.length - 1];
+    }
+
+    const sheet3 = wb.Sheets[detailSheetName];
+    const range = XLSX.utils.decode_range(sheet3['!ref'] || 'A1:Z100');
+
+    const getCell = (r: number, c: number) => sheet3[XLSX.utils.encode_cell({ r, c })];
+    const getVal = (r: number, c: number) => {
+      const cell = getCell(r, c);
+      return cell ? cell.v : '';
+    };
+
+    let headerRowIdx = 1;
+    let maxMatches = 0;
+    for (let r = 0; r <= Math.min(range.e.r, 15); r++) {
+      let matches = 0;
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const val = String(getVal(r, c) || '').replace(/\s+/g, '').toLowerCase();
+        if (
+          val.includes('계약번호') ||
+          val.includes('계약id') ||
+          val.includes('결합매출') ||
+          val.includes('렌탈총액') ||
+          val.includes('수수료합계') ||
+          val.includes('판매점') ||
+          val.includes('대리점')
+        ) {
+          matches++;
+        }
+      }
+      if (matches > maxMatches) {
+        maxMatches = matches;
+        headerRowIdx = r;
+      }
+    }
+
+    let colContractNo = -1;
+    let colSales = -1;
+    let colEnexFee = -1;
+    let colBranch = -1;
+    let colAppliance = -1;
+    let colModel = -1;
+    let colDelivery = -1;
+    let colRemark = -1;
+    const feeCandidateCols: number[] = [];
+
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const rawH = String(getVal(headerRowIdx, c) || '');
+      const hText = rawH.replace(/\s+/g, '').toLowerCase();
+      if (!hText) continue;
+
+      if (colContractNo === -1 && (hText.includes('계약번호') || hText.includes('계약id') || hText === '계약')) {
+        colContractNo = c;
+      } else if (colSales === -1 && (hText.includes('결합매출') || hText.includes('렌탈총액') || hText.includes('매출액') || hText.includes('총매출'))) {
+        colSales = c;
+      } else if (
+        hText.includes('수수료합계') ||
+        hText.includes('수수료(total)') ||
+        hText.includes('수수료total') ||
+        hText.includes('합계(total)') ||
+        (hText.includes('수수료') && hText.includes('합계'))
+      ) {
+        colEnexFee = c;
+      } else if (colBranch === -1 && (hText.includes('판매점') || hText.includes('대리점') || hText.includes('제휴사') || hText.includes('판매처'))) {
+        colBranch = c;
+      } else if (colAppliance === -1 && (hText.includes('상품명') || hText.includes('제품명')) && !hText.includes('구분')) {
+        colAppliance = c;
+      } else if (colModel === -1 && (hText.includes('결합모델') || hText.includes('모델명') || hText === '모델')) {
+        colModel = c;
+      } else if (colDelivery === -1 && hText.includes('배송일') && !hText.includes('등록일')) {
+        colDelivery = c;
+      } else if (colRemark === -1 && (hText.includes('비고') || hText.includes('구좌') || hText.includes('적용구좌'))) {
+        colRemark = c;
+      }
+
+      if (hText.includes('수수료') && !hText.includes('수수료율')) {
+        feeCandidateCols.push(c);
+      }
+    }
+
+    if (colEnexFee === -1 && feeCandidateCols.length > 0) {
+      colEnexFee = feeCandidateCols[feeCandidateCols.length - 1];
+    }
+
+    if (colContractNo === -1) colContractNo = 0;
+    if (colAppliance === -1) colAppliance = 3;
+    if (colModel === -1) colModel = 4;
+    if (colSales === -1) colSales = 7;
+    if (colDelivery === -1) colDelivery = 10;
+    if (colBranch === -1) colBranch = 13;
+    if (colEnexFee === -1) colEnexFee = 14;
+    if (colRemark === -1) colRemark = 16;
+
+    const rawExtracted: any[] = [];
+
+    for (let r = headerRowIdx + 1; r <= range.e.r; r++) {
+      const cellA = getCell(r, colContractNo);
+      if (!cellA || cellA.v === undefined || cellA.v === null || String(cellA.v).trim() === '') {
+        continue;
+      }
+
+      const contractNo = String(cellA.v).trim();
+      if (contractNo.includes('합계') || contractNo.includes('소계') || contractNo.includes('계약번호')) {
+        continue;
+      }
+
+      const salesAmount = Number(getVal(r, colSales)) || 0;
+      const enexFee = Number(getVal(r, colEnexFee)) || 0;
+      const branchOffice = String(getVal(r, colBranch) || '').trim();
+      const applianceProdName = String(getVal(r, colAppliance) || '').trim();
+      const combineModel = String(getVal(r, colModel) || '').trim();
+      const deliveryDateExcel = String(getVal(r, colDelivery) || '').trim();
+      const remark = String(getVal(r, colRemark) || '').trim();
+
+      let accountCount = 1;
+      if (remark.includes('3구좌')) {
+        accountCount = 3;
+      } else if (remark.includes('2구좌')) {
+        accountCount = 2;
+      } else if (remark.includes('1구좌')) {
+        accountCount = 1;
+      } else if (salesAmount === 6840000) {
+        accountCount = 3;
+      } else if (salesAmount === 3960000 || salesAmount === 4560000) {
+        accountCount = 2;
+      }
+
+      let isYellow = false;
+      if (cellA.s) {
+        const fgRgb = cellA.s.fgColor?.rgb || cellA.s.fill?.fgColor?.rgb;
+        const bgRgb = cellA.s.bgColor?.rgb;
+        const theme = cellA.s.fgColor?.theme;
+        if (
+          fgRgb === 'FFFF00' ||
+          fgRgb === 'FFF2CC' ||
+          fgRgb === 'FFFFE0' ||
+          fgRgb === 'FFE599' ||
+          fgRgb === 'FFD966' ||
+          bgRgb === 'FFFF00' ||
+          theme === 4
+        ) {
+          isYellow = true;
+        }
+      }
+
+      let feeRate = isYellow ? policySettings.yellowFeeRate : policySettings.baseFeeRate;
+      if (!isYellow && salesAmount > 0) {
+        const diffYellow = Math.abs((salesAmount - Math.round(salesAmount * policySettings.yellowFeeRate)) - enexFee);
+        const diffBase = Math.abs((salesAmount - Math.round(salesAmount * policySettings.baseFeeRate)) - enexFee);
+        if (diffYellow % 50000 === 0 && diffBase % 50000 !== 0) {
+          feeRate = policySettings.yellowFeeRate;
+          isYellow = true;
+        }
+      }
+
+      const cleanContractNo = contractNo.trim();
+      const matchedErp = erpData.find(d => {
+        const rNo = String(d.rentalNo || '').trim();
+        if (!rNo || rNo.length < 4) return false;
+        return rNo === cleanContractNo;
+      });
+
+      let initialSangjoName = matchedErp?.prodName || '';
+      const deliveryDate = matchedErp?.deliveryDate || deliveryDateExcel;
+      const customerName = matchedErp?.memName || '';
+      const hqName = matchedErp?.hq || '';
+
+      const targetHq = findTargetHq(hqName, branchOffice, effectiveHqSettings);
+      const resolvedHqName = targetHq?.hqName || hqName || branchOffice || '';
+
+      rawExtracted.push({
+        contractNo,
+        salesAmount,
+        enexFee,
+        branchOffice,
+        applianceProdName,
+        combineModel,
+        deliveryDate,
+        customerName,
+        hqName,
+        targetHq,
+        resolvedHqName,
+        accountCount,
+        isYellow,
+        feeRate,
+        matchedErp,
+        initialSangjoName,
+        rowIdx: r + 1,
+        sourceFileName
+      });
+    }
+
+    return { summary: parsedSummary, rawExtracted };
+  };
+
+  // 원시 행 목록 기반 전체 수수료 정밀 산출 및 행 완성 헬퍼
+  const buildReconRowsFromRaw = (rawItems: any[], policy: EnexPolicySettings): EnexReconciliationRow[] => {
+    // 1. 전체 데이터 기준 본부별 실적 건수 및 상품별 건수 사전 집계
+    const hqCountMap: Record<string, number> = {};
+    const hqProdCountMap: Record<string, number> = {};
+    for (const item of rawItems) {
+      const hq = item.resolvedHqName;
+      if (hq) {
+        hqCountMap[hq] = (hqCountMap[hq] || 0) + 1;
+        const prodKey = `${hq}__${item.initialSangjoName || item.applianceProdName}`;
+        hqProdCountMap[prodKey] = (hqProdCountMap[prodKey] || 0) + 1;
+      }
+    }
+
+    const rows: EnexReconciliationRow[] = [];
+
+    for (const item of rawItems) {
+      const { extraFee } = determineSpecialExtraFee(
+        item.applianceProdName,
+        item.combineModel,
+        policy.specialProductFees
+      );
+
+      const feeRate = item.isYellow ? policy.yellowFeeRate : policy.baseFeeRate;
+
+      const { price: unitSupplyPrice, matchedProdName, defaultPayoutFee } = determineUnitSupplyPrice(
+        item.initialSangjoName,
+        item.applianceProdName,
+        item.combineModel,
+        item.salesAmount,
+        feeRate,
+        item.enexFee,
+        item.accountCount,
+        policy.productRules,
+        extraFee
+      );
+
+      const sangjoProdName = item.initialSangjoName || matchedProdName;
+
+      const hq = item.resolvedHqName;
+      const hqCount = hq ? (hqCountMap[hq] || 0) : 0;
+      const prodKey = `${hq}__${sangjoProdName || item.applianceProdName}`;
+      const prodCount = hq ? (hqProdCountMap[prodKey] || 0) : 0;
+
+      let effectiveCount = hqCount;
+      if (item.targetHq && Array.isArray(item.targetHq.productRules)) {
+        const normProd = `${sangjoProdName || ''} ${item.applianceProdName || ''} ${item.combineModel || ''}`.replace(/\s+/g, '').toLowerCase();
+        const hasPlus = normProd.includes('540+') || normProd.includes('540플러스') || normProd.includes('플러스') || normProd.includes('plus');
+        const matchedRule = item.targetHq.productRules.find((r: any) => {
+          const nr = String(r.productName || '').replace(/\s+/g, '').toLowerCase();
+          if (normProd.includes('540')) {
+            return hasPlus ? (nr.includes('540') && (nr.includes('플러스') || nr.includes('plus'))) : (nr.includes('540') && !(nr.includes('플러스') || nr.includes('plus')));
+          }
+          if (normProd.includes('698') || normProd.includes('하이브리드')) return nr.includes('698') || nr.includes('하이브리드');
+          if (normProd.includes('498') || normProd.includes('라이즈')) return nr.includes('498') || nr.includes('라이즈');
+          if (normProd.includes('580') || normProd.includes('헬스케어')) return nr.includes('580') || nr.includes('헬스케어');
+          return nr && normProd && (nr.includes(normProd) || normProd.includes(nr));
+        });
+        if (matchedRule?.tierCountBasis === 'self') {
+          effectiveCount = prodCount;
+        }
+      }
+
+      const { payoutFee: hqPayoutFee, matchedHqName } = getHqPayoutFee(
+        item.hqName,
+        item.branchOffice,
+        sangjoProdName,
+        item.applianceProdName,
+        item.combineModel,
+        effectiveHqSettings,
+        defaultPayoutFee,
+        effectiveCount
+      );
+
+      let unitPayoutFee = 0;
+      let finalPayoutHqName = matchedHqName;
+
+      if (defaultPayoutFee && defaultPayoutFee > 0) {
+        unitPayoutFee = defaultPayoutFee;
+        finalPayoutHqName = '상품자체설정';
+      } else if (hqPayoutFee > 0) {
+        unitPayoutFee = hqPayoutFee;
+      } else if (item.matchedErp) {
+        if (typeof item.matchedErp.commission === 'number' && item.matchedErp.commission > 0) {
+          unitPayoutFee = item.matchedErp.commission;
+        } else if (typeof item.matchedErp.salesCommission === 'number' && item.matchedErp.salesCommission > 0) {
+          unitPayoutFee = item.matchedErp.salesCommission;
+        }
+      }
+
+      const { financialFee, totalSupplyPrice, calculatedFee, diff, reconResult, totalPayoutFee, netProfit } = calculateRowMetrics(
+        item.salesAmount,
+        feeRate,
+        unitSupplyPrice,
+        item.accountCount,
+        extraFee,
+        item.enexFee,
+        unitPayoutFee
+      );
+
+      rows.push({
+        contractNo: item.contractNo,
+        branchOffice: item.branchOffice,
+        sangjoProdName,
+        applianceProdName: item.applianceProdName,
+        combineModel: item.combineModel,
+        customerName: item.customerName,
+        hqName: item.hqName,
+        deliveryDate: item.deliveryDate,
+        salesAmount: item.salesAmount,
+        accountCount: item.accountCount,
+        feeRate,
+        unitSupplyPrice,
+        extraFee,
+        financialFee,
+        totalSupplyPrice,
+        calculatedFee,
+        enexFee: item.enexFee,
+        diff,
+        reconResult,
+        unitPayoutFee,
+        totalPayoutFee,
+        netProfit,
+        payoutHqName: finalPayoutHqName,
+        isYellow: item.isYellow,
+        erpMatched: !!item.matchedErp,
+        erpData: item.matchedErp,
+        orderIndex: item.rowIdx
+      });
+    }
+
+    return rows;
+  };
+
+  // 복수 엑셀 파일 일괄 파싱 및 데이터 병합 엔진
+  const processAndMergeFiles = async (fileList: FileList | File[], isAppend: boolean = false) => {
+    const files = Array.from(fileList);
+    if (!files || files.length === 0) return;
+
     setIsLoading(true);
 
     try {
-      const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer, { cellStyles: true, type: 'array' });
+      const parsedResults: { summary: EnexSummary; rawExtracted: any[]; fileName: string }[] = [];
 
-      if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
-        throw new Error('유효한 엑셀 파일이 아닙니다.');
+      for (const file of files) {
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { cellStyles: true, type: 'array' });
+        if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
+          throw new Error(`[${file.name}] 유효한 엑셀 파일이 아닙니다.`);
+        }
+        const parsed = parseWorkbookToRaw(wb, file.name);
+        parsedResults.push({ ...parsed, fileName: file.name });
       }
 
-      // ==========================================
-      // 1. 첫 번째 시트 (정산 요약) 파싱
-      // ==========================================
-      const sheet1Name = wb.SheetNames[0];
-      const sheet1 = wb.Sheets[sheet1Name];
-      const sheet1Rows: any[][] = XLSX.utils.sheet_to_json(sheet1, { header: 1, defval: '' });
+      // 파일명 목록 동기화
+      const incomingNames = parsedResults.map(p => p.fileName);
+      const combinedNames = isAppend ? [...uploadedFileNames, ...incomingNames] : incomingNames;
+      const uniqueNames = Array.from(new Set(combinedNames));
+      setUploadedFileNames(uniqueNames);
 
-      let parsedSummary: EnexSummary = {
-        title: sheet1Name,
-        totalCount: 0,
-        totalSales: 0,
-        basicFee: 0,
-        refundFee: 0,
-        totalFee: 0
+      const displayFileName = uniqueNames.length === 1
+        ? uniqueNames[0]
+        : `${uniqueNames.join(' + ')}`;
+      setFileName(displayFileName);
+
+      // 원시 행 목록 병합 (동일 계약번호 중복 방지 - 뒤에 온 파일 우선)
+      const existingRaw = isAppend ? rawExtractedList : [];
+      const newRaw = parsedResults.flatMap(p => p.rawExtracted);
+
+      const contractMap = new Map<string, any>();
+      existingRaw.forEach(r => {
+        const k = String(r.contractNo || '').trim();
+        if (k) contractMap.set(k, r);
+      });
+      newRaw.forEach(r => {
+        const k = String(r.contractNo || '').trim();
+        if (k) contractMap.set(k, r);
+      });
+
+      const mergedRaw = Array.from(contractMap.values());
+      setRawExtractedList(mergedRaw);
+
+      // 전체 병합 데이터 기준 대사 행 생성
+      const finalReconRows = buildReconRowsFromRaw(mergedRaw, policySettings);
+
+      // 요약 지표 병합
+      const baseSummaries = isAppend && summaryData
+        ? [summaryData, ...parsedResults.map(p => p.summary)]
+        : parsedResults.map(p => p.summary);
+
+      const mergedSummary: EnexSummary = {
+        title: parsedResults[0]?.summary.title || '에넥스 스마트렌탈 수수료 정산서',
+        totalCount: finalReconRows.length,
+        totalSales: finalReconRows.reduce((sum, r) => sum + r.salesAmount, 0),
+        basicFee: baseSummaries.reduce((sum, s) => sum + (s.basicFee || 0), 0),
+        refundFee: baseSummaries.reduce((sum, s) => sum + (s.refundFee || 0), 0),
+        totalFee: finalReconRows.reduce((sum, r) => sum + r.enexFee, 0)
       };
 
-      for (let r = 0; r < Math.min(sheet1Rows.length, 3); r++) {
-        const rowStr = sheet1Rows[r].join(' ');
-        if (rowStr.includes('스마트렌탈') || rowStr.includes('수수료 정산서') || rowStr.includes('정산서')) {
-          parsedSummary.title = (sheet1Rows[r][0] || sheet1Rows[r][1] || rowStr).trim();
-          break;
-        }
+      if (uniqueNames.length > 1) {
+        mergedSummary.title = `${mergedSummary.title} (${uniqueNames.length}개 파일 통합)`;
       }
 
-      let sumHeaderRowIdx = -1;
-      for (let r = 0; r < Math.min(sheet1Rows.length, 10); r++) {
-        const rowText = (sheet1Rows[r] || []).map(c => String(c).replace(/\s+/g, '')).join('|');
-        if (
-          rowText.includes('총매출금액') ||
-          rowText.includes('총매출') ||
-          (rowText.includes('기본수수료') && rowText.includes('수수료합계'))
-        ) {
-          sumHeaderRowIdx = r;
-          break;
-        }
-      }
+      setSummaryData(mergedSummary);
+      setReconRows(finalReconRows);
 
-      if (sumHeaderRowIdx !== -1 && sumHeaderRowIdx + 1 < sheet1Rows.length) {
-        const hRow = sheet1Rows[sumHeaderRowIdx].map(c => String(c).replace(/\s+/g, ''));
-        const valRow = sheet1Rows[sumHeaderRowIdx + 1];
-
-        const idxCount = hRow.findIndex(h => h.includes('실적') || h.includes('건수'));
-        const idxSales = hRow.findIndex(h => h.includes('총매출') || h.includes('결합매출'));
-        const idxBasic = hRow.findIndex(h => h.includes('기본수수료'));
-        const idxRefund = hRow.findIndex(h => h.includes('환수수수료') || h.includes('환수'));
-        const idxTotal = hRow.findIndex(h => h.includes('수수료합계') || h.includes('수수료(total)'));
-
-        if (idxCount !== -1) parsedSummary.totalCount = Number(valRow[idxCount]) || 0;
-        if (idxSales !== -1) parsedSummary.totalSales = Number(valRow[idxSales]) || 0;
-        if (idxBasic !== -1) parsedSummary.basicFee = Number(valRow[idxBasic]) || 0;
-        if (idxRefund !== -1) parsedSummary.refundFee = Number(valRow[idxRefund]) || 0;
-        if (idxTotal !== -1) parsedSummary.totalFee = Number(valRow[idxTotal]) || 0;
-      }
-
-      // ==========================================
-      // 2. 세 번째 시트 (모델별상세) 스마트 탐색 및 파싱
-      // ==========================================
-      let detailSheetName = '';
-      // 1순위: '모델별상세', '모델별', '상세' 포함 시트
-      const foundDetailSheet = wb.SheetNames.find(s => s.includes('모델별상세') || s.includes('모델별') || s.includes('상세'));
-      if (foundDetailSheet) {
-        detailSheetName = foundDetailSheet;
-      }
-      // 2순위: 3개 이상의 시트가 있다면 3번째 시트 (index 2)
-      else if (wb.SheetNames.length >= 3) {
-        detailSheetName = wb.SheetNames[2];
-      }
-      // 3순위: '판매' 또는 '가입' 또는 '리스트' 포함 시트
-      else {
-        const foundAlt = wb.SheetNames.find(s => s.includes('판매') || s.includes('가입') || s.includes('리스트'));
-        detailSheetName = foundAlt || wb.SheetNames[wb.SheetNames.length - 1];
-      }
-
-      const sheet3 = wb.Sheets[detailSheetName];
-      const range = XLSX.utils.decode_range(sheet3['!ref'] || 'A1:Z100');
-      const parsedReconRows: EnexReconciliationRow[] = [];
-
-      const getCell = (r: number, c: number) => sheet3[XLSX.utils.encode_cell({ r, c })];
-      const getVal = (r: number, c: number) => {
-        const cell = getCell(r, c);
-        return cell ? cell.v : '';
-      };
-
-      // [버그 수정 완료]: 헤더 행 동적 감지 (정산서별 상위 15개 행 검사)
-      let headerRowIdx = 1;
-      let maxMatches = 0;
-      for (let r = 0; r <= Math.min(range.e.r, 15); r++) {
-        let matches = 0;
-        for (let c = range.s.c; c <= range.e.c; c++) {
-          const val = String(getVal(r, c) || '').replace(/\s+/g, '').toLowerCase();
-          if (
-            val.includes('계약번호') ||
-            val.includes('계약id') ||
-            val.includes('결합매출') ||
-            val.includes('렌탈총액') ||
-            val.includes('수수료합계') ||
-            val.includes('판매점') ||
-            val.includes('대리점')
-          ) {
-            matches++;
-          }
-        }
-        if (matches > maxMatches) {
-          maxMatches = matches;
-          headerRowIdx = r;
-        }
-      }
-
-      // [핵심 버그 수정 완료]: 정산서 양식별 컬럼 인덱스 동적 자동 매핑!
-      // 10월 정산서 vs 9월/8월 정산서 ('기본정책 수수료율' 열 추가 여부 등) 컬럼 밀림 자동 해결
-      let colContractNo = -1;
-      let colSales = -1;
-      let colEnexFee = -1;
-      let colBranch = -1;
-      let colAppliance = -1;
-      let colModel = -1;
-      let colDelivery = -1;
-      let colRemark = -1;
-      const feeCandidateCols: number[] = [];
-
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const rawH = String(getVal(headerRowIdx, c) || '');
-        const hText = rawH.replace(/\s+/g, '').toLowerCase();
-        if (!hText) continue;
-
-        // 1. 계약번호 (계약번호, 계약ID 등)
-        if (colContractNo === -1 && (hText.includes('계약번호') || hText.includes('계약id') || hText === '계약')) {
-          colContractNo = c;
-        }
-        // 2. 매출액 (결합매출액, 렌탈총액, 월총매출액, 매출액 등)
-        else if (colSales === -1 && (hText.includes('결합매출') || hText.includes('렌탈총액') || hText.includes('매출액') || hText.includes('총매출'))) {
-          colSales = c;
-        }
-        // 3. 에넥스 수수료 합계 (수수료합계, 수수료(TOTAL), 수수료TOTAL 등)
-        else if (
-          hText.includes('수수료합계') ||
-          hText.includes('수수료(total)') ||
-          hText.includes('수수료total') ||
-          hText.includes('합계(total)') ||
-          (hText.includes('수수료') && hText.includes('합계'))
-        ) {
-          colEnexFee = c;
-        }
-        // 4. 판매점 (판매점, 대리점, 제휴사명 등)
-        else if (colBranch === -1 && (hText.includes('판매점') || hText.includes('대리점') || hText.includes('제휴사') || hText.includes('판매처'))) {
-          colBranch = c;
-        }
-        // 5. 가전 제품명 (상품명, 제품명 등 - 단, 상품구분 제외)
-        else if (colAppliance === -1 && (hText.includes('상품명') || hText.includes('제품명')) && !hText.includes('구분')) {
-          colAppliance = c;
-        }
-        // 6. 모델명 (결합모델명, 결합모델, 모델명 등)
-        else if (colModel === -1 && (hText.includes('결합모델') || hText.includes('모델명') || hText === '모델')) {
-          colModel = c;
-        }
-        // 7. 배송일자 (배송일, 배송일자 등 - 단, 배송등록일 제외)
-        else if (colDelivery === -1 && hText.includes('배송일') && !hText.includes('등록일')) {
-          colDelivery = c;
-        }
-        // 8. 비고 (비고, 구좌, 적용구좌 등)
-        else if (colRemark === -1 && (hText.includes('비고') || hText.includes('구좌') || hText.includes('적용구좌'))) {
-          colRemark = c;
-        }
-
-        if (hText.includes('수수료') && !hText.includes('수수료율')) {
-          feeCandidateCols.push(c);
-        }
-      }
-
-      // 만약 수수료 합계 컬럼을 명시적으로 못 찾았다면, '수수료' 컬럼 중 가장 마지막(오른쪽) 열을 선택
-      if (colEnexFee === -1 && feeCandidateCols.length > 0) {
-        colEnexFee = feeCandidateCols[feeCandidateCols.length - 1];
-      }
-
-      // Fallback 기본값 (10월 양식 기본 위치)
-      if (colContractNo === -1) colContractNo = 0;
-      if (colAppliance === -1) colAppliance = 3;
-      if (colModel === -1) colModel = 4;
-      if (colSales === -1) colSales = 7;
-      if (colDelivery === -1) colDelivery = 10;
-      if (colBranch === -1) colBranch = 13;
-      if (colEnexFee === -1) colEnexFee = 14;
-      if (colRemark === -1) colRemark = 16;
-
-      // 1. 유효 행 1차 파싱 및 본부/상품 매칭 데이터 수집
-      const rawExtracted: any[] = [];
-
-      for (let r = headerRowIdx + 1; r <= range.e.r; r++) {
-        const cellA = getCell(r, colContractNo); // 계약번호 셀
-        if (!cellA || cellA.v === undefined || cellA.v === null || String(cellA.v).trim() === '') {
-          continue;
-        }
-
-        const contractNo = String(cellA.v).trim();
-        if (contractNo.includes('합계') || contractNo.includes('소계') || contractNo.includes('계약번호')) {
-          continue;
-        }
-
-        const salesAmount = Number(getVal(r, colSales)) || 0;
-        const enexFee = Number(getVal(r, colEnexFee)) || 0;
-        const branchOffice = String(getVal(r, colBranch) || '').trim();
-        const applianceProdName = String(getVal(r, colAppliance) || '').trim();
-        const combineModel = String(getVal(r, colModel) || '').trim();
-        const deliveryDateExcel = String(getVal(r, colDelivery) || '').trim();
-        const remark = String(getVal(r, colRemark) || '').trim();
-
-        // 구좌수 파악 (Q열 비고 우선, 없을 시 매출액 기반 추정)
-        let accountCount = 1;
-        if (remark.includes('3구좌')) {
-          accountCount = 3;
-        } else if (remark.includes('2구좌')) {
-          accountCount = 2;
-        } else if (remark.includes('1구좌')) {
-          accountCount = 1;
-        } else if (salesAmount === 6840000) {
-          accountCount = 3;
-        } else if (salesAmount === 3960000 || salesAmount === 4560000) {
-          accountCount = 2;
-        }
-
-        // A열 노란색 음영 판별 (노란색이면 yellowFeeRate, 기본 baseFeeRate)
-        let isYellow = false;
-        if (cellA.s) {
-          const fgRgb = cellA.s.fgColor?.rgb || cellA.s.fill?.fgColor?.rgb;
-          const bgRgb = cellA.s.bgColor?.rgb;
-          const theme = cellA.s.fgColor?.theme;
-          if (
-            fgRgb === 'FFFF00' ||
-            fgRgb === 'FFF2CC' ||
-            fgRgb === 'FFFFE0' ||
-            fgRgb === 'FFE599' ||
-            fgRgb === 'FFD966' ||
-            bgRgb === 'FFFF00' ||
-            theme === 4
-          ) {
-            isYellow = true;
-          }
-        }
-
-        let feeRate = isYellow ? policySettings.yellowFeeRate : policySettings.baseFeeRate;
-        if (!isYellow && salesAmount > 0) {
-          const diffYellow = Math.abs((salesAmount - Math.round(salesAmount * policySettings.yellowFeeRate)) - enexFee);
-          const diffBase = Math.abs((salesAmount - Math.round(salesAmount * policySettings.baseFeeRate)) - enexFee);
-          if (diffYellow % 50000 === 0 && diffBase % 50000 !== 0) {
-            feeRate = policySettings.yellowFeeRate;
-            isYellow = true;
-          }
-        }
-
-        // 유효한 렌탈계약번호로 정확히 일치할 때만 ERP 매칭
-        const cleanContractNo = contractNo.trim();
-        const matchedErp = erpData.find(d => {
-          const rNo = String(d.rentalNo || '').trim();
-          if (!rNo || rNo.length < 4) return false;
-          return rNo === cleanContractNo;
-        });
-
-        // 상조 상품명 결정: ERP에 있으면 ERP prodName, 없으면 정책 규칙 및 키워드로 자동 배정
-        let initialSangjoName = matchedErp?.prodName || '';
-        const deliveryDate = matchedErp?.deliveryDate || deliveryDateExcel;
-        const customerName = matchedErp?.memName || '';
-        const hqName = matchedErp?.hq || '';
-
-        // 본부 매칭 확인
-        const targetHq = findTargetHq(hqName, branchOffice, effectiveHqSettings);
-        const resolvedHqName = targetHq?.hqName || hqName || branchOffice || '';
-
-        rawExtracted.push({
-          contractNo,
-          salesAmount,
-          enexFee,
-          branchOffice,
-          applianceProdName,
-          combineModel,
-          deliveryDate,
-          customerName,
-          hqName,
-          targetHq,
-          resolvedHqName,
-          accountCount,
-          isYellow,
-          feeRate,
-          matchedErp,
-          initialSangjoName,
-          rowIdx: r + 1
-        });
-      }
-
-      // 2. 본부별 실적 건수(행 수) 및 상품별 건수 사전 집계 (구간단가 조건 판정용)
-      const hqCountMap: Record<string, number> = {};
-      const hqProdCountMap: Record<string, number> = {};
-      for (const item of rawExtracted) {
-        const hq = item.resolvedHqName;
-        if (hq) {
-          hqCountMap[hq] = (hqCountMap[hq] || 0) + 1;
-          const prodKey = `${hq}__${item.initialSangjoName || item.applianceProdName}`;
-          hqProdCountMap[prodKey] = (hqProdCountMap[prodKey] || 0) + 1;
-        }
-      }
-
-      // 3. 2차 패스: 건수 기반 수수료 정밀 계산 및 행 완성
-      for (const item of rawExtracted) {
-        // 테라웨이브 등 특수 제품 추가 수수료 판정 (+80만원)
-        const { extraFee } = determineSpecialExtraFee(
-          item.applianceProdName,
-          item.combineModel,
-          policySettings.specialProductFees
-        );
-
-        // 구좌당 공급가 및 기본 지급수수료 판정
-        const { price: unitSupplyPrice, matchedProdName, defaultPayoutFee } = determineUnitSupplyPrice(
-          item.initialSangjoName,
-          item.applianceProdName,
-          item.combineModel,
-          item.salesAmount,
-          item.feeRate,
-          item.enexFee,
-          item.accountCount,
-          policySettings.productRules,
-          extraFee
-        );
-
-        if (!item.initialSangjoName) {
-          item.initialSangjoName = matchedProdName;
-        }
-
-        // 실적 건수 판정 (all: 본부 전체 실적 건수 vs self: 해당 상품 실적 건수)
-        const hq = item.resolvedHqName;
-        const hqCount = hq ? (hqCountMap[hq] || 0) : 0;
-        const prodKey = `${hq}__${item.initialSangjoName || item.applianceProdName}`;
-        const prodCount = hq ? (hqProdCountMap[prodKey] || 0) : 0;
-
-        let effectiveCount = hqCount;
-        if (item.targetHq && Array.isArray(item.targetHq.productRules)) {
-          const normProd = `${item.initialSangjoName || ''} ${item.applianceProdName || ''} ${item.combineModel || ''}`.replace(/\s+/g, '').toLowerCase();
-          const hasPlus = normProd.includes('540+') || normProd.includes('540플러스') || normProd.includes('플러스') || normProd.includes('plus');
-          const matchedRule = item.targetHq.productRules.find((r: any) => {
-            const nr = String(r.productName || '').replace(/\s+/g, '').toLowerCase();
-            if (normProd.includes('540')) {
-              return hasPlus ? (nr.includes('540') && (nr.includes('플러스') || nr.includes('plus'))) : (nr.includes('540') && !(nr.includes('플러스') || nr.includes('plus')));
-            }
-            if (normProd.includes('698') || normProd.includes('하이브리드')) return nr.includes('698') || nr.includes('하이브리드');
-            if (normProd.includes('498') || normProd.includes('라이즈')) return nr.includes('498') || nr.includes('라이즈');
-            if (normProd.includes('580') || normProd.includes('헬스케어')) return nr.includes('580') || nr.includes('헬스케어');
-            return nr && normProd && (nr.includes(normProd) || normProd.includes(nr));
-          });
-          if (matchedRule?.tierCountBasis === 'self') {
-            effectiveCount = prodCount;
-          }
-        }
-
-        // [지급 수수료 우선순위 산정]:
-        // 1순위: 에넥스 상품 자체 설정의 1구좌당 지급수수료 (defaultPayoutFee > 0) -> 최우선 적용!
-        // 2순위: 본부별 수수료 설정(hqPayoutFee > 0) (구간단가 건수 충족 여부 반영)
-        // 3순위: ERP 매칭 원장 수수료
-        const { payoutFee: hqPayoutFee, matchedHqName } = getHqPayoutFee(
-          item.hqName,
-          item.branchOffice,
-          item.initialSangjoName,
-          item.applianceProdName,
-          item.combineModel,
-          effectiveHqSettings,
-          defaultPayoutFee,
-          effectiveCount
-        );
-
-        let unitPayoutFee = 0;
-        let finalPayoutHqName = matchedHqName;
-
-        if (defaultPayoutFee && defaultPayoutFee > 0) {
-          unitPayoutFee = defaultPayoutFee;
-          finalPayoutHqName = '상품자체설정';
-        } else if (hqPayoutFee > 0) {
-          unitPayoutFee = hqPayoutFee;
-        } else if (item.matchedErp) {
-          if (typeof item.matchedErp.commission === 'number' && item.matchedErp.commission > 0) {
-            unitPayoutFee = item.matchedErp.commission;
-          } else if (typeof item.matchedErp.salesCommission === 'number' && item.matchedErp.salesCommission > 0) {
-            unitPayoutFee = item.matchedErp.salesCommission;
-          }
-        }
-
-        // 계산 산식:
-        // 1) 계산수수료 = 매출액 - 금융수수료 - 공급가합계 + 추가수수료
-        // 2) 지급수수료합계 = 구좌당지급수수료 * 적용구좌
-        // 3) 순익 = 계산수수료 - 지급수수료합계
-        const { financialFee, totalSupplyPrice, calculatedFee, diff, reconResult, totalPayoutFee, netProfit } = calculateRowMetrics(
-          item.salesAmount,
-          item.feeRate,
-          unitSupplyPrice,
-          item.accountCount,
-          extraFee,
-          item.enexFee,
-          unitPayoutFee
-        );
-
-        parsedReconRows.push({
-          contractNo: item.contractNo,
-          branchOffice: item.branchOffice,
-          sangjoProdName: item.initialSangjoName,
-          applianceProdName: item.applianceProdName,
-          combineModel: item.combineModel,
-          customerName: item.customerName,
-          hqName: item.hqName,
-          deliveryDate: item.deliveryDate,
-          salesAmount: item.salesAmount,
-          accountCount: item.accountCount,
-          feeRate: item.feeRate,
-          unitSupplyPrice,
-          extraFee,
-          financialFee,
-          totalSupplyPrice,
-          calculatedFee,
-          enexFee: item.enexFee,
-          diff,
-          reconResult,
-          unitPayoutFee,
-          totalPayoutFee,
-          netProfit,
-          payoutHqName: finalPayoutHqName,
-          isYellow: item.isYellow,
-          erpMatched: !!item.matchedErp,
-          erpData: item.matchedErp,
-          orderIndex: item.rowIdx
-        });
-      }
-
-      if (parsedSummary.totalCount === 0) parsedSummary.totalCount = parsedReconRows.length;
-      if (parsedSummary.totalSales === 0) parsedSummary.totalSales = parsedReconRows.reduce((sum, r) => sum + r.salesAmount, 0);
-      if (parsedSummary.totalFee === 0) parsedSummary.totalFee = parsedReconRows.reduce((sum, r) => sum + r.enexFee, 0);
-
-      const validDates = parsedReconRows
+      // 기간 설정
+      const validDates = finalReconRows
         .map(r => r.deliveryDate)
         .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
         .sort();
@@ -992,15 +1017,29 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         setRecordTitle('에넥스 위탁판매 수수료 지급완료');
       }
 
-      setSummaryData(parsedSummary);
-      setReconRows(parsedReconRows);
+      if (uniqueNames.length > 1) {
+        alert(`[정산서 파일 통합 완료]\n\n총 ${uniqueNames.length}개 정산서 파일에서 ${finalReconRows.length}건의 대사 데이터가 성공적으로 하나로 통합되었습니다.`);
+      }
     } catch (err: any) {
       console.error('Error parsing enex excel:', err);
       alert('엑셀 파일 파싱 중 오류가 발생했습니다: ' + (err.message || '파일 형식을 확인해주세요.'));
     } finally {
       setIsLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (appendFileInputRef.current) appendFileInputRef.current.value = '';
     }
+  };
+
+  // 신규 업로드 핸들러 (단일 또는 복수 파일 다중 선택 지원)
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    await processAndMergeFiles(e.target.files, false);
+  };
+
+  // 추가 병합 업로드 핸들러 (기존 데이터에 2차 파일 등을 추가로 병합)
+  const handleAppendFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    await processAndMergeFiles(e.target.files, true);
   };
 
   // 정책 설정 저장 및 현재 대사 테이블 전체 재계산
@@ -1022,7 +1061,11 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
 
       // 현재 테이블에 올라와 있는 데이터 전체에 새 정책 및 본부 구간단가 즉시 재계산 반영!
       if (reconRows.length > 0) {
-        // 1. 현재 테이블 행들의 본부별/상품별 실적 건수 집계
+        if (rawExtractedList.length > 0) {
+          const recalculated = buildReconRowsFromRaw(rawExtractedList, editingPolicy);
+          setReconRows(recalculated);
+        } else {
+          // 1. 현재 테이블 행들의 본부별/상품별 실적 건수 집계
         const hqCountMap: Record<string, number> = {};
         const hqProdCountMap: Record<string, number> = {};
         reconRows.forEach(row => {
@@ -1127,6 +1170,7 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
             };
           });
         });
+        }
       }
 
       alert('✅ 금융수수료율 및 상품별 물품대금 정책이 저장되었으며, 대사 테이블에 즉시 반영되었습니다!');
@@ -1139,6 +1183,12 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
   // 본부 지급수수료 및 구간단가 일괄 재계산
   const handleRecalculatePayoutFees = () => {
     if (reconRows.length === 0) return;
+
+    if (rawExtractedList.length > 0) {
+      const recalculated = buildReconRowsFromRaw(rawExtractedList, policySettings);
+      setReconRows(recalculated);
+      return;
+    }
 
     // 1. 현재 테이블 행들의 본부별/상품별 실적 건수 집계
     const hqCountMap: Record<string, number> = {};
@@ -2018,17 +2068,42 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
               type="file"
               ref={fileInputRef}
               accept=".xlsx, .xls"
+              multiple
               onChange={handleFileChange}
               className="hidden"
             />
+            <input
+              type="file"
+              ref={appendFileInputRef}
+              accept=".xlsx, .xls"
+              multiple
+              onChange={handleAppendFileChange}
+              className="hidden"
+            />
+
+            {/* 정산서 추가 병합 버튼 (1차+2차 등 복수 정산서를 하나로 합칠 때 사용) */}
+            {reconRows.length > 0 && (
+              <button
+                type="button"
+                onClick={() => appendFileInputRef.current?.click()}
+                disabled={isLoading}
+                className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                title="2차 정산서 등 추가 엑셀 파일을 업로드하여 현재 정산서와 하나로 병합합니다."
+              >
+                <Plus size={14} />
+                <span>+ 정산서 추가 병합 (.xlsx)</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isLoading}
               className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="파일 선택 창에서 Ctrl 키를 누르고 2개 이상의 파일을 한 번에 선택하셔도 자동으로 하나로 병합됩니다."
             >
               <Upload size={14} />
-              {reconRows.length > 0 ? '정산서 파일 변경' : '에넥스 정산서 업로드 (.xlsx)'}
+              {reconRows.length > 0 ? '정산서 파일 새로 변경' : '에넥스 정산서 업로드 (.xlsx)'}
             </button>
 
             <button
@@ -2047,11 +2122,19 @@ export const EnexReconciliationTab: React.FC<EnexReconciliationTabProps> = ({
         {summaryData && (
           <div className="mt-2.5 pt-2.5 border-t border-slate-200/80">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-                <FileSpreadsheet size={13} className="text-indigo-600" />
-                {summaryData.title}
-                {fileName && <span className="text-slate-400 font-normal">({fileName})</span>}
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <FileSpreadsheet size={13} className="text-indigo-600" />
+                  {summaryData.title}
+                </span>
+                {uploadedFileNames.length > 1 && (
+                  <span className="px-2 py-0.5 bg-purple-100 text-purple-800 text-[10px] font-bold rounded-md flex items-center gap-1 border border-purple-200">
+                    <Layers size={10} />
+                    {uploadedFileNames.length}개 정산서 파일 통합 대사 중
+                  </span>
+                )}
+                {fileName && <span className="text-[11px] text-slate-400 font-normal">({fileName})</span>}
+              </div>
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-md">
                   대사 일치: {stats.matchCount.toLocaleString()}건
