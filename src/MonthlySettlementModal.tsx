@@ -2722,7 +2722,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         totalComm: directTotalComm,
         tax: directTax,
         netTotal: directNet,
-        formula: `='1. 본사보고용_수수료정산서'!J${directRow}`,
+        formula: directTax > 0 ? undefined : `='1. 본사보고용_수수료정산서'!J${directRow}`,
         bankName: directAcc.bankName !== '-' ? directAcc.bankName : '국민은행',
         accountNumber: directAcc.accountNumber !== '-' ? directAcc.accountNumber : '822401-04-142270',
         accountHolder: directAcc.accountHolder !== '-' ? directAcc.accountHolder : '다이렉트',
@@ -2746,6 +2746,292 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         accountNumber: thelifeAcc.accountNumber !== '-' ? thelifeAcc.accountNumber : '79391040692907',
         accountHolder: thelifeAcc.accountHolder !== '-' ? thelifeAcc.accountHolder : '박인천(더드림)',
         note: '유지수수료(헬스케어580)'
+      });
+
+      // 7-2. 기타 실적 본부 동적 집계 (더금융비상 등 개인/프리랜서 본부의 영업사원/지점장 2단계 분배 및 기타 실적 본부 계좌 연동)
+      const handledHqNames = new Set([
+        '언바운드컴퍼니', '주식회사 언바운드컴퍼니',
+        '꿈잇다', '주식회사 꿈잇다',
+        '굿라이프', '굿라이프(신동우)', '신동우',
+        '피티엠에스', '주식회사피티엠에스',
+        '맥스',
+        '해랑인터내셔널', '해랑',
+        '위더스앤씨',
+        '다이렉트',
+        '더라이프앤'
+      ]);
+
+      const alreadyAddedHqs = new Set<string>();
+
+      // A) effectiveHqMonthlyStats 순회
+      effectiveHqMonthlyStats.forEach(stat => {
+        const hqName = (stat.hqName || '').trim();
+        if (!hqName) return;
+        const normHq = hqName.replace(/[\s()주식회사]/g, '').toLowerCase();
+        const isHandled = Array.from(handledHqNames).some(h => {
+          const nh = h.replace(/[\s()주식회사]/g, '').toLowerCase();
+          return nh === normHq || (nh.length >= 2 && (nh.includes(normHq) || normHq.includes(nh)));
+        });
+        if (isHandled || alreadyAddedHqs.has(normHq)) return;
+
+        let items = stat.items || [];
+        if (items.length === 0) {
+          items = (data || []).filter(d => {
+            const pDate = d.payDate || '';
+            const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+            const itemMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+            return itemMonth === selectedMonth && (d.hq === hqName || d.branchOffice === hqName);
+          });
+        }
+
+        const targetStats = getDetailedTargetStats(hqName);
+        const totalCount = items.length > 0 ? items.length : (targetStats.count || stat.count || 0);
+        const totalCommission = items.length > 0
+          ? items.reduce((s, it) => s + (calculateCommissionDetails(it, globalStatsMap).totalCommission || 0), 0)
+          : (targetStats.totalComm || stat.totalFee || 0);
+
+        if (totalCount === 0 && totalCommission === 0) return;
+
+        alreadyAddedHqs.add(normHq);
+
+        const matchedHqSetting = (hqSettings || []).find((h: any) => {
+          const nh = (h.hqName || '').replace(/[\s()주식회사]/g, '').toLowerCase();
+          return nh === normHq || (nh.length >= 2 && (nh.includes(normHq) || normHq.includes(nh)));
+        });
+        const isPersonal = (matchedHqSetting?.settlementType || stat.settlementType || '').includes('개인') ||
+                          (matchedHqSetting?.settlementType || stat.settlementType || '').includes('프리랜서');
+
+        if (isPersonal && items.length > 0) {
+          // 개인/프리랜서 2단계 분배: 영업사원 수수료 및 지점장 수당
+          const pMap = new Map<string, {
+            name: string;
+            branch: string;
+            roles: Set<string>;
+            salesCount: number;
+            salesFee: number;
+            branchFee: number;
+            bankInfo: EmployeeBankInfo | null;
+          }>();
+
+          items.forEach(item => {
+            if (item.status && item.status.includes('취소')) return;
+            const details = calculateCommissionDetails(item, globalStatsMap);
+            const spName = (item.empName || '').trim();
+            const bmName = (details.branchManagerName || '').trim();
+            const spFee = details.salespersonFee ?? details.salesComm ?? 0;
+            const bmFee = details.branchManagerFee ?? (details.totalCommission - spFee);
+
+            if (spName) {
+              if (!pMap.has(spName)) {
+                pMap.set(spName, {
+                  name: spName,
+                  branch: item.branch || '-',
+                  roles: new Set(['영업사원']),
+                  salesCount: 0,
+                  salesFee: 0,
+                  branchFee: 0,
+                  bankInfo: details.salespersonBankInfo || findEmployeeInfo(spName, item.branch, hqName, parsedEmployees)
+                });
+              }
+              const spEntry = pMap.get(spName)!;
+              spEntry.roles.add('영업사원');
+              spEntry.salesCount += 1;
+              spEntry.salesFee += spFee;
+            }
+
+            if (bmName && bmName !== '지점장미지정') {
+              if (!pMap.has(bmName)) {
+                pMap.set(bmName, {
+                  name: bmName,
+                  branch: item.branch || '-',
+                  roles: new Set(['지점장']),
+                  salesCount: 0,
+                  salesFee: 0,
+                  branchFee: 0,
+                  bankInfo: details.branchManagerBankInfo || findEmployeeInfo(bmName, item.branch, hqName, parsedEmployees)
+                });
+              }
+              const bmEntry = pMap.get(bmName)!;
+              bmEntry.roles.add('지점장');
+              bmEntry.branchFee += bmFee;
+            }
+          });
+
+          Array.from(pMap.values()).forEach(p => {
+            const gross = p.salesFee + p.branchFee;
+            const tax = Math.floor(gross * 0.033);
+            const net = gross - tax;
+            const isBoth = p.roles.has('영업사원') && p.roles.has('지점장');
+            const isHqLeader = p.bankInfo?.position?.includes('본부장');
+            const isJihwe = p.bankInfo?.position?.includes('지회장');
+            const managerTitle = isHqLeader ? '본부장 겸 지회장' : (isJihwe ? '지회장' : '지점장');
+            const roleLabel = isBoth ? `${managerTitle}(본인판매)` : (p.roles.has('지점장') ? managerTitle : '영업사원');
+
+            payoutList.push({
+              targetName: `${p.name} (${hqName})`,
+              divisionType: `${hqName} / ${roleLabel}`,
+              settlementType: '개인',
+              count: p.salesCount || 1,
+              totalComm: gross,
+              tax: tax,
+              netTotal: net,
+              bankName: p.bankInfo?.bankName || '-',
+              accountNumber: p.bankInfo?.accountNumber || '-',
+              accountHolder: p.bankInfo?.accountHolder || p.name,
+              note: `${hqName} ${roleLabel} 수수료`
+            });
+          });
+        } else {
+          // 사업자 본부
+          const acc = getPayoutAccountInfo(hqName);
+          const tax = acc.settlementType.includes('개인') ? Math.round(totalCommission * 0.033) : 0;
+          const net = totalCommission - tax;
+          payoutList.push({
+            targetName: hqName,
+            divisionType: '사업단/본부',
+            settlementType: acc.settlementType || '사업자',
+            count: totalCount,
+            totalComm: totalCommission,
+            tax: tax,
+            netTotal: net,
+            bankName: acc.bankName !== '-' ? acc.bankName : '-',
+            accountNumber: acc.accountNumber !== '-' ? acc.accountNumber : '-',
+            accountHolder: acc.accountHolder !== '-' ? acc.accountHolder : hqName,
+            note: `${hqName} 정산`
+          });
+        }
+      });
+
+      // B) detailedSettlementList 순회 (effectiveHqMonthlyStats에 누락된 본부 안전망)
+      detailedSettlementList.forEach(row => {
+        if (row.isSubtotal || !row.targetName) return;
+        const target = row.targetName.trim();
+        const normTarget = target.replace(/[\s()주식회사]/g, '').toLowerCase();
+        const isHandled = Array.from(handledHqNames).some(h => {
+          const nh = h.replace(/[\s()주식회사]/g, '').toLowerCase();
+          return nh === normTarget || (nh.length >= 2 && (nh.includes(normTarget) || normTarget.includes(nh)));
+        });
+        if (isHandled || alreadyAddedHqs.has(normTarget)) return;
+
+        // 특수수당 대상(조재윤, 조민경, 이종연, 권성훈, 신동우 등) 제외
+        if (normTarget.includes('조재윤') || normTarget.includes('조민경') || normTarget.includes('이종연') || normTarget.includes('권성훈') || normTarget.includes('신동우')) return;
+
+        alreadyAddedHqs.add(normTarget);
+        const targetStats = getDetailedTargetStats(target);
+        const count = targetStats.count || row.count || 0;
+        const totalComm = targetStats.totalComm || row.totalCommission || 0;
+        if (count === 0 && totalComm === 0) return;
+
+        const matchedHqSetting = (hqSettings || []).find((h: any) => {
+          const nh = (h.hqName || '').replace(/[\s()주식회사]/g, '').toLowerCase();
+          return nh === normTarget || (nh.length >= 2 && (nh.includes(normTarget) || normTarget.includes(nh)));
+        });
+        const isPersonal = (matchedHqSetting?.settlementType || '').includes('개인') || (matchedHqSetting?.settlementType || '').includes('프리랜서');
+
+        let items = (data || []).filter(d => {
+          const pDate = d.payDate || '';
+          const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+          const itemMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+          return itemMonth === selectedMonth && (d.hq === target || d.branchOffice === target);
+        });
+
+        if (isPersonal && items.length > 0) {
+          const pMap = new Map<string, {
+            name: string;
+            branch: string;
+            roles: Set<string>;
+            salesCount: number;
+            salesFee: number;
+            branchFee: number;
+            bankInfo: EmployeeBankInfo | null;
+          }>();
+
+          items.forEach(item => {
+            if (item.status && item.status.includes('취소')) return;
+            const details = calculateCommissionDetails(item, globalStatsMap);
+            const spName = (item.empName || '').trim();
+            const bmName = (details.branchManagerName || '').trim();
+            const spFee = details.salespersonFee ?? details.salesComm ?? 0;
+            const bmFee = details.branchManagerFee ?? (details.totalCommission - spFee);
+
+            if (spName) {
+              if (!pMap.has(spName)) {
+                pMap.set(spName, {
+                  name: spName,
+                  branch: item.branch || '-',
+                  roles: new Set(['영업사원']),
+                  salesCount: 0,
+                  salesFee: 0,
+                  branchFee: 0,
+                  bankInfo: details.salespersonBankInfo || findEmployeeInfo(spName, item.branch, target, parsedEmployees)
+                });
+              }
+              const spEntry = pMap.get(spName)!;
+              spEntry.roles.add('영업사원');
+              spEntry.salesCount += 1;
+              spEntry.salesFee += spFee;
+            }
+
+            if (bmName && bmName !== '지점장미지정') {
+              if (!pMap.has(bmName)) {
+                pMap.set(bmName, {
+                  name: bmName,
+                  branch: item.branch || '-',
+                  roles: new Set(['지점장']),
+                  salesCount: 0,
+                  salesFee: 0,
+                  branchFee: 0,
+                  bankInfo: details.branchManagerBankInfo || findEmployeeInfo(bmName, item.branch, target, parsedEmployees)
+                });
+              }
+              const bmEntry = pMap.get(bmName)!;
+              bmEntry.roles.add('지점장');
+              bmEntry.branchFee += bmFee;
+            }
+          });
+
+          Array.from(pMap.values()).forEach(p => {
+            const gross = p.salesFee + p.branchFee;
+            const tax = Math.floor(gross * 0.033);
+            const net = gross - tax;
+            const isBoth = p.roles.has('영업사원') && p.roles.has('지점장');
+            const isHqLeader = p.bankInfo?.position?.includes('본부장');
+            const isJihwe = p.bankInfo?.position?.includes('지회장');
+            const managerTitle = isHqLeader ? '본부장 겸 지회장' : (isJihwe ? '지회장' : '지점장');
+            const roleLabel = isBoth ? `${managerTitle}(본인판매)` : (p.roles.has('지점장') ? managerTitle : '영업사원');
+
+            payoutList.push({
+              targetName: `${p.name} (${target})`,
+              divisionType: `${target} / ${roleLabel}`,
+              settlementType: '개인',
+              count: p.salesCount || 1,
+              totalComm: gross,
+              tax: tax,
+              netTotal: net,
+              bankName: p.bankInfo?.bankName || '-',
+              accountNumber: p.bankInfo?.accountNumber || '-',
+              accountHolder: p.bankInfo?.accountHolder || p.name,
+              note: `${target} ${roleLabel} 수수료`
+            });
+          });
+        } else {
+          const acc = getPayoutAccountInfo(target);
+          const tax = acc.settlementType.includes('개인') ? Math.round(totalComm * 0.033) : 0;
+          const net = totalComm - tax;
+          payoutList.push({
+            targetName: target,
+            divisionType: '사업단/본부',
+            settlementType: acc.settlementType || '사업자',
+            count,
+            totalComm,
+            tax,
+            netTotal: net,
+            bankName: acc.bankName !== '-' ? acc.bankName : '-',
+            accountNumber: acc.accountNumber !== '-' ? acc.accountNumber : '-',
+            accountHolder: acc.accountHolder !== '-' ? acc.accountHolder : target,
+            note: `${target} 정산`
+          });
+        }
       });
 
       // 8. 개인 수당 및 외주 (조재윤, 조민경, 이종연, 권성훈 - 동적 계좌 연동)
