@@ -1950,18 +1950,10 @@ const ERP_Dashboard = () => {
 
         let effectiveDivisions: DivisionSetting[] = [];
         if (data.divisions && Array.isArray(data.divisions) && data.divisions.length > 0) {
-          // 클라우드 설정을 그대로 채택 (다른 PC에서 저장한 신동우 사업단 등 최신 데이터 온전히 보존)
-          effectiveDivisions = data.divisions;
-          // 클라우드에 아직 없는 신규 로컬 사업단이 있을 때만 추가
-          if (localDivs.length > 0) {
-            const cloudIds = new Set(effectiveDivisions.map((cd: any) => cd.id));
-            const newLocalOnly = localDivs.filter(ld => ld.id && !cloudIds.has(ld.id));
-            if (newLocalOnly.length > 0) {
-              effectiveDivisions = [...effectiveDivisions, ...newLocalOnly];
-            }
-          }
+          // 클라우드 설정을 최우선 원본으로 그대로 채택 (더이상 삭제된 로컬_bak 사업단을 역병합하여 부활시키지 않음)
+          effectiveDivisions = data.divisions.filter((d: any) => (d.name || '') !== '더좋은라이프' && d.id !== 'div-1792373934389');
         } else if (localDivs.length > 0) {
-          effectiveDivisions = localDivs;
+          effectiveDivisions = localDivs.filter((d: any) => (d.name || '') !== '더좋은라이프' && d.id !== 'div-1792373934389');
         }
 
         if (effectiveDivisions && effectiveDivisions.length > 0) {
@@ -12404,8 +12396,15 @@ const ERP_Dashboard = () => {
                                     <button
                                       onClick={async () => {
                                         if (await (window as any).customConfirm(`'${div.name}' 사업단을 삭제하시겠습니까?\n(소속 본부들은 삭제되지 않고 독립 본부로 전환됩니다.)`)) {
-                                          setDivisionSettings(prev => prev.filter(d => d.id !== div.id));
+                                          const nextDivs = divisionSettings.filter(d => d.id !== div.id);
+                                          setDivisionSettings(nextDivs);
+                                          divisionSettingsRef.current = nextDivs;
+                                          localStorage.setItem('erp_division_settings', JSON.stringify(nextDivs));
+                                          localStorage.setItem('erp_division_settings_bak', JSON.stringify(nextDivs));
                                           setActiveDivisionId(null);
+                                          setTimeout(() => {
+                                            saveSettingsToCloud(true);
+                                          }, 100);
                                         }
                                       }}
                                       className="px-2.5 py-1.5 text-rose-500 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all border border-rose-100 cursor-pointer"

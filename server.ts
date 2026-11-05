@@ -751,7 +751,9 @@ app.post('/api/sheets/settings/sync-cache', async (req, res) => {
       try { cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8')); } catch (e) {}
     }
     if (settings && Array.isArray(settings) && settings.length > 0) cacheData.settings = settings;
-    if (divisions && Array.isArray(divisions) && divisions.length > 0) cacheData.divisions = divisions;
+    if (divisions && Array.isArray(divisions)) {
+      cacheData.divisions = divisions.filter((d: any) => (d.name || '') !== '더좋은라이프' && d.id !== 'div-1792373934389');
+    }
     if (globalIncentives && Array.isArray(globalIncentives) && globalIncentives.length > 0) cacheData.globalIncentives = globalIncentives;
     if (maintenanceRules && Array.isArray(maintenanceRules) && maintenanceRules.length > 0) cacheData.maintenanceRules = maintenanceRules;
     fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8');
@@ -1005,7 +1007,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       try { extraCacheBackup = JSON.parse(fs.readFileSync(extraCachePath, 'utf8')); } catch(e){}
     }
 
-    let targetDivisions = (divisions && Array.isArray(divisions) && divisions.length > 0) ? divisions : null;
+    let targetDivisions = (divisions && Array.isArray(divisions)) ? divisions.filter((d: any) => (d.name || '') !== '더좋은라이프' && d.id !== 'div-1792373934389') : null;
     if (!targetDivisions && existingExtraMap['BUSINESS_DIVISIONS']) {
       try {
         const parsed = JSON.parse(existingExtraMap['BUSINESS_DIVISIONS']);
@@ -1658,12 +1660,13 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         if (!manualOrderProducts && cacheData.manualOrderProducts) manualOrderProducts = cacheData.manualOrderProducts;
         if (!manualOrderStores && cacheData.manualOrderStores) manualOrderStores = cacheData.manualOrderStores;
         if (divisions && Array.isArray(divisions) && divisions.length > 0) {
-          // 구글 시트 데이터가 최신 원본이므로 캐시를 동기화 (옛날 캐시와 합집합 병합 방지)
-          cacheData.divisions = divisions;
+          // 구글 시트 데이터가 최신 원본이므로 캐시를 동기화 (더좋은라이프 사업단 영구 배제)
+          cacheData.divisions = divisions.filter((d: any) => (d.name || '') !== '더좋은라이프' && d.id !== 'div-1792373934389');
+          divisions = cacheData.divisions;
           try { fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8'); } catch (e) {}
         } else if (cacheData.divisions && Array.isArray(cacheData.divisions) && cacheData.divisions.length > 0) {
           // 시트에 없을 때만 캐시를 fallback으로 사용
-          divisions = cacheData.divisions;
+          divisions = cacheData.divisions.filter((d: any) => (d.name || '') !== '더좋은라이프' && d.id !== 'div-1792373934389');
         }
 
         // 사업단 간 본부 중복 배정 방지 정제 (한 본부는 1개 사업단에만 소속)
