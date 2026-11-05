@@ -19,6 +19,10 @@ export interface MonthlySettlementModalProps {
   onExportHqSettlement?: (hqName: string, monthStr?: string, precalculatedDetail?: any) => Promise<void>;
   calculateMaintenancePayouts?: (items: any[], monthStr?: string, ignoreDay?: boolean) => any[];
   cachedEmpRows?: any[][];
+  currentUser?: any;
+  isManager?: boolean;
+  isHQStaff?: boolean;
+  userHqNames?: string[];
 }
 
 interface SettlementClosureItem {
@@ -320,7 +324,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   calculateCommissionDetails,
   onExportHqSettlement,
   calculateMaintenancePayouts,
-  cachedEmpRows = []
+  cachedEmpRows = [],
+  currentUser,
+  isManager = false,
+  isHQStaff = false,
+  userHqNames = []
 }) => {
   const parsedEmployees = useMemo(() => parseEmployeeRows(cachedEmpRows), [cachedEmpRows]);
   const [selectedMonth, setSelectedMonth] = useState<string>('');
@@ -332,6 +340,40 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
   // 뷰 모드 탭: 'summary' (본부별 총괄 집계) | 'detailed' (수수료 정산 상세 내역 - 사용자 요청 뷰)
   const [settlementViewTab, setSettlementViewTab] = useState<'summary' | 'detailed'>('detailed');
+
+  // 본부/사업단 총무 권한 기반 허용 본부 판별 헬퍼
+  const isHqAllowed = useCallback((targetName: string): boolean => {
+    if (isManager || !isHQStaff || !userHqNames || userHqNames.length === 0) {
+      return true;
+    }
+    if (!targetName) return false;
+    const cleanTarget = targetName.replace(/[\s()본부사업단주식회사대표]/g, '').toLowerCase();
+
+    // 굿라이프 총괄 계정 여부 확인
+    const isGoodlifeStaff = userHqNames.some(h => {
+      const c = (h || '').replace(/[\s()본부사업단]/g, '').toLowerCase();
+      return c.includes('굿라이프') || c.includes('꿈잇다') || c.includes('신동우');
+    });
+
+    if (isGoodlifeStaff) {
+      if (cleanTarget.includes('굿라이프') || cleanTarget.includes('꿈잇다') || cleanTarget.includes('신동우')) {
+        return true;
+      }
+      const defaultGoodlifeHqs = [
+        '최강', '가치온', '1', '새빛', '온누리', '명품', '이음', '무한', '꿈잇다', '서울중앙', '스마일', '아우라', '챔피언', '두드림', '조이',
+        '다보다', '더굿라이프', '노반ai', 'ls지사', '신동우', '더굿', 'kmn솔루션', '스프링스', '원하다'
+      ];
+      if (defaultGoodlifeHqs.some(g => cleanTarget === g || cleanTarget.includes(g) || g.includes(cleanTarget))) {
+        return true;
+      }
+    }
+
+    return userHqNames.some(uHq => {
+      const cleanUHq = (uHq || '').replace(/[\s()본부사업단주식회사대표]/g, '').toLowerCase();
+      if (!cleanUHq) return false;
+      return cleanTarget === cleanUHq || cleanTarget.includes(cleanUHq) || cleanUHq.includes(cleanTarget);
+    });
+  }, [isManager, isHQStaff, userHqNames]);
 
   // 상세 정산 내역 편집 모드
   const [isDetailEditMode, setIsDetailEditMode] = useState<boolean>(false);
@@ -1149,12 +1191,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   }, [data, selectedMonth, hqSettings, maintenancePayouts, globalIncentiveRules, divisionSettings, calculateCommissionDetails, globalStatsMap, calculateMaintenancePayouts]);
 
   // 마감된 월은 확정 스냅샷 데이터(stats)를 우선 사용하고, 미마감 월은 실시간 계산 stats 사용
-  const effectiveHqMonthlyStats = useMemo(() => {
+  const baseHqMonthlyStats = useMemo(() => {
     if (isCurrentMonthClosed && closedDetailMap[selectedMonth]?.stats) {
       return closedDetailMap[selectedMonth].stats;
     }
     return hqMonthlyStats;
   }, [isCurrentMonthClosed, closedDetailMap, selectedMonth, hqMonthlyStats]);
+
+  // 권한 필터링: 총무/본부 계정은 자기가 관리하는 본부만 노출
+  const effectiveHqMonthlyStats = useMemo(() => {
+    if (isManager || !isHQStaff || !userHqNames || userHqNames.length === 0) {
+      return baseHqMonthlyStats;
+    }
+    return baseHqMonthlyStats.filter(s => isHqAllowed(s.hqName));
+  }, [baseHqMonthlyStats, isManager, isHQStaff, userHqNames, isHqAllowed]);
 
   // =========================================================================
   // [사업단 관리 (divisionSettings) 연동] 굿라이프(꿈잇다) vs 굿라이프(신동우) 소속 본부 마스터 및 실적 분석
@@ -1503,12 +1553,35 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   const detailedSettlementList = useMemo<DetailedSettlementRow[]>(() => {
     const isOct = selectedMonth === '2026-10' || selectedMonth.endsWith('-10');
 
+    // 권한 기반 정산 행 선별 헬퍼 (외주 부대비용 및 비인가 본부 철저 차단)
+    const filterByPermission = (rows: DetailedSettlementRow[]): DetailedSettlementRow[] => {
+      if (isManager || !isHQStaff || !userHqNames || userHqNames.length === 0) {
+        return rows;
+      }
+      const isGoodlifeStaff = userHqNames.some(h => {
+        const c = (h || '').replace(/[\s()본부사업단]/g, '').toLowerCase();
+        return c.includes('굿라이프') || c.includes('꿈잇다') || c.includes('신동우');
+      });
+
+      return rows.filter(r => {
+        // 본사 외주/부대비용(조재윤, 조민경, 권성훈, 이종연 등)은 총무/본부 계정에게 절대 미노출
+        if (['조재윤', '조민경', '권성훈', '이종연'].some(p => r.targetName.includes(p))) {
+          return false;
+        }
+        // 신동우 오버라이딩 차액: 굿라이프 총무에게만 허용
+        if (r.targetName.includes('신동우')) {
+          return isGoodlifeStaff;
+        }
+        return isHqAllowed(r.targetName);
+      });
+    };
+
     // 1) 10월이고 사업단 묶기 모드일 때: 사용자 확정 10월 데이터 제공 (굿라이프 사업단 내부 분배 명세와 100% 실시간 동기화)
     if (isOct && groupByDivision) {
       if (customDetailedRowsMap[selectedMonth] && customDetailedRowsMap[selectedMonth].length > 0) {
         return customDetailedRowsMap[selectedMonth];
       }
-      return DEFAULT_OCTOBER_SETTLEMENT_ROWS.map(r => {
+      return filterByPermission(DEFAULT_OCTOBER_SETTLEMENT_ROWS.map(r => {
         if (r.id === 'oct_goodlife_kkum') {
           return {
             ...r,
@@ -1542,7 +1615,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           };
         }
         return r;
-      });
+      }));
     }
 
     // 2) 로컬 스토리지에 사용자가 직접 편집/저장한 내역이 있는 경우 (특정 모드 캐시)
@@ -1550,7 +1623,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     if (customDetailedRowsMap[modeKey] && customDetailedRowsMap[modeKey].length > 0) {
       // 11월인데 조재윤/조민경 건수가 632건이 아닌 잔재(2266건, 2893건 등)가 남아있다면 632건으로 자동 마이그레이션
       if (selectedMonth.endsWith('11')) {
-        return customDetailedRowsMap[modeKey].map(r => {
+        return filterByPermission(customDetailedRowsMap[modeKey].map(r => {
           if (r.targetName === '조재윤' && r.itemName.includes('모델비') && r.count !== 632) {
             return {
               ...r,
@@ -1574,9 +1647,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             };
           }
           return r;
-        });
+        }));
       }
-      return customDetailedRowsMap[modeKey];
+      return filterByPermission(customDetailedRowsMap[modeKey]);
     }
 
     // 3) ERP 데이터로부터 동적 자동 집계 생성
@@ -1882,8 +1955,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       isHeaderGroup: true
     });
 
-    return result;
-  }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data, goodlifeSplitSummary, currentTherawaveInfo]);
+    return filterByPermission(result);
+  }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data, goodlifeSplitSummary, currentTherawaveInfo, isManager, isHQStaff, userHqNames, isHqAllowed]);
 
   // 상세 정산 내역 전체 합계 계산 (소계 행 제외하여 중복 방지 및 원천세/실지급액 계산)
   const detailedTotals = useMemo(() => {

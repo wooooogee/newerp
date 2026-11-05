@@ -395,7 +395,10 @@ export function AccountManagementModal({
         set.add(m.orgName.trim());
       }
     });
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+    const list = Array.from(set).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+    const divisions = ['굿라이프', '굿라이프(신동우)', '굿라이프(꿈잇다)'];
+    const finalList = [...divisions, ...list.filter(h => !divisions.includes(h))];
+    return finalList;
   }, [empSheetHqs, hqSettings, availableHqs, members]);
 
   // 동명 지사(여러 본부에 걸쳐 존재하는 동일 지사명) 판별 맵: branchName -> hqNames[]
@@ -1101,7 +1104,10 @@ export function AccountManagementModal({
                     } else if (role === '지사' || role === '지사모바일') {
                       setNewOrgType('branch');
                       if (cleanBranches.length > 0) setSelectedOrgDropdown(cleanBranches[0]);
-                    } else if (role === '관리자' || role === '총무') {
+                    } else if (role === '총무') {
+                      setNewOrgType('hq');
+                      if (cleanHqs.length > 0) setSelectedOrgDropdown(cleanHqs[0]);
+                    } else if (role === '관리자') {
                       setNewOrgType('custom');
                       setCustomOrgInput('본사/전체');
                     } else if (role === '대표모바일' || role === '대표') {

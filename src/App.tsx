@@ -821,7 +821,13 @@ const ERP_Dashboard = () => {
   const isManager = isSuperAdmin ||
                     currentUser?.role === '관리자' ||
                     currentUser?.role === '관리자모바일';
-  const isAdmin = isManager || currentUser?.role === '총무';
+  // 총무 계정 중 '본사/전체' 총무만 전체 관리자급으로 승격하고, 특정 본부/사업단 총무는 해당 본부 전담 Staff로 분리
+  const isHeadquarterTotalAdmin = currentUser?.role === '총무' && (
+    (currentUser.orgName || '').includes('본사') ||
+    (currentUser.orgName || '').includes('전체') ||
+    (currentUser.orgs && currentUser.orgs.some(o => o.role === '총무' && ((o.orgName || '').includes('본사') || (o.orgName || '').includes('전체'))))
+  );
+  const isAdmin = isManager || isHeadquarterTotalAdmin;
   const showCommissionInfo = isSuperAdmin || currentUser?.role === '총무';
 
   // '대표' / '대표모바일' 권한 판별 (대표이사 전용 모바일 대시보드 대상)
@@ -833,7 +839,7 @@ const ERP_Dashboard = () => {
     if (currentUser.orgs && currentUser.orgs.some(item => checkCeo(item.role))) return true;
     return false;
   }, [currentUser]);
-  const isHQStaff = !isManager && (
+  const isHQStaff = !isManager && !isHeadquarterTotalAdmin && (
     currentUser?.role === '총무' || 
     currentUser?.role === '본부' ||
     (currentUser?.orgs && currentUser.orgs.some(o => o.role === '총무' || o.role === '본부'))
@@ -845,14 +851,46 @@ const ERP_Dashboard = () => {
     (currentUser?.orgs && currentUser.orgs.some(o => o.role === '지사' || o.role === '지점'))
   );
 
+  // ⭐ 허용 본부 목록 동적 추출 (23개 본부 개별 등록뿐만 아니라 '굿라이프' 등 사업단 총괄 총무 자동 확장)
   const userHqNames = React.useMemo(() => {
     if (!currentUser) return [];
+    const rawOrgs: string[] = [];
     if (currentUser.orgs && currentUser.orgs.length > 0) {
-      return currentUser.orgs
+      currentUser.orgs
         .filter(o => o.role === '총무' || o.role === '본부' || o.role === '본부모바일')
-        .map(o => (o.orgName || '').replace(/[\s()본부]/g, ''));
+        .forEach(o => {
+          if (o.orgName) rawOrgs.push(o.orgName);
+        });
+    } else if (currentUser.orgName) {
+      rawOrgs.push(currentUser.orgName);
     }
-    return [(currentUser.orgName || '').replace(/[\s()본부]/g, '')];
+
+    const hqSet = new Set<string>();
+    const defaultGoodlifeHqs = [
+      '최강', '가치온', '1', '새빛', '온누리', '명품', '이음', '무한', '꿈잇다', '서울중앙', '스마일', '아우라', '챔피언', '두드림', '조이',
+      '다보다', '더굿라이프', '노반AI', 'LS지사', '신동우', '더굿', 'KMN솔루션', '스프링스', '원하다'
+    ];
+
+    rawOrgs.forEach(org => {
+      const clean = org.replace(/[\s()본부사업단]/g, '');
+      // 1. 굿라이프 총괄 총무 (굿라이프, 굿라이프사업단 등)
+      if (clean.includes('굿라이프')) {
+        defaultGoodlifeHqs.forEach(h => hqSet.add(h));
+        hqSet.add('굿라이프');
+        hqSet.add('꿈잇다');
+        hqSet.add('신동우');
+      } else if (clean.includes('꿈잇다')) {
+        ['최강', '가치온', '1', '새빛', '온누리', '명품', '이음', '무한', '꿈잇다', '서울중앙', '스마일', '아우라', '챔피언', '두드림', '조이'].forEach(h => hqSet.add(h));
+        hqSet.add('꿈잇다');
+      } else if (clean.includes('신동우')) {
+        ['다보다', '더굿라이프', '노반AI', 'LS지사', '신동우', '더굿', 'KMN솔루션'].forEach(h => hqSet.add(h));
+        hqSet.add('신동우');
+      } else {
+        hqSet.add(clean);
+      }
+    });
+
+    return Array.from(hqSet);
   }, [currentUser]);
 
   const userBranchNames = React.useMemo(() => {
@@ -14151,6 +14189,10 @@ const ERP_Dashboard = () => {
             onExportHqSettlement={exportProfessionalSettlement}
             calculateMaintenancePayouts={calculateMaintenancePayouts}
             cachedEmpRows={cachedEmpRows}
+            currentUser={currentUser}
+            isManager={isManager}
+            isHQStaff={isHQStaff}
+            userHqNames={userHqNames}
           />
           <CustomDialog
             isOpen={dialogState.isOpen}
