@@ -3191,7 +3191,7 @@ function formatDateToYMD(d: any): string {
   if (!s || s === '-' || s === '- -' || s === '-  -' || s === 'null' || s === 'undefined' || s.startsWith('###')) return "";
 
   // 1. 일반 표준 날짜: YYYY-MM-DD 또는 YYYY/MM/DD 또는 YYYY.MM.DD (4자리 연도 우선 매칭하여 왜곡 원천 방지)
-  const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  const mNorm = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\s+.*)?$/);
   if (mNorm) {
     return `${mNorm[1]}-${String(mNorm[2]).padStart(2, '0')}-${String(mNorm[3]).padStart(2, '0')}`;
   }
@@ -6261,15 +6261,20 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
     const expectMap = new Map<string, string>();
     if (safeDeliveryRows && safeDeliveryRows.length > 1) {
       const delHeaders = (safeDeliveryRows[0] || []).map(h => String(h || '').trim());
-      let expContractIdx = delHeaders.indexOf("계약번호");
-      if (expContractIdx === -1) expContractIdx = delHeaders.indexOf("렌탈계약번호");
-      if (expContractIdx === -1) expContractIdx = delHeaders.indexOf("렌탈번호");
-      if (expContractIdx === -1) expContractIdx = 1;
+      const findColFlexible = (candidates: string[], fallback: number = -1): number => {
+        for (const cand of candidates) {
+          const cleanCand = cand.replace(/\s+/g, '').toLowerCase();
+          const found = delHeaders.findIndex(h => {
+            const cleanH = String(h || '').replace(/\s+/g, '').toLowerCase();
+            return cleanH === cleanCand || cleanH.includes(cleanCand);
+          });
+          if (found !== -1) return found;
+        }
+        return fallback;
+      };
 
-      let expDateIdx = delHeaders.indexOf("배송예정일");
-      if (expDateIdx === -1) expDateIdx = delHeaders.indexOf("배송예정일자");
-      if (expDateIdx === -1) expDateIdx = delHeaders.indexOf("배송예정");
-      if (expDateIdx === -1) expDateIdx = 16;
+      let expContractIdx = findColFlexible(["계약번호", "렌탈계약번호", "렌탈번호", "주문번호"], 1);
+      let expDateIdx = findColFlexible(["배송예정일자", "배송예정일", "배송예정", "출고예정일"], 16);
 
       for (let ed = 1; ed < safeDeliveryRows.length; ed++) {
         const expContractNo = String(safeDeliveryRows[ed][expContractIdx] || '').trim();
@@ -6521,43 +6526,36 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
       const delValues = safeDeliveryRows;
       const delHeaders = (delValues[0] || []).map(h => String(h || '').trim());
 
-      let cIdIdx = delHeaders.indexOf("계약번호");
-      if (cIdIdx === -1) cIdIdx = delHeaders.indexOf("렌탈계약번호");
-      if (cIdIdx === -1) cIdIdx = delHeaders.indexOf("렌탈번호");
-      if (cIdIdx === -1) cIdIdx = 1;
+      const findDelivIdx = (candidates: string[], fallback: number = -1): number => {
+        for (const cand of candidates) {
+          const cleanCand = cand.replace(/\s+/g, '').toLowerCase();
+          const found = delHeaders.findIndex(h => {
+            const cleanH = String(h || '').replace(/\s+/g, '').toLowerCase();
+            return cleanH === cleanCand || cleanH.includes(cleanCand);
+          });
+          if (found !== -1) return found;
+        }
+        return fallback;
+      };
 
-      let termDateIdx = delHeaders.indexOf("해지일");
-      if (termDateIdx === -1) termDateIdx = delHeaders.indexOf("해지일자");
-      if (termDateIdx === -1) termDateIdx = delHeaders.indexOf("해약일");
-      if (termDateIdx === -1) termDateIdx = 7;
+      const cleanKey = (val: any) => String(val || '').trim().replace(/[-_\s]/g, '').toLowerCase();
 
-      let actDateIdx = delHeaders.indexOf("개통일");
-      if (actDateIdx === -1) actDateIdx = delHeaders.indexOf("개통일자");
-      if (actDateIdx === -1) actDateIdx = 6;
-
-      let delivDateIdx = delHeaders.indexOf("배송일");
-      if (delivDateIdx === -1) delivDateIdx = delHeaders.indexOf("배송일자");
-      if (delivDateIdx === -1) delivDateIdx = delHeaders.indexOf("배송 완료일");
-      if (delivDateIdx === -1) delivDateIdx = delHeaders.indexOf("배송완료일");
-      if (delivDateIdx === -1) delivDateIdx = 15;
-
-      let expDateIdx = delHeaders.indexOf("배송예정일");
-      if (expDateIdx === -1) expDateIdx = delHeaders.indexOf("배송예정일자");
-      if (expDateIdx === -1) expDateIdx = delHeaders.indexOf("배송예정");
-      if (expDateIdx === -1) expDateIdx = 16;
-
-      let taskIdx = delHeaders.indexOf("처리중업무");
-      if (taskIdx === -1) taskIdx = delHeaders.indexOf("진행상태");
-      if (taskIdx === -1) taskIdx = 11;
-
-      let withdrawDateIdx = delHeaders.indexOf("출금일자");
-      if (withdrawDateIdx === -1) withdrawDateIdx = delHeaders.indexOf("1회차출금일자");
-      if (withdrawDateIdx === -1) withdrawDateIdx = delHeaders.indexOf("출금일");
-      if (withdrawDateIdx === -1) withdrawDateIdx = 23;
+      let cIdIdx = findDelivIdx(["계약번호", "렌탈계약번호", "렌탈번호", "주문번호"], 1);
+      let termDateIdx = findDelivIdx(["해지일자", "해지일", "해약일자", "해약일", "취소일자", "취소일"], 7);
+      let actDateIdx = findDelivIdx(["개통일자", "개통일"], 6);
+      let delivDateIdx = findDelivIdx(["배송완료일", "배송일자", "배송 완료일", "배송일", "설치일자", "설치일"], 15);
+      let expDateIdx = findDelivIdx(["배송예정일자", "배송예정일", "배송예정", "출고예정일"], 16);
+      let taskIdx = findDelivIdx(["처리중업무", "진행상태", "상태", "배송상태"], 11);
+      // ⭐ 렌탈출금일(AA열) 다양한 헤더명 완벽 지원
+      let withdrawDateIdx = findDelivIdx([
+        "렌탈출금일자", "렌탈출금일", "렌탈 출금일", "1회차출금일자", "1회차출금일", "1회차 출금일자", "1회차 출금일",
+        "출금일자", "출금일", "출금 일자", "초회출금일자", "초회출금일", "렌탈출금", "렌탈납입일", "1차출금일자",
+        "1차출금일", "수납일자", "이체일자", "이체일", "1회차납입일"
+      ], 23);
 
       const deliveryDict = new Map<string, any>();
       for (let d = 1; d < delValues.length; d++) {
-        const cId = String(delValues[d][cIdIdx] || '').trim();
+        const rawCId = String(delValues[d][cIdIdx] || '').trim();
         const actDate = formatDateToYMD(delValues[d][actDateIdx]);
         const delivDate = formatDateToYMD(delValues[d][delivDateIdx]);
         const finalDelivDate = delivDate || actDate;
@@ -6566,15 +6564,20 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
         const expectedDate = formatDateToYMD(delValues[d][expDateIdx]);
         const processingTask = delValues[d][taskIdx];
 
-        if (cId) {
-          deliveryDict.set(cId, {
+        if (rawCId) {
+          const delivItem = {
             deliveryDate: finalDelivDate,
             activationDate: actDate,
             terminationDate: termDate,
             task: processingTask,
             withdrawDate,
             expectedDate
-          });
+          };
+          deliveryDict.set(rawCId, delivItem);
+          const cKey = cleanKey(rawCId);
+          if (cKey && cKey !== rawCId) {
+            deliveryDict.set(cKey, delivItem);
+          }
         }
       }
 
@@ -6585,13 +6588,23 @@ app.post('/api/sheets/excel-sync/process', async (req, res) => {
         const prod = String(row[6] || '');
         const hq = String(row[7] || '').trim();
 
-        // 렌탈번호 또는 회원번호로 배송데이터 매칭
-        const matchedData = (rId && deliveryDict.get(rId)) || (memNo && deliveryDict.get(memNo));
+        // 렌탈번호 또는 회원번호로 배송데이터 매칭 (원본 및 정규화 키 이중 검사)
+        const matchedData = (rId && deliveryDict.get(rId)) ||
+                            (rId && deliveryDict.get(cleanKey(rId))) ||
+                            (memNo && deliveryDict.get(memNo)) ||
+                            (memNo && deliveryDict.get(cleanKey(memNo)));
+
         if (matchedData) {
-          // Z열: 해지일
-          row[25] = matchedData.terminationDate || "";
-          // AA열: 출금일자
-          row[26] = matchedData.withdrawDate || "";
+          // Z열: 해지일 (배송데이터에 해지일이 존재할 때만 업데이트하여 기존 값 보호)
+          if (matchedData.terminationDate) {
+            row[25] = matchedData.terminationDate;
+          }
+          // AA열: 렌탈출금일 (출금일자)
+          // ⭐ [핵심 개선] 배송데이터 엑셀에서 출금일자가 읽혔을 때만 업데이트하고,
+          // 배송데이터 엑셀이 비어있을 때는 기존 관리대장에 입력되어 있던 AA열 값을 절대 지우지 않고 안전 보존!
+          if (matchedData.withdrawDate) {
+            row[26] = matchedData.withdrawDate;
+          }
 
           // ⭐ [사용자 요청 정정] 배송데이터 업데이트 시:
           // 공란이면 업데이트 해주고 값이 입력되어있으면 그냥 패스 (입력된 값이 날짜던 - 이표시던)
