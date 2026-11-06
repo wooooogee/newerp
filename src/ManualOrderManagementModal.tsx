@@ -5,6 +5,7 @@ import { ManualOrderReconModal } from './ManualOrderReconModal';
 import { SupplierItem, loadSuppliersFromStorage } from './SupplierManagementModal';
 import { mergeManualOrderStores } from './manualOrderUtils';
 import { InstallCertStatusModal, InstallCertItem } from './InstallCertStatusModal';
+import { applyTableExcelStyle } from './excelStyleUtils';
 
 // @ts-ignore
 const XLSX = (window as any).XLSX;
@@ -1526,6 +1527,27 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     const wsData = [headers, ...exportRows];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     applyTextFormatToSheet(ws);
+
+    // 열간격 여유있게 자동 계산 (내용 잘림 방지)
+    const minColWidths = [8, 18, 14, 18, 55, 35];
+    const maxColWidths = [12, 25, 25, 22, 110, 85];
+    ws['!cols'] = headers.map((headerText, colIdx) => {
+      const calcLen = (val: any) =>
+        String(val ?? '')
+          .split('')
+          .reduce((acc, ch) => acc + (ch.charCodeAt(0) > 127 ? 2.1 : 1.1), 0);
+      let maxLen = calcLen(headerText);
+      exportRows.forEach((row) => {
+        const cellLen = calcLen(row[colIdx]);
+        if (cellLen > maxLen) maxLen = cellLen;
+      });
+      const minW = minColWidths[colIdx] || 15;
+      const maxW = maxColWidths[colIdx] || 60;
+      return { wch: Math.min(Math.max(Math.ceil(maxLen + 5), minW), maxW) };
+    });
+    ws['!rows'] = [{ hpt: 26 }, ...exportRows.map(() => ({ hpt: 22 }))];
+    applyTableExcelStyle(ws, 'BLUE');
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '발주서');
     XLSX.writeFile(wb, `수기발주서_${todayStr}.xlsx`);
@@ -1643,26 +1665,90 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       return;
     }
 
-    const excelData = filteredOrders.map((o) => ({
-      계약일자: o.contractDate,
-      요청일자: o.requestDate,
-      계약번호: o.contractNo,
-      회원명: o.memName,
-      핸드폰: o.phone,
-      렌탈상품명: o.rentalProdClean,
-      가입상태: o.status,
-      해지일자: o.cancelDate || '',
-      배송상태: getRowDeliveryState(o),
-      '배송일/설치일': getFieldValue(o, 'deliveryDate'),
-      택배사: getFieldValue(o, 'courier'),
-      송장번호: getFieldValue(o, 'trackingNo'),
-      받는분주소: o.address,
-    }));
+    if (!filteredOrders || filteredOrders.length === 0) {
+      alert('다운로드할 발주 목록 데이터가 없습니다.');
+      return;
+    }
 
-    const ws = XLSX.utils.json_to_sheet(excelData);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    // 요청 컬럼 8종: 계약일자, 회원명, 핸드폰번호, 계약번호, 수취인, 수취인연락처, 받는분주소, 렌탈상품명
+    const headers = [
+      '계약일자',
+      '회원명',
+      '핸드폰번호',
+      '계약번호',
+      '수취인',
+      '수취인연락처',
+      '받는분주소',
+      '렌탈상품명',
+    ];
+
+    const exportRows = filteredOrders.map((o) => [
+      o.contractDate || '',
+      o.memName || '',
+      formatPhoneNum(o.phone) || '',
+      o.contractNo || '',
+      o.recipientName || o.memName || '',
+      formatPhoneNum(o.recipientPhone || o.phone) || '',
+      o.address || '',
+      o.rentalProdClean || o.rentalProdRaw || '',
+    ]);
+
+    const wsData = [headers, ...exportRows];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // 1) 텍스트 서식 강제 적용 (전화번호 앞자리 0 보존, 계약번호 지수표시 방지)
+    applyTextFormatToSheet(ws);
+
+    // 2) 열간격 여유있게 자동 계산 (내용 잘림 방지: 한글 2.1배, 영문/숫자 1.1배 너비 + 여유 패딩 5 이상, 각 컬럼별 최소너비 보장)
+    const minColWidths = [15, 14, 18, 18, 14, 18, 55, 35];
+    const maxColWidths = [22, 25, 22, 25, 25, 22, 110, 85];
+
+    ws['!cols'] = headers.map((headerText, colIdx) => {
+      const calcLen = (val: any) =>
+        String(val ?? '')
+          .split('')
+          .reduce((acc, ch) => acc + (ch.charCodeAt(0) > 127 ? 2.1 : 1.1), 0);
+
+      let maxLen = calcLen(headerText);
+      exportRows.forEach((row) => {
+        const cellLen = calcLen(row[colIdx]);
+        if (cellLen > maxLen) maxLen = cellLen;
+      });
+
+      const minW = minColWidths[colIdx] || 15;
+      const maxW = maxColWidths[colIdx] || 60;
+      return { wch: Math.min(Math.max(Math.ceil(maxLen + 5), minW), maxW) };
+    });
+
+    // 3) 행 높이 여유 있게 설정 (헤더: 26pt, 데이터 행: 22pt)
+    ws['!rows'] = [{ hpt: 26 }, ...exportRows.map(() => ({ hpt: 22 }))];
+
+    // 4) 스타일 적용 (헤더 파란색 배경 + 흰색 볼드 글씨, 깔끔한 셀 테두리)
+    applyTableExcelStyle(ws, 'BLUE');
+
+    // 5) 정렬 조정 (일자/성명/연락처/계약번호는 가운데 정렬, 주소/상품명은 좌측 정렬)
+    if (ws['!ref']) {
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+          const cell = ws[cellAddress];
+          if (!cell) continue;
+          const isLeftAlign = C === 6 || C === 7; // 받는분주소, 렌탈상품명
+          if (cell.s) {
+            cell.s.alignment = {
+              vertical: 'center',
+              horizontal: isLeftAlign ? 'left' : 'center',
+            };
+          }
+        }
+      }
+    }
+
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '발주관리');
-    XLSX.writeFile(wb, `수기발주_발주관리_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, '수기발주목록');
+    XLSX.writeFile(wb, `수기발주_목록_${todayStr}.xlsx`);
   };
 
   if (!isOpen) return null;
