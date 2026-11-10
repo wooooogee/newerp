@@ -8798,8 +8798,8 @@ const ERP_Dashboard = () => {
             </button>
           </section>
 
-          {/* 정산 및 리포트 */}
-          {showCommissionInfo && (
+          {/* 정산 및 리포트 (본사 관리자 및 본사/전체 총무만 좌측 메뉴바 노출, 본부/사업단 총무는 상단/우측 월별 본부 정산서 이용) */}
+          {showCommissionInfo && !isHQStaff && (
             <section className="mt-1">
               <button
                 type="button"

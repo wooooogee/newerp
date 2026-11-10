@@ -5,7 +5,37 @@ import { checkInstallCertEligibility, isSupplyCommissionRule } from './manualOrd
 import { EmployeeBankInfo, parseEmployeeRows, findBranchManager, findEmployeeInfo } from './App';
 
 // @ts-ignore
-const XLSX = (window as any).XLSX;
+const getXlsxLib = () => (window as any).XLSX;
+
+/** 생성된 워크북을 Blob과 FileSaver(미로드 시 a 태그 폴백)를 통해 안전하게 엑셀 파일로 저장한다. */
+const saveWorkbookAsExcel = (xlsxLib: any, wb: any, fileName: string) => {
+  if (!wb.Workbook) wb.Workbook = {};
+  if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
+  wb.Workbook.CalcPr.fullCalcOnLoad = true;
+
+  const wbout = xlsxLib.write(wb, { bookType: 'xlsx', type: 'binary' });
+  const buf = new ArrayBuffer(wbout.length);
+  const view = new Uint8Array(buf);
+  for (let i = 0; i !== wbout.length; ++i) view[i] = wbout.charCodeAt(i) & 0xFF;
+  const blob = new Blob([buf], { type: 'application/octet-stream' });
+
+  const saveAs = (window as any).saveAs;
+  if (typeof saveAs === 'function') {
+    saveAs(blob, fileName);
+  } else {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    }, 150);
+  }
+};
 
 export interface MonthlySettlementModalProps {
   isOpen: boolean;
@@ -341,6 +371,15 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   // 뷰 모드 탭: 'summary' (본부별 총괄 집계) | 'detailed' (수수료 정산 상세 내역 - 사용자 요청 뷰)
   const [settlementViewTab, setSettlementViewTab] = useState<'summary' | 'detailed'>('detailed');
 
+  // 굿라이프 사업단 총무(굿라이프 / 꿈잇다 / 신동우) 여부 판별
+  const isGoodlifeStaff = useMemo(() => {
+    if (!userHqNames || userHqNames.length === 0) return false;
+    return userHqNames.some(h => {
+      const c = (h || '').replace(/[\s()본부사업단]/g, '').toLowerCase();
+      return c.includes('굿라이프') || c.includes('꿈잇다') || c.includes('신동우');
+    });
+  }, [userHqNames]);
+
   // 본부/사업단 총무 권한 기반 허용 본부 판별 헬퍼
   const isHqAllowed = useCallback((targetName: string): boolean => {
     if (isManager || !isHQStaff || !userHqNames || userHqNames.length === 0) {
@@ -348,12 +387,6 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     }
     if (!targetName) return false;
     const cleanTarget = targetName.replace(/[\s()본부사업단주식회사대표]/g, '').toLowerCase();
-
-    // 굿라이프 총괄 계정 여부 확인
-    const isGoodlifeStaff = userHqNames.some(h => {
-      const c = (h || '').replace(/[\s()본부사업단]/g, '').toLowerCase();
-      return c.includes('굿라이프') || c.includes('꿈잇다') || c.includes('신동우');
-    });
 
     if (isGoodlifeStaff) {
       if (cleanTarget.includes('굿라이프') || cleanTarget.includes('꿈잇다') || cleanTarget.includes('신동우')) {
@@ -373,7 +406,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       if (!cleanUHq) return false;
       return cleanTarget === cleanUHq || cleanTarget.includes(cleanUHq) || cleanUHq.includes(cleanTarget);
     });
-  }, [isManager, isHQStaff, userHqNames]);
+  }, [isManager, isHQStaff, userHqNames, isGoodlifeStaff]);
 
   // 상세 정산 내역 편집 모드
   const [isDetailEditMode, setIsDetailEditMode] = useState<boolean>(false);
@@ -1206,6 +1239,19 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     return baseHqMonthlyStats.filter(s => isHqAllowed(s.hqName));
   }, [baseHqMonthlyStats, isManager, isHQStaff, userHqNames, isHqAllowed]);
 
+  // 전사 유효 영업실적 건수 계산 (모델비·컨설팅비 산정 및 엑셀 내역 공용 참조)
+  const effectiveTotalCount = useMemo(() => {
+    const isOct = selectedMonth === '2026-10' || selectedMonth.endsWith('-10');
+    if (isOct) return 601;
+    const pureSalesCount = effectiveHqMonthlyStats.reduce((acc, s) => {
+      const isExternalTarget = (s.hqName || '').includes('신동우') || (s.hqName || '').includes('조재윤') || (s.hqName || '').includes('조민경') || (s.hqName || '').includes('권성훈') || (s.hqName || '').includes('이종연');
+      if (isExternalTarget) return acc;
+      const count = (s.items && s.items.length > 0) ? s.items.length : (s.generalSum > 0 ? s.count : 0);
+      return acc + count;
+    }, 0);
+    return pureSalesCount > 0 ? pureSalesCount : 632;
+  }, [selectedMonth, effectiveHqMonthlyStats]);
+
   // =========================================================================
   // [사업단 관리 (divisionSettings) 연동] 굿라이프(꿈잇다) vs 굿라이프(신동우) 소속 본부 마스터 및 실적 분석
   // =========================================================================
@@ -1558,10 +1604,6 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       if (isManager || !isHQStaff || !userHqNames || userHqNames.length === 0) {
         return rows;
       }
-      const isGoodlifeStaff = userHqNames.some(h => {
-        const c = (h || '').replace(/[\s()본부사업단]/g, '').toLowerCase();
-        return c.includes('굿라이프') || c.includes('꿈잇다') || c.includes('신동우');
-      });
 
       return rows.filter(r => {
         // 본사 외주/부대비용(조재윤, 조민경, 권성훈, 이종연 등)은 총무/본부 계정에게 절대 미노출
@@ -1579,7 +1621,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     // 1) 10월이고 사업단 묶기 모드일 때: 사용자 확정 10월 데이터 제공 (굿라이프 사업단 내부 분배 명세와 100% 실시간 동기화)
     if (isOct && groupByDivision) {
       if (customDetailedRowsMap[selectedMonth] && customDetailedRowsMap[selectedMonth].length > 0) {
-        return customDetailedRowsMap[selectedMonth];
+        return filterByPermission(customDetailedRowsMap[selectedMonth]);
       }
       return filterByPermission(DEFAULT_OCTOBER_SETTLEMENT_ROWS.map(r => {
         if (r.id === 'oct_goodlife_kkum') {
@@ -1852,17 +1894,6 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     }
 
     // [C] 부대비용 / 외주 / 글로벌 인센티브 항목 (묶기/풀기 공통 하단 배치)
-    // ⭐ [핵심 보정] 조재윤(모델비)/조민경(컨설팅비)은 전사 유효 영업실적 건수(11월 632건 / 10월 601건)를 기준으로 지급되어야 함!
-    // effectiveHqMonthlyStats의 각 s.count는 특수수당/외주 항목이 누적되어 왜곡(2,266건, 2,893건 등)되므로,
-    // 순수 본부 영업 실적(s.items.length)만 엄격 합산하여 632건으로 산출
-    const pureSalesCount = effectiveHqMonthlyStats.reduce((acc, s) => {
-      const isExternalTarget = (s.hqName || '').includes('신동우') || (s.hqName || '').includes('조재윤') || (s.hqName || '').includes('조민경') || (s.hqName || '').includes('권성훈') || (s.hqName || '').includes('이종연');
-      if (isExternalTarget) return acc;
-      const count = (s.items && s.items.length > 0) ? s.items.length : (s.generalSum > 0 ? s.count : 0);
-      return acc + count;
-    }, 0);
-    const effectiveTotalCount = isOct ? 601 : (pureSalesCount > 0 ? pureSalesCount : 632);
-
     // 조재윤 모델비
     if (effectiveTotalCount > 0) {
       result.push({
@@ -1956,7 +1987,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     });
 
     return filterByPermission(result);
-  }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data, goodlifeSplitSummary, currentTherawaveInfo, isManager, isHQStaff, userHqNames, isHqAllowed]);
+  }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, effectiveTotalCount, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data, goodlifeSplitSummary, currentTherawaveInfo, isManager, isHQStaff, userHqNames, isGoodlifeStaff, isHqAllowed]);
 
   // 상세 정산 내역 전체 합계 계산 (소계 행 제외하여 중복 방지 및 원천세/실지급액 계산)
   const detailedTotals = useMemo(() => {
@@ -2122,6 +2153,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
   // 사용자 제공 이미지 서식 100% 동일한 상세 정산 내역 엑셀 다운로드 (실지급액, 계좌정보, 굿라이프 내부 분배 및 계산서식 완벽 적용)
   const handleExportDetailedSettlementExcel = () => {
+    const XLSX = getXlsxLib();
     if (!XLSX || !XLSX.utils) {
       alert('엑셀 라이브러리를 로드하지 못했습니다.');
       return;
@@ -2131,6 +2163,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       const wb = XLSX.utils.book_new();
       const monthNum = selectedMonth ? parseInt(selectedMonth.split('-')[1], 10) : 10;
       const titleText = `${monthNum}월 수수료 정산 내역`;
+      const includeGoodlifeSplitSheet = isManager || !isHQStaff || isGoodlifeStaff;
 
       const thinBorder = {
         top: { style: 'thin', color: { rgb: 'CBD5E1' } },
@@ -2160,29 +2193,39 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       const subtotalRowNumbers: number[] = [];
       const standaloneRowNumbers: number[] = [];
       const targetToRowMap = new Map<string, number>();
+      let therawaveSheet1Row: number | undefined;
       let currentGroupStartRow = 4;
 
       detailedSettlementList.forEach((r, idx) => {
         const rowNum = idx + 4; // Excel 행 번호 (1-based: 헤더 3행 다음 4행부터 시작)
         const acct = getPayoutAccountInfo(r.targetName);
         const isIndiv = acct.settlementType.includes('개인');
-        const isStandalone = r.isHeaderGroup && !targetsWithSubtotal.has(r.targetName);
+        const isNoSubtotalRow = !r.isSubtotal && !targetsWithSubtotal.has(r.targetName);
 
         let rowTax = 0;
         let rowNet = 0;
-        let showAcct = false;
+        let showNetCols = false;
+        let showAcctCols = false;
+
+        if (r.targetName.includes('신동우') && r.itemName.includes('테라웨이브')) {
+          therawaveSheet1Row = rowNum;
+        }
 
         if (r.isSubtotal) {
           targetToRowMap.set(r.targetName, rowNum);
           rowTax = isIndiv ? Math.round((r.totalCommission || 0) * 0.033) : 0;
           rowNet = (r.totalCommission || 0) - rowTax;
-          showAcct = true;
+          showNetCols = true;
+          showAcctCols = true;
           subtotalRowNumbers.push(rowNum);
-        } else if (isStandalone) {
-          targetToRowMap.set(r.targetName, rowNum);
+        } else if (isNoSubtotalRow) {
+          if (r.isHeaderGroup || !targetToRowMap.has(r.targetName)) {
+            targetToRowMap.set(r.targetName, rowNum);
+          }
           rowTax = isIndiv ? Math.round((r.totalCommission || 0) * 0.033) : 0;
           rowNet = (r.totalCommission || 0) - rowTax;
-          showAcct = true;
+          showNetCols = true;
+          showAcctCols = Boolean(r.isHeaderGroup);
           standaloneRowNumbers.push(rowNum);
         }
 
@@ -2200,7 +2243,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
         if (r.isSubtotal) {
           const startR = currentGroupStartRow;
-          const endR = rowNum - 1;
+          const endR = Math.max(startR, rowNum - 1);
           countCell = { f: `SUM(D${startR}:D${endR})`, v: r.count, t: 'n', z: '#,##0' };
           salesCommCell = { f: `SUM(F${startR}:F${endR})`, v: r.salesCommission, t: 'n', z: '#,##0' };
           promoCommCell = { f: `SUM(G${startR}:G${endR})`, v: r.promoCommission, t: 'n', z: '#,##0' };
@@ -2221,7 +2264,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             totalCommCell = { v: r.totalCommission, t: 'n', z: '#,##0' };
           }
 
-          if (isStandalone) {
+          if (isNoSubtotalRow) {
             taxCell = rowTax > 0 ? { f: `ROUND(H${rowNum}*0.033,0)`, v: rowTax, t: 'n', z: '#,##0' } : '-';
             netCell = { f: `H${rowNum}-IF(I${rowNum}="-",0,I${rowNum})`, v: rowNet, t: 'n', z: '#,##0' };
           }
@@ -2236,26 +2279,31 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           salesCommCell,
           promoCommCell,
           totalCommCell,
-          showAcct ? taxCell : '',
-          showAcct ? netCell : '',
-          showAcct ? acct.bankName : '',
-          showAcct ? acct.accountNumber : '',
-          showAcct ? acct.accountHolder : ''
+          showNetCols ? taxCell : '',
+          showNetCols ? netCell : '',
+          showAcctCols ? acct.bankName : '',
+          showAcctCols ? acct.accountNumber : '',
+          showAcctCols ? acct.accountHolder : ''
         ]);
       });
 
       // 최하단 전체 합계 행
       const totalRowNum = wsData.length + 1; // Excel 1-based Row 번호
       const totalHFormula = [...subtotalRowNumbers, ...standaloneRowNumbers].map(rn => `H${rn}`).join('+');
-      const totalIFormula = `SUM(I4:I${totalRowNum - 1})`;
-      const totalJFormula = `H${totalRowNum}-I${totalRowNum}`;
+      const hasDataRows = totalRowNum > 4;
 
       wsData.push([
         '전체 지급수수료 합계',
         '', '', '', '', '', '',
-        { f: totalHFormula || `SUM(H4:H${totalRowNum - 1})`, v: detailedTotals.totalCommission, t: 'n', z: '#,##0' },
-        { f: totalIFormula, v: detailedTotals.totalTax, t: 'n', z: '#,##0' },
-        { f: totalJFormula, v: detailedTotals.totalNet, t: 'n', z: '#,##0' },
+        hasDataRows
+          ? { f: totalHFormula || `SUM(H4:H${totalRowNum - 1})`, v: detailedTotals.totalCommission, t: 'n', z: '#,##0' }
+          : { v: 0, t: 'n', z: '#,##0' },
+        hasDataRows
+          ? { f: `SUM(I4:I${totalRowNum - 1})`, v: detailedTotals.totalTax, t: 'n', z: '#,##0' }
+          : { v: 0, t: 'n', z: '#,##0' },
+        hasDataRows
+          ? { f: `H${totalRowNum}-I${totalRowNum}`, v: detailedTotals.totalNet, t: 'n', z: '#,##0' }
+          : { v: 0, t: 'n', z: '#,##0' },
         '', '', ''
       ]);
 
@@ -2323,266 +2371,272 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       XLSX.utils.book_append_sheet(wb, ws1, '1. 본사보고용_수수료정산서');
 
       // =============================================================
-      // [시트 2] 내부실송금_정산서(굿라이프)
+      // [시트 2] 내부실송금_정산서(굿라이프) - 관리자 또는 굿라이프 총무에게만 포함
       // 굿라이프(꿈잇다) 직송금 71만 / 4만 차액 & 굿라이프(신동우) 본부 직송금 55만 / 20만·16만 차액
       // =============================================================
-      const glSplitData: any[][] = [
-        ['【 굿라이프 사업단 내부 실송금 및 신동우 대표 오버라이딩 차액 분배 명세 】'],
-        [`■ 기준월: ${selectedMonth}  |  본사 총수수료: 157,460,000원  |  꿈잇다 직송금: 710,000원(차액 4만)  |  신동우 산하 본부 직송금: 550,000원(차액 20만/16만)  |  잔여 차액: 신동우 대표 귀속`],
-        [],
-        [
-          '구분', '소속본부', '상품명 / 지급항목', '건수', '본사단가',
-          '본사 총수수료', '직송금 수취처', '건당 직송금액', '직송금 합계',
-          '신동우대표 차액단가', '신동우대표 차액합계', '비고'
-        ]
-      ];
+      let kkumSubRowNo = 5;
+      let shindwOrgSubRowNo = 6;
+      let shindwTotalRowNo = 10;
 
-      const kkumRows = goodlifeSplitRows.filter(r => r.category === '꿈잇다');
-      const shindwRows = goodlifeSplitRows.filter(r => r.category !== '꿈잇다');
+      if (includeGoodlifeSplitSheet) {
+        const glSplitData: any[][] = [
+          ['【 굿라이프 사업단 내부 실송금 및 신동우 대표 오버라이딩 차액 분배 명세 】'],
+          [`■ 기준월: ${selectedMonth}  |  본사 총수수료: ${goodlifeSplitSummary.totalOfficial.toLocaleString()}원  |  꿈잇다 직송금: 710,000원(차액 4만)  |  신동우 산하 본부 직송금: 550,000원(차액 20만/16만)  |  잔여 차액: 신동우 대표 귀속`],
+          [],
+          [
+            '구분', '소속본부', '상품명 / 지급항목', '건수', '본사단가',
+            '본사 총수수료', '직송금 수취처', '건당 직송금액', '직송금 합계',
+            '신동우대표 차액단가', '신동우대표 차액합계', '비고'
+          ]
+        ];
 
-      // 1. 꿈잇다 상품 행들 추가
-      const kkumStartRow = 5;
-      kkumRows.forEach((item, idx) => {
-        const rowNo = kkumStartRow + idx;
-        const cnt = Number(item.count) || 0;
-        const offFee = Number(item.officialUnitFee) || 0;
-        const dirFee = Number(item.directUnitFee) || 0;
-        const diffFee = offFee - dirFee;
-        const offTotal = cnt * offFee;
-        const dirTotal = cnt * dirFee;
-        const diffTotal = cnt * diffFee;
+        const kkumRows = goodlifeSplitRows.filter(r => r.category === '꿈잇다');
+        const shindwRows = goodlifeSplitRows.filter(r => r.category !== '꿈잇다');
+
+        // 1. 꿈잇다 상품 행들 추가
+        const kkumStartRow = 5;
+        kkumRows.forEach((item, idx) => {
+          const rowNo = kkumStartRow + idx;
+          const cnt = Number(item.count) || 0;
+          const offFee = Number(item.officialUnitFee) || 0;
+          const dirFee = Number(item.directUnitFee) || 0;
+          const diffFee = offFee - dirFee;
+          const offTotal = cnt * offFee;
+          const dirTotal = cnt * dirFee;
+          const diffTotal = cnt * diffFee;
+
+          glSplitData.push([
+            item.category,
+            item.hqName,
+            item.itemName,
+            { v: cnt, t: 'n', z: '#,##0' },
+            { v: offFee, t: 'n', z: '#,##0' },
+            { f: `D${rowNo}*E${rowNo}`, v: offTotal, t: 'n', z: '#,##0' },
+            item.directRecipient,
+            { v: dirFee, t: 'n', z: '#,##0' },
+            { f: `D${rowNo}*H${rowNo}`, v: dirTotal, t: 'n', z: '#,##0' },
+            { f: `E${rowNo}-H${rowNo}`, v: diffFee, t: 'n', z: '#,##0' },
+            { f: `D${rowNo}*J${rowNo}`, v: diffTotal, t: 'n', z: '#,##0' },
+            item.memo || '꿈잇다 직송금 71만 / 차액 4만'
+          ]);
+        });
+        const kkumEndRow = kkumStartRow + kkumRows.length - 1;
+        kkumSubRowNo = kkumEndRow + 1;
+
+        // 꿈잇다 소계 행
+        glSplitData.push([
+          '꿈잇다',
+          '사업단 소계',
+          `꿈잇다 ${kkumRows.length}개 상품 소계`,
+          kkumRows.length > 0 ? { f: `SUM(D${kkumStartRow}:D${kkumEndRow})`, v: goodlifeSplitSummary.kkumCount, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+          '-',
+          kkumRows.length > 0 ? { f: `SUM(F${kkumStartRow}:F${kkumEndRow})`, v: goodlifeSplitSummary.kkumOfficial, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+          '(주)꿈잇다 직송금',
+          '-',
+          kkumRows.length > 0 ? { f: `SUM(I${kkumStartRow}:I${kkumEndRow})`, v: goodlifeSplitSummary.kkumDirect, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+          '신동우 차액(건당4만)',
+          kkumRows.length > 0 ? { f: `SUM(K${kkumStartRow}:K${kkumEndRow})`, v: goodlifeSplitSummary.kkumOverride, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+          '꿈잇다 직송금 71만 / 신동우 차액 4만원 귀속'
+        ]);
+
+        // 2. 신동우사업단 상품 행들 추가
+        const shindwStartRow = kkumSubRowNo + 1;
+        shindwRows.forEach((item, idx) => {
+          const rowNo = shindwStartRow + idx;
+          const cnt = Number(item.count) || 0;
+          const offFee = Number(item.officialUnitFee) || 0;
+          const dirFee = Number(item.directUnitFee) || 0;
+          const diffFee = offFee - dirFee;
+          const offTotal = cnt * offFee;
+          const dirTotal = cnt * dirFee;
+          const diffTotal = cnt * diffFee;
+
+          glSplitData.push([
+            item.category,
+            item.hqName,
+            item.itemName,
+            { v: cnt, t: 'n', z: '#,##0' },
+            { v: offFee, t: 'n', z: '#,##0' },
+            { f: `D${rowNo}*E${rowNo}`, v: offTotal, t: 'n', z: '#,##0' },
+            item.directRecipient,
+            { v: dirFee, t: 'n', z: '#,##0' },
+            { f: `D${rowNo}*H${rowNo}`, v: dirTotal, t: 'n', z: '#,##0' },
+            { f: `E${rowNo}-H${rowNo}`, v: diffFee, t: 'n', z: '#,##0' },
+            { f: `D${rowNo}*J${rowNo}`, v: diffTotal, t: 'n', z: '#,##0' },
+            item.memo || '본부 직송금 55만 / 차액 16~20만'
+          ]);
+        });
+        const shindwEndRow = shindwStartRow + shindwRows.length - 1;
+        shindwOrgSubRowNo = shindwEndRow + 1;
+
+        // 신동우사업단 산하본부 소계 행
+        glSplitData.push([
+          '신동우사업단',
+          '산하본부 소계',
+          `사업단 본부 ${shindwRows.length}개 상품 소계`,
+          shindwRows.length > 0 ? { f: `SUM(D${shindwStartRow}:D${shindwEndRow})`, v: goodlifeSplitSummary.hqCount, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+          '-',
+          shindwRows.length > 0 ? { f: `SUM(F${shindwStartRow}:F${shindwEndRow})`, v: goodlifeSplitSummary.hqOfficial, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+          '소속 본부 직송금',
+          { v: 550000, t: 'n', z: '#,##0' },
+          shindwRows.length > 0 ? { f: `SUM(I${shindwStartRow}:I${shindwEndRow})`, v: goodlifeSplitSummary.hqDirect, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+          '신동우 차액(16~20만)',
+          shindwRows.length > 0 ? { f: `SUM(K${shindwStartRow}:K${shindwEndRow})`, v: goodlifeSplitSummary.hqOverride, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+          '본부 직송금 55만 / 신동우 차액 16~20만원 귀속'
+        ]);
+
+        // 3. 굿라이프 전체 합계 행
+        const glTotalRowNo = shindwOrgSubRowNo + 1;
+        glSplitData.push([
+          '굿라이프 합계',
+          '전체 총합계',
+          `전체 ${goodlifeSplitRows.length}개 품목 총계`,
+          { f: `D${kkumSubRowNo}+D${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalCount, t: 'n', z: '#,##0' },
+          '-',
+          { f: `F${kkumSubRowNo}+F${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalOfficial, t: 'n', z: '#,##0' },
+          '꿈잇다 + 본부 직송금 합계',
+          '-',
+          { f: `I${kkumSubRowNo}+I${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalDirect, t: 'n', z: '#,##0' },
+          '신동우 차액 전체합계',
+          { f: `K${kkumSubRowNo}+K${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalOverride, t: 'n', z: '#,##0' },
+          '본사 보고용 합계와 100% 일치'
+        ]);
+
+        // 4. 분배 검증 행
+        const glCheckRowNo = glTotalRowNo + 1;
+        glSplitData.push([
+          '【분배 검증】',
+          '본사 총수수료 - (직송금합계 + 신동우 차액합계)',
+          '', '', '',
+          { f: `F${glTotalRowNo}-(I${glTotalRowNo}+K${glTotalRowNo})`, v: 0, t: 'n', z: '#,##0' },
+          '차액 검증 결과',
+          '', '', '', '',
+          '✅ 정상 일치 (오차 0원)'
+        ]);
+
+        // 5. 신동우 대표 최종 정산 수령 명세 블록
+        glSplitData.push([]);
+        glSplitData.push(['【 신동우 대표 최종 실송금액 종합 산출 명세 】', '', '', '', '', '', '', '', '', '', '', '']);
+        glSplitData.push(['항목 구분', '세부 내역 및 산출 근거', '계산 수식', '금액', '', '', '', '', '', '', '', '']);
+
+        const shindwDiffRowNo = glCheckRowNo + 4;
+        const shindwItemRowNo = shindwDiffRowNo + 1;
+        shindwTotalRowNo = shindwItemRowNo + 1;
 
         glSplitData.push([
-          item.category,
-          item.hqName,
-          item.itemName,
-          { v: cnt, t: 'n', z: '#,##0' },
-          { v: offFee, t: 'n', z: '#,##0' },
-          { f: `D${rowNo}*E${rowNo}`, v: offTotal, t: 'n', z: '#,##0' },
-          item.directRecipient,
-          { v: dirFee, t: 'n', z: '#,##0' },
-          { f: `D${rowNo}*H${rowNo}`, v: dirTotal, t: 'n', z: '#,##0' },
-          { f: `E${rowNo}-H${rowNo}`, v: diffFee, t: 'n', z: '#,##0' },
-          { f: `D${rowNo}*J${rowNo}`, v: diffTotal, t: 'n', z: '#,##0' },
-          item.memo || '꿈잇다 직송금 71만 / 차액 4만'
+          '1. 굿라이프 오버라이딩 차액',
+          '꿈잇다(건당 4만원) + 신동우사업단(건당 16~20만원) 차액 합산',
+          `=K${glTotalRowNo}`,
+          { f: `K${glTotalRowNo}`, v: goodlifeSplitSummary.totalOverride, t: 'n', z: '#,##0' },
+          '', '', '', '', '', '', '', ''
         ]);
-      });
-      const kkumEndRow = kkumStartRow + kkumRows.length - 1;
-      const kkumSubRowNo = kkumEndRow + 1;
-
-      // 꿈잇다 소계 행
-      glSplitData.push([
-        '꿈잇다',
-        '사업단 소계',
-        `꿈잇다 ${kkumRows.length}개 상품 소계`,
-        { f: `SUM(D${kkumStartRow}:D${kkumEndRow})`, v: goodlifeSplitSummary.kkumCount, t: 'n', z: '#,##0' },
-        '-',
-        { f: `SUM(F${kkumStartRow}:F${kkumEndRow})`, v: goodlifeSplitSummary.kkumOfficial, t: 'n', z: '#,##0' },
-        '(주)꿈잇다 직송금',
-        '-',
-        { f: `SUM(I${kkumStartRow}:I${kkumEndRow})`, v: goodlifeSplitSummary.kkumDirect, t: 'n', z: '#,##0' },
-        '신동우 차액(건당4만)',
-        { f: `SUM(K${kkumStartRow}:K${kkumEndRow})`, v: goodlifeSplitSummary.kkumOverride, t: 'n', z: '#,##0' },
-        '꿈잇다 직송금 71만 / 신동우 차액 4만원 귀속'
-      ]);
-
-      // 2. 신동우사업단 상품 행들 추가
-      const shindwStartRow = kkumSubRowNo + 1;
-      shindwRows.forEach((item, idx) => {
-        const rowNo = shindwStartRow + idx;
-        const cnt = Number(item.count) || 0;
-        const offFee = Number(item.officialUnitFee) || 0;
-        const dirFee = Number(item.directUnitFee) || 0;
-        const diffFee = offFee - dirFee;
-        const offTotal = cnt * offFee;
-        const dirTotal = cnt * dirFee;
-        const diffTotal = cnt * diffFee;
-
         glSplitData.push([
-          item.category,
-          item.hqName,
-          item.itemName,
-          { v: cnt, t: 'n', z: '#,##0' },
-          { v: offFee, t: 'n', z: '#,##0' },
-          { f: `D${rowNo}*E${rowNo}`, v: offTotal, t: 'n', z: '#,##0' },
-          item.directRecipient,
-          { v: dirFee, t: 'n', z: '#,##0' },
-          { f: `D${rowNo}*H${rowNo}`, v: dirTotal, t: 'n', z: '#,##0' },
-          { f: `E${rowNo}-H${rowNo}`, v: diffFee, t: 'n', z: '#,##0' },
-          { f: `D${rowNo}*J${rowNo}`, v: diffTotal, t: 'n', z: '#,##0' },
-          item.memo || '본부 직송금 55만 / 차액 16~20만'
+          '2. 개인 특수수당(테라웨이브)',
+          `물품대금 수수료 ${currentTherawaveInfo.count}건 (건당 ${currentTherawaveInfo.unitFee.toLocaleString()}원)`,
+          therawaveSheet1Row ? `='1. 본사보고용_수수료정산서'!H${therawaveSheet1Row}` : '직접 산출',
+          therawaveSheet1Row
+            ? { f: `'1. 본사보고용_수수료정산서'!H${therawaveSheet1Row}`, v: currentTherawaveInfo.amount, t: 'n', z: '#,##0' }
+            : { v: currentTherawaveInfo.amount, t: 'n', z: '#,##0' },
+          '', '', '', '', '', '', '', ''
         ]);
-      });
-      const shindwEndRow = shindwStartRow + shindwRows.length - 1;
-      const shindwOrgSubRowNo = shindwEndRow + 1;
+        glSplitData.push([
+          '신동우 대표 최종 실송금액 합계',
+          '에스제이컨설팅 (국민은행 164501-04-161888 김애숙)',
+          `=D${shindwDiffRowNo}+D${shindwItemRowNo}`,
+          { f: `D${shindwDiffRowNo}+D${shindwItemRowNo}`, v: goodlifeSplitSummary.totalOverride + currentTherawaveInfo.amount, t: 'n', z: '#,##0' },
+          '', '', '', '', '', '', '', ''
+        ]);
 
-      // 신동우사업단 산하본부 소계 행
-      glSplitData.push([
-        '신동우사업단',
-        '산하본부 소계',
-        `사업단 본부 ${shindwRows.length}개 상품 소계`,
-        { f: `SUM(D${shindwStartRow}:D${shindwEndRow})`, v: goodlifeSplitSummary.hqCount, t: 'n', z: '#,##0' },
-        '-',
-        { f: `SUM(F${shindwStartRow}:F${shindwEndRow})`, v: goodlifeSplitSummary.hqOfficial, t: 'n', z: '#,##0' },
-        '소속 본부 직송금',
-        '550,000',
-        { f: `SUM(I${shindwStartRow}:I${shindwEndRow})`, v: goodlifeSplitSummary.hqDirect, t: 'n', z: '#,##0' },
-        '신동우 차액(16~20만)',
-        { f: `SUM(K${shindwStartRow}:K${shindwEndRow})`, v: goodlifeSplitSummary.hqOverride, t: 'n', z: '#,##0' },
-        '본부 직송금 55만 / 신동우 차액 16~20만원 귀속'
-      ]);
+        const wsGlSplit = XLSX.utils.aoa_to_sheet(glSplitData);
+        wsGlSplit['!merges'] = [
+          { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } },
+          { s: { r: 1, c: 0 }, e: { r: 1, c: 11 } },
+          { s: { r: glCheckRowNo - 1, c: 1 }, e: { r: glCheckRowNo - 1, c: 4 } },
+          { s: { r: glCheckRowNo - 1, c: 6 }, e: { r: glCheckRowNo - 1, c: 10 } },
+          { s: { r: shindwDiffRowNo - 3, c: 0 }, e: { r: shindwDiffRowNo - 3, c: 11 } }
+        ];
 
-      // 3. 굿라이프 전체 합계 행
-      const glTotalRowNo = shindwOrgSubRowNo + 1;
-      glSplitData.push([
-        '굿라이프 합계',
-        '전체 총합계',
-        `전체 ${goodlifeSplitRows.length}개 품목 총계`,
-        { f: `D${kkumSubRowNo}+D${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalCount, t: 'n', z: '#,##0' },
-        '-',
-        { f: `F${kkumSubRowNo}+F${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalOfficial, t: 'n', z: '#,##0' },
-        '꿈잇다 + 본부 직송금 합계',
-        '-',
-        { f: `I${kkumSubRowNo}+I${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalDirect, t: 'n', z: '#,##0' },
-        '신동우 차액 전체합계',
-        { f: `K${kkumSubRowNo}+K${shindwOrgSubRowNo}`, v: goodlifeSplitSummary.totalOverride, t: 'n', z: '#,##0' },
-        '본사 보고용 합계와 100% 일치'
-      ]);
+        wsGlSplit['!cols'] = [
+          { wch: 14 }, { wch: 16 }, { wch: 22 }, { wch: 8 }, { wch: 14 },
+          { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 28 }
+        ];
 
-      // 4. 분배 검증 행
-      const glCheckRowNo = glTotalRowNo + 1;
-      glSplitData.push([
-        '【분배 검증】',
-        '본사 총수수료 - (직송금합계 + 신동우 차액합계)',
-        '', '', '',
-        { f: `F${glTotalRowNo}-(I${glTotalRowNo}+K${glTotalRowNo})`, v: 0, t: 'n', z: '#,##0' },
-        '차액 검증 결과',
-        '', '', '', '',
-        '✅ 정상 일치 (오차 0원)'
-      ]);
+        for (let R = 0; R < glSplitData.length; R++) {
+          const isTitle = R === 0;
+          const isHeader = R === 3;
+          const isKkumSubtotal = R === kkumSubRowNo - 1;
+          const isShindwOrgSubtotal = R === shindwOrgSubRowNo - 1;
+          const isGlTotal = R === glTotalRowNo - 1;
+          const isCheckRow = R === glCheckRowNo - 1;
+          const isShindwHeader = R === shindwDiffRowNo - 2;
+          const isShindwTotal = R === shindwTotalRowNo - 1;
 
-      // 5. 신동우 대표 최종 정산 수령 명세 블록
-      glSplitData.push([]);
-      glSplitData.push(['【 신동우 대표 최종 실송금액 종합 산출 명세 】', '', '', '', '', '', '', '', '', '', '', '']);
-      glSplitData.push(['항목 구분', '세부 내역 및 산출 근거', '계산 수식', '금액', '', '', '', '', '', '', '', '']);
+          for (let C = 0; C <= 11; C++) {
+            const addr = XLSX.utils.encode_cell({ r: R, c: C });
+            if (!wsGlSplit[addr]) continue;
 
-      const shindwDiffRowNo = glCheckRowNo + 4;
-      const shindwItemRowNo = shindwDiffRowNo + 1;
-      const shindwTotalRowNo = shindwItemRowNo + 1;
-
-      const shindwEtcRow = targetToRowMap.get('신동우') || 29;
-
-      glSplitData.push([
-        '1. 굿라이프 오버라이딩 차액',
-        '꿈잇다(건당 4만원) + 신동우사업단(건당 16~20만원) 차액 합산',
-        `=K${glTotalRowNo}`,
-        { f: `K${glTotalRowNo}`, v: goodlifeSplitSummary.totalOverride, t: 'n', z: '#,##0' },
-        '', '', '', '', '', '', '', ''
-      ]);
-      glSplitData.push([
-        '2. 개인 특수수당(테라웨이브)',
-        `물품대금 수수료 ${currentTherawaveInfo.count}건 (건당 ${currentTherawaveInfo.unitFee.toLocaleString()}원)`,
-        `='1. 본사보고용_수수료정산서'!H${shindwEtcRow}`,
-        { f: `'1. 본사보고용_수수료정산서'!H${shindwEtcRow}`, v: currentTherawaveInfo.amount, t: 'n', z: '#,##0' },
-        '', '', '', '', '', '', '', ''
-      ]);
-      glSplitData.push([
-        '신동우 대표 최종 실송금액 합계',
-        '에스제이컨설팅 (국민은행 164501-04-161888 김애숙)',
-        `=D${shindwDiffRowNo}+D${shindwItemRowNo}`,
-        { f: `D${shindwDiffRowNo}+D${shindwItemRowNo}`, v: goodlifeSplitSummary.totalOverride + currentTherawaveInfo.amount, t: 'n', z: '#,##0' },
-        '', '', '', '', '', '', '', ''
-      ]);
-
-      const wsGlSplit = XLSX.utils.aoa_to_sheet(glSplitData);
-      wsGlSplit['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: 11 } },
-        { s: { r: glCheckRowNo - 1, c: 1 }, e: { r: glCheckRowNo - 1, c: 4 } },
-        { s: { r: glCheckRowNo - 1, c: 6 }, e: { r: glCheckRowNo - 1, c: 10 } },
-        { s: { r: shindwDiffRowNo - 3, c: 0 }, e: { r: shindwDiffRowNo - 3, c: 11 } }
-      ];
-
-      wsGlSplit['!cols'] = [
-        { wch: 14 }, { wch: 16 }, { wch: 22 }, { wch: 8 }, { wch: 14 },
-        { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 28 }
-      ];
-
-      for (let R = 0; R < glSplitData.length; R++) {
-        const isTitle = R === 0;
-        const isHeader = R === 3;
-        const isKkumSubtotal = R === kkumSubRowNo - 1;
-        const isShindwOrgSubtotal = R === shindwOrgSubRowNo - 1;
-        const isGlTotal = R === glTotalRowNo - 1;
-        const isCheckRow = R === glCheckRowNo - 1;
-        const isShindwHeader = R === shindwDiffRowNo - 2;
-        const isShindwTotal = R === shindwTotalRowNo - 1;
-
-        for (let C = 0; C <= 11; C++) {
-          const addr = XLSX.utils.encode_cell({ r: R, c: C });
-          if (!wsGlSplit[addr]) continue;
-
-          if (isTitle) {
-            wsGlSplit[addr].s = {
-              fill: { fgColor: { rgb: '1E3A8A' } },
-              font: { name: '맑은 고딕', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
-              alignment: { vertical: 'center', horizontal: 'center' }
-            };
-          } else if (isHeader || isShindwHeader) {
-            wsGlSplit[addr].s = {
-              fill: { fgColor: { rgb: '2563EB' } },
-              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
-              alignment: { vertical: 'center', horizontal: 'center' },
-              border: thinBorder
-            };
-          } else if (isKkumSubtotal) {
-            wsGlSplit[addr].s = {
-              fill: { fgColor: { rgb: 'E8F5E9' } },
-              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '166534' } },
-              alignment: { vertical: 'center', horizontal: C >= 3 && C <= 10 ? 'right' : 'center' },
-              border: thinBorder
-            };
-          } else if (isShindwOrgSubtotal) {
-            wsGlSplit[addr].s = {
-              fill: { fgColor: { rgb: 'E0F2FE' } },
-              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '075985' } },
-              alignment: { vertical: 'center', horizontal: C >= 3 && C <= 10 ? 'right' : 'center' },
-              border: thinBorder
-            };
-          } else if (isGlTotal) {
-            wsGlSplit[addr].s = {
-              fill: { fgColor: { rgb: 'D9E1F2' } },
-              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '0F172A' } },
-              alignment: { vertical: 'center', horizontal: C >= 3 && C <= 10 ? 'right' : 'center' },
-              border: thinBorder
-            };
-          } else if (isCheckRow) {
-            wsGlSplit[addr].s = {
-              fill: { fgColor: { rgb: 'D1FAE5' } },
-              font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '065F46' } },
-              alignment: { vertical: 'center', horizontal: C === 5 ? 'right' : 'center' },
-              border: thinBorder
-            };
-          } else if (isShindwTotal) {
-            wsGlSplit[addr].s = {
-              fill: { fgColor: { rgb: 'FEF3C7' } },
-              font: { name: '맑은 고딕', sz: 11, bold: true, color: { rgb: '92400E' } },
-              alignment: { vertical: 'center', horizontal: C === 3 ? 'right' : 'left' },
-              border: thinBorder
-            };
-          } else {
-            const isOverrideCol = C === 9 || C === 10;
-            const isDirectCol = C === 7 || C === 8;
-            wsGlSplit[addr].s = {
-              fill: { fgColor: { rgb: isOverrideCol ? 'FEF9C3' : (isDirectCol ? 'F0FDF4' : 'FFFFFF') } },
-              font: { name: '맑은 고딕', sz: 9, color: { rgb: '0F172A' }, bold: isOverrideCol || C === 5 },
-              alignment: { vertical: 'center', horizontal: C >= 3 && C <= 10 ? 'right' : 'center' },
-              border: thinBorder
-            };
+            if (isTitle) {
+              wsGlSplit[addr].s = {
+                fill: { fgColor: { rgb: '1E3A8A' } },
+                font: { name: '맑은 고딕', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
+                alignment: { vertical: 'center', horizontal: 'center' }
+              };
+            } else if (isHeader || isShindwHeader) {
+              wsGlSplit[addr].s = {
+                fill: { fgColor: { rgb: '2563EB' } },
+                font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: 'FFFFFF' } },
+                alignment: { vertical: 'center', horizontal: 'center' },
+                border: thinBorder
+              };
+            } else if (isKkumSubtotal) {
+              wsGlSplit[addr].s = {
+                fill: { fgColor: { rgb: 'E8F5E9' } },
+                font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '166534' } },
+                alignment: { vertical: 'center', horizontal: C >= 3 && C <= 10 ? 'right' : 'center' },
+                border: thinBorder
+              };
+            } else if (isShindwOrgSubtotal) {
+              wsGlSplit[addr].s = {
+                fill: { fgColor: { rgb: 'E0F2FE' } },
+                font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '075985' } },
+                alignment: { vertical: 'center', horizontal: C >= 3 && C <= 10 ? 'right' : 'center' },
+                border: thinBorder
+              };
+            } else if (isGlTotal) {
+              wsGlSplit[addr].s = {
+                fill: { fgColor: { rgb: 'D9E1F2' } },
+                font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '0F172A' } },
+                alignment: { vertical: 'center', horizontal: C >= 3 && C <= 10 ? 'right' : 'center' },
+                border: thinBorder
+              };
+            } else if (isCheckRow) {
+              wsGlSplit[addr].s = {
+                fill: { fgColor: { rgb: 'D1FAE5' } },
+                font: { name: '맑은 고딕', sz: 10, bold: true, color: { rgb: '065F46' } },
+                alignment: { vertical: 'center', horizontal: C === 5 ? 'right' : 'center' },
+                border: thinBorder
+              };
+            } else if (isShindwTotal) {
+              wsGlSplit[addr].s = {
+                fill: { fgColor: { rgb: 'FEF3C7' } },
+                font: { name: '맑은 고딕', sz: 11, bold: true, color: { rgb: '92400E' } },
+                alignment: { vertical: 'center', horizontal: C === 3 ? 'right' : 'left' },
+                border: thinBorder
+              };
+            } else {
+              const isOverrideCol = C === 9 || C === 10;
+              const isDirectCol = C === 7 || C === 8;
+              wsGlSplit[addr].s = {
+                fill: { fgColor: { rgb: isOverrideCol ? 'FEF9C3' : (isDirectCol ? 'F0FDF4' : 'FFFFFF') } },
+                font: { name: '맑은 고딕', sz: 9, color: { rgb: '0F172A' }, bold: isOverrideCol || C === 5 },
+                alignment: { vertical: 'center', horizontal: C >= 3 && C <= 10 ? 'right' : 'center' },
+                border: thinBorder
+              };
+            }
           }
         }
+        XLSX.utils.book_append_sheet(wb, wsGlSplit, '2. 내부실송금_정산서(굿라이프)');
       }
-      XLSX.utils.book_append_sheet(wb, wsGlSplit, '2. 내부실송금_정산서(굿라이프)');
 
       // =============================================================
       // [시트 3] 은행이체_지급계좌집계 (인터넷뱅킹 이체용 종합 집계표)
@@ -2606,17 +2660,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         return undefined;
       };
 
-      const unboundRow = findSheet1Row('언바운드컴퍼니') || 6;
-      const ptmsRow = findSheet1Row('피티엠에스') || 12;
-      const maxRow = findSheet1Row('맥스') || 16;
-      const haerangRow = findSheet1Row('해랑인터내셔널') || 19;
-      const withusRow = findSheet1Row('위더스앤씨') || 21;
-      const directRow = findSheet1Row('다이렉트') || 23;
-      const thelifeRow = findSheet1Row('더라이프앤') || 25;
-      const choJaeYoonRow = findSheet1Row('조재윤') || 26;
-      const choMinKyungRow = findSheet1Row('조민경') || 27;
-      const leeJongYeonRow = findSheet1Row('이종연') || 28;
-      const kwonSeongHunRow = findSheet1Row('권성훈') || 30;
+      const sheet1Formula = (key: string): string | undefined => {
+        const row = findSheet1Row(key);
+        return row ? `'1. 본사보고용_수수료정산서'!J${row}` : undefined;
+      };
+
+      const canIncludeVendor = (name: string) => isManager || !isHQStaff || isHqAllowed(name);
+      const canIncludeGoodlife = includeGoodlifeSplitSheet;
+      const canIncludeExternal = isManager || !isHQStaff;
 
       // 상세 정산서(시트1) 기준 지급대상별 통계 집계 헬퍼
       const getDetailedTargetStats = (targetNameKey: string) => {
@@ -2646,180 +2697,207 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       }> = [];
 
       // 1. 언바운드컴퍼니 (본부별 정산 설정 hqSettings 동적 연동)
-      const unboundStats = getDetailedTargetStats('언바운드컴퍼니');
-      const unboundAcc = getPayoutAccountInfo('주식회사 언바운드컴퍼니');
-      const unboundCount = isOct ? 382 : unboundStats.count;
-      const unboundTotalComm = isOct ? 282950000 : unboundStats.totalComm;
-      payoutList.push({
-        targetName: '주식회사 언바운드컴퍼니',
-        divisionType: '사업단/본부',
-        settlementType: unboundAcc.settlementType || '사업자',
-        count: unboundCount,
-        totalComm: unboundTotalComm,
-        tax: 0,
-        netTotal: unboundTotalComm,
-        formula: `='1. 본사보고용_수수료정산서'!J${unboundRow}`,
-        bankName: unboundAcc.bankName !== '-' ? unboundAcc.bankName : '하나은행',
-        accountNumber: unboundAcc.accountNumber !== '-' ? unboundAcc.accountNumber : '285-910018-29104',
-        accountHolder: unboundAcc.accountHolder !== '-' ? unboundAcc.accountHolder : '주식회사 언바운드컴퍼니',
-        note: '언바운드컴퍼니 정산'
-      });
+      if (canIncludeVendor('언바운드컴퍼니')) {
+        const unboundStats = getDetailedTargetStats('언바운드컴퍼니');
+        const unboundAcc = getPayoutAccountInfo('주식회사 언바운드컴퍼니');
+        const unboundCount = isOct ? 382 : unboundStats.count;
+        const unboundTotalComm = isOct ? 282950000 : unboundStats.totalComm;
+        if (unboundCount > 0 || unboundTotalComm > 0 || !isHQStaff) {
+          payoutList.push({
+            targetName: '주식회사 언바운드컴퍼니',
+            divisionType: '사업단/본부',
+            settlementType: unboundAcc.settlementType || '사업자',
+            count: unboundCount,
+            totalComm: unboundTotalComm,
+            tax: 0,
+            netTotal: unboundTotalComm,
+            formula: sheet1Formula('언바운드컴퍼니'),
+            bankName: unboundAcc.bankName !== '-' ? unboundAcc.bankName : '하나은행',
+            accountNumber: unboundAcc.accountNumber !== '-' ? unboundAcc.accountNumber : '285-910018-29104',
+            accountHolder: unboundAcc.accountHolder !== '-' ? unboundAcc.accountHolder : '주식회사 언바운드컴퍼니',
+            note: '언바운드컴퍼니 정산'
+          });
+        }
+      }
 
-      // 2. 주식회사 꿈잇다 (굿라이프 직송금: 건당 71만원)
-      const kkumAcc = getPayoutAccountInfo('꿈잇다');
-      payoutList.push({
-        targetName: '주식회사 꿈잇다',
-        divisionType: '사업단/본부',
-        settlementType: kkumAcc.settlementType || '사업자',
-        count: goodlifeSplitSummary.kkumCount,
-        totalComm: goodlifeSplitSummary.kkumDirect,
-        tax: 0,
-        netTotal: goodlifeSplitSummary.kkumDirect,
-        formula: `='2. 내부실송금_정산서(굿라이프)'!I${kkumSubRowNo}`,
-        bankName: kkumAcc.bankName !== '-' ? kkumAcc.bankName : '기업은행',
-        accountNumber: kkumAcc.accountNumber !== '-' ? kkumAcc.accountNumber : '115-131758-01-017',
-        accountHolder: kkumAcc.accountHolder !== '-' ? kkumAcc.accountHolder : '주식회사 꿈잇다',
-        note: '굿라이프(꿈잇다) 건당 71만원 직송금'
-      });
-
-      // 3. 굿라이프(신동우) 사업단 산하 본부 (본부 직송금: 건당 55만원 - 사업단 관리 / 본부별 정산 설정 연동)
-      const shinOrgAcc = getPayoutAccountInfo('굿라이프(신동우)');
-      payoutList.push({
-        targetName: '굿라이프(신동우) 사업단 산하본부',
-        divisionType: '사업단/본부',
-        settlementType: shinOrgAcc.settlementType || '사업자',
-        count: goodlifeSplitSummary.hqCount,
-        totalComm: goodlifeSplitSummary.hqDirect,
-        tax: 0,
-        netTotal: goodlifeSplitSummary.hqDirect,
-        formula: `='2. 내부실송금_정산서(굿라이프)'!I${shindwOrgSubRowNo}`,
-        bankName: shinOrgAcc.bankName !== '-' ? shinOrgAcc.bankName : '국민은행',
-        accountNumber: shinOrgAcc.accountNumber !== '-' ? shinOrgAcc.accountNumber : '164501-04-161888',
-        accountHolder: shinOrgAcc.accountHolder !== '-' ? shinOrgAcc.accountHolder : '김애숙(에스제이컨설팅)',
-        note: '굿라이프(신동우) 건당 55만원 본부 직송금'
-      });
-
-      // 4. 피티엠에스 (본부별 정산 설정 hqSettings 동적 연동)
-      const ptmsStats = getDetailedTargetStats('피티엠에스');
-      const ptmsAcc = getPayoutAccountInfo('주식회사피티엠에스');
-      const ptmsCount = isOct ? 2 : ptmsStats.count;
-      const ptmsTotalComm = isOct ? 1360000 : ptmsStats.totalComm;
-      payoutList.push({
-        targetName: '주식회사피티엠에스',
-        divisionType: '사업단/본부',
-        settlementType: ptmsAcc.settlementType || '사업자',
-        count: ptmsCount,
-        totalComm: ptmsTotalComm,
-        tax: 0,
-        netTotal: ptmsTotalComm,
-        formula: `='1. 본사보고용_수수료정산서'!J${ptmsRow}`,
-        bankName: ptmsAcc.bankName !== '-' ? ptmsAcc.bankName : '신한은행',
-        accountNumber: ptmsAcc.accountNumber !== '-' ? ptmsAcc.accountNumber : '100016632698',
-        accountHolder: ptmsAcc.accountHolder !== '-' ? ptmsAcc.accountHolder : '주식회사피티엠에스',
-        note: isOct ? '하이브리드698 2건 (건당 68만원)' : '피티엠에스 본부 정산'
-      });
-
-      // 5. 맥스 (본부별 정산 설정 hqSettings 동적 연동: 우리은행)
-      const maxStats = getDetailedTargetStats('맥스');
-      const maxAcc = getPayoutAccountInfo('맥스');
-      const maxCount = isOct ? 12 : maxStats.count;
-      const maxTotalComm = isOct ? 2900000 : maxStats.totalComm;
-      payoutList.push({
-        targetName: '맥스',
-        divisionType: '사업단/본부',
-        settlementType: maxAcc.settlementType || '사업자',
-        count: maxCount,
-        totalComm: maxTotalComm,
-        tax: 0,
-        netTotal: maxTotalComm,
-        formula: `='1. 본사보고용_수수료정산서'!J${maxRow}`,
-        bankName: maxAcc.bankName !== '-' ? maxAcc.bankName : '우리은행',
-        accountNumber: maxAcc.accountNumber !== '-' ? maxAcc.accountNumber : '1005603174407',
-        accountHolder: maxAcc.accountHolder !== '-' ? maxAcc.accountHolder : '김학민(골프존파크)',
-        note: '맥스 본부 정산'
-      });
-
-      // 6. 해랑인터내셔널 (실적 있을 때만 집계)
-      const haerangStats = getDetailedTargetStats('해랑');
-      const haerangCount = isOct ? 3 : haerangStats.count;
-      const haerangTotalComm = isOct ? 1850000 : haerangStats.totalComm;
-      if (haerangCount > 0) {
-        const haerangAcc = getPayoutAccountInfo('해랑인터내셔널');
+      // 2. 주식회사 꿈잇다 & 3. 굿라이프(신동우) 사업단 산하 본부 (관리자 또는 굿라이프 총무에게만 포함)
+      if (canIncludeGoodlife) {
+        const kkumAcc = getPayoutAccountInfo('꿈잇다');
         payoutList.push({
-          targetName: '해랑인터내셔널',
+          targetName: '주식회사 꿈잇다',
           divisionType: '사업단/본부',
-          settlementType: haerangAcc.settlementType || '사업자',
-          count: haerangCount,
-          totalComm: haerangTotalComm,
+          settlementType: kkumAcc.settlementType || '사업자',
+          count: goodlifeSplitSummary.kkumCount,
+          totalComm: goodlifeSplitSummary.kkumDirect,
           tax: 0,
-          netTotal: haerangTotalComm,
-          formula: `='1. 본사보고용_수수료정산서'!J${haerangRow}`,
-          bankName: haerangAcc.bankName !== '-' ? haerangAcc.bankName : '기업은행',
-          accountNumber: haerangAcc.accountNumber !== '-' ? haerangAcc.accountNumber : '142-197947-04-010',
-          accountHolder: haerangAcc.accountHolder !== '-' ? haerangAcc.accountHolder : '(주)해랑인터내셔널',
-          note: '해랑인터내셔널 정산'
+          netTotal: goodlifeSplitSummary.kkumDirect,
+          formula: `'2. 내부실송금_정산서(굿라이프)'!I${kkumSubRowNo}`,
+          bankName: kkumAcc.bankName !== '-' ? kkumAcc.bankName : '기업은행',
+          accountNumber: kkumAcc.accountNumber !== '-' ? kkumAcc.accountNumber : '115-131758-01-017',
+          accountHolder: kkumAcc.accountHolder !== '-' ? kkumAcc.accountHolder : '주식회사 꿈잇다',
+          note: '굿라이프(꿈잇다) 건당 71만원 직송금'
+        });
+
+        const shinOrgAcc = getPayoutAccountInfo('굿라이프(신동우)');
+        payoutList.push({
+          targetName: '굿라이프(신동우) 사업단 산하본부',
+          divisionType: '사업단/본부',
+          settlementType: shinOrgAcc.settlementType || '사업자',
+          count: goodlifeSplitSummary.hqCount,
+          totalComm: goodlifeSplitSummary.hqDirect,
+          tax: 0,
+          netTotal: goodlifeSplitSummary.hqDirect,
+          formula: `'2. 내부실송금_정산서(굿라이프)'!I${shindwOrgSubRowNo}`,
+          bankName: shinOrgAcc.bankName !== '-' ? shinOrgAcc.bankName : '국민은행',
+          accountNumber: shinOrgAcc.accountNumber !== '-' ? shinOrgAcc.accountNumber : '164501-04-161888',
+          accountHolder: shinOrgAcc.accountHolder !== '-' ? shinOrgAcc.accountHolder : '김애숙(에스제이컨설팅)',
+          note: '굿라이프(신동우) 건당 55만원 본부 직송금'
         });
       }
 
+      // 4. 피티엠에스 (본부별 정산 설정 hqSettings 동적 연동)
+      if (canIncludeVendor('피티엠에스')) {
+        const ptmsStats = getDetailedTargetStats('피티엠에스');
+        const ptmsAcc = getPayoutAccountInfo('주식회사피티엠에스');
+        const ptmsCount = isOct ? 2 : ptmsStats.count;
+        const ptmsTotalComm = isOct ? 1360000 : ptmsStats.totalComm;
+        if (ptmsCount > 0 || ptmsTotalComm > 0 || !isHQStaff) {
+          payoutList.push({
+            targetName: '주식회사피티엠에스',
+            divisionType: '사업단/본부',
+            settlementType: ptmsAcc.settlementType || '사업자',
+            count: ptmsCount,
+            totalComm: ptmsTotalComm,
+            tax: 0,
+            netTotal: ptmsTotalComm,
+            formula: sheet1Formula('피티엠에스'),
+            bankName: ptmsAcc.bankName !== '-' ? ptmsAcc.bankName : '신한은행',
+            accountNumber: ptmsAcc.accountNumber !== '-' ? ptmsAcc.accountNumber : '100016632698',
+            accountHolder: ptmsAcc.accountHolder !== '-' ? ptmsAcc.accountHolder : '주식회사피티엠에스',
+            note: isOct ? '하이브리드698 2건 (건당 68만원)' : '피티엠에스 본부 정산'
+          });
+        }
+      }
+
+      // 5. 맥스 (본부별 정산 설정 hqSettings 동적 연동: 우리은행)
+      if (canIncludeVendor('맥스')) {
+        const maxStats = getDetailedTargetStats('맥스');
+        const maxAcc = getPayoutAccountInfo('맥스');
+        const maxCount = isOct ? 12 : maxStats.count;
+        const maxTotalComm = isOct ? 2900000 : maxStats.totalComm;
+        if (maxCount > 0 || maxTotalComm > 0 || !isHQStaff) {
+          payoutList.push({
+            targetName: '맥스',
+            divisionType: '사업단/본부',
+            settlementType: maxAcc.settlementType || '사업자',
+            count: maxCount,
+            totalComm: maxTotalComm,
+            tax: 0,
+            netTotal: maxTotalComm,
+            formula: sheet1Formula('맥스'),
+            bankName: maxAcc.bankName !== '-' ? maxAcc.bankName : '우리은행',
+            accountNumber: maxAcc.accountNumber !== '-' ? maxAcc.accountNumber : '1005603174407',
+            accountHolder: maxAcc.accountHolder !== '-' ? maxAcc.accountHolder : '김학민(골프존파크)',
+            note: '맥스 본부 정산'
+          });
+        }
+      }
+
+      // 6. 해랑인터내셔널 (실적 있을 때만 집계)
+      if (canIncludeVendor('해랑인터내셔널')) {
+        const haerangStats = getDetailedTargetStats('해랑');
+        const haerangCount = isOct ? 3 : haerangStats.count;
+        const haerangTotalComm = isOct ? 1850000 : haerangStats.totalComm;
+        if (haerangCount > 0) {
+          const haerangAcc = getPayoutAccountInfo('해랑인터내셔널');
+          payoutList.push({
+            targetName: '해랑인터내셔널',
+            divisionType: '사업단/본부',
+            settlementType: haerangAcc.settlementType || '사업자',
+            count: haerangCount,
+            totalComm: haerangTotalComm,
+            tax: 0,
+            netTotal: haerangTotalComm,
+            formula: sheet1Formula('해랑인터내셔널'),
+            bankName: haerangAcc.bankName !== '-' ? haerangAcc.bankName : '기업은행',
+            accountNumber: haerangAcc.accountNumber !== '-' ? haerangAcc.accountNumber : '142-197947-04-010',
+            accountHolder: haerangAcc.accountHolder !== '-' ? haerangAcc.accountHolder : '(주)해랑인터내셔널',
+            note: '해랑인터내셔널 정산'
+          });
+        }
+      }
+
       // 7. 유지수수료 본부들 (위더스앤씨, 다이렉트, 더라이프앤 - hqSettings 동적 연동)
-      const withusStats = getDetailedTargetStats('위더스앤씨');
-      const withusAcc = getPayoutAccountInfo('위더스앤씨');
-      const withusCount = isOct ? 1 : withusStats.count;
-      const withusTotalComm = isOct ? 10000 : withusStats.totalComm;
-      payoutList.push({
-        targetName: '위더스앤씨',
-        divisionType: '사업단/본부',
-        settlementType: withusAcc.settlementType || '사업자',
-        count: withusCount,
-        totalComm: withusTotalComm,
-        tax: 0,
-        netTotal: withusTotalComm,
-        formula: `='1. 본사보고용_수수료정산서'!J${withusRow}`,
-        bankName: withusAcc.bankName !== '-' ? withusAcc.bankName : '기업은행',
-        accountNumber: withusAcc.accountNumber !== '-' ? withusAcc.accountNumber : '49707471104012',
-        accountHolder: withusAcc.accountHolder !== '-' ? withusAcc.accountHolder : '주식회사 위더스앤씨',
-        note: '유지수수료(크루즈)'
-      });
+      if (canIncludeVendor('위더스앤씨')) {
+        const withusStats = getDetailedTargetStats('위더스앤씨');
+        const withusAcc = getPayoutAccountInfo('위더스앤씨');
+        const withusCount = isOct ? 1 : withusStats.count;
+        const withusTotalComm = isOct ? 10000 : withusStats.totalComm;
+        if (withusCount > 0 || withusTotalComm > 0 || !isHQStaff) {
+          payoutList.push({
+            targetName: '위더스앤씨',
+            divisionType: '사업단/본부',
+            settlementType: withusAcc.settlementType || '사업자',
+            count: withusCount,
+            totalComm: withusTotalComm,
+            tax: 0,
+            netTotal: withusTotalComm,
+            formula: sheet1Formula('위더스앤씨'),
+            bankName: withusAcc.bankName !== '-' ? withusAcc.bankName : '기업은행',
+            accountNumber: withusAcc.accountNumber !== '-' ? withusAcc.accountNumber : '49707471104012',
+            accountHolder: withusAcc.accountHolder !== '-' ? withusAcc.accountHolder : '주식회사 위더스앤씨',
+            note: '유지수수료(크루즈)'
+          });
+        }
+      }
 
-      const directStats = getDetailedTargetStats('다이렉트');
-      const directAcc = getPayoutAccountInfo('다이렉트');
-      const directCount = isOct ? 2 : directStats.count;
-      const directTotalComm = isOct ? 28000 : directStats.totalComm;
-      const directTax = directAcc.settlementType.includes('개인') || !isOct ? Math.round(directTotalComm * 0.033) : 0;
-      const directNet = directTotalComm - directTax;
-      payoutList.push({
-        targetName: '다이렉트',
-        divisionType: '사업단/본부',
-        settlementType: directAcc.settlementType || '개인',
-        count: directCount,
-        totalComm: directTotalComm,
-        tax: directTax,
-        netTotal: directNet,
-        formula: directTax > 0 ? undefined : `='1. 본사보고용_수수료정산서'!J${directRow}`,
-        bankName: directAcc.bankName !== '-' ? directAcc.bankName : '국민은행',
-        accountNumber: directAcc.accountNumber !== '-' ? directAcc.accountNumber : '822401-04-142270',
-        accountHolder: directAcc.accountHolder !== '-' ? directAcc.accountHolder : '다이렉트',
-        note: isOct ? '유지수수료(헬스케어580)' : '다이렉트 정산(판매+유지)'
-      });
+      if (canIncludeVendor('다이렉트')) {
+        const directStats = getDetailedTargetStats('다이렉트');
+        const directAcc = getPayoutAccountInfo('다이렉트');
+        const directCount = isOct ? 2 : directStats.count;
+        const directTotalComm = isOct ? 28000 : directStats.totalComm;
+        const directTax = directAcc.settlementType.includes('개인') || !isOct ? Math.round(directTotalComm * 0.033) : 0;
+        const directNet = directTotalComm - directTax;
+        if (directCount > 0 || directTotalComm > 0 || !isHQStaff) {
+          payoutList.push({
+            targetName: '다이렉트',
+            divisionType: '사업단/본부',
+            settlementType: directAcc.settlementType || '개인',
+            count: directCount,
+            totalComm: directTotalComm,
+            tax: directTax,
+            netTotal: directNet,
+            formula: directTax > 0 ? undefined : sheet1Formula('다이렉트'),
+            bankName: directAcc.bankName !== '-' ? directAcc.bankName : '국민은행',
+            accountNumber: directAcc.accountNumber !== '-' ? directAcc.accountNumber : '822401-04-142270',
+            accountHolder: directAcc.accountHolder !== '-' ? directAcc.accountHolder : '다이렉트',
+            note: isOct ? '유지수수료(헬스케어580)' : '다이렉트 정산(판매+유지)'
+          });
+        }
+      }
 
-      const thelifeStats = getDetailedTargetStats('더라이프앤');
-      const thelifeAcc = getPayoutAccountInfo('더라이프앤');
-      const thelifeCount = isOct ? 1 : thelifeStats.count;
-      const thelifeTotalComm = isOct ? 10000 : thelifeStats.totalComm;
-      payoutList.push({
-        targetName: '더라이프앤',
-        divisionType: '사업단/본부',
-        settlementType: thelifeAcc.settlementType || '사업자',
-        count: thelifeCount,
-        totalComm: thelifeTotalComm,
-        tax: 0,
-        netTotal: thelifeTotalComm,
-        formula: `='1. 본사보고용_수수료정산서'!J${thelifeRow}`,
-        bankName: thelifeAcc.bankName !== '-' ? thelifeAcc.bankName : '하나은행',
-        accountNumber: thelifeAcc.accountNumber !== '-' ? thelifeAcc.accountNumber : '79391040692907',
-        accountHolder: thelifeAcc.accountHolder !== '-' ? thelifeAcc.accountHolder : '박인천(더드림)',
-        note: '유지수수료(헬스케어580)'
-      });
+      if (canIncludeVendor('더라이프앤')) {
+        const thelifeStats = getDetailedTargetStats('더라이프앤');
+        const thelifeAcc = getPayoutAccountInfo('더라이프앤');
+        const thelifeCount = isOct ? 1 : thelifeStats.count;
+        const thelifeTotalComm = isOct ? 10000 : thelifeStats.totalComm;
+        if (thelifeCount > 0 || thelifeTotalComm > 0 || !isHQStaff) {
+          payoutList.push({
+            targetName: '더라이프앤',
+            divisionType: '사업단/본부',
+            settlementType: thelifeAcc.settlementType || '사업자',
+            count: thelifeCount,
+            totalComm: thelifeTotalComm,
+            tax: 0,
+            netTotal: thelifeTotalComm,
+            formula: sheet1Formula('더라이프앤'),
+            bankName: thelifeAcc.bankName !== '-' ? thelifeAcc.bankName : '하나은행',
+            accountNumber: thelifeAcc.accountNumber !== '-' ? thelifeAcc.accountNumber : '79391040692907',
+            accountHolder: thelifeAcc.accountHolder !== '-' ? thelifeAcc.accountHolder : '박인천(더드림)',
+            note: '유지수수료(헬스케어580)'
+          });
+        }
+      }
 
       // 7-2. 기타 실적 본부 동적 집계 (더금융비상 등 개인/프리랜서 본부의 영업사원/지점장 2단계 분배 및 기타 실적 본부 계좌 연동)
       const handledHqNames = new Set([
@@ -2834,12 +2912,29 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         '더라이프앤'
       ]);
 
+      // 굿라이프 사업단(꿈잇다 + 신동우) 소속 본부는 위 2/3번에서 이미 집계되므로 중복 합산 방지
+      const normGlMember = (s: string) => (s || '').replace(/[\s()본부지사대표주식회사]/g, '').toLowerCase();
+      const goodlifeMemberSet = new Set([...kkumHqNames, ...shinHqNames].map(normGlMember));
+      const isGoodlifeMemberHq = (hq: string) => {
+        const clean = normGlMember(hq);
+        if (!clean) return false;
+        if (goodlifeMemberSet.has(clean)) return true;
+        if (Array.from(goodlifeMemberSet).some(g => g.length >= 2 && (clean === g || clean.includes(g) || g.includes(clean)))) {
+          return true;
+        }
+        const div = getDivisionForHq(hq);
+        return Boolean(div && (div.name || '').includes('굿라이프'));
+      };
+
       const alreadyAddedHqs = new Set<string>();
 
       // A) effectiveHqMonthlyStats 순회
       effectiveHqMonthlyStats.forEach(stat => {
         const hqName = (stat.hqName || '').trim();
         if (!hqName) return;
+        if (!canIncludeVendor(hqName)) return;
+        if (isGoodlifeMemberHq(hqName)) return;
+
         const normHq = hqName.replace(/[\s()주식회사]/g, '').toLowerCase();
         const isHandled = Array.from(handledHqNames).some(h => {
           const nh = h.replace(/[\s()주식회사]/g, '').toLowerCase();
@@ -2861,7 +2956,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         const totalCount = items.length > 0 ? items.length : (targetStats.count || stat.count || 0);
         const totalCommission = items.length > 0
           ? items.reduce((s, it) => s + (calculateCommissionDetails(it, globalStatsMap).totalCommission || 0), 0)
-          : (targetStats.totalComm || stat.totalFee || 0);
+          : (targetStats.totalComm || stat.grossTotal || stat.generalSum || 0);
 
         if (totalCount === 0 && totalCommission === 0) return;
 
@@ -3002,6 +3097,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       detailedSettlementList.forEach(row => {
         if (row.isSubtotal || !row.targetName) return;
         const target = row.targetName.trim();
+        if (!canIncludeVendor(target)) return;
+        if (isGoodlifeMemberHq(target)) return;
         const normTarget = target.replace(/[\s()주식회사]/g, '').toLowerCase();
         const isHandled = Array.from(handledHqNames).some(h => {
           const nh = h.replace(/[\s()주식회사]/g, '').toLowerCase();
@@ -3154,112 +3251,116 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         }
       });
 
-      // 8. 개인 수당 및 외주 (조재윤, 조민경, 이종연, 권성훈 - 동적 계좌 연동)
-      const joModelRow = detailedSettlementList.find(r => r.targetName === '조재윤' && r.itemName.includes('모델비'));
-      const joCount = isOct ? 601 : (joModelRow ? joModelRow.count : effectiveTotalCount);
-      const joTotalComm = isOct ? 6010000 : (joModelRow ? joModelRow.totalCommission : joCount * 10000);
-      const joTax = Math.round(joTotalComm * 0.033);
-      const joNet = joTotalComm - joTax;
-      const choJaeYoonAcc = getPayoutAccountInfo('조재윤');
-      payoutList.push({
-        targetName: '조재윤',
-        divisionType: '외주/인센티브',
-        settlementType: choJaeYoonAcc.settlementType || '개인',
-        count: joCount,
-        totalComm: joTotalComm,
-        tax: joTax,
-        netTotal: joNet,
-        formula: `='1. 본사보고용_수수료정산서'!J${choJaeYoonRow}`,
-        bankName: choJaeYoonAcc.bankName !== '-' ? choJaeYoonAcc.bankName : '수협',
-        accountNumber: choJaeYoonAcc.accountNumber !== '-' ? choJaeYoonAcc.accountNumber : '206000673009',
-        accountHolder: choJaeYoonAcc.accountHolder !== '-' ? choJaeYoonAcc.accountHolder : '조재윤',
-        note: '모델비 (건당 1만원)'
-      });
-
-      const joConsultRow = detailedSettlementList.find(r => r.targetName === '조민경' && r.itemName.includes('컨설팅비'));
-      const jomCount = isOct ? 601 : (joConsultRow ? joConsultRow.count : effectiveTotalCount);
-      const jomTotalComm = isOct ? 3005000 : (joConsultRow ? joConsultRow.totalCommission : jomCount * 5000);
-      const jomTax = Math.round(jomTotalComm * 0.033);
-      const jomNet = jomTotalComm - jomTax;
-      const choMinKyungAcc = getPayoutAccountInfo('조민경');
-      payoutList.push({
-        targetName: '조민경',
-        divisionType: '외주/인센티브',
-        settlementType: choMinKyungAcc.settlementType || '개인',
-        count: jomCount,
-        totalComm: jomTotalComm,
-        tax: jomTax,
-        netTotal: jomNet,
-        formula: `='1. 본사보고용_수수료정산서'!J${choMinKyungRow}`,
-        bankName: choMinKyungAcc.bankName !== '-' ? choMinKyungAcc.bankName : '카카오뱅크',
-        accountNumber: choMinKyungAcc.accountNumber !== '-' ? choMinKyungAcc.accountNumber : '3333027476861',
-        accountHolder: choMinKyungAcc.accountHolder !== '-' ? choMinKyungAcc.accountHolder : '조민경',
-        note: '컨설팅비 (건당 5천원)'
-      });
-
-      const leeRow = detailedSettlementList.find(r => r.targetName === '이종연');
-      const leeCount = isOct ? 3 : (leeRow ? leeRow.count : 0);
-      if (leeCount > 0) {
-        const leeTotalComm = isOct ? 90000 : (leeRow ? leeRow.totalCommission : leeCount * 30000);
-        const leeTax = Math.round(leeTotalComm * 0.033);
-        const leeNet = leeTotalComm - leeTax;
-        const leeJongYeonAcc = getPayoutAccountInfo('이종연');
+      // 8. 개인 수당 및 외주 (조재윤, 조민경, 이종연, 권성훈 - 관리자/본사총무 전용)
+      if (canIncludeExternal) {
+        const joModelRow = detailedSettlementList.find(r => r.targetName === '조재윤' && r.itemName.includes('모델비'));
+        const joCount = isOct ? 601 : (joModelRow ? joModelRow.count : effectiveTotalCount);
+        const joTotalComm = isOct ? 6010000 : (joModelRow ? joModelRow.totalCommission : joCount * 10000);
+        const joTax = Math.round(joTotalComm * 0.033);
+        const joNet = joTotalComm - joTax;
+        const choJaeYoonAcc = getPayoutAccountInfo('조재윤');
         payoutList.push({
-          targetName: '이종연',
+          targetName: '조재윤',
           divisionType: '외주/인센티브',
-          settlementType: leeJongYeonAcc.settlementType || '개인',
-          count: leeCount,
-          totalComm: leeTotalComm,
-          tax: leeTax,
-          netTotal: leeNet,
-          formula: `='1. 본사보고용_수수료정산서'!J${leeJongYeonRow}`,
-          bankName: leeJongYeonAcc.bankName !== '-' ? leeJongYeonAcc.bankName : '농협',
-          accountNumber: leeJongYeonAcc.accountNumber !== '-' ? leeJongYeonAcc.accountNumber : '3020500290841',
-          accountHolder: leeJongYeonAcc.accountHolder !== '-' ? leeJongYeonAcc.accountHolder : '이종연',
-          note: '컨설팅비(해랑)'
+          settlementType: choJaeYoonAcc.settlementType || '개인',
+          count: joCount,
+          totalComm: joTotalComm,
+          tax: joTax,
+          netTotal: joNet,
+          formula: sheet1Formula('조재윤'),
+          bankName: choJaeYoonAcc.bankName !== '-' ? choJaeYoonAcc.bankName : '수협',
+          accountNumber: choJaeYoonAcc.accountNumber !== '-' ? choJaeYoonAcc.accountNumber : '206000673009',
+          accountHolder: choJaeYoonAcc.accountHolder !== '-' ? choJaeYoonAcc.accountHolder : '조재윤',
+          note: '모델비 (건당 1만원)'
+        });
+
+        const joConsultRow = detailedSettlementList.find(r => r.targetName === '조민경' && r.itemName.includes('컨설팅비'));
+        const jomCount = isOct ? 601 : (joConsultRow ? joConsultRow.count : effectiveTotalCount);
+        const jomTotalComm = isOct ? 3005000 : (joConsultRow ? joConsultRow.totalCommission : jomCount * 5000);
+        const jomTax = Math.round(jomTotalComm * 0.033);
+        const jomNet = jomTotalComm - jomTax;
+        const choMinKyungAcc = getPayoutAccountInfo('조민경');
+        payoutList.push({
+          targetName: '조민경',
+          divisionType: '외주/인센티브',
+          settlementType: choMinKyungAcc.settlementType || '개인',
+          count: jomCount,
+          totalComm: jomTotalComm,
+          tax: jomTax,
+          netTotal: jomNet,
+          formula: sheet1Formula('조민경'),
+          bankName: choMinKyungAcc.bankName !== '-' ? choMinKyungAcc.bankName : '카카오뱅크',
+          accountNumber: choMinKyungAcc.accountNumber !== '-' ? choMinKyungAcc.accountNumber : '3333027476861',
+          accountHolder: choMinKyungAcc.accountHolder !== '-' ? choMinKyungAcc.accountHolder : '조민경',
+          note: '컨설팅비 (건당 5천원)'
+        });
+
+        const leeRow = detailedSettlementList.find(r => r.targetName === '이종연');
+        const leeCount = isOct ? 3 : (leeRow ? leeRow.count : 0);
+        if (leeCount > 0) {
+          const leeTotalComm = isOct ? 90000 : (leeRow ? leeRow.totalCommission : leeCount * 30000);
+          const leeTax = Math.round(leeTotalComm * 0.033);
+          const leeNet = leeTotalComm - leeTax;
+          const leeJongYeonAcc = getPayoutAccountInfo('이종연');
+          payoutList.push({
+            targetName: '이종연',
+            divisionType: '외주/인센티브',
+            settlementType: leeJongYeonAcc.settlementType || '개인',
+            count: leeCount,
+            totalComm: leeTotalComm,
+            tax: leeTax,
+            netTotal: leeNet,
+            formula: sheet1Formula('이종연'),
+            bankName: leeJongYeonAcc.bankName !== '-' ? leeJongYeonAcc.bankName : '농협',
+            accountNumber: leeJongYeonAcc.accountNumber !== '-' ? leeJongYeonAcc.accountNumber : '3020500290841',
+            accountHolder: leeJongYeonAcc.accountHolder !== '-' ? leeJongYeonAcc.accountHolder : '이종연',
+            note: '컨설팅비(해랑)'
+          });
+        }
+
+        const kwonRow = detailedSettlementList.find(r => r.targetName === '권성훈');
+        const kwonTotalComm = kwonRow ? kwonRow.totalCommission : 150000;
+        const kwonTax = Math.round(kwonTotalComm * 0.033);
+        const kwonNet = kwonTotalComm - kwonTax;
+        const kwonSeongHunAcc = getPayoutAccountInfo('권성훈');
+        payoutList.push({
+          targetName: '권성훈',
+          divisionType: '외주/인센티브',
+          settlementType: kwonSeongHunAcc.settlementType || '개인',
+          count: 1,
+          totalComm: kwonTotalComm,
+          tax: kwonTax,
+          netTotal: kwonNet,
+          formula: sheet1Formula('권성훈'),
+          bankName: kwonSeongHunAcc.bankName !== '-' ? kwonSeongHunAcc.bankName : '신한은행',
+          accountNumber: kwonSeongHunAcc.accountNumber !== '-' ? kwonSeongHunAcc.accountNumber : '110-323-031541',
+          accountHolder: kwonSeongHunAcc.accountHolder !== '-' ? kwonSeongHunAcc.accountHolder : '권성훈',
+          note: '홈페이지 유지비'
         });
       }
 
-      const kwonRow = detailedSettlementList.find(r => r.targetName === '권성훈');
-      const kwonTotalComm = kwonRow ? kwonRow.totalCommission : 150000;
-      const kwonTax = Math.round(kwonTotalComm * 0.033);
-      const kwonNet = kwonTotalComm - kwonTax;
-      const kwonSeongHunAcc = getPayoutAccountInfo('권성훈');
-      payoutList.push({
-        targetName: '권성훈',
-        divisionType: '외주/인센티브',
-        settlementType: kwonSeongHunAcc.settlementType || '개인',
-        count: 1,
-        totalComm: kwonTotalComm,
-        tax: kwonTax,
-        netTotal: kwonNet,
-        formula: `='1. 본사보고용_수수료정산서'!J${kwonSeongHunRow}`,
-        bankName: kwonSeongHunAcc.bankName !== '-' ? kwonSeongHunAcc.bankName : '신한은행',
-        accountNumber: kwonSeongHunAcc.accountNumber !== '-' ? kwonSeongHunAcc.accountNumber : '110-323-031541',
-        accountHolder: kwonSeongHunAcc.accountHolder !== '-' ? kwonSeongHunAcc.accountHolder : '권성훈',
-        note: '홈페이지 유지비'
-      });
-
-      // 9. 신동우 대표 (에스제이컨설팅: 굿라이프 차액 합계 + 테라웨이브 물품대금 수수료 합산 - hqSettings 연동)
-      const therawaveCount = currentTherawaveInfo.count;
-      const therawaveAmount = currentTherawaveInfo.amount;
-      const shindwAcc = getPayoutAccountInfo('신동우');
-      const shindwNetTotal = goodlifeSplitSummary.totalOverride + therawaveAmount;
-      const shindwCount = goodlifeSplitSummary.totalCount + therawaveCount;
-      payoutList.push({
-        targetName: '신동우 대표 (에스제이컨설팅)',
-        divisionType: '사업단/대표자',
-        settlementType: shindwAcc.settlementType || '사업자',
-        count: shindwCount,
-        totalComm: shindwNetTotal,
-        tax: 0,
-        netTotal: shindwNetTotal,
-        formula: `='2. 내부실송금_정산서(굿라이프)'!D${shindwTotalRowNo}`,
-        bankName: shindwAcc.bankName !== '-' ? shindwAcc.bankName : '국민은행',
-        accountNumber: shindwAcc.accountNumber !== '-' ? shindwAcc.accountNumber : '164501-04-161888',
-        accountHolder: shindwAcc.accountHolder !== '-' ? shindwAcc.accountHolder : '김애숙(에스제이컨설팅)',
-        note: `굿라이프 차액분(${Math.round(goodlifeSplitSummary.totalOverride / 10000).toLocaleString()}만) + 테라웨이브 물품대금수수료(${Math.round(therawaveAmount / 10000).toLocaleString()}만)`
-      });
+      // 9. 신동우 대표 (에스제이컨설팅: 굿라이프 차액 합계 + 테라웨이브 물품대금 수수료 합산 - 관리자 또는 굿라이프 총무 전용)
+      if (canIncludeGoodlife) {
+        const therawaveCount = currentTherawaveInfo.count;
+        const therawaveAmount = currentTherawaveInfo.amount;
+        const shindwAcc = getPayoutAccountInfo('신동우');
+        const shindwNetTotal = goodlifeSplitSummary.totalOverride + therawaveAmount;
+        const shindwCount = goodlifeSplitSummary.totalCount + therawaveCount;
+        payoutList.push({
+          targetName: '신동우 대표 (에스제이컨설팅)',
+          divisionType: '사업단/대표자',
+          settlementType: shindwAcc.settlementType || '사업자',
+          count: shindwCount,
+          totalComm: shindwNetTotal,
+          tax: 0,
+          netTotal: shindwNetTotal,
+          formula: `'2. 내부실송금_정산서(굿라이프)'!D${shindwTotalRowNo}`,
+          bankName: shindwAcc.bankName !== '-' ? shindwAcc.bankName : '국민은행',
+          accountNumber: shindwAcc.accountNumber !== '-' ? shindwAcc.accountNumber : '164501-04-161888',
+          accountHolder: shindwAcc.accountHolder !== '-' ? shindwAcc.accountHolder : '김애숙(에스제이컨설팅)',
+          note: `굿라이프 차액분(${Math.round(goodlifeSplitSummary.totalOverride / 10000).toLocaleString()}만) + 테라웨이브 물품대금수수료(${Math.round(therawaveAmount / 10000).toLocaleString()}만)`
+        });
+      }
 
       payoutList.forEach((item, pIdx) => {
         const rowNo = pIdx + 5;
@@ -3288,10 +3389,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         `${payoutList.length}개 지급처`,
         '-',
         '-',
-        { f: `SUM(E${startP}:E${endP})`, v: payoutList.reduce((s, it) => s + it.count, 0), t: 'n', z: '#,##0' },
-        { f: `SUM(F${startP}:F${endP})`, v: payoutList.reduce((s, it) => s + it.totalComm, 0), t: 'n', z: '#,##0' },
-        { f: `SUM(G${startP}:G${endP})`, v: payoutList.reduce((s, it) => s + it.tax, 0), t: 'n', z: '#,##0' },
-        { f: `SUM(H${startP}:H${endP})`, v: sumAllPNet, t: 'n', z: '#,##0' },
+        payoutList.length > 0 ? { f: `SUM(E${startP}:E${endP})`, v: payoutList.reduce((s, it) => s + it.count, 0), t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        payoutList.length > 0 ? { f: `SUM(F${startP}:F${endP})`, v: payoutList.reduce((s, it) => s + it.totalComm, 0), t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        payoutList.length > 0 ? { f: `SUM(G${startP}:G${endP})`, v: payoutList.reduce((s, it) => s + it.tax, 0), t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
+        payoutList.length > 0 ? { f: `SUM(H${startP}:H${endP})`, v: sumAllPNet, t: 'n', z: '#,##0' } : { v: 0, t: 'n', z: '#,##0' },
         '', '', '', ''
       ]);
 
@@ -3335,8 +3436,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               border: thinBorder
             };
           } else {
-            const isShindwRow = R === startP + payoutList.length - 2; // 신동우 대표 행 하이라이트
-            const isKkumRow = R === startP; // 꿈잇다 행 하이라이트
+            const pItem = payoutList[R - 4];
+            const isShindwRow = Boolean(pItem && pItem.targetName.includes('신동우'));
+            const isKkumRow = Boolean(pItem && pItem.targetName.includes('꿈잇다'));
             ws2[addr].s = {
               fill: { fgColor: { rgb: isShindwRow ? 'FEF3C7' : (isKkumRow ? 'ECFDF5' : 'FFFFFF') } },
               font: { name: '맑은 고딕', sz: 9, color: { rgb: '0F172A' }, bold: C === 1 || C === 7 || isShindwRow },
@@ -3411,7 +3513,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
       for (let R = 0; R < detailRows.length; R++) {
         const isHeader = R === 0;
-        const isTotal = R === detailRows.length - 1;
+        const isTotal = detailCount > 0 && R === detailRows.length - 1;
         for (let C = 0; C <= 13; C++) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (!ws3[addr]) continue;
@@ -3489,7 +3591,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
       for (let R = 0; R < maintRows.length; R++) {
         const isHeader = R === 0;
-        const isTotal = R === maintRows.length - 1;
+        const isTotal = maintCount > 0 && R === maintRows.length - 1;
         for (let C = 0; C <= 10; C++) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (!ws4[addr]) continue;
@@ -3568,7 +3670,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
       for (let R = 0; R < specialRows.length; R++) {
         const isHeader = R === 0;
-        const isTotal = R === specialRows.length - 1;
+        const isTotal = spCount > 0 && R === specialRows.length - 1;
         for (let C = 0; C <= 11; C++) {
           const addr = XLSX.utils.encode_cell({ r: R, c: C });
           if (!ws5[addr]) continue;
@@ -3598,11 +3700,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       }
       XLSX.utils.book_append_sheet(wb, ws5, '특수수당명세');
 
-      if (!wb.Workbook) wb.Workbook = {};
-      if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
-      wb.Workbook.CalcPr.fullCalcOnLoad = true;
-
-      XLSX.writeFile(wb, `${selectedMonth}_수수료_정산_종합내역.xlsx`);
+      saveWorkbookAsExcel(XLSX, wb, `${selectedMonth || '월별'}_수수료_정산_종합내역.xlsx`);
     } catch (err: any) {
       console.error(err);
       alert('엑셀 다운로드 중 오류가 발생했습니다: ' + err.message);
@@ -3994,12 +4092,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
   // 엑셀 다운로드 핸들러
   const handleExportExcel = () => {
-    if (!XLSX) {
+    const XLSX = getXlsxLib();
+    if (!XLSX || !XLSX.utils) {
       alert('XLSX 라이브러리를 로드하지 못했습니다.');
       return;
     }
 
-    const headerStyle = {
+    try {
+      const headerStyle = {
       fill: { fgColor: { rgb: "2F5597" } },
       font: { color: { rgb: "FFFFFF" }, bold: true, sz: 10 },
       alignment: { vertical: "center", horizontal: "center" },
@@ -4382,30 +4482,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       XLSX.utils.book_append_sheet(wb, wsSpecialDetail, '특수수당명세');
     }
 
-    const s2ab = (s: string) => {
-      const buf = new ArrayBuffer(s.length);
-      const view = new Uint8Array(buf);
-      for (let i = 0; i !== s.length; ++i) view[i] = s.charCodeAt(i) & 0xFF;
-      return buf;
-    };
-
-    if (!wb.Workbook) wb.Workbook = {};
-    if (!wb.Workbook.CalcPr) wb.Workbook.CalcPr = {};
-    wb.Workbook.CalcPr.fullCalcOnLoad = true;
-
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
-    const blob = new Blob([s2ab(wbout)], { type: 'application/octet-stream' });
-    const fileName = `[월별본부정산]_${selectedMonth}_집계표.xlsx`;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 100);
+      saveWorkbookAsExcel(XLSX, wb, `[월별본부정산]_${selectedMonth || '월별'}_집계표.xlsx`);
+    } catch (err: any) {
+      console.error(err);
+      alert('엑셀 다운로드 중 오류가 발생했습니다: ' + err.message);
+    }
   };
 
   // 개인/프리랜서 본부의 상세 모달용 개인별(영업사원/지점장) 수수료 지급 명세 (사원리스트 계좌/주민번호 연동)
