@@ -164,7 +164,7 @@ export const CertificateDispatchHistoryModal: React.FC<CertificateDispatchHistor
               font-size: 10pt;
               color: #000;
               margin-bottom: 1mm;
-              font-family: monospace;
+              font-variant-numeric: tabular-nums;
             }
             .label-name {
               font-size: 12.5pt;

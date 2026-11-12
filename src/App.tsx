@@ -33,6 +33,12 @@ import { OrganizationChartModal } from './OrganizationChartModal';
 import { MonthlySettlementModal } from './MonthlySettlementModal';
 import { checkInstallCertEligibility, isSupplyCommissionRule, mergeManualOrderStores } from './manualOrderUtils';
 import { SpecialIncentiveRuleEditor } from './SpecialIncentiveRuleEditor';
+import {
+  HEALTHCARE_PRODUCTS_STORAGE_KEY,
+  HealthcareProductSettingsPanel,
+  sanitizeHealthcareProductConfigs,
+  useHealthcareProductConfigs
+} from './healthcareProductConfig';
 import { TargetItemsSelectorModal } from './TargetItemsSelectorModal';
 import { ExcelSyncModal } from './ExcelSyncModal';
 import { CmsRegistrationModal } from './CmsRegistrationModal';
@@ -1678,7 +1684,8 @@ const ERP_Dashboard = () => {
     return [];
   });
 
-  const [settingsTab, setSettingsTab] = useState<'hq' | 'division' | 'global_incentive' | 'maintenance' | 'member'>('hq');
+  const [settingsTab, setSettingsTab] = useState<'hq' | 'division' | 'global_incentive' | 'maintenance' | 'healthcare' | 'member'>('hq');
+  const { configs: healthcareProducts, setConfigs: setHealthcareProducts } = useHealthcareProductConfigs();
 
   // 사업단 설정 상태
   const [divisionSettings, setDivisionSettings] = useState<DivisionSetting[]>(() => {
@@ -1810,13 +1817,14 @@ const ERP_Dashboard = () => {
             settings: hqSettings,
             divisions: divisionSettings,
             globalIncentives: globalIncentiveRules,
-            maintenanceRules: maintenanceRules
+            maintenanceRules: maintenanceRules,
+            healthcareProducts: healthcareProducts
           })
         }).catch(() => {});
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [hqSettings, divisionSettings, globalIncentiveRules, maintenanceRules, isAuthenticated]);
+  }, [hqSettings, divisionSettings, globalIncentiveRules, maintenanceRules, healthcareProducts, isAuthenticated]);
 
   const allDatesWithData = React.useMemo(() => {
     return new Set(data.map(item => {
@@ -1881,16 +1889,19 @@ const ERP_Dashboard = () => {
         }
       } catch (e) {}
 
-      // 로컬 스토리지에 보관된 수기발주 및 보고서 설정 추가 수집
+      // 로컬 스토리지에 보관된 수기발주, 보고서 및 헬스케어 상품 설정 추가 수집
       let manualOrderProducts: string[] | undefined;
       let manualOrderStores: Record<string, any> | undefined;
       let reportSettings: Record<string, any> | undefined;
+      let healthcareProductsToSave: ReturnType<typeof sanitizeHealthcareProductConfigs> | undefined;
 
       try {
         const savedProd = localStorage.getItem('erp_manual_order_target_products_v1');
         if (savedProd) manualOrderProducts = JSON.parse(savedProd);
         const savedStores = localStorage.getItem('erp_manual_orders_saved_store_v1');
         if (savedStores) manualOrderStores = JSON.parse(savedStores);
+        const savedHealthcare = localStorage.getItem(HEALTHCARE_PRODUCTS_STORAGE_KEY);
+        if (savedHealthcare) healthcareProductsToSave = sanitizeHealthcareProductConfigs(JSON.parse(savedHealthcare));
         
         const extraMetrics = localStorage.getItem('report_extra_metrics');
         const hideZeroHqs = localStorage.getItem('report_hide_zero_hqs');
@@ -1927,7 +1938,8 @@ const ERP_Dashboard = () => {
           maintenanceRules: maintenanceRulesRef.current,
           manualOrderProducts,
           manualOrderStores,
-          reportSettings
+          reportSettings,
+          healthcareProducts: healthcareProductsToSave
         })
       });
       if (!res.ok) {
@@ -2086,6 +2098,13 @@ const ERP_Dashboard = () => {
           if (data.reportSettings.hideZeroHqs !== undefined) localStorage.setItem('report_hide_zero_hqs', String(data.reportSettings.hideZeroHqs));
           if (data.reportSettings.additionalMemo !== undefined) localStorage.setItem('report_additional_memo', data.reportSettings.additionalMemo);
           if (data.reportSettings.hiddenHqs) localStorage.setItem('report_hidden_hqs', JSON.stringify(data.reportSettings.hiddenHqs));
+        }
+
+        if (Array.isArray(data.healthcareProducts) && data.healthcareProducts.length > 0) {
+          localStorage.setItem(
+            HEALTHCARE_PRODUCTS_STORAGE_KEY,
+            JSON.stringify(sanitizeHealthcareProductConfigs(data.healthcareProducts))
+          );
         }
 
         // 컴포넌트에 클라우드 설정 로드 완료 알림
@@ -3404,7 +3423,7 @@ const ERP_Dashboard = () => {
         <tr style="height: 32px;">
           <td style="text-align: center; border: 1px solid #000; padding: 4px; font-size: 12px; font-weight: 500;">${i + 1}</td>
           <td style="border: 1px solid #000; padding: 4px 12px; font-size: 12px; font-weight: 500;">${row ? (row.desc || '') : ''}</td>
-          <td style="text-align: right; border: 1px solid #000; padding: 4px 12px; font-size: 12px; font-weight: 500; font-family: 'JetBrains Mono', monospace;">${row ? (row.amount || '') : ''}</td>
+          <td style="text-align: right; border: 1px solid #000; padding: 4px 12px; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums;">${row ? (row.amount || '') : ''}</td>
         </tr>
       `;
     }).join('');
@@ -11467,6 +11486,9 @@ const ERP_Dashboard = () => {
                       특수 수당 설정
                     </button>
                   )}
+                  <button onClick={() => setSettingsTab('healthcare')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'healthcare' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                    헬스케어 상품 설정
+                  </button>
                   <button onClick={() => setSettingsTab('member')} className={`px-6 py-2 text-sm font-bold rounded-t-xl transition-colors ${settingsTab === 'member' ? 'bg-white text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
                     회원관리
                   </button>
@@ -13028,6 +13050,27 @@ const ERP_Dashboard = () => {
                           />
                         );
                       })()}
+                    </div>
+                  </div>
+                ) : settingsTab === 'healthcare' ? (
+                  <div className="flex-1 overflow-y-auto bg-slate-50 p-8">
+                    <div className="max-w-5xl mx-auto space-y-6">
+                      <HealthcareProductSettingsPanel
+                        configs={healthcareProducts}
+                        onChange={(next) => setHealthcareProducts(next)}
+                        detectedProductNames={Array.from(
+                          new Set(
+                            data
+                              .filter(d => (d.hcRegDate || '').trim())
+                              .map(d => String(d.prodName || '').trim())
+                              .filter(Boolean)
+                          )
+                        )}
+                        onSaveToCloud={() => {
+                          if (!isAuthenticated) return alert('구글 시트 연동을 먼저 진행해 주세요.');
+                          saveSettingsToCloud();
+                        }}
+                      />
                     </div>
                   </div>
                 ) : (

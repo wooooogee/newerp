@@ -1,7 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Download, Calendar, RefreshCw } from 'lucide-react';
+import { X, Download, Calendar, RefreshCw, Layers, ShieldCheck, Clock, Settings } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import {
+  HealthcarePaymentCycle,
+  HealthcareProductSettingsModal,
+  resolveHealthcareProductInfo,
+  useHealthcareProductConfigs,
+} from './healthcareProductConfig';
 
 interface ERPDataItem {
   memNo: string;
@@ -21,18 +27,39 @@ interface HealthcareModalProps {
   onOpenReconModal?: () => void;
 }
 
-const mapProductCode = (rawProdName: string) => {
-  const prodName = String(rawProdName || '').replace(/\s+/g, '').toUpperCase();
-  if (prodName.includes('하이브리드698')) return 'A070';
-  if (prodName.includes('라이즈498')) return 'A071';
-  if (prodName.includes('프리미엄540')) return 'A072';
-  if (prodName.includes('헬스케어실버') || prodName.includes('실버')) return 'A073';
-  if (prodName.includes('좋은건강크루즈') || prodName.includes('크루즈')) return 'A074';
-  if (prodName.includes('헬스케어골드') || prodName.includes('골드')) return 'A075';
-  if (prodName.includes('올인원') || prodName.includes('ALLINONE') || prodName.includes('ALL-IN-ONE')) return 'A077';
-  if (prodName.includes('헬스케어580') || prodName.includes('580')) return 'A081';
-  return '';
-};
+type PaymentCategory = HealthcarePaymentCycle;
+
+const EXPORT_HEADERS = [
+  '순번',
+  '고객가입코드',
+  '가입상품코드',
+  '가입상품명',
+  '피보험자명',
+  '생년월일(YYYYMMDD)',
+  '성별(남:1, 여:2)',
+  '휴대폰번호',
+  '계약시작일',
+  '계약종료일',
+  '서비스시작일',
+  '고객상태코드(회원:01, 탈퇴:02)',
+  '납입구분'
+];
+
+const EXPORT_COL_WIDTHS = [
+  { wch: 6 },  // 순번
+  { wch: 15 }, // 고객가입코드
+  { wch: 15 }, // 가입상품코드
+  { wch: 25 }, // 가입상품명
+  { wch: 12 }, // 피보험자명
+  { wch: 18 }, // 생년월일
+  { wch: 18 }, // 성별
+  { wch: 15 }, // 휴대폰번호
+  { wch: 12 }, // 계약시작일
+  { wch: 12 }, // 계약종료일
+  { wch: 12 }, // 서비스시작일
+  { wch: 25 }, // 고객상태코드
+  { wch: 14 }, // 납입구분
+];
 
 const parseResidentNumber = (qColumn: string) => {
   if (!qColumn) return { birthdate: '', gender: '' };
@@ -75,9 +102,24 @@ const parseResidentNumber = (qColumn: string) => {
 export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClose, data, initialFilter, onRowClick, onOpenCalendar, onOpenReconModal }) => {
   const [filterMonth, setFilterMonth] = useState<string>(''); // YYYY-MM
   const [filterDate, setFilterDate] = useState<string>(''); // YYYY-MM-DD
+  const [paymentFilter, setPaymentFilter] = useState<'all' | PaymentCategory>('all');
+  const [isProductSettingsOpen, setIsProductSettingsOpen] = useState(false);
+  const { configs: productConfigs, setConfigs: setProductConfigs } = useHealthcareProductConfigs();
+
+  const detectedProductNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of data) {
+      if ((item.hcRegDate || '').trim() && item.prodName) {
+        set.add(String(item.prodName).trim());
+      }
+    }
+    return Array.from(set);
+  }, [data]);
 
   React.useEffect(() => {
-    if (initialFilter && isOpen) {
+    if (!isOpen) return;
+    setPaymentFilter('all');
+    if (initialFilter) {
       if (initialFilter.type === 'date') {
         setFilterDate(initialFilter.value.replace(/\./g, '-'));
         setFilterMonth('');
@@ -85,10 +127,13 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
         setFilterMonth(initialFilter.value.replace(/\./g, '-'));
         setFilterDate('');
       }
+    } else {
+      setFilterDate('');
+      setFilterMonth('');
     }
   }, [initialFilter, isOpen]);
 
-  const filteredData = useMemo(() => {
+  const baseFilteredData = useMemo(() => {
     return data
       .filter(item => {
         const hcRegDate = (item.hcRegDate || '').trim();
@@ -106,17 +151,20 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
         return true;
       })
       .map((item, index) => {
-        const pColumn = item.raw[15] || '';
-        const qColumn = item.raw[16] || '';
-        const rColumn = item.raw[17] || '';
+        const pColumn = item.raw?.[15] || '';
+        const qColumn = item.raw?.[16] || '';
+        const rColumn = item.raw?.[17] || '';
         
         const { birthdate, gender } = parseResidentNumber(qColumn);
+        const resolved = resolveHealthcareProductInfo(item.prodName, productConfigs);
+        const paymentType: PaymentCategory = resolved.paymentCycle;
+        const paymentLabel = resolved.isMonthly ? '월납대상자' : '3년납대상자';
 
         return {
           index: index + 1,
           rawItem: item,
           memNo: item.memNo,
-          prodCode: mapProductCode(item.prodName),
+          prodCode: resolved.prodCode,
           prodName: item.prodName,
           insuredName: pColumn,
           birthdate,
@@ -125,54 +173,73 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
           contractStart: '',
           contractEnd: '',
           serviceStart: item.hcRegDate,
-          customerStatus: '01'
+          customerStatus: '01',
+          paymentType,
+          paymentLabel
         };
       });
-  }, [data, filterMonth, filterDate, initialFilter]);
+  }, [data, filterMonth, filterDate, productConfigs]);
 
-  const totalCount = filteredData.length;
-  const summaryByProduct = filteredData.reduce((acc, curr) => {
-    const key = `${curr.prodCode || '기타'}(${curr.prodName})`;
-    acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  const threeYearData = useMemo(
+    () => baseFilteredData.filter(item => item.paymentType === '3year'),
+    [baseFilteredData]
+  );
+
+  const monthlyData = useMemo(
+    () => baseFilteredData.filter(item => item.paymentType === 'monthly'),
+    [baseFilteredData]
+  );
+
+  const displayedData = useMemo(() => {
+    if (paymentFilter === '3year') return threeYearData;
+    if (paymentFilter === 'monthly') return monthlyData;
+    return baseFilteredData;
+  }, [baseFilteredData, threeYearData, monthlyData, paymentFilter]);
+
+  const totalCount = baseFilteredData.length;
+  const threeYearCount = threeYearData.length;
+  const monthlyCount = monthlyData.length;
+
+  const summaryByProduct = useMemo(() => {
+    const map = new Map<string, { count: number; paymentType: PaymentCategory }>();
+    for (const curr of displayedData) {
+      const key = `${curr.prodCode || '기타'}(${curr.prodName})`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(key, { count: 1, paymentType: curr.paymentType });
+      }
+    }
+    return Array.from(map.entries()).map(([key, info]) => ({ key, ...info }));
+  }, [displayedData]);
+
+  const buildWorksheet = (items: typeof baseFilteredData) => {
+    const rows = items.map((item, idx) => [
+      idx + 1,
+      item.memNo,
+      item.prodCode,
+      item.prodName,
+      item.insuredName,
+      item.birthdate,
+      item.gender,
+      item.phone,
+      item.contractStart,
+      item.contractEnd,
+      item.serviceStart,
+      item.customerStatus,
+      item.paymentLabel
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([EXPORT_HEADERS, ...rows]);
+    ws['!cols'] = EXPORT_COL_WIDTHS;
+    return ws;
+  };
 
   const handleExport = () => {
-    const exportData = filteredData.map(item => ({
-      '순번': item.index,
-      '고객가입코드': item.memNo,
-      '가입상품코드': item.prodCode,
-      '가입상품명': item.prodName,
-      '피보험자명': item.insuredName,
-      '생년월일(YYYYMMDD)': item.birthdate,
-      '성별(남:1, 여:2)': item.gender,
-      '휴대폰번호': item.phone,
-      '계약시작일': item.contractStart,
-      '계약종료일': item.contractEnd,
-      '서비스시작일': item.serviceStart,
-      '고객상태코드(회원:01, 탈퇴:02)': item.customerStatus
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "헬스케어_명단");
-    
-    // Auto-adjust column width (basic approximation)
-    const colWidths = [
-      { wch: 6 },  // 순번
-      { wch: 15 }, // 고객가입코드
-      { wch: 15 }, // 가입상품코드
-      { wch: 25 }, // 가입상품명
-      { wch: 12 }, // 피보험자명
-      { wch: 18 }, // 생년월일
-      { wch: 18 }, // 성별
-      { wch: 15 }, // 휴대폰번호
-      { wch: 12 }, // 계약시작일
-      { wch: 12 }, // 계약종료일
-      { wch: 12 }, // 서비스시작일
-      { wch: 25 }, // 고객상태코드
-    ];
-    ws['!cols'] = colWidths;
+    XLSX.utils.book_append_sheet(wb, buildWorksheet(threeYearData), '3년납대상자');
+    XLSX.utils.book_append_sheet(wb, buildWorksheet(monthlyData), '월납대상자');
+    XLSX.utils.book_append_sheet(wb, buildWorksheet(baseFilteredData), '전체명단');
 
     XLSX.writeFile(wb, `헬스케어_명단_${filterDate || filterMonth || '전체'}.xlsx`);
   };
@@ -194,9 +261,19 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
                 <Calendar className="text-pink-500" size={24} />
                 헬스케어 명단 조회
               </h2>
-              <p className="text-sm text-slate-500 mt-1">S열 헬스케어등록일 기준으로 조회 및 엑셀 다운로드가 가능합니다.</p>
+              <p className="text-sm text-slate-500 mt-1">
+                S열 헬스케어등록일 기준으로 3년납대상자와 월납대상자를 구분하여 조회 및 시트별 엑셀 다운로드가 가능합니다.
+              </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsProductSettingsOpen(true)}
+                className="px-3.5 py-2 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                title="상품코드·상품명별 월납 / 3년납 이후 월납 기준 설정"
+              >
+                <Settings size={14} /> 상품 납입구분 설정
+              </button>
               {onOpenReconModal && (
                 <button
                   onClick={onOpenReconModal}
@@ -214,9 +291,9 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
             </div>
           </div>
 
-          <div className="p-4 border-b border-slate-100 flex items-center gap-4 bg-white">
-            <div className="flex flex-col gap-2 flex-1">
-              <div className="flex items-center gap-2">
+          <div className="p-4 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white">
+            <div className="flex flex-col gap-2.5 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
                  <span className="text-sm font-bold text-slate-800 bg-slate-100 px-3 py-1 rounded-full">
                     선택 범위: {initialFilter ? initialFilter.value : '전체'}
                  </span>
@@ -225,29 +302,83 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
                      if(onOpenCalendar) onOpenCalendar(); 
                      onClose(); 
                    }} 
-                   className="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-full text-[12px] font-semibold transition-all shadow-sm"
+                   className="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-full text-[12px] font-semibold transition-all shadow-sm cursor-pointer"
                  >
                     🗓️ 날짜 다시 선택
                  </button>
+
+                 {/* 납입구분 탭 필터 */}
+                 <div className="inline-flex p-1 bg-slate-100 rounded-xl text-xs font-semibold ml-0 sm:ml-2">
+                   <button
+                     type="button"
+                     onClick={() => setPaymentFilter('all')}
+                     className={`px-3 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                       paymentFilter === 'all'
+                         ? 'bg-white text-slate-900 shadow-xs font-bold'
+                         : 'text-slate-600 hover:text-slate-900'
+                     }`}
+                   >
+                     <Layers size={13} className="text-slate-500" />
+                     전체 ({totalCount}명)
+                   </button>
+                   <button
+                     type="button"
+                     onClick={() => setPaymentFilter('3year')}
+                     className={`px-3 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                       paymentFilter === '3year'
+                         ? 'bg-sky-600 text-white shadow-xs font-bold'
+                         : 'text-slate-600 hover:text-sky-700'
+                     }`}
+                   >
+                     <Clock size={13} />
+                     3년납 대상자 ({threeYearCount}명)
+                   </button>
+                   <button
+                     type="button"
+                     onClick={() => setPaymentFilter('monthly')}
+                     className={`px-3 py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                       paymentFilter === 'monthly'
+                         ? 'bg-purple-600 text-white shadow-xs font-bold'
+                         : 'text-slate-600 hover:text-purple-700'
+                     }`}
+                   >
+                     <ShieldCheck size={13} />
+                     월납 대상자 ({monthlyCount}명)
+                   </button>
+                 </div>
               </div>
+
               <div className="flex flex-wrap items-center gap-2 text-[13px] ml-1">
-                <span className="font-black text-green-600 bg-green-50 px-2 py-0.5 rounded text-[12px]">총 {totalCount}명</span>
-                {Object.keys(summaryByProduct).length > 0 && <span className="text-slate-300">|</span>}
-                {Object.entries(summaryByProduct).map(([key, count], i) => (
-                   <span key={i} className="text-slate-600 font-medium text-[12px] bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
-                     {key}: <span className="font-bold text-slate-900">{count}명</span>
+                <span className="font-black text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded text-[12px]">총 {totalCount}명</span>
+                <span className="font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded text-[12px]">3년납대상자: {threeYearCount}명</span>
+                <span className="font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded text-[12px]">월납대상자: {monthlyCount}명</span>
+                {summaryByProduct.length > 0 && <span className="text-slate-300">|</span>}
+                {summaryByProduct.map((info) => (
+                   <span
+                     key={info.key}
+                     className={`font-medium text-[12px] px-2 py-0.5 rounded border ${
+                       info.paymentType === 'monthly'
+                         ? 'text-purple-700 bg-purple-50/70 border-purple-200'
+                         : 'text-slate-600 bg-slate-50 border-slate-100'
+                     }`}
+                   >
+                     {info.key}: <span className={`font-bold ${info.paymentType === 'monthly' ? 'text-purple-900' : 'text-slate-900'}`}>{info.count}명</span>
                    </span>
                 ))}
               </div>
             </div>
-            <div className="shrink-0 flex items-end">
+            <div className="shrink-0 flex flex-col items-end gap-1">
               <button
                 onClick={handleExport}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors shadow-sm text-sm font-medium"
+                title="3년납대상자 / 월납대상자 / 전체명단 시트로 구분하여 엑셀 다운로드"
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors shadow-sm text-sm font-medium cursor-pointer"
               >
                 <Download size={16} />
                 엑셀 다운로드
               </button>
+              <span className="text-[11px] text-slate-400">
+                시트 구분: 3년납대상자 · 월납대상자 · 전체명단
+              </span>
             </div>
           </div>
 
@@ -258,6 +389,7 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
                   <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
                     <tr>
                       <th className="px-2 py-2 text-[11px] whitespace-nowrap text-center">순번</th>
+                      <th className="px-2 py-2 text-[11px] whitespace-nowrap text-center">구분</th>
                       <th className="px-2 py-2 text-[11px] whitespace-nowrap">고객가입코드</th>
                       <th className="px-2 py-2 text-[11px] whitespace-nowrap">가입상품코드</th>
                       <th className="px-2 py-2 text-[11px] whitespace-nowrap">가입상품명</th>
@@ -272,14 +404,29 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredData.length > 0 ? (
-                      filteredData.map((item) => (
+                    {displayedData.length > 0 ? (
+                      displayedData.map((item, idx) => (
                         <tr 
-                          key={item.index} 
-                          className="hover:bg-slate-50 transition-colors cursor-pointer"
+                          key={`${item.memNo}-${item.index}`} 
+                          className={`transition-colors cursor-pointer ${
+                            item.paymentType === 'monthly'
+                              ? 'bg-purple-50/40 hover:bg-purple-50/80'
+                              : 'hover:bg-slate-50'
+                          }`}
                           onClick={() => onRowClick && onRowClick(item.rawItem)}
                         >
-                          <td className="px-2 py-2 text-[11px] whitespace-nowrap text-center text-slate-500">{item.index}</td>
+                          <td className="px-2 py-2 text-[11px] whitespace-nowrap text-center text-slate-500">{idx + 1}</td>
+                          <td className="px-2 py-2 text-[11px] whitespace-nowrap text-center">
+                            {item.paymentType === 'monthly' ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                                월납대상자
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                                3년납대상자
+                              </span>
+                            )}
+                          </td>
                           <td className="px-2 py-2 text-[11px] whitespace-nowrap font-medium text-slate-700">{item.memNo}</td>
                           <td className="px-2 py-2 text-[11px] whitespace-nowrap text-slate-600">{item.prodCode}</td>
                           <td className="px-2 py-2 text-[11px] whitespace-nowrap text-slate-600">{item.prodName}</td>
@@ -295,7 +442,7 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={12} className="px-4 py-12 text-center text-slate-500">
+                        <td colSpan={13} className="px-4 py-12 text-center text-slate-500">
                           조건에 맞는 헬스케어 명단이 없습니다.
                         </td>
                       </tr>
@@ -307,6 +454,13 @@ export const HealthcareModal: React.FC<HealthcareModalProps> = ({ isOpen, onClos
           </div>
         </motion.div>
       </div>
+      <HealthcareProductSettingsModal
+        isOpen={isProductSettingsOpen}
+        onClose={() => setIsProductSettingsOpen(false)}
+        configs={productConfigs}
+        onChange={(next) => setProductConfigs(next)}
+        detectedProductNames={detectedProductNames}
+      />
     </AnimatePresence>
   );
 };

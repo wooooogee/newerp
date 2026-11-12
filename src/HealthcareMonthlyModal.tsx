@@ -1,8 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Download, Calendar, Search, AlertCircle, CheckCircle2, Filter, Clock, ShieldCheck, Layers, RefreshCw } from 'lucide-react';
+import { X, Download, Calendar, Search, AlertCircle, CheckCircle2, Filter, Clock, ShieldCheck, Layers, RefreshCw, Settings } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { HealthcareReconModal } from './HealthcareReconModal';
+import {
+  HealthcareProductSettingsModal,
+  resolveHealthcareProductInfo,
+  useHealthcareProductConfigs,
+} from './healthcareProductConfig';
 
 interface ERPDataItem {
   memNo: string;
@@ -19,19 +24,6 @@ interface HealthcareMonthlyModalProps {
   onRowClick?: (item: ERPDataItem) => void;
   onOpenReconModal?: () => void;
 }
-
-const mapProductCode = (rawProdName: string) => {
-  const prodName = String(rawProdName || '').replace(/\s+/g, '').toUpperCase();
-  if (prodName.includes('하이브리드698')) return 'A070';
-  if (prodName.includes('라이즈498')) return 'A071';
-  if (prodName.includes('프리미엄540')) return 'A072';
-  if (prodName.includes('헬스케어실버') || prodName.includes('실버')) return 'A073';
-  if (prodName.includes('좋은건강크루즈') || prodName.includes('크루즈')) return 'A074';
-  if (prodName.includes('헬스케어골드') || prodName.includes('골드')) return 'A075';
-  if (prodName.includes('올인원') || prodName.includes('ALLINONE') || prodName.includes('ALL-IN-ONE')) return 'A077';
-  if (prodName.includes('헬스케어580') || prodName.includes('580')) return 'A081';
-  return '';
-};
 
 const parseResidentNumber = (qColumn: string) => {
   if (!qColumn) return { birthdate: '', gender: '' };
@@ -91,9 +83,29 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
   onOpenReconModal
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [tabFilter, setTabFilter] = useState<'all' | '580' | '3years' | 'overdue'>('all');
+  const [tabFilter, setTabFilter] = useState<'all' | 'monthly' | '3years' | 'overdue'>('all');
   const [productFilter, setProductFilter] = useState<string>('all');
   const [isReconModalOpen, setIsReconModalOpen] = useState(false);
+  const [isProductSettingsOpen, setIsProductSettingsOpen] = useState(false);
+  const { configs: productConfigs, setConfigs: setProductConfigs } = useHealthcareProductConfigs();
+
+  const monthlyProductSummaryText = useMemo(() => {
+    const monthlyItems = productConfigs.filter(c => c.paymentCycle === 'monthly');
+    if (monthlyItems.length === 0) return '월납 설정 상품';
+    return monthlyItems.map(c => c.prodName || c.prodCode).join(', ');
+  }, [productConfigs]);
+
+  const detectedProductNames = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of data) {
+      const sCol = String(item.hcRegDate || item.raw?.[18] || '').trim();
+      const prodName = String(item.prodName || item.raw?.[6] || '').trim();
+      if (sCol && sCol !== '미등록' && sCol !== '-' && prodName) {
+        set.add(prodName);
+      }
+    }
+    return Array.from(set);
+  }, [data]);
 
   // 오늘 날짜 기준 (3년 경과 여부 판단용)
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -106,17 +118,10 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
         const status = String(item.status || item.raw?.[1] || '').trim();
         if (status !== '가입') return false;
 
-        const prodName = String(item.prodName || item.raw?.[6] || '');
-        const normProd = prodName.replace(/\s+/g, '');
         const sCol = String(item.hcRegDate || item.raw?.[18] || '').trim(); // S열: 헬스케어등록일
 
         // 2) 서비스 시작일(S열 헬스케어등록일) 날짜 값이 있는 거만 표기
         if (!sCol || sCol === '미등록' || sCol === '-' || sCol === '') return false;
-
-        // 3) 더좋은헬스케어580 또는 헬스케어 등록 상품
-        const is580 = normProd.includes('580') || normProd.includes('헬스케어580');
-        const code = mapProductCode(prodName);
-        if (is580 || code) return true;
 
         return true;
       })
@@ -135,25 +140,26 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
         const overdueNum = parseInt(overdueRaw.replace(/[^0-9]/g, ''), 10);
         const overdueCount = isNaN(overdueNum) ? 0 : overdueNum;
 
-        // 상품 정보
+        // 상품 정보 (설정 기반 매핑)
         const rawProd = item.prodName || item.raw?.[6] || '';
-        const prodCode = mapProductCode(rawProd);
-        const is580 = String(rawProd).replace(/\s+/g, '').includes('580');
+        const resolved = resolveHealthcareProductInfo(rawProd, productConfigs);
+        const prodCode = resolved.prodCode;
+        const isMonthlyProduct = resolved.isMonthly;
 
         // 서비스시작일은 관리대장 시트 S열(헬스케어 등록일) 기준
         const serviceStart = (sColumn && sColumn !== '미등록' && sColumn !== '-') 
           ? sColumn.replace(/[./]/g, '-') 
           : '-';
           
-        // 계약종료일: 580은 '월납', 그 외 상품은 서비스시작일 기준 3년 만기일
-        const contractEnd = is580 ? '월납' : addYears(serviceStart, 3);
+        // 계약종료일: 월납 상품은 '월납', 그 외(3년납 이후 월납) 상품은 서비스시작일 기준 3년 만기일
+        const contractEnd = isMonthlyProduct ? '월납' : addYears(serviceStart, 3);
         
         // 3년 경과 여부 (오늘 날짜 >= 3년 만기일)
-        const is3YearsPassed = !is580 && contractEnd !== '-' && contractEnd <= todayStr;
+        const is3YearsPassed = !isMonthlyProduct && contractEnd !== '-' && contractEnd <= todayStr;
 
-        // 월납 대상 구분 (580은 '월납', 그 외는 3년 경과 여부)
+        // 월납 대상 구분
         let monthlyCategory: '월납' | '3년경과월납' | '3년제공중' = '3년제공중';
-        if (is580) {
+        if (isMonthlyProduct) {
           monthlyCategory = '월납';
         } else if (is3YearsPassed) {
           monthlyCategory = '3년경과월납';
@@ -165,7 +171,7 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
           index: index + 1,
           rawItem: item,
           memNo: item.memNo || item.raw?.[2] || '',
-          prodCode: prodCode || (is580 ? 'A081' : '-'),
+          prodCode: prodCode || '-',
           prodName: rawProd,
           insuredName: pColumn || item.raw?.[3] || '',
           birthdate,
@@ -178,17 +184,17 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
           overdueCount,
           overdueRaw,
           lastPaymentDate: String(wColumn || '').trim(),
-          is580,
+          isMonthlyProduct,
           is3YearsPassed,
           monthlyCategory
         };
       });
-  }, [data, todayStr]);
+  }, [data, todayStr, productConfigs]);
 
-  // 월납 대사 작업용 마스터 데이터 (실제 월납 대상자: 더좋은헬스케어580 및 3년 경과 월납 대상자만 필터링)
+  // 월납 대사 작업용 마스터 데이터 (실제 월납 대상자: 월납 상품 및 3년 경과 월납 대상자만 필터링)
   const reconMasterData = useMemo(() => {
     return allHealthcareList
-      .filter(item => item.monthlyCategory === '월납' || item.monthlyCategory === '3년경과월납' || item.is580 || item.is3YearsPassed)
+      .filter(item => item.monthlyCategory === '월납' || item.monthlyCategory === '3년경과월납' || item.isMonthlyProduct || item.is3YearsPassed)
       .map(item => ({
         memNo: item.memNo,
         memName: item.insuredName || item.rawItem?.memName || '',
@@ -204,7 +210,7 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
 
   // 통계 계산
   const totalCount = allHealthcareList.length;
-  const count580 = useMemo(() => allHealthcareList.filter(i => i.is580).length, [allHealthcareList]);
+  const countMonthlyProducts = useMemo(() => allHealthcareList.filter(i => i.isMonthlyProduct).length, [allHealthcareList]);
   const count3YearsPassed = useMemo(() => allHealthcareList.filter(i => i.is3YearsPassed).length, [allHealthcareList]);
   const countOverdue = useMemo(() => allHealthcareList.filter(i => i.overdueCount > 0).length, [allHealthcareList]);
 
@@ -217,7 +223,7 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
   const filteredList = useMemo(() => {
     return allHealthcareList.filter(item => {
       // 탭 필터
-      if (tabFilter === '580' && !item.is580) return false;
+      if (tabFilter === 'monthly' && !item.isMonthlyProduct) return false;
       if (tabFilter === '3years' && !item.is3YearsPassed) return false;
       if (tabFilter === 'overdue' && item.overdueCount <= 0) return false;
 
@@ -308,16 +314,24 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
                     월납 대상자
                   </h2>
                   <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                    더좋은헬스케어580 & 3년 경과 대상자
+                    월납 상품 & 3년 경과 대상자
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  더좋은헬스케어580(월납) 및 서비스시작일 달 이후 3년 경과 후 월납으로 진행되는 모든 헬스케어 가입자 통합 명단입니다.
+                  월납 상품({monthlyProductSummaryText}) 및 서비스시작일 달 이후 3년 경과 후 월납으로 진행되는 모든 헬스케어 가입자 통합 명단입니다.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsProductSettingsOpen(true)}
+                className="px-3.5 py-2 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                title="상품코드·상품명별 월납 / 3년납 이후 월납 기준 설정"
+              >
+                <Settings size={14} /> 상품 납입구분 설정
+              </button>
               <button
                 onClick={() => setIsReconModalOpen(true)}
                 className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-200 flex items-center gap-1.5 cursor-pointer"
@@ -351,15 +365,15 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
                   전체 명단 ({totalCount}명)
                 </button>
                 <button
-                  onClick={() => setTabFilter('580')}
+                  onClick={() => setTabFilter('monthly')}
                   className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                    tabFilter === '580'
+                    tabFilter === 'monthly'
                       ? 'bg-purple-600 text-white shadow-xs font-bold'
                       : 'text-slate-600 hover:text-purple-700'
                   }`}
                 >
                   <ShieldCheck size={13} />
-                  더좋은헬스케어580 (월납) ({count580}명)
+                  월납 상품 ({countMonthlyProducts}명)
                 </button>
                 <button
                   onClick={() => setTabFilter('3years')}
@@ -441,7 +455,7 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
             <div className="flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-amber-500 shrink-0" />
               <span>
-                <strong>진행 기준:</strong> <strong>더좋은헬스케어580</strong>은 월납으로 진행되며, <strong>그 외 헬스케어 등록 상품</strong>은 서비스시작일(S열) 달 이후 <strong>3년 경과(계약종료일) 시점부터 월납으로 진행</strong>됩니다.
+                <strong>진행 기준:</strong> <strong>{monthlyProductSummaryText}</strong> 상품은 월납으로 진행되며, <strong>그 외 헬스케어 등록 상품</strong>은 서비스시작일(S열) 달 이후 <strong>3년 경과(계약종료일) 시점부터 월납으로 진행</strong>됩니다.
                 연체수가 1회 이상인 회원은 <span className="text-red-600 font-bold bg-red-100/80 px-1.5 py-0.5 rounded border border-red-200">빨간색</span>으로 강조 표시됩니다.
               </span>
             </div>
@@ -502,7 +516,7 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
                               {item.prodCode}
                             </td>
                             <td className="px-3 py-2.5 text-[11px] whitespace-nowrap font-medium text-slate-800">
-                              {item.is580 ? (
+                              {item.isMonthlyProduct ? (
                                 <span className="text-purple-700 font-bold">{item.prodName}</span>
                               ) : (
                                 item.prodName
@@ -613,6 +627,14 @@ export const HealthcareMonthlyModal: React.FC<HealthcareMonthlyModalProps> = ({
         initialMonth=""
         title="헬스케어 월납 명단 대사작업"
         defaultSheetName="KB헬스케어월납"
+      />
+
+      <HealthcareProductSettingsModal
+        isOpen={isProductSettingsOpen}
+        onClose={() => setIsProductSettingsOpen(false)}
+        configs={productConfigs}
+        onChange={(next) => setProductConfigs(next)}
+        detectedProductNames={detectedProductNames}
       />
     </AnimatePresence>
   );

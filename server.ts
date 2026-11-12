@@ -743,7 +743,7 @@ app.post('/api/sheets/settings/reset', async (req, res) => {
 });
 
 app.post('/api/sheets/settings/sync-cache', async (req, res) => {
-  const { settings, divisions, globalIncentives, maintenanceRules } = req.body || {};
+  const { settings, divisions, globalIncentives, maintenanceRules, healthcareProducts } = req.body || {};
   try {
     const cachePath = path.join(process.cwd(), '.settings_cache.json');
     let cacheData: any = {};
@@ -756,6 +756,7 @@ app.post('/api/sheets/settings/sync-cache', async (req, res) => {
     }
     if (globalIncentives && Array.isArray(globalIncentives) && globalIncentives.length > 0) cacheData.globalIncentives = globalIncentives;
     if (maintenanceRules && Array.isArray(maintenanceRules) && maintenanceRules.length > 0) cacheData.maintenanceRules = maintenanceRules;
+    if (healthcareProducts && Array.isArray(healthcareProducts) && healthcareProducts.length > 0) cacheData.healthcareProducts = healthcareProducts;
     fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8');
     return res.json({ success: true });
   } catch (e: any) {
@@ -770,7 +771,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
 
-  const { settings, globalIncentives, maintenanceRules, manualOrderProducts, manualOrderStores, reportSettings, divisions } = req.body as {
+  const { settings, globalIncentives, maintenanceRules, manualOrderProducts, manualOrderStores, reportSettings, divisions, healthcareProducts } = req.body as {
     settings: any[];
     globalIncentives?: any[];
     maintenanceRules?: any[];
@@ -778,6 +779,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     manualOrderStores?: Record<string, any>;
     reportSettings?: Record<string, any>;
     divisions?: any[];
+    healthcareProducts?: any[];
   };
   let sheetId = process.env.GOOGLE_SHEET_ID?.trim();
   if (sheetId && sheetId.includes('spreadsheets/d/')) {
@@ -829,6 +831,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
     if (reportSettings) cacheData.reportSettings = reportSettings;
     if (divisions && Array.isArray(divisions) && divisions.length > 0) cacheData.divisions = divisions;
+    if (healthcareProducts && Array.isArray(healthcareProducts) && healthcareProducts.length > 0) cacheData.healthcareProducts = healthcareProducts;
     fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8');
 
     // 안전 자동 스냅샷 백업 보관 (.settings_backup_history/)
@@ -1076,6 +1079,12 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
     if (!targetReportSettings && extraCacheBackup.reportSettings) targetReportSettings = extraCacheBackup.reportSettings;
 
+    let targetHealthcareProducts = (healthcareProducts && Array.isArray(healthcareProducts) && healthcareProducts.length > 0) ? healthcareProducts : null;
+    if (!targetHealthcareProducts && existingExtraMap['HEALTHCARE_PRODUCTS']) {
+      try { targetHealthcareProducts = JSON.parse(existingExtraMap['HEALTHCARE_PRODUCTS']); } catch (e) {}
+    }
+    if (!targetHealthcareProducts && extraCacheBackup.healthcareProducts) targetHealthcareProducts = extraCacheBackup.healthcareProducts;
+
     const extraHeaders = ['Key', 'ValueJSON', '최종수정일'];
     const extraRows: any[][] = [extraHeaders];
     const nowStr = new Date().toISOString();
@@ -1091,6 +1100,9 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
     if (targetDivisions && targetDivisions.length > 0) {
       extraRows.push(['BUSINESS_DIVISIONS', JSON.stringify(targetDivisions), nowStr]);
+    }
+    if (targetHealthcareProducts && Array.isArray(targetHealthcareProducts) && targetHealthcareProducts.length > 0) {
+      extraRows.push(['HEALTHCARE_PRODUCTS', JSON.stringify(targetHealthcareProducts), nowStr]);
     }
 
     // 6. 단 2회의 Google API 호출로 4개 탭 일괄 쓰기 (Batch Clear + Batch Update)
@@ -1601,11 +1613,12 @@ app.get('/api/sheets/settings/load', async (req, res) => {
       console.log("[CloudSync] '유지수수료설정' sheet might not exist yet.");
     }
 
-    // -- Load extra settings (manualOrderProducts, manualOrderStores, reportSettings, divisions) --
+    // -- Load extra settings (manualOrderProducts, manualOrderStores, reportSettings, divisions, healthcareProducts) --
     let manualOrderProducts: string[] | null = null;
     let manualOrderStores: Record<string, any> | null = null;
     let reportSettings: Record<string, any> | null = null;
     let divisions: any[] | null = null;
+    let healthcareProducts: any[] | null = null;
 
     try {
       const extraResponse = await sheets.spreadsheets.values.get({
@@ -1623,11 +1636,12 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             if (key === 'MANUAL_ORDER_STORES') manualOrderStores = JSON.parse(valStr);
             if (key === 'REPORT_SETTINGS') reportSettings = JSON.parse(valStr);
             if (key === 'BUSINESS_DIVISIONS') divisions = JSON.parse(valStr);
+            if (key === 'HEALTHCARE_PRODUCTS') healthcareProducts = JSON.parse(valStr);
           } catch (e) {
             console.error(`[CloudSync] Parse ${key} error:`, e);
           }
         });
-        console.log(`[CloudSync] Loaded extra settings (manual orders, report, divisions) from cloud.`);
+        console.log(`[CloudSync] Loaded extra settings (manual orders, report, divisions, healthcare) from cloud.`);
       }
     } catch (e: any) {
       console.log("[CloudSync] '수기발주및기타설정' sheet might not exist yet.");
@@ -1659,6 +1673,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         }
         if (!manualOrderProducts && cacheData.manualOrderProducts) manualOrderProducts = cacheData.manualOrderProducts;
         if (!manualOrderStores && cacheData.manualOrderStores) manualOrderStores = cacheData.manualOrderStores;
+        if (!healthcareProducts && cacheData.healthcareProducts) healthcareProducts = cacheData.healthcareProducts;
         if (divisions && Array.isArray(divisions) && divisions.length > 0) {
           // 구글 시트 데이터가 최신 원본이므로 캐시를 동기화 (더좋은라이프 사업단 영구 배제)
           cacheData.divisions = divisions.filter((d: any) => (d.name || '') !== '더좋은라이프' && d.id !== 'div-1792373934389');
@@ -1691,7 +1706,8 @@ app.get('/api/sheets/settings/load', async (req, res) => {
       manualOrderProducts,
       manualOrderStores,
       reportSettings,
-      divisions: divisions || []
+      divisions: divisions || [],
+      healthcareProducts
     });
   } catch (error: any) {
     console.error("[CloudSync] Load error:", error.message);
@@ -1709,7 +1725,8 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             manualOrderProducts: cacheData.manualOrderProducts || null,
             manualOrderStores: cacheData.manualOrderStores || null,
             reportSettings: cacheData.reportSettings || null,
-            divisions: cacheData.divisions || []
+            divisions: cacheData.divisions || [],
+            healthcareProducts: cacheData.healthcareProducts || null
           });
         }
       }
