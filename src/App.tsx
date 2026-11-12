@@ -362,6 +362,7 @@ export interface GlobalIncentiveRule {
   targetProducts: string[];
   targetItems?: string[];
   baseDateType: 'CONTRACT' | 'DELIVERY' | 'PAY_DATE';
+  calcBasis?: 'ACCOUNT' | 'ITEM'; // 'ACCOUNT': 구좌당 지급, 'ITEM': 건당(계약/제품당 1회) 지급
   commissionPerUnit: number;
   minimumGuarantee: number;
   useInstallments?: boolean;
@@ -370,6 +371,41 @@ export interface GlobalIncentiveRule {
   taxBusinessName?: string;
   taxBusinessNo?: string;
 }
+
+export const resolveSpecialRuleCalcBasis = (
+  rule: GlobalIncentiveRule | any,
+  isSelfHq?: boolean
+): 'ACCOUNT' | 'ITEM' => {
+  if (!rule) return 'ACCOUNT';
+  if (rule.calcBasis === 'ACCOUNT' || rule.calcBasis === 'ITEM') {
+    return rule.calcBasis;
+  }
+  const selfHq =
+    isSelfHq !== undefined
+      ? isSelfHq
+      : !rule.targetName ||
+        rule.targetName === 'SELF_HQ' ||
+        rule.targetName === '해당본부' ||
+        rule.targetName === '판매본부';
+  const hasTargetItems =
+    Array.isArray(rule.targetItems) &&
+    rule.targetItems.length > 0 &&
+    !rule.targetItems.includes('ALL');
+  const hasTargetProducts =
+    Array.isArray(rule.targetProducts) &&
+    rule.targetProducts.length > 0 &&
+    !rule.targetProducts.includes('ALL');
+
+  if (hasTargetItems) return 'ITEM';
+  if (hasTargetProducts) return 'ACCOUNT';
+  if (selfHq || (rule.incentiveName && rule.incentiveName.includes('공급'))) return 'ITEM';
+  return 'ACCOUNT';
+};
+
+export const isItemBasedSpecialRule = (
+  rule: GlobalIncentiveRule | any,
+  isSelfHq?: boolean
+): boolean => resolveSpecialRuleCalcBasis(rule, isSelfHq) === 'ITEM';
 
 export const isHqMatchedForSpecialRule = (
   rule: GlobalIncentiveRule,
@@ -1673,6 +1709,7 @@ const ERP_Dashboard = () => {
               ...r,
               targetHqs: r.targetHqs || (r.targetHq ? [r.targetHq] : ['ALL']),
               targetDivisions: r.targetDivisions || [],
+              calcBasis: r.calcBasis === 'ACCOUNT' || r.calcBasis === 'ITEM' ? r.calcBasis : undefined,
               payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
               commissionPerUnit: Number(r.commissionPerUnit || 0),
               minimumGuarantee: Number(r.minimumGuarantee || 0)
@@ -2053,6 +2090,7 @@ const ERP_Dashboard = () => {
               targetProducts: Array.isArray(r.targetProducts) && r.targetProducts.length > 0 ? r.targetProducts : ['ALL'],
               targetItems: Array.isArray(r.targetItems) && r.targetItems.length > 0 ? r.targetItems : ['ALL'],
               baseDateType: (r.baseDateType as any) || 'DELIVERY',
+              calcBasis: r.calcBasis === 'ACCOUNT' || r.calcBasis === 'ITEM' ? r.calcBasis : undefined,
               payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
               commissionPerUnit: Number(r.commissionPerUnit || 0),
               minimumGuarantee: Number(r.minimumGuarantee || 0)
@@ -4555,19 +4593,8 @@ const ERP_Dashboard = () => {
           const isSupplyRule = isSupplyCommissionRule(rule);
 
           // [규칙 판정 - 사용자 요청]
-          // 대상제품(렌탈상품명)이 설정되어 있으면 제품별 (동일 렌탈계약번호당 1회만 지급)
-          // 대상상품(카테고리)이 선택되어 있으면 구좌수별 (각 행마다 1구좌씩 지급, 중복제거 안 함)
-          const hasTargetItems = Array.isArray(rule.targetItems) && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL');
-          const hasTargetProducts = Array.isArray(rule.targetProducts) && rule.targetProducts.length > 0 && !rule.targetProducts.includes('ALL');
-
-          let isItemBasedRule = false;
-          if (hasTargetItems) {
-            isItemBasedRule = true; // 대상제품 설정 -> 제품별
-          } else if (hasTargetProducts) {
-            isItemBasedRule = false; // 대상상품 선택 -> 구좌수별
-          } else {
-            isItemBasedRule = isSelfHq || (rule.incentiveName && rule.incentiveName.includes('공급'));
-          }
+          // calcBasis가 직접 지정되어 있으면 해당 기준(ACCOUNT=구좌당, ITEM=건당) 우선 적용, 미지정 시 기존 자동 판별
+          const isItemBasedRule = isItemBasedSpecialRule(rule, isSelfHq);
 
           if (isItemBasedRule) {
             const rentalKey = item.rentalNo || item.resNo;
@@ -5098,19 +5125,8 @@ const ERP_Dashboard = () => {
         const isSupplyRule = isSupplyCommissionRule(rule);
 
         // [규칙 판정 - 사용자 요청]
-        // 대상제품(렌탈상품명)이 설정되어 있으면 제품별 (동일 렌탈계약번호당 1회만 지급)
-        // 대상상품(카테고리)이 선택되어 있으면 구좌수별 (각 행마다 1구좌씩 지급, 중복제거 안 함)
-        const hasTargetItems = Array.isArray(rule.targetItems) && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL');
-        const hasTargetProducts = Array.isArray(rule.targetProducts) && rule.targetProducts.length > 0 && !rule.targetProducts.includes('ALL');
-
-        let isItemBasedRule = false;
-        if (hasTargetItems) {
-          isItemBasedRule = true; // 대상제품 설정 -> 제품별
-        } else if (hasTargetProducts) {
-          isItemBasedRule = false; // 대상상품 선택 -> 구좌수별
-        } else {
-          isItemBasedRule = isSelfHq || (rule.incentiveName && rule.incentiveName.includes('공급'));
-        }
+        // calcBasis가 직접 지정되어 있으면 해당 기준(ACCOUNT=구좌당, ITEM=건당) 우선 적용, 미지정 시 기존 자동 판별
+        const isItemBasedRule = isItemBasedSpecialRule(rule, isSelfHq);
 
         if (isItemBasedRule) {
           const rentalKey = item.rentalNo || item.resNo;
@@ -12921,7 +12937,7 @@ const ERP_Dashboard = () => {
                           <button
                             onClick={() => {
                               const newId = Date.now().toString();
-                              const newRule = {
+                              const newRule: GlobalIncentiveRule = {
                                 id: newId,
                                 incentiveName: '',
                                 targetName: '신규 대상자',
@@ -12932,6 +12948,7 @@ const ERP_Dashboard = () => {
                                 targetProducts: ['ALL'],
                                 targetItems: ['ALL'],
                                 baseDateType: 'DELIVERY',
+                                calcBasis: 'ACCOUNT',
                                 commissionPerUnit: 0,
                                 minimumGuarantee: 0,
                                 useInstallments: false,
@@ -13004,8 +13021,17 @@ const ERP_Dashboard = () => {
                                   </span>
                                 </div>
                               )}
-                              <span className={`text-[10px] font-bold ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
-                                건당 {(rule.commissionPerUnit || 0).toLocaleString()}원
+                              <span className={`text-[10px] font-bold flex items-center gap-1 ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold ${
+                                  isActive
+                                    ? 'bg-white/20 text-white'
+                                    : resolveSpecialRuleCalcBasis(rule) === 'ACCOUNT'
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                      : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                }`}>
+                                  {resolveSpecialRuleCalcBasis(rule) === 'ACCOUNT' ? '구좌당' : '건당'}
+                                </span>
+                                <span>{(rule.commissionPerUnit || 0).toLocaleString()}원</span>
                               </span>
                             </button>
                           );
@@ -15368,16 +15394,7 @@ const ERP_Dashboard = () => {
                                 if (!matched) return false;
                               }
 
-                              const hasTargetItems = !targetItems.includes('ALL') && targetItems.length > 0;
-                              const hasTargetProducts = !targetProducts.includes('ALL') && targetProducts.length > 0;
-                              let isItemBasedRule = false;
-                              if (hasTargetItems) {
-                                isItemBasedRule = true; // 대상제품 설정 -> 제품별
-                              } else if (hasTargetProducts) {
-                                isItemBasedRule = false; // 대상상품 선택 -> 구좌수별
-                              } else {
-                                isItemBasedRule = matchedRule.incentiveName?.includes('공급') || false;
-                              }
+                              const isItemBasedRule = isItemBasedSpecialRule(matchedRule);
 
                               if (isItemBasedRule) {
                                 const rentalKey = item.rentalNo || item.resNo;
@@ -16654,19 +16671,8 @@ const ERP_Dashboard = () => {
                             const isSupplyRule = isSupplyCommissionRule(rule);
 
                             // [규칙 판정 - 사용자 요청]
-                            // 대상제품(렌탈상품명)이 설정되어 있으면 제품별 (동일 렌탈계약번호당 1회만 지급)
-                            // 대상상품(카테고리)이 선택되어 있으면 구좌수별 (각 행마다 1구좌씩 지급, 중복제거 안 함)
-                            const hasTargetItems = Array.isArray(rule.targetItems) && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL');
-                            const hasTargetProducts = Array.isArray(rule.targetProducts) && rule.targetProducts.length > 0 && !rule.targetProducts.includes('ALL');
-
-                            let isItemBasedRule = false;
-                            if (hasTargetItems) {
-                              isItemBasedRule = true; // 대상제품 설정 -> 제품별
-                            } else if (hasTargetProducts) {
-                              isItemBasedRule = false; // 대상상품 선택 -> 구좌수별
-                            } else {
-                              isItemBasedRule = isSelfHq || (rule.incentiveName && rule.incentiveName.includes('공급'));
-                            }
+                            // calcBasis가 직접 지정되어 있으면 해당 기준(ACCOUNT=구좌당, ITEM=건당) 우선 적용, 미지정 시 기존 자동 판별
+                            const isItemBasedRule = isItemBasedSpecialRule(rule, isSelfHq);
 
                             if (isItemBasedRule) {
                               const rentalKey = item.rentalNo || item.resNo;

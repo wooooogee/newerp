@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { X, Calendar, Download, Search, Building2, ChevronRight, ChevronDown, FileSpreadsheet, Layers, CreditCard, ArrowUpDown, Filter, Check, RotateCcw, Lock, Unlock, Sparkles, GripVertical, Plus, Trash2, Edit3, CheckCircle, DollarSign, RefreshCw, UserCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { checkInstallCertEligibility, isSupplyCommissionRule } from './manualOrderUtils';
-import { EmployeeBankInfo, parseEmployeeRows, findBranchManager, findEmployeeInfo } from './App';
+import { EmployeeBankInfo, parseEmployeeRows, findBranchManager, findEmployeeInfo, isItemBasedSpecialRule } from './App';
 
 // @ts-ignore
 const getXlsxLib = () => (window as any).XLSX;
@@ -1000,19 +1000,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           const isSupplyRule = isSupplyCommissionRule(rule);
 
           // [규칙 판정 - 사용자 요청]
-          // 대상제품(렌탈상품명)이 설정되어 있으면 제품별 (동일 렌탈계약번호당 1회만 지급)
-          // 대상상품(카테고리)이 선택되어 있으면 구좌수별 (각 행마다 1구좌씩 지급, 중복제거 안 함)
-          const hasTargetItems = Array.isArray(rule.targetItems) && rule.targetItems.length > 0 && !rule.targetItems.includes('ALL');
-          const hasTargetProducts = Array.isArray(rule.targetProducts) && rule.targetProducts.length > 0 && !rule.targetProducts.includes('ALL');
-
-          let isItemBasedRule = false;
-          if (hasTargetItems) {
-            isItemBasedRule = true; // 대상제품 설정 -> 제품별
-          } else if (hasTargetProducts) {
-            isItemBasedRule = false; // 대상상품 선택 -> 구좌수별
-          } else {
-            isItemBasedRule = isSelfHq || (rule.incentiveName && rule.incentiveName.includes('공급'));
-          }
+          // calcBasis가 직접 지정되어 있으면 해당 기준(ACCOUNT=구좌당, ITEM=건당) 우선 적용, 미지정 시 기존 자동 판별
+          const isItemBasedRule = isItemBasedSpecialRule(rule, isSelfHq);
 
           if (isItemBasedRule) {
             const rentalKey = item.rentalNo || item.resNo;

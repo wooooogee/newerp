@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Search, Globe, Package } from 'lucide-react';
-import { GlobalIncentiveRule } from './App';
+import { GlobalIncentiveRule, resolveSpecialRuleCalcBasis } from './App';
 
 interface SpecialIncentiveRuleEditorProps {
   rule: GlobalIncentiveRule;
@@ -84,6 +84,8 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
     draft.targetName !== '판매본부' &&
     draft.targetName.trim() !== '';
 
+  const effectiveCalcBasis = resolveSpecialRuleCalcBasis(draft, !isCustomPerson);
+
   return (
     <div className="max-w-5xl mx-auto w-full space-y-6">
       <div className="relative bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all flex flex-col gap-5 overflow-hidden">
@@ -98,6 +100,15 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
             </span>
             <span className="text-xs font-normal text-slate-400 shrink-0">
               ({isCustomPerson ? `개인 수급 지정: ${draft.targetName}` : '실적 본부 직접 정산'})
+            </span>
+            <span
+              className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold shrink-0 border ${
+                effectiveCalcBasis === 'ACCOUNT'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-amber-50 text-amber-700 border-amber-200'
+              }`}
+            >
+              {effectiveCalcBasis === 'ACCOUNT' ? '구좌당 지급' : '건당(계약당 1회) 지급'}
             </span>
             {(draft.targetDivisions || []).length > 0 && (
               <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-[11px] font-bold inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
@@ -501,7 +512,44 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
 
         {/* 3. 수수료 금액 & 회차별 차등 산정 (무조건 콤마(,) 포맷팅 적용) */}
         <div className="bg-indigo-50/40 p-4 rounded-2xl border border-indigo-100/80 flex flex-col gap-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-2.5 border-b border-indigo-100/80">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-extrabold text-slate-700 mr-1">수수료 산정 기준:</span>
+              <div className="inline-flex rounded-xl bg-white p-1 border border-slate-200 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateDraft((prev) => ({ ...prev, calcBasis: 'ACCOUNT' }), true);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                    effectiveCalcBasis === 'ACCOUNT'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  구좌당 지급 (2구좌 시 ×2)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateDraft((prev) => ({ ...prev, calcBasis: 'ITEM' }), true);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                    effectiveCalcBasis === 'ITEM'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  건당 지급 (계약번호당 1회)
+                </button>
+              </div>
+              <span className="text-[11px] font-semibold text-slate-500">
+                {effectiveCalcBasis === 'ACCOUNT'
+                  ? '※ 각 구좌 행마다 수수료가 지급됩니다 (예: 2구좌 결합계약은 2배 지급)'
+                  : '※ 다구좌 계약이어도 동일 렌탈계약번호당 1회만 지급됩니다'}
+              </span>
+            </div>
+
             <label className="text-xs font-bold text-indigo-900 flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -609,7 +657,9 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-1">
               <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-2xs">
                 <label className="text-[11px] font-black text-indigo-600 tracking-wide block mb-1">
-                  건당 수수료 (원)
+                  {effectiveCalcBasis === 'ACCOUNT'
+                    ? '구좌당 수수료 (원)'
+                    : '건당 수수료 (원) - 동일 계약번호당 1회'}
                 </label>
                 <div className="relative">
                   <input

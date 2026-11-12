@@ -942,7 +942,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
 
     // 3. 특수수당설정 데이터 구성
     const incentiveHeaders = [
-      'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰', '대상제품배열', '정산유형', '발행사업자명', '사업자번호', '대상사업단배열'
+      'ID', '수급자명', '지급일(일)', '대상본부', '대상상품', '기준일자', '건당수수료', '최소보장금액', '수당종류', '대상본부배열', '할부사용여부', '할부룰', '대상제품배열', '정산유형', '발행사업자명', '사업자번호', '대상사업단배열', '산정기준'
     ];
     
     const incentiveRows: any[][] = [incentiveHeaders];
@@ -965,7 +965,8 @@ app.post('/api/sheets/settings/save', async (req, res) => {
           rule.taxType || 'DEFAULT',
           rule.taxBusinessName || '',
           rule.taxBusinessNo || '',
-          JSON.stringify(Array.isArray(rule.targetDivisions) ? rule.targetDivisions : [])
+          JSON.stringify(Array.isArray(rule.targetDivisions) ? rule.targetDivisions : []),
+          rule.calcBasis || ''
         ]);
       });
     }
@@ -1516,6 +1517,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
         const iTaxBusinessName = iCol('발행사업자명');
         const iTaxBusinessNo = iCol('사업자번호');
         const iTargetDivisions = iCol('대상사업단배열');
+        const iCalcBasis = iCol('산정기준');
 
         globalIncentives = incRows.slice(1).map((row: string[]) => {
           const productsStr = iTargetProducts >= 0 ? (row[iTargetProducts] || '') : '';
@@ -1543,6 +1545,8 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             try { targetItems = JSON.parse(row[iTargetItems]); } catch(e){}
           }
 
+          const rawCalcBasis = iCalcBasis >= 0 ? String(row[iCalcBasis] || '').trim() : '';
+
           return {
             id: iId >= 0 ? row[iId] : Date.now().toString() + Math.random(),
             incentiveName: iIncentiveName >= 0 ? row[iIncentiveName] : '',
@@ -1554,6 +1558,7 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             targetProducts,
             targetItems,
             baseDateType: iBaseDateType >= 0 ? row[iBaseDateType] : 'DELIVERY',
+            calcBasis: rawCalcBasis === 'ACCOUNT' || rawCalcBasis === 'ITEM' ? rawCalcBasis : undefined,
             commissionPerUnit: iCommissionPerUnit >= 0 ? (parseInt(row[iCommissionPerUnit]) || 0) : 0,
             minimumGuarantee: iMinimumGuarantee >= 0 ? (parseInt(row[iMinimumGuarantee]) || 0) : 0,
             useInstallments: iUseInstallments >= 0 ? (row[iUseInstallments] === 'Y') : false,
@@ -1658,11 +1663,16 @@ app.get('/api/sheets/settings/load', async (req, res) => {
           } else {
             const cacheRuleMap = new Map(cacheData.globalIncentives.map((r: any) => [r.id, r]));
             globalIncentives = globalIncentives.map((r: any) => {
-              if ((!r.targetDivisions || r.targetDivisions.length === 0) && cacheRuleMap.has(r.id)) {
-                const c = cacheRuleMap.get(r.id);
-                if (c && Array.isArray(c.targetDivisions) && c.targetDivisions.length > 0) {
-                  return { ...r, targetDivisions: c.targetDivisions };
+              if (cacheRuleMap.has(r.id)) {
+                const c = cacheRuleMap.get(r.id) as any;
+                const next = { ...r };
+                if ((!next.targetDivisions || next.targetDivisions.length === 0) && c && Array.isArray(c.targetDivisions) && c.targetDivisions.length > 0) {
+                  next.targetDivisions = c.targetDivisions;
                 }
+                if (!next.calcBasis && c && (c.calcBasis === 'ACCOUNT' || c.calcBasis === 'ITEM')) {
+                  next.calcBasis = c.calcBasis;
+                }
+                return next;
               }
               return r;
             });
