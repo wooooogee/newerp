@@ -26,7 +26,8 @@ import {
   loadSuppliersFromStorage,
   saveSuppliersToStorage
 } from './SupplierManagementModal';
-import { checkInstallCertEligibility } from './manualOrderUtils';
+import { checkInstallCertEligibility, isSupplyCommissionRule } from './manualOrderUtils';
+import { isHqMatchedForSpecialRule, isItemBasedSpecialRule } from './App';
 
 export interface ERPDataItem {
   uniqueKey: string;
@@ -1015,6 +1016,97 @@ export function PresidentReportModal({
         }
       ];
     }
+
+    // 특수수당 설정에서 추가된 신규 대상자(예: 정세환 컨설팅 수수료 등) 동적 반영
+    if (globalIncentiveRules && globalIncentiveRules.length > 0 && Array.isArray(data)) {
+      const hardcodedNames = ['신동우', '에스제이', '권성훈', '조민경', '조재윤', '조재은', '이종연'];
+      const dynSummary = new Map<string, { category: string; count: number; amount: number; note: string }>();
+
+      globalIncentiveRules.forEach((rule: any) => {
+        const tName = (rule.targetName || '').trim();
+        if (!tName || tName === 'SELF_HQ' || tName === '해당본부' || tName === '판매본부' || tName === '본부') return;
+        if (hardcodedNames.some(k => tName.includes(k))) return;
+
+        const isItemRule = isItemBasedSpecialRule(rule, false);
+        const processedRentalNos = new Set<string>();
+        let matchedCount = 0;
+        let commSum = 0;
+
+        data.forEach(item => {
+          const st = String(item.status || '').trim();
+          if (st.includes('취소') || st.includes('해약') || st.includes('철회') || st.includes('반품') || st.includes('실효')) return;
+          const isDelivered = (item.deliveryStatus && item.deliveryStatus.includes('완료')) ||
+                              (item.deliveryDate && item.deliveryDate !== '-' && item.deliveryDate.trim() !== '');
+          if (!isDelivered) return;
+
+          const pDate = String(item.payDate || '').trim();
+          const pMatch = pDate.match(/(\d{4})[-./](\d{1,2})/);
+          const itemPayMonth = pMatch ? `${pMatch[1]}-${pMatch[2].padStart(2, '0')}` : '';
+          if (itemPayMonth !== selectedMonth) return;
+
+          if (isItemRule) {
+            const rKey = item.rentalNo || item.resNo;
+            if (rKey && rKey !== '-' && processedRentalNos.has(rKey)) return;
+          }
+          if (!isHqMatchedForSpecialRule(rule, item.hq, divisionSettings)) return;
+
+          if (rule.targetProducts && !rule.targetProducts.includes('ALL')) {
+            const normItemProd = (item.prodName || '').replace(/[\s()]/g, '').toLowerCase();
+            if (!rule.targetProducts.some((p: string) => {
+              const normP = p.replace(/[\s()]/g, '').toLowerCase();
+              return normItemProd.includes(normP) || normP.includes(normItemProd);
+            })) return;
+          }
+          if (rule.targetItems && !rule.targetItems.includes('ALL')) {
+            const rawItemProd = item.rentalProd || '';
+            const cleanItemProd = rawItemProd.replace(/[\s()_-]/g, '').toLowerCase();
+            if (!cleanItemProd || cleanItemProd === '-') return;
+            if (!rule.targetItems.some((prod: string) => {
+              const cleanRuleProd = prod.replace(/[\s()_-]/g, '').toLowerCase();
+              return cleanRuleProd && (cleanItemProd.includes(cleanRuleProd) || (cleanItemProd.length >= 3 && cleanRuleProd.includes(cleanItemProd)));
+            })) return;
+          }
+
+          if (isItemRule) {
+            const rKey = item.rentalNo || item.resNo;
+            if (rKey && rKey !== '-') processedRentalNos.add(rKey);
+          }
+
+          const unitAmt = Number(rule.commissionPerUnit) || 0;
+          if (unitAmt > 0) {
+            matchedCount += 1;
+            commSum += unitAmt;
+          }
+        });
+
+        const finalAmt = Math.max(commSum, Number(rule.minimumGuarantee) || 0);
+        if (finalAmt > 0) {
+          const cur = dynSummary.get(tName) || {
+            category: rule.incentiveName || '컨설팅',
+            count: 0,
+            amount: 0,
+            note: `${monthNum}월 ${rule.incentiveName || '특수수당'}`
+          };
+          cur.count += matchedCount;
+          cur.amount += finalAmt;
+          dynSummary.set(tName, cur);
+        }
+      });
+
+      dynSummary.forEach((val, tName) => {
+        if (!initialSpecialList.some(item => (item.name || '').trim() === tName)) {
+          initialSpecialList.push({
+            id: `s-dyn-${tName}`,
+            category: val.category,
+            name: tName,
+            count: val.count,
+            amount: val.amount,
+            note: val.note
+          });
+        }
+      });
+    }
+
     setSpecialExpenseList(initialSpecialList);
 
     // -----------------------------------------------------------------

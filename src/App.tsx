@@ -32,7 +32,7 @@ import { AccountManagementModal } from './AccountManagementModal';
 import { OrganizationChartModal } from './OrganizationChartModal';
 import { MonthlySettlementModal } from './MonthlySettlementModal';
 import { checkInstallCertEligibility, isSupplyCommissionRule, mergeManualOrderStores } from './manualOrderUtils';
-import { SpecialIncentiveRuleEditor } from './SpecialIncentiveRuleEditor';
+import { SpecialIncentiveRuleEditor, sanitizeSpecialIncentiveRule } from './SpecialIncentiveRuleEditor';
 import {
   HEALTHCARE_PRODUCTS_STORAGE_KEY,
   HealthcareProductSettingsPanel,
@@ -440,6 +440,7 @@ export const isHqMatchedForSpecialRule = (
           // '꿈잇다'와 '신동우'가 서로 교차 오매칭되지 않도록 방지
           if (tdClean.includes('꿈잇다') && !divCleanName.includes('꿈잇다')) return false;
           if (tdClean.includes('신동우') && !divCleanName.includes('신동우')) return false;
+          if ((tdClean.includes('goodlife') || tdClean === '굿라이프') && divCleanName.includes('굿라이프')) return true;
           if (divCleanName === tdClean || divCleanName.includes(tdClean) || tdClean.includes(divCleanName)) return true;
         }
         return false;
@@ -1730,15 +1731,20 @@ const ERP_Dashboard = () => {
             parsed = parsed.globalIncentives;
           }
           if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed.map((r: any) => ({
+            let savedDivsList: any[] = [];
+            try {
+              const sd = localStorage.getItem('erp_division_settings');
+              if (sd) savedDivsList = JSON.parse(sd);
+            } catch (e) {}
+            return parsed.map((r: any) => sanitizeSpecialIncentiveRule({
               ...r,
-              targetHqs: r.targetHqs || (r.targetHq ? [r.targetHq] : ['ALL']),
+              targetHqs: r.targetHqs || (r.targetHq ? [r.targetHq] : (Array.isArray(r.targetDivisions) && r.targetDivisions.length > 0 ? [] : ['ALL'])),
               targetDivisions: r.targetDivisions || [],
               calcBasis: r.calcBasis === 'ACCOUNT' || r.calcBasis === 'ITEM' ? r.calcBasis : undefined,
               payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
               commissionPerUnit: Number(r.commissionPerUnit || 0),
               minimumGuarantee: Number(r.minimumGuarantee || 0)
-            }));
+            }, savedDivsList));
           }
         } catch (e) {}
       }
@@ -1860,30 +1866,90 @@ const ERP_Dashboard = () => {
     if (isAuthenticated) loadMaintenanceHistory();
   }, [isAuthenticated]);
 
+  // 설정 상태별 개별 디바운스 로컬스토리지 저장 (특수수당 수정 시 무거운 hqSettings 직렬화 방지)
   useEffect(() => {
-    localStorage.setItem('erp_hq_settings_v2', JSON.stringify(hqSettings));
-    localStorage.setItem('erp_division_settings', JSON.stringify(divisionSettings));
-    if (globalIncentiveRules && globalIncentiveRules.length > 0) {
-      localStorage.setItem('erp_global_incentives', JSON.stringify(globalIncentiveRules));
-      localStorage.setItem('erp_global_incentives_bak', JSON.stringify(globalIncentiveRules));
-    }
-    localStorage.setItem('erp_maintenance_rules', JSON.stringify(maintenanceRules));
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem('erp_hq_settings_v2', JSON.stringify(hqSettings));
+      } catch (e) {}
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [hqSettings]);
 
-    // 백그라운드 서버 캐시 자동 동기화 (디바운스 1초 적용으로 타이핑 렉 및 잦은 요청 완전 방지)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem('erp_division_settings', JSON.stringify(divisionSettings));
+      } catch (e) {}
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [divisionSettings]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        if (globalIncentiveRules && globalIncentiveRules.length > 0) {
+          localStorage.setItem('erp_global_incentives', JSON.stringify(globalIncentiveRules));
+          localStorage.setItem('erp_global_incentives_bak', JSON.stringify(globalIncentiveRules));
+        }
+      } catch (e) {}
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [globalIncentiveRules]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem('erp_maintenance_rules', JSON.stringify(maintenanceRules));
+      } catch (e) {}
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [maintenanceRules]);
+
+  // 사업단 설정 로드/변경 시 특수수당 규칙 내 사업단 소속 본부 중복 자동 정제
+  useEffect(() => {
+    if (!divisionSettings || divisionSettings.length === 0) return;
+    setGlobalIncentiveRules(prev => {
+      let changed = false;
+      const next = prev.map(r => {
+        const cleaned = sanitizeSpecialIncentiveRule(r, divisionSettings);
+        if (
+          JSON.stringify(cleaned.targetHqs) !== JSON.stringify(r.targetHqs) ||
+          JSON.stringify(cleaned.targetDivisions) !== JSON.stringify(r.targetDivisions)
+        ) {
+          changed = true;
+          return cleaned;
+        }
+        return r;
+      });
+      return changed ? next : prev;
+    });
+  }, [divisionSettings]);
+
+  // 클라우드 최초 로드 완료 전에는 로컬스토리지 잔재 데이터가 서버/구글시트를 덮어쓰지 않도록 보호
+  const hasLoadedFromCloudRef = React.useRef(false);
+  const isApplyingCloudLoadRef = React.useRef(false);
+
+  // 백그라운드 서버 캐시 자동 동기화 (디바운스 1.5초 적용으로 타이핑 렉 및 잦은 요청 완전 방지)
+  useEffect(() => {
+    if (!hasLoadedFromCloudRef.current || isApplyingCloudLoadRef.current) return;
     if (isAuthenticated && (divisionSettings.length > 0 || hqSettings.length > 0)) {
       const timer = setTimeout(() => {
+        const cleanedIncentives = (globalIncentiveRules || []).map(r =>
+          sanitizeSpecialIncentiveRule(r, divisionSettings)
+        );
         fetch('/api/sheets/settings/sync-cache', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             settings: hqSettings,
             divisions: divisionSettings,
-            globalIncentives: globalIncentiveRules,
+            globalIncentives: cleanedIncentives,
             maintenanceRules: maintenanceRules,
             healthcareProducts: healthcareProducts
           })
         }).catch(() => {});
-      }, 1000);
+      }, 1500);
       return () => clearTimeout(timer);
     }
   }, [hqSettings, divisionSettings, globalIncentiveRules, maintenanceRules, healthcareProducts, isAuthenticated]);
@@ -1990,13 +2056,17 @@ const ERP_Dashboard = () => {
         } catch (e) {}
       }
 
+      const cleanedGlobalIncentives = (globalIncentiveRulesRef.current || []).map(r =>
+        sanitizeSpecialIncentiveRule(r, divsToSave || divisionSettingsRef.current)
+      );
+
       const res = await fetch('/api/sheets/settings/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           settings: hqSettingsRef.current,
           divisions: divsToSave,
-          globalIncentives: globalIncentiveRulesRef.current,
+          globalIncentives: cleanedGlobalIncentives,
           maintenanceRules: maintenanceRulesRef.current,
           manualOrderProducts,
           manualOrderStores,
@@ -2039,6 +2109,7 @@ const ERP_Dashboard = () => {
       const res = await fetch('/api/sheets/settings/load?t=' + Date.now());
       const data = await res.json();
       if (data.settings) {
+        isApplyingCloudLoadRef.current = true;
         const sanitizedSettings = data.settings.map((hq: any) => ({
           ...hq,
           isActive: hq.isActive !== undefined ? parseBooleanValue(hq.isActive) : true,
@@ -2099,7 +2170,7 @@ const ERP_Dashboard = () => {
           divisionSettingsRef.current = finalDivisions;
         }
 
-        // 특수 수당(글로벌 인센티브) 규칙: 클라우드 설정 최우선 적용
+        // 특수 수당(글로벌 인센티브) 규칙: 클라우드 설정 최우선 적용 및 사업단 소속 본부 중복 자동 정제
         if (data.globalIncentives && Array.isArray(data.globalIncentives) && data.globalIncentives.length > 0) {
           const sanitizedInc = data.globalIncentives.map((r: any) => {
             let targetDivs = Array.isArray(r.targetDivisions) ? r.targetDivisions : [];
@@ -2108,7 +2179,7 @@ const ERP_Dashboard = () => {
               targetHqs = targetDivs.length > 0 ? [] : ["ALL"];
             }
 
-            return {
+            return sanitizeSpecialIncentiveRule({
               ...r,
               targetHqs,
               targetDivisions: targetDivs,
@@ -2119,7 +2190,7 @@ const ERP_Dashboard = () => {
               payDay: r.payDay !== undefined && r.payDay !== null ? Number(r.payDay) : 0,
               commissionPerUnit: Number(r.commissionPerUnit || 0),
               minimumGuarantee: Number(r.minimumGuarantee || 0)
-            };
+            }, divisionSettingsRef.current);
           });
           setGlobalIncentiveRules(sanitizedInc);
           globalIncentiveRulesRef.current = sanitizedInc;
@@ -2133,8 +2204,9 @@ const ERP_Dashboard = () => {
             try {
               const parsed = JSON.parse(savedInc);
               if (Array.isArray(parsed) && parsed.length > 0) {
-                setGlobalIncentiveRules(parsed);
-                globalIncentiveRulesRef.current = parsed;
+                const cleanedParsed = parsed.map((r: any) => sanitizeSpecialIncentiveRule(r, divisionSettingsRef.current));
+                setGlobalIncentiveRules(cleanedParsed);
+                globalIncentiveRulesRef.current = cleanedParsed;
               }
             } catch (e) {}
           }
@@ -2173,9 +2245,15 @@ const ERP_Dashboard = () => {
         // 컴포넌트에 클라우드 설정 로드 완료 알림
         window.dispatchEvent(new CustomEvent('cloudSettingsLoaded', { detail: data }));
         setNotification({ message: '구글 시트에서 최신 설정을 불러왔습니다.', type: 'success' });
+        hasLoadedFromCloudRef.current = true;
+        setTimeout(() => {
+          isApplyingCloudLoadRef.current = false;
+        }, 300);
       }
     } catch (err) {
       console.error(err);
+      hasLoadedFromCloudRef.current = true;
+      isApplyingCloudLoadRef.current = false;
     }
   };
 
@@ -2192,19 +2270,34 @@ const ERP_Dashboard = () => {
     };
   }, [hqSettings, divisionSettings, globalIncentiveRules, maintenanceRules, isAuthenticated]);
 
-  // 본부 설정 및 수수료 변경 시 디바운스 자동 동기화 (3초 후 실행)
+  // 본부 설정 및 수수료 변경 시 디바운스 자동 동기화
+  // 설정 모달(isSettingsModalOpen)이 열려 있는 동안에는 연속 클릭 시 429 쿼터 초과 및 렉 방지를 위해 모달을 닫을 때 또는 6초 유휴 후 저장
   const isFirstRender = React.useRef(true);
+  const settingsNeedCloudSaveRef = React.useRef(false);
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
       return;
     }
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !hasLoadedFromCloudRef.current || isApplyingCloudLoadRef.current) return;
+    settingsNeedCloudSaveRef.current = true;
+    const delayMs = isSettingsModalOpen ? 6000 : 3000;
     const timer = setTimeout(() => {
-      saveSettingsToCloud(true);
-    }, 3000);
+      if (settingsNeedCloudSaveRef.current) {
+        settingsNeedCloudSaveRef.current = false;
+        saveSettingsToCloud(true);
+      }
+    }, delayMs);
     return () => clearTimeout(timer);
   }, [hqSettings, divisionSettings, globalIncentiveRules, maintenanceRules]);
+
+  // 설정 모달을 닫는 순간 미저장 변경사항이 있으면 즉시 클라우드 저장
+  useEffect(() => {
+    if (!isSettingsModalOpen && settingsNeedCloudSaveRef.current && isAuthenticated) {
+      settingsNeedCloudSaveRef.current = false;
+      saveSettingsToCloud(true);
+    }
+  }, [isSettingsModalOpen, isAuthenticated]);
 
   // 구글 시트 + 로컬 설정을 완전 초기화하고 MASTER_HQ_DATA로 재설정
   const resetSettingsToDefault = async () => {
@@ -2245,10 +2338,6 @@ const ERP_Dashboard = () => {
   const [selectedHqIdForOv, setSelectedHqIdForOv] = useState<string | null>(null);
   const [selectedHqIdForRules, setSelectedHqIdForRules] = useState<string | null>(null);
   const [editingRuleInfo, setEditingRuleInfo] = useState<{ hqId: string, ruleIdx: number } | null>(null);
-
-  useEffect(() => {
-    localStorage.setItem('erp_hq_settings_v2', JSON.stringify(hqSettings));
-  }, [hqSettings]);
 
 
 
@@ -4476,7 +4565,12 @@ const ERP_Dashboard = () => {
     return calculateMaintenancePayouts(maintenanceFilteredData);
   }, [maintenanceFilteredData, calculateMaintenancePayouts, isHQStaff]);
 
+  // 설정 모달 열림 중에는 백그라운드 대시보드 전체 재집계(4.8만 회 루프)를 일시 보류하고 닫힐 때 즉시 1회 재계산하여 렉 완전 제거
+  const lastSettlementStatsRef = React.useRef<any>(null);
   const settlementStats = React.useMemo(() => {
+    if (isSettingsModalOpen && lastSettlementStatsRef.current) {
+      return lastSettlementStatsRef.current;
+    }
     const statsMap = buildHqCountMap(data);
 
     const summary: Record<string, { count: number, amount: number }> = {};
@@ -4574,20 +4668,21 @@ const ERP_Dashboard = () => {
         let commission = 0;
         const isSelfHq = !rule.targetName || rule.targetName.trim() === '' || rule.targetName === 'SELF_HQ' || rule.targetName === '판매본부' || rule.targetName === '해당본부' || rule.targetName === '본부';
 
+        const filterClean = payDateFilter ? payDateFilter.replace(/[-./]/g, '') : '';
+        const normFilterClean = filterClean.length === 6 ? (filterClean.startsWith('20') ? filterClean : '20' + filterClean) : filterClean;
+        const isMonthOnlyFilter = normFilterClean.length === 6;
+
         let isSettlementDate = false;
-        if (!rule.payDay || rule.payDay === 0 || !payDateFilter || payDateFilter === 'ALL') {
+        if (!rule.payDay || rule.payDay === 0 || !payDateFilter || payDateFilter === 'ALL' || isMonthOnlyFilter) {
           isSettlementDate = true;
+        } else if (normFilterClean.length >= 8) {
+          const filterDayNum = parseInt(normFilterClean.substring(6, 8), 10) || 0;
+          isSettlementDate = filterDayNum === rule.payDay;
         } else {
-          const filterDayMatch = payDateFilter.match(/(\d{1,2})$/);
-          const filterDayNum = filterDayMatch ? parseInt(filterDayMatch[1]) : 0;
-          const payDayStr1 = `.${rule.payDay}`;
-          const payDayStr2 = `-${rule.payDay.toString().padStart(2, '0')}`;
-          isSettlementDate = (filterDayNum > 0 && rule.payDay === filterDayNum) || payDateFilter.includes(payDayStr1) || payDateFilter.includes(payDayStr2);
+          isSettlementDate = true;
         }
 
         if (!isSettlementDate) return;
-
-        const filterClean = payDateFilter ? payDateFilter.replace(/[-./]/g, '') : '';
         let year = new Date().getFullYear();
         let month = new Date().getMonth() + 1;
         if (filterClean.length === 6) {
@@ -4701,7 +4796,7 @@ const ERP_Dashboard = () => {
               } else if (normFilter.length >= 8) {
                 if (rule.payDay && rule.payDay > 0) {
                   const filterDay = parseInt(normFilter.substring(6, 8));
-                  isMatchedDate = (filterDay === rule.payDay) && normDisplay.startsWith(normFilter.substring(0, 6));
+                  isMatchedDate = (normDisplay === normFilter) || ((filterDay === rule.payDay) && normDisplay.startsWith(normFilter.substring(0, 6)));
                 } else {
                   isMatchedDate = (normDisplay === normFilter);
                 }
@@ -4880,7 +4975,7 @@ const ERP_Dashboard = () => {
       });
     }
 
-    return {
+    const computedStats = {
       totalCount,
       totalAmount,
       totalPendingAmount,
@@ -4895,7 +4990,9 @@ const ERP_Dashboard = () => {
       specialPayouts,
       hqSummary
     };
-  }, [filteredData, hqSettings, historyReconData, payDateFilter, isHQStaff, userHqNames, maintenancePayouts, globalIncentiveRules, divisionSettings]);
+    lastSettlementStatsRef.current = computedStats;
+    return computedStats;
+  }, [filteredData, hqSettings, historyReconData, payDateFilter, isHQStaff, userHqNames, maintenancePayouts, globalIncentiveRules, divisionSettings, isSettingsModalOpen]);
 
   const pendingDeliveryStats = React.useMemo(() => {
     const statsMap = buildHqCountMap(data);
@@ -4919,7 +5016,11 @@ const ERP_Dashboard = () => {
   }, [filteredData, data, calculateCommissionDetails]);
 
   // 유통사(에넥스) 대사 실적 및 더좋은라이프 손익 결산 종합 요약 (화면 렌더링 및 엑셀 다운로드 공유)
+  const lastEnexProfitSummaryRef = React.useRef<any>(null);
   const enexProfitSummary = useMemo(() => {
+    if (isSettingsModalOpen && lastEnexProfitSummaryRef.current) {
+      return lastEnexProfitSummaryRef.current;
+    }
     const rawBaseData = reconTab === 'HISTORY' 
       ? historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate)
       : (reconData.length > 0 ? reconData : historyReconData.filter(d => d['정산기준일'] === selectedHistoryDate));
@@ -5364,7 +5465,7 @@ const ERP_Dashboard = () => {
     const marginRate = totalExt > 0 ? ((finalNetProfit / totalExt) * 100).toFixed(1) : '0.0';
     const payoutMonthDisplay = `${targetPayoutMonth.substring(0, 4)}년 ${targetPayoutMonth.substring(5, 7)}월`;
 
-    return {
+    const computedEnexSummary = {
       mappedData,
       normalRows,
       abnormalRows,
@@ -5393,6 +5494,8 @@ const ERP_Dashboard = () => {
       payoutIncentivesDetailMap,
       targetMonthMaint
     };
+    lastEnexProfitSummaryRef.current = computedEnexSummary;
+    return computedEnexSummary;
   }, [
     reconTab,
     reconData,
@@ -5405,7 +5508,8 @@ const ERP_Dashboard = () => {
     globalIncentiveRules,
     divisionSettings,
     hqSettings,
-    calculateMaintenancePayouts
+    calculateMaintenancePayouts,
+    isSettingsModalOpen
   ]);
 
   const monthlyStats = React.useMemo(() => {
@@ -9991,12 +10095,19 @@ const ERP_Dashboard = () => {
                                   </div>
                                 )}
 
-                                {/* 3. 독립 본부 정산서 (사업단 미소속 본부) */}
+                                {/* 3. 독립 본부 정산서 (사업단 미소속 본부 및 특수수당 수급자) */}
                                 <div className="p-1.5">
                                   <div className="text-[10px] font-black text-slate-500 px-2 py-1 flex items-center gap-1">
-                                    <span>🏛️ 독립 본부 정산서</span>
+                                    <span>🏛️ 독립 본부 / 특수수당 정산서</span>
                                   </div>
-                                  {Object.keys(settlementStats.hqGroups)
+                                  {Array.from(
+                                    new Set([
+                                      ...Object.keys(settlementStats.hqGroups),
+                                      ...Object.keys(settlementStats.globalIncentivesSummary || {}).filter(
+                                        k => (settlementStats.globalIncentivesSummary?.[k] || 0) > 0
+                                      )
+                                    ])
+                                  )
                                     .filter(hq => !divisionSettings.some(d => d.hqNames.includes(hq)))
                                     .map(hq => (
                                       <div key={hq} className="flex items-center justify-between px-2 py-1 hover:bg-slate-50 rounded group">
@@ -13060,7 +13171,7 @@ const ERP_Dashboard = () => {
                                 id: newId,
                                 incentiveName: '',
                                 targetName: '신규 대상자',
-                                payDay: 25,
+                                payDay: 0,
                                 targetHq: '',
                                 targetHqs: ['ALL'],
                                 targetDivisions: [],
@@ -14285,23 +14396,27 @@ const ERP_Dashboard = () => {
               batchUpdateCells(formattedUpdates);
             }}
           />
-          <ContractMonthDeliveryModal
-            isOpen={isContractMonthDeliveryModalOpen}
-            onClose={() => setIsContractMonthDeliveryModalOpen(false)}
-            data={data}
-          />
-          <DashboardDetailModal
-            isOpen={isDashboardDetailModalOpen}
-            onClose={() => setIsDashboardDetailModalOpen(false)}
-            data={data}
-            type={dashboardDetailType}
-            month={topDashboardMonth}
-            mode={topDashboardMode}
-            onUpdateCell={updateCell}
-            onBatchUpdateCells={batchUpdateCells}
-            isAdmin={isAdmin}
-            currentUser={currentUser}
-          />
+          {isContractMonthDeliveryModalOpen && (
+            <ContractMonthDeliveryModal
+              isOpen={isContractMonthDeliveryModalOpen}
+              onClose={() => setIsContractMonthDeliveryModalOpen(false)}
+              data={data}
+            />
+          )}
+          {isDashboardDetailModalOpen && (
+            <DashboardDetailModal
+              isOpen={isDashboardDetailModalOpen}
+              onClose={() => setIsDashboardDetailModalOpen(false)}
+              data={data}
+              type={dashboardDetailType}
+              month={topDashboardMonth}
+              mode={topDashboardMode}
+              onUpdateCell={updateCell}
+              onBatchUpdateCells={batchUpdateCells}
+              isAdmin={isAdmin}
+              currentUser={currentUser}
+            />
+          )}
           {showScrollTop && (
             <button
               onClick={scrollToTop}
@@ -14311,77 +14426,97 @@ const ERP_Dashboard = () => {
               <ArrowUp size={18} className="group-hover:animate-bounce" />
             </button>
           )}
-           <DeliveryDashboardModal
-            isOpen={isDeliveryDashboardOpen}
-            onClose={() => setIsDeliveryDashboardOpen(false)}
-            data={data}
-          />
-          <CertificateDispatchModal
-            isOpen={isCertificateDispatchModalOpen}
-            onClose={() => setIsCertificateDispatchModalOpen(false)}
-            data={data}
-          />
-          <SupplierManagementModal
-            isOpen={isSupplierManagementModalOpen}
-            onClose={() => setIsSupplierManagementModalOpen(false)}
-            availableProducts={availableRentalProducts}
-            availableHqs={uniqueHqs.filter(h => h !== '전체')}
-            hqSettings={hqSettings}
-            divisionSettings={divisionSettings}
-          />
-          <ManualOrderManagementModal
-            isOpen={isManualOrderModalOpen}
-            onClose={() => setIsManualOrderModalOpen(false)}
-            data={data}
-            onOpenReconModal={() => setIsManualOrderReconModalOpen(true)}
-            onOpenSupplierModal={() => setIsSupplierManagementModalOpen(true)}
-            onOpenSettlementModal={() => setIsSupplierSettlementModalOpen(true)}
-          />
-          <SupplierSettlementModal
-            isOpen={isSupplierSettlementModalOpen}
-            onClose={() => setIsSupplierSettlementModalOpen(false)}
-            data={data}
-            onOpenSupplierManagementModal={() => {
-              setIsSupplierSettlementModalOpen(false);
-              setIsSupplierManagementModalOpen(true);
-            }}
-          />
-          <ManualOrderReconModal
-            isOpen={isManualOrderReconModalOpen}
-            onClose={() => setIsManualOrderReconModalOpen(false)}
-            manualOrders={data}
-          />
-          <CertificateDispatchHistoryModal
-            isOpen={isCertificateDispatchHistoryModalOpen}
-            onClose={() => setIsCertificateDispatchHistoryModalOpen(false)}
-          />
-          <MembershipApplicationModal
-            isOpen={isMembershipApplicationModalOpen}
-            onClose={() => setIsMembershipApplicationModalOpen(false)}
-            data={data}
-          />
-          <CmsRegistrationModal
-            isOpen={isCmsRegistrationModalOpen}
-            onClose={() => setIsCmsRegistrationModalOpen(false)}
-            data={data}
-          />
-          <MonthlySettlementModal
-            isOpen={isMonthlySettlementModalOpen}
-            onClose={() => setIsMonthlySettlementModalOpen(false)}
-            data={data}
-            hqSettings={hqSettings}
-            divisionSettings={divisionSettings}
-            maintenancePayouts={maintenancePayouts}
-            globalIncentiveRules={globalIncentiveRules}
-            calculateCommissionDetails={calculateCommissionDetails}
-            onExportHqSettlement={exportProfessionalSettlement}
-            calculateMaintenancePayouts={calculateMaintenancePayouts}
-            cachedEmpRows={cachedEmpRows}
-            currentUser={currentUser}
-            isManager={isManager}
-            isHQStaff={isHQStaff}
-            userHqNames={userHqNames}
-          />
+          {isDeliveryDashboardOpen && (
+            <DeliveryDashboardModal
+              isOpen={isDeliveryDashboardOpen}
+              onClose={() => setIsDeliveryDashboardOpen(false)}
+              data={data}
+            />
+          )}
+          {isCertificateDispatchModalOpen && (
+            <CertificateDispatchModal
+              isOpen={isCertificateDispatchModalOpen}
+              onClose={() => setIsCertificateDispatchModalOpen(false)}
+              data={data}
+            />
+          )}
+          {isSupplierManagementModalOpen && (
+            <SupplierManagementModal
+              isOpen={isSupplierManagementModalOpen}
+              onClose={() => setIsSupplierManagementModalOpen(false)}
+              availableProducts={availableRentalProducts}
+              availableHqs={uniqueHqs.filter(h => h !== '전체')}
+              hqSettings={hqSettings}
+              divisionSettings={divisionSettings}
+            />
+          )}
+          {isManualOrderModalOpen && (
+            <ManualOrderManagementModal
+              isOpen={isManualOrderModalOpen}
+              onClose={() => setIsManualOrderModalOpen(false)}
+              data={data}
+              onOpenReconModal={() => setIsManualOrderReconModalOpen(true)}
+              onOpenSupplierModal={() => setIsSupplierManagementModalOpen(true)}
+              onOpenSettlementModal={() => setIsSupplierSettlementModalOpen(true)}
+            />
+          )}
+          {isSupplierSettlementModalOpen && (
+            <SupplierSettlementModal
+              isOpen={isSupplierSettlementModalOpen}
+              onClose={() => setIsSupplierSettlementModalOpen(false)}
+              data={data}
+              onOpenSupplierManagementModal={() => {
+                setIsSupplierSettlementModalOpen(false);
+                setIsSupplierManagementModalOpen(true);
+              }}
+            />
+          )}
+          {isManualOrderReconModalOpen && (
+            <ManualOrderReconModal
+              isOpen={isManualOrderReconModalOpen}
+              onClose={() => setIsManualOrderReconModalOpen(false)}
+              manualOrders={data}
+            />
+          )}
+          {isCertificateDispatchHistoryModalOpen && (
+            <CertificateDispatchHistoryModal
+              isOpen={isCertificateDispatchHistoryModalOpen}
+              onClose={() => setIsCertificateDispatchHistoryModalOpen(false)}
+            />
+          )}
+          {isMembershipApplicationModalOpen && (
+            <MembershipApplicationModal
+              isOpen={isMembershipApplicationModalOpen}
+              onClose={() => setIsMembershipApplicationModalOpen(false)}
+              data={data}
+            />
+          )}
+          {isCmsRegistrationModalOpen && (
+            <CmsRegistrationModal
+              isOpen={isCmsRegistrationModalOpen}
+              onClose={() => setIsCmsRegistrationModalOpen(false)}
+              data={data}
+            />
+          )}
+          {isMonthlySettlementModalOpen && (
+            <MonthlySettlementModal
+              isOpen={isMonthlySettlementModalOpen}
+              onClose={() => setIsMonthlySettlementModalOpen(false)}
+              data={data}
+              hqSettings={hqSettings}
+              divisionSettings={divisionSettings}
+              maintenancePayouts={maintenancePayouts}
+              globalIncentiveRules={globalIncentiveRules}
+              calculateCommissionDetails={calculateCommissionDetails}
+              onExportHqSettlement={exportProfessionalSettlement}
+              calculateMaintenancePayouts={calculateMaintenancePayouts}
+              cachedEmpRows={cachedEmpRows}
+              currentUser={currentUser}
+              isManager={isManager}
+              isHQStaff={isHQStaff}
+              userHqNames={userHqNames}
+            />
+          )}
           <CustomDialog
             isOpen={dialogState.isOpen}
             type={dialogState.type}

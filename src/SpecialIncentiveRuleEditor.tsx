@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { X, Search, Globe, Package } from 'lucide-react';
 import { GlobalIncentiveRule, resolveSpecialRuleCalcBasis } from './App';
 
@@ -12,6 +12,81 @@ interface SpecialIncentiveRuleEditorProps {
   onOpenTargetItemsModal: () => void;
 }
 
+// 사업단 소속 본부가 개별 대상 본부(targetHqs)에 중복 등록되는 현상 방지 정제 헬퍼
+export const sanitizeSpecialIncentiveRule = (
+  rule: GlobalIncentiveRule,
+  divisionSettings: any[] = []
+): GlobalIncentiveRule => {
+  if (!rule) return rule;
+  const normalizeHq = (name: string) =>
+    String(name || '')
+      .replace(/\(주\)|주식회사|㈜/g, '')
+      .replace(/[\s()본부지사]/g, '')
+      .trim();
+
+  const rawDivs = Array.isArray(rule.targetDivisions) ? rule.targetDivisions.filter(Boolean) : [];
+  const divisionMemberHqSet = new Set<string>();
+  const normalizedDivs: string[] = [];
+
+  rawDivs.forEach((divId) => {
+    const matchedDiv =
+      (divisionSettings || []).find((d) => d.id === divId || d.name === divId) ||
+      (divisionSettings || []).find(
+        (d) =>
+          (divId === 'div-goodlife' || divId.includes('goodlife') || divId === '굿라이프') &&
+          (d.name || '').includes('굿라이프') &&
+          !(d.name || '').includes('꿈잇다')
+      );
+    const canonicalId = matchedDiv ? matchedDiv.id : divId;
+    if (!normalizedDivs.includes(canonicalId)) {
+      normalizedDivs.push(canonicalId);
+    }
+    if (matchedDiv && Array.isArray(matchedDiv.hqNames)) {
+      matchedDiv.hqNames.forEach((h: string) => {
+        if (!h) return;
+        divisionMemberHqSet.add(h.trim());
+        const norm = normalizeHq(h);
+        if (norm) divisionMemberHqSet.add(norm);
+      });
+    }
+  });
+
+  const rawHqs = Array.isArray(rule.targetHqs)
+    ? rule.targetHqs.filter(Boolean)
+    : rule.targetHq
+      ? [rule.targetHq]
+      : [];
+
+  let nextHqs: string[] = [];
+  if (normalizedDivs.length > 0) {
+    // 사업단이 1개 이상 선택된 경우: 'ALL' 제거 및 해당 사업단에 소속된 본부들을 개별 본부 목록에서 자동 제거
+    nextHqs = Array.from(new Set(rawHqs)).filter((h) => {
+      if (!h || h === 'ALL') return false;
+      if (divisionMemberHqSet.has(h.trim())) return false;
+      const norm = normalizeHq(h);
+      if (norm && divisionMemberHqSet.has(norm)) return false;
+      return true;
+    });
+  } else {
+    nextHqs = Array.from(new Set(rawHqs));
+    if (nextHqs.length === 0) {
+      nextHqs = ['ALL'];
+    } else if (nextHqs.length > 1 && nextHqs.includes('ALL')) {
+      nextHqs = nextHqs.filter((h) => h !== 'ALL');
+    }
+  }
+
+  const nextTargetHq =
+    nextHqs.length > 0 && nextHqs[0] !== 'ALL' ? nextHqs[0] : '';
+
+  return {
+    ...rule,
+    targetDivisions: normalizedDivs,
+    targetHqs: nextHqs,
+    targetHq: nextTargetHq,
+  };
+};
+
 // 숫자 콤마 포맷팅 헬퍼
 const formatNumberWithComma = (val: number | string | undefined | null) => {
   if (val === undefined || val === null || val === '') return '0';
@@ -24,7 +99,7 @@ const parseFormattedNumber = (str: string) => {
   return parseInt(digits, 10) || 0;
 };
 
-export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProps> = ({
+export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProps> = React.memo(({
   rule,
   idx,
   divisionSettings,
@@ -33,49 +108,107 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
   onDeleteRule,
   onOpenTargetItemsModal,
 }) => {
-  // 로컬 편집 상태 (Draft State) - 타이핑 시 App 전체 리렌더링 및 무거운 정산 재연산 방지
-  const [draft, setDraft] = useState<GlobalIncentiveRule>(rule);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // 로컬 편집 상태 (Draft State) - 타이핑 및 클릭 시 App 전체 즉시 리렌더링으로 인한 렉 완전 차단
+  const [draft, setDraft] = useState<GlobalIncentiveRule>(() =>
+    sanitizeSpecialIncentiveRule(rule, divisionSettings)
+  );
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestDraftRef = useRef<GlobalIncentiveRule>(draft);
   latestDraftRef.current = draft;
+  const isDirtyRef = useRef<boolean>(false);
+  const onUpdateRuleRef = useRef(onUpdateRule);
+  onUpdateRuleRef.current = onUpdateRule;
 
-  // 외부에서 선택된 rule의 id가 바뀌었을 때만 로컬 draft 동기화
+  // 컴포넌트 언마운트 또는 규칙 전환 시 아직 반영되지 않은 변경사항 즉시 플러시
   useEffect(() => {
-    setDraft(rule);
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      if (isDirtyRef.current) {
+        isDirtyRef.current = false;
+        onUpdateRuleRef.current(latestDraftRef.current);
+      }
+    };
   }, [rule.id]);
 
-  // 상위 상태로 디바운스 동기화 (300ms)
-  const commitToParent = useCallback((updated: GlobalIncentiveRule) => {
+  // 외부에서 선택된 rule의 id가 바뀌었을 때 로컬 draft 동기화
+  useEffect(() => {
+    const cleaned = sanitizeSpecialIncentiveRule(rule, divisionSettings);
+    latestDraftRef.current = cleaned;
+    isDirtyRef.current = false;
+    setDraft(cleaned);
+  }, [rule.id]);
+
+  // 외부 모달(대상 제품 상세선택 모달)에서 targetItems가 변경되었을 때 로컬 draft에 즉시 반영
+  const targetItemsKey = JSON.stringify(rule.targetItems || ['ALL']);
+  useEffect(() => {
+    setDraft((prev) => {
+      if (JSON.stringify(prev.targetItems || ['ALL']) === targetItemsKey) return prev;
+      const next = { ...prev, targetItems: rule.targetItems || ['ALL'] };
+      latestDraftRef.current = next;
+      return next;
+    });
+  }, [targetItemsKey]);
+
+  // 사업단 설정이 변경되면 현재 draft에서도 사업단 소속 본부 중복 자동 제거
+  useEffect(() => {
+    setDraft((prev) => {
+      const cleaned = sanitizeSpecialIncentiveRule(prev, divisionSettings);
+      latestDraftRef.current = cleaned;
+      return cleaned;
+    });
+  }, [divisionSettings]);
+
+  // 전체 상품 카테고리 목록 메모이제이션 (렌더링마다 flatMap 재계산 방지)
+  const allProductNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (hqSettings || [])
+            .flatMap((h) => (h.productRules || []).map((p: any) => p.productName))
+            .filter(Boolean)
+        )
+      ),
+    [hqSettings]
+  );
+
+  // 상위 상태로 비동기 디바운스 동기화 (클릭 조작은 120ms, 타이핑은 350ms로 배칭하여 UI 즉시 반응 보장)
+  const scheduleCommit = useCallback((updated: GlobalIncentiveRule, delayMs: number) => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
     debounceTimerRef.current = setTimeout(() => {
-      onUpdateRule(updated);
-    }, 300);
-  }, [onUpdateRule]);
+      debounceTimerRef.current = null;
+      isDirtyRef.current = false;
+      onUpdateRuleRef.current(updated);
+    }, delayMs);
+  }, []);
 
   // 포커스 벗어날 때 즉시 커밋
   const handleBlur = useCallback(() => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
     }
-    onUpdateRule(latestDraftRef.current);
-  }, [onUpdateRule]);
+    if (isDirtyRef.current) {
+      isDirtyRef.current = false;
+      onUpdateRuleRef.current(latestDraftRef.current);
+    }
+  }, []);
 
-  // 필드 업데이트 헬퍼
-  const updateDraft = (updater: (prev: GlobalIncentiveRule) => GlobalIncentiveRule, immediate = false) => {
-    setDraft((prev) => {
-      const next = updater(prev);
+  // 필드 업데이트 헬퍼 (setDraft 내부에서 부모 setState를 동기 호출하지 않아 0ms 반응속도 보장)
+  const updateDraft = useCallback(
+    (updater: (prev: GlobalIncentiveRule) => GlobalIncentiveRule, immediate = false) => {
+      const next = sanitizeSpecialIncentiveRule(updater(latestDraftRef.current), divisionSettings);
       latestDraftRef.current = next;
-      if (immediate) {
-        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-        onUpdateRule(next);
-      } else {
-        commitToParent(next);
-      }
-      return next;
-    });
-  };
+      isDirtyRef.current = true;
+      setDraft(next);
+      scheduleCommit(next, immediate ? 120 : 350);
+    },
+    [divisionSettings, scheduleCommit]
+  );
 
   const isCustomPerson =
     draft.targetName &&
@@ -285,11 +418,20 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
                     </optgroup>
                   )}
                   <optgroup label="🏛️ 개별 본부">
-                    {hqSettings.map((h) => (
-                      <option key={h.id} value={`HQ:${h.hqName}`}>
-                        {h.hqName}
-                      </option>
-                    ))}
+                    {hqSettings.map((h) => {
+                      const coveredByDiv = (divisionSettings || []).find(
+                        (d) =>
+                          (draft.targetDivisions || []).includes(d.id) &&
+                          Array.isArray(d.hqNames) &&
+                          d.hqNames.includes(h.hqName)
+                      );
+                      return (
+                        <option key={h.id} value={`HQ:${h.hqName}`} disabled={!!coveredByDiv}>
+                          {h.hqName}
+                          {coveredByDiv ? ` (${coveredByDiv.name} 사업단 일괄 적용중)` : ''}
+                        </option>
+                      );
+                    })}
                   </optgroup>
                 </select>
               </div>
@@ -305,11 +447,14 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
               ) : (
                 <>
                   {(draft.targetDivisions || []).map((divId) => {
-                    const div = (divisionSettings || []).find((d) => 
-                      d.id === divId || 
-                      d.name === divId || 
-                      ((divId === 'div-goodlife' || divId.includes('goodlife') || divId === '굿라이프') && (d.name || '').includes('굿라이프'))
-                    );
+                    const div =
+                      (divisionSettings || []).find((d) => d.id === divId || d.name === divId) ||
+                      (divisionSettings || []).find(
+                        (d) =>
+                          (divId === 'div-goodlife' || divId.includes('goodlife') || divId === '굿라이프') &&
+                          (d.name || '').includes('굿라이프') &&
+                          !(d.name || '').includes('꿈잇다')
+                      );
                     const divName = div ? div.name : (divId === 'div-goodlife' ? '굿라이프 사업단' : divId);
                     const hqCount = div?.hqNames?.length ?? 0;
                     return (
@@ -396,7 +541,7 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
               >
                 <option value="">상품 선택 추가...</option>
                 <option value="ALL">전체 상품</option>
-                {Array.from(new Set(hqSettings.flatMap((h) => h.productRules.map((p: any) => p.productName)))).map((p) => (
+                {allProductNames.map((p) => (
                   <option key={p} value={p}>
                     {p}
                   </option>
@@ -762,4 +907,4 @@ export const SpecialIncentiveRuleEditor: React.FC<SpecialIncentiveRuleEditorProp
       </div>
     </div>
   );
-};
+});

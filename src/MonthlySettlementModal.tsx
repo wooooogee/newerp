@@ -319,6 +319,7 @@ const isHqMatchedForSpecialRule = (
           // '꿈잇다'와 '신동우'가 서로 교차 오매칭되지 않도록 방지
           if (tdClean.includes('꿈잇다') && !divCleanName.includes('꿈잇다')) return false;
           if (tdClean.includes('신동우') && !divCleanName.includes('신동우')) return false;
+          if ((tdClean.includes('goodlife') || tdClean === '굿라이프') && divCleanName.includes('굿라이프')) return true;
           if (divCleanName === tdClean || divCleanName.includes(tdClean) || tdClean.includes(divCleanName)) return true;
         }
         return false;
@@ -661,13 +662,41 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       const normR = normalizeName(r.targetName);
       return normR === normTarget || (normR.length >= 2 && (normR.includes(normTarget) || normTarget.includes(normR)));
     });
-    if (matchedRule && (matchedRule as any).accountNumber) {
-      return {
-        settlementType: matchedRule.taxType === 'BUSINESS' ? '사업자' : '개인',
-        bankName: (matchedRule as any).bankName || '-',
-        accountNumber: (matchedRule as any).accountNumber || '-',
-        accountHolder: (matchedRule as any).accountHolder || cleanTarget
-      };
+    if (matchedRule) {
+      const ruleSettlementType =
+        matchedRule.taxType === 'INDIVIDUAL'
+          ? '개인'
+          : matchedRule.taxType === 'CORPORATE' || matchedRule.taxType === 'BUSINESS'
+            ? '사업자'
+            : '사업자';
+      if ((matchedRule as any).accountNumber) {
+        return {
+          settlementType: ruleSettlementType,
+          bankName: (matchedRule as any).bankName || '-',
+          accountNumber: (matchedRule as any).accountNumber || '-',
+          accountHolder: (matchedRule as any).accountHolder || matchedRule.taxBusinessName || cleanTarget
+        };
+      }
+      if (cachedEmpRows && cachedEmpRows.length > 1) {
+        const empList = parseEmployeeRows(cachedEmpRows);
+        const matchedEmp = empList.find(e => normalizeName(e.name) === normTarget || normalizeName(e.accountHolder) === normTarget);
+        if (matchedEmp && (matchedEmp.accountNumber || matchedEmp.bankName)) {
+          return {
+            settlementType: ruleSettlementType,
+            bankName: matchedEmp.bankName || '-',
+            accountNumber: matchedEmp.accountNumber || '-',
+            accountHolder: matchedEmp.accountHolder || matchedRule.taxBusinessName || cleanTarget
+          };
+        }
+      }
+      if (!['신동우', '에스제이', '꿈잇다', '언바운드', '피티엠에스', '맥스', '해랑', '위더스', '더라이프앤', '더드림', '다이렉트', '조재윤', '조민경', '이종연', '권성훈'].some(k => normTarget.includes(k))) {
+        return {
+          settlementType: ruleSettlementType,
+          bankName: '-',
+          accountNumber: '-',
+          accountHolder: matchedRule.taxBusinessName || cleanTarget
+        };
+      }
     }
 
     // 4) 특수 대상자 마스터 fallback (매칭 실패 시 안전망)
@@ -813,10 +842,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     return sorted;
   }, [data, maintenancePayouts, calculateMaintenancePayouts]);
 
-  // 기본 선택 월 설정 (최신 월)
+  // 기본 선택 월 설정 (현재 한국시간 당월이 존재하면 당월 우선 선택, 없으면 최신 월)
   React.useEffect(() => {
     if (availableMonths.length > 0 && !selectedMonth) {
-      setSelectedMonth(availableMonths[0]);
+      const now = new Date();
+      const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+      const currentYm = `${kstNow.getUTCFullYear()}-${String(kstNow.getUTCMonth() + 1).padStart(2, '0')}`;
+      if (availableMonths.includes(currentYm)) {
+        setSelectedMonth(currentYm);
+      } else {
+        setSelectedMonth(availableMonths[0]);
+      }
     }
   }, [availableMonths, selectedMonth]);
 
@@ -1167,7 +1203,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             const targetName = rule.targetName;
             if (!statsMap.has(targetName)) {
               const setting = (hqSettings || []).find(s => s.hqName === targetName);
-              const isIndiv = setting?.settlementType?.includes('개인') || targetName === '글로씨';
+              const isIndiv = setting?.settlementType?.includes('개인') || rule.taxType === 'INDIVIDUAL' || targetName === '글로씨';
+              const acctInfo = getPayoutAccountInfo(targetName);
               statsMap.set(targetName, {
                 hqName: targetName,
                 count: 0,
@@ -1180,10 +1217,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                 grossTotal: 0,
                 tax: 0,
                 netTotal: 0,
-                settlementType: setting?.settlementType || (isIndiv ? '개인' : '사업자'),
-                bankName: setting?.bankName || '-',
-                accountNumber: setting?.accountNumber || '-',
-                accountHolder: setting?.accountHolder || '-',
+                settlementType: setting?.settlementType || acctInfo.settlementType || (isIndiv ? '개인' : '사업자'),
+                bankName: (setting?.bankName && setting.bankName !== '-') ? setting.bankName : acctInfo.bankName,
+                accountNumber: (setting?.accountNumber && setting.accountNumber !== '-') ? setting.accountNumber : acctInfo.accountNumber,
+                accountHolder: (setting?.accountHolder && setting.accountHolder !== '-') ? setting.accountHolder : acctInfo.accountHolder,
                 items: [],
                 specialItems: [],
                 maintenanceItems: []
@@ -1517,9 +1554,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     return map;
   }, [effectiveHqMonthlyStats]);
 
-  // 3-3. 모달 열림, 월 변경 또는 초기 로드 시 본부 선택 목록 초기화 (항상 전체 본부 기본 선택)
+  // 3-3. 모달 열림, 월 변경 또는 초기 로드 시 본부 선택 목록 초기화 (항상 전체 본부 기본 선택 및 신규 특수수당 대상자 자동 포함)
   const prevMonthRef = useRef<string>('');
   const prevOpenRef = useRef<boolean>(false);
+  const prevAvailableHqsRef = useRef<string[]>([]);
 
   useEffect(() => {
     if (allAvailableHqs.length === 0) return;
@@ -1528,6 +1566,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     if (isOpen && !prevOpenRef.current) {
       prevOpenRef.current = true;
       prevMonthRef.current = selectedMonth;
+      prevAvailableHqsRef.current = allAvailableHqs;
       setSelectedHqs(allAvailableHqs);
       return;
     }
@@ -1540,13 +1579,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     if (prevMonthRef.current !== selectedMonth) {
       // 월이 변경되었을 때: 새로운 월의 전체 본부를 기본 선택
       prevMonthRef.current = selectedMonth;
+      prevAvailableHqsRef.current = allAvailableHqs;
       setSelectedHqs(allAvailableHqs);
     } else {
-      // 데이터 업데이트 등으로 본부 목록이 달라졌을 때 (빈 배열이거나 선택 항목이 없으면 전체 선택)
+      // 데이터 업데이트 등으로 본부/특수수당 대상자 목록이 달라졌을 때 신규 추가된 대상자는 자동 체크 포함
+      const newlyAdded = allAvailableHqs.filter(h => !prevAvailableHqsRef.current.includes(h));
+      prevAvailableHqsRef.current = allAvailableHqs;
       setSelectedHqs(prev => {
         if (!prev || prev.length === 0) return allAvailableHqs;
         const valid = prev.filter(h => allAvailableHqs.includes(h));
-        return valid.length > 0 ? valid : allAvailableHqs;
+        const merged = Array.from(new Set([...valid, ...newlyAdded]));
+        return merged.length > 0 ? merged : allAvailableHqs;
       });
     }
   }, [isOpen, selectedMonth, allAvailableHqs]);
@@ -1649,25 +1692,103 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       }));
     }
 
-    // 2) 로컬 스토리지에 사용자가 직접 편집/저장한 내역이 있는 경우 (특정 모드 캐시)
+    // 2) 특수수당 설정에서 추가된 신규 수급자(예: 정세환 등) 동적 항목 생성 헬퍼
+    const buildDynamicSpecialRows = (): DetailedSettlementRow[] => {
+      const dynamicRows: DetailedSettlementRow[] = [];
+      const hardcodedSpecialTargets = ['조재윤', '조재은', '조민경', '이종연', '권성훈', '신동우', '에스제이'];
+
+      effectiveHqMonthlyStats.forEach(stat => {
+        const tName = (stat.hqName || '').trim();
+        if (!tName) return;
+        if (hardcodedSpecialTargets.some(k => tName.includes(k))) return;
+        if ((stat.specialSum || 0) <= 0 && (!stat.specialItems || stat.specialItems.length === 0)) return;
+
+        // specialItems를 수당종류 + 상품명 + 원소속본부 단위로 그룹화
+        const spGroups = new Map<string, { label: string; count: number; total: number }>();
+        if (stat.specialItems && stat.specialItems.length > 0) {
+          stat.specialItems.forEach((sp: any) => {
+            const incName = (sp.incentiveName || '컨설팅 수수료').trim();
+            const prod = (sp.prodName && sp.prodName !== '-') ? sp.prodName.trim() : '';
+            const origHq = (sp.contractHq && sp.contractHq !== '-' && sp.contractHq !== tName)
+              ? sp.contractHq.trim()
+              : (sp.originHq && sp.originHq !== '-' && sp.originHq !== tName ? sp.originHq.trim() : '');
+            const label = prod
+              ? `${incName}(${prod}${origHq ? ` - ${origHq}` : ''})`
+              : (origHq ? `${incName}(${origHq})` : incName);
+            const cur = spGroups.get(label) || { label, count: 0, total: 0 };
+            cur.count += (sp.effectiveAccounts || sp.accountCount || 1);
+            cur.total += (Number(sp.amount) || 0);
+            spGroups.set(label, cur);
+          });
+        } else if (stat.specialSum > 0) {
+          const matchedRule = (globalIncentiveRules || []).find(r => (r.targetName || '').trim() === tName);
+          const incName = matchedRule?.incentiveName || '컨설팅 수수료';
+          spGroups.set(incName, {
+            label: incName,
+            count: stat.count || 1,
+            total: stat.specialSum
+          });
+        }
+
+        const entries = Array.from(spGroups.values()).filter(g => g.total > 0);
+        if (entries.length === 0) return;
+
+        let subCount = 0;
+        let subTotal = 0;
+        entries.forEach((g, idx) => {
+          const unitFee = g.count > 0 ? Math.round(g.total / g.count) : g.total;
+          subCount += g.count;
+          subTotal += g.total;
+          dynamicRows.push({
+            id: `auto_special_dyn_${tName}_${idx}_${selectedMonth}`,
+            targetName: tName,
+            itemName: g.label,
+            count: g.count,
+            unitFee,
+            salesCommission: 0,
+            promoCommission: 0,
+            totalCommission: g.total,
+            isHeaderGroup: idx === 0
+          });
+        });
+
+        if (entries.length > 1) {
+          dynamicRows.push({
+            id: `auto_special_dyn_sub_${tName}_${selectedMonth}`,
+            targetName: tName,
+            itemName: '소계',
+            count: subCount,
+            unitFee: 0,
+            salesCommission: 0,
+            promoCommission: 0,
+            totalCommission: subTotal,
+            isSubtotal: true
+          });
+        }
+      });
+
+      return dynamicRows;
+    };
+
+    const dynamicSpecialRows = buildDynamicSpecialRows();
+
+    // 로컬 스토리지에 사용자가 직접 편집/저장한 내역이 있는 경우 (특정 모드 캐시 + 신규 특수수당 자동 병합)
     const modeKey = `${selectedMonth}_${groupByDivision ? 'group' : 'flat'}`;
-    if (customDetailedRowsMap[modeKey] && customDetailedRowsMap[modeKey].length > 0) {
-      // 11월인데 조재윤/조민경 건수가 632건이 아닌 잔재(2266건, 2893건 등)가 남아있다면 632건으로 자동 마이그레이션
-      if (selectedMonth.endsWith('11')) {
-        return filterByPermission(customDetailedRowsMap[modeKey].map(r => {
+    const cachedCustomList =
+      (customDetailedRowsMap[modeKey] && customDetailedRowsMap[modeKey].length > 0)
+        ? customDetailedRowsMap[modeKey]
+        : (customDetailedRowsMap[selectedMonth] && customDetailedRowsMap[selectedMonth].length > 0)
+          ? customDetailedRowsMap[selectedMonth]
+          : null;
+
+    if (cachedCustomList && cachedCustomList.length > 0) {
+      let baseCached = cachedCustomList.map(r => {
+        if (selectedMonth.endsWith('11')) {
           if (r.targetName === '조재윤' && r.itemName.includes('모델비') && r.count !== 632) {
-            return {
-              ...r,
-              count: 632,
-              totalCommission: 632 * 10000
-            };
+            return { ...r, count: 632, totalCommission: 632 * 10000 };
           }
           if (r.targetName === '조민경' && r.itemName.includes('컨설팅비') && r.count !== 632) {
-            return {
-              ...r,
-              count: 632,
-              totalCommission: 632 * 5000
-            };
+            return { ...r, count: 632, totalCommission: 632 * 5000 };
           }
           if (r.targetName === '신동우' && r.itemName.includes('테라웨이브') && r.count !== currentTherawaveInfo.count) {
             return {
@@ -1677,10 +1798,19 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
               totalCommission: currentTherawaveInfo.amount
             };
           }
-          return r;
-        }));
+        }
+        return r;
+      });
+
+      // 특수수당 설정에서 새로 추가된 대상자(예: 정세환)가 캐시에 빠져있으면 자동으로 하단에 병합
+      const missingSpecialRows = dynamicSpecialRows.filter(
+        spRow => !baseCached.some(r => (r.targetName || '').trim() === (spRow.targetName || '').trim())
+      );
+      if (missingSpecialRows.length > 0) {
+        baseCached = [...baseCached, ...missingSpecialRows];
       }
-      return filterByPermission(customDetailedRowsMap[modeKey]);
+
+      return filterByPermission(baseCached);
     }
 
     // 3) ERP 데이터로부터 동적 자동 집계 생성
@@ -1975,8 +2105,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       isHeaderGroup: true
     });
 
+    // 특수수당 설정에서 추가된 수급자(예: 정세환 컨설팅 수수료 등) 동적 반영
+    if (dynamicSpecialRows.length > 0) {
+      result.push(...dynamicSpecialRows);
+    }
+
     return filterByPermission(result);
-  }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, effectiveTotalCount, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data, goodlifeSplitSummary, currentTherawaveInfo, isManager, isHQStaff, userHqNames, isGoodlifeStaff, isHqAllowed]);
+  }, [selectedMonth, groupByDivision, customDetailedRowsMap, effectiveHqMonthlyStats, effectiveTotalCount, calculateCommissionDetails, globalStatsMap, getGroupedTargetName, data, goodlifeSplitSummary, currentTherawaveInfo, isManager, isHQStaff, userHqNames, isGoodlifeStaff, isHqAllowed, globalIncentiveRules]);
 
   // 상세 정산 내역 전체 합계 계산 (소계 행 제외하여 중복 방지 및 원천세/실지급액 계산)
   const detailedTotals = useMemo(() => {
@@ -2060,8 +2195,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       }
     }
 
+    const modeKey = `${selectedMonth}_${groupByDivision ? 'group' : 'flat'}`;
     setCustomDetailedRowsMap(prev => {
-      const next = { ...prev, [selectedMonth]: updated };
+      const next = { ...prev, [selectedMonth]: updated, [modeKey]: updated };
       try {
         localStorage.setItem('erp_monthly_detailed_rows_map_v2', JSON.stringify(next));
       } catch (e) {}
@@ -2072,9 +2208,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   // 상세 정산 내역 초기화
   const handleResetDetailedRows = () => {
     if (!window.confirm('정산 내역을 기본 상태로 초기화하시겠습니까?')) return;
+    const modeKey = `${selectedMonth}_${groupByDivision ? 'group' : 'flat'}`;
     setCustomDetailedRowsMap(prev => {
       const copy = { ...prev };
       delete copy[selectedMonth];
+      delete copy[modeKey];
+      delete copy[`${selectedMonth}_group`];
+      delete copy[`${selectedMonth}_flat`];
       try {
         localStorage.setItem('erp_monthly_detailed_rows_map_v2', JSON.stringify(copy));
       } catch (e) {}

@@ -742,6 +742,77 @@ app.post('/api/sheets/settings/reset', async (req, res) => {
   }
 });
 
+// 사업단 소속 본부가 특수수당 개별 대상 본부(targetHqs)에 중복 등록되는 현상 방지 정제 헬퍼
+function sanitizeServerGlobalIncentives(rules: any[], divisions: any[] = []): any[] {
+  if (!Array.isArray(rules)) return [];
+  const normalizeHq = (name: string) =>
+    String(name || '')
+      .replace(/\(주\)|주식회사|㈜/g, '')
+      .replace(/[\s()본부지사]/g, '')
+      .trim();
+
+  return rules.map((rule: any) => {
+    if (!rule) return rule;
+    const rawDivs = Array.isArray(rule.targetDivisions) ? rule.targetDivisions.filter(Boolean) : [];
+    const divisionMemberHqSet = new Set<string>();
+    const normalizedDivs: string[] = [];
+
+    rawDivs.forEach((divId: string) => {
+      const matchedDiv =
+        (divisions || []).find((d: any) => d.id === divId || d.name === divId) ||
+        (divisions || []).find(
+          (d: any) =>
+            (divId === 'div-goodlife' || divId.includes('goodlife') || divId === '굿라이프') &&
+            (d.name || '').includes('굿라이프') &&
+            !(d.name || '').includes('꿈잇다')
+        );
+      const canonicalId = matchedDiv ? matchedDiv.id : divId;
+      if (!normalizedDivs.includes(canonicalId)) {
+        normalizedDivs.push(canonicalId);
+      }
+      if (matchedDiv && Array.isArray(matchedDiv.hqNames)) {
+        matchedDiv.hqNames.forEach((h: string) => {
+          if (!h) return;
+          divisionMemberHqSet.add(h.trim());
+          const norm = normalizeHq(h);
+          if (norm) divisionMemberHqSet.add(norm);
+        });
+      }
+    });
+
+    const rawHqs = Array.isArray(rule.targetHqs)
+      ? rule.targetHqs.filter(Boolean)
+      : rule.targetHq
+        ? [rule.targetHq]
+        : [];
+
+    let nextHqs: string[] = [];
+    if (normalizedDivs.length > 0) {
+      nextHqs = Array.from(new Set<string>(rawHqs)).filter((h: string) => {
+        if (!h || h === 'ALL') return false;
+        if (divisionMemberHqSet.has(h.trim())) return false;
+        const norm = normalizeHq(h);
+        if (norm && divisionMemberHqSet.has(norm)) return false;
+        return true;
+      });
+    } else {
+      nextHqs = Array.from(new Set<string>(rawHqs));
+      if (nextHqs.length === 0) {
+        nextHqs = ['ALL'];
+      } else if (nextHqs.length > 1 && nextHqs.includes('ALL')) {
+        nextHqs = nextHqs.filter((h: string) => h !== 'ALL');
+      }
+    }
+
+    return {
+      ...rule,
+      targetDivisions: normalizedDivs,
+      targetHqs: nextHqs,
+      targetHq: nextHqs.length > 0 && nextHqs[0] !== 'ALL' ? nextHqs[0] : ''
+    };
+  });
+}
+
 app.post('/api/sheets/settings/sync-cache', async (req, res) => {
   const { settings, divisions, globalIncentives, maintenanceRules, healthcareProducts } = req.body || {};
   try {
@@ -754,7 +825,9 @@ app.post('/api/sheets/settings/sync-cache', async (req, res) => {
     if (divisions && Array.isArray(divisions)) {
       cacheData.divisions = divisions.filter((d: any) => (d.name || '') !== '더좋은라이프' && d.id !== 'div-1792373934389');
     }
-    if (globalIncentives && Array.isArray(globalIncentives) && globalIncentives.length > 0) cacheData.globalIncentives = globalIncentives;
+    if (globalIncentives && Array.isArray(globalIncentives) && globalIncentives.length > 0) {
+      cacheData.globalIncentives = sanitizeServerGlobalIncentives(globalIncentives, cacheData.divisions || []);
+    }
     if (maintenanceRules && Array.isArray(maintenanceRules) && maintenanceRules.length > 0) cacheData.maintenanceRules = maintenanceRules;
     if (healthcareProducts && Array.isArray(healthcareProducts) && healthcareProducts.length > 0) cacheData.healthcareProducts = healthcareProducts;
     fs.writeFileSync(cachePath, JSON.stringify(cacheData, null, 2), 'utf8');
@@ -796,7 +869,14 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       try { cacheData = JSON.parse(fs.readFileSync(cachePath, 'utf8')); } catch (e) {}
     }
     if (settings && Array.isArray(settings) && settings.length > 0) cacheData.settings = settings;
-    if (globalIncentives && Array.isArray(globalIncentives) && globalIncentives.length > 0) cacheData.globalIncentives = globalIncentives;
+    if (divisions && Array.isArray(divisions) && divisions.length > 0) cacheData.divisions = divisions;
+    const sanitizedGlobalIncentives =
+      globalIncentives && Array.isArray(globalIncentives)
+        ? sanitizeServerGlobalIncentives(globalIncentives, cacheData.divisions || divisions || [])
+        : undefined;
+    if (sanitizedGlobalIncentives && sanitizedGlobalIncentives.length > 0) {
+      cacheData.globalIncentives = sanitizedGlobalIncentives;
+    }
     if (maintenanceRules && Array.isArray(maintenanceRules) && maintenanceRules.length > 0) cacheData.maintenanceRules = maintenanceRules;
     if (manualOrderProducts) cacheData.manualOrderProducts = manualOrderProducts;
     if (manualOrderStores && typeof manualOrderStores === 'object') {
@@ -946,8 +1026,9 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     ];
     
     const incentiveRows: any[][] = [incentiveHeaders];
-    if (globalIncentives && Array.isArray(globalIncentives)) {
-      globalIncentives.forEach((rule: any) => {
+    const incentivesToWrite = sanitizedGlobalIncentives || globalIncentives;
+    if (incentivesToWrite && Array.isArray(incentivesToWrite)) {
+      incentivesToWrite.forEach((rule: any) => {
         incentiveRows.push([
           rule.id || '',
           rule.targetName || '',
@@ -1705,6 +1786,11 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             });
             return { ...d, hqNames: cleanHqs };
           });
+        }
+
+        // 특수수당 내 사업단 소속 본부 중복 자동 제거
+        if (globalIncentives && Array.isArray(globalIncentives)) {
+          globalIncentives = sanitizeServerGlobalIncentives(globalIncentives, divisions || []);
         }
       }
     } catch (e) {}
