@@ -108,7 +108,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
       const matched = data
         .filter(d => String(d.rentalNo || '').trim() === rNo && d.memNo && d.memNo !== '-')
         .map(d => String(d.memNo).trim());
-      const unique = Array.from(new Set(matched));
+      const unique = Array.from(new Set<string>(matched));
       if (unique.length > 0) return unique;
     }
     return item.memNo && item.memNo !== '-' ? [String(item.memNo).trim()] : [];
@@ -1503,15 +1503,16 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             <div className="space-y-3">
               <AnimatePresence mode="popLayout">
                 {paginatedData.length > 0 ? (
-                  paginatedData.map((item) => {
+                  paginatedData.map((item, idx) => {
                     const mutualAidPayVal = formatDate(item.raw && item.raw[21]);
                     const rentalPayVal = formatDate(item.raw && item.raw[26]);
                     const expectedDeliveryVal = formatDate(item.expectedDeliveryDate || (item.raw && item.raw[28]));
                     const empPhoneVal = getEmpPhone(item);
+                    const itemKey = item.uniqueKey || item.id || idx;
 
                     return (
                       <motion.div
-                        key={item.uniqueKey}
+                        key={item.uniqueKey || idx}
                         layout
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -1535,13 +1536,13 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  copyTextToClipboard(String(item.rentalNo), '렌탈번호', `rental-${item.id || idx}`);
+                                  copyTextToClipboard(String(item.rentalNo), `렌탈번호 복사 완료: ${item.rentalNo}`, `rental-${itemKey}`);
                                 }}
                                 className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0 flex items-center gap-1 active:scale-95 transition-transform"
                                 title="클릭하여 렌탈번호 복사"
                               >
                                 <span>{item.rentalNo}</span>
-                                {copiedKey === `rental-${item.id || idx}` ? <Check size={10} className="text-emerald-600" /> : <Copy size={10} className="opacity-70" />}
+                                {copiedKey === `rental-${itemKey}` ? <Check size={10} className="text-emerald-600" /> : <Copy size={10} className="opacity-70" />}
                               </button>
                             ) : null}
                           </div>
@@ -1549,11 +1550,11 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                           <div className="flex items-center gap-1 shrink-0">
                             <button
                               type="button"
-                              onClick={(e) => handleCopyMobileMemberInfo(e, item, `card-${item.id || idx}`)}
+                              onClick={(e) => handleCopyMobileMemberInfo(e, item, `card-${itemKey}`)}
                               className="text-[10px] px-2 py-0.5 rounded font-bold bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 flex items-center gap-1 active:scale-95 transition-all"
                               title="회원정보 복사"
                             >
-                              {copiedKey === `card-${item.id || idx}` ? <Check size={10} className="text-emerald-600" /> : <Copy size={10} className="text-blue-600" />}
+                              {copiedKey === `card-${itemKey}` ? <Check size={10} className="text-emerald-600" /> : <Copy size={10} className="text-blue-600" />}
                               <span>정보복사</span>
                             </button>
                             <span className={`text-[10px] px-2.5 py-0.5 rounded font-semibold border shrink-0 ${getDeliveryBadgeClass(item.deliveryStatus)}`}>
