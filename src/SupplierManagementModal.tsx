@@ -52,6 +52,52 @@ export interface SupplierItem {
 export const SUPPLIER_STORAGE_KEY = 'erp_suppliers_master_v3';
 export const SUPPLIER_BACKUP_KEY = 'erp_suppliers_master_v3_backup';
 export const SUPPLIER_SNAPSHOTS_KEY = 'erp_suppliers_snapshots_history';
+export const SUPPLIER_SETTLEMENT_DAY_MIGRATED_KEY = 'erp_suppliers_settlement_day_25_migrated_v1';
+
+// 공급사명 기준 기본 정산일 반환 (케이엘제이컴퍼니만 31일, 나머지는 모두 25일)
+export const getDefaultSupplierSettlementDay = (supplierName?: string): number => {
+  return String(supplierName || '').includes('케이엘제이') ? 31 : 25;
+};
+
+// 공급사 목록 정산일 보정 및 최초 1회 일괄 마이그레이션 (케이엘제이컴퍼니 제외 모두 25일 적용)
+const normalizeSuppliersSettlementDay = (list: SupplierItem[]): { result: SupplierItem[]; changed: boolean } => {
+  if (!Array.isArray(list) || list.length === 0) return { result: [], changed: false };
+  const alreadyMigrated = localStorage.getItem(SUPPLIER_SETTLEMENT_DAY_MIGRATED_KEY) === 'true';
+  let changed = false;
+
+  const result = list.map((s) => {
+    const defaultDay = getDefaultSupplierSettlementDay(s.name);
+    const isKlj = String(s.name || '').includes('케이엘제이');
+    let nextDay = Number(s.settlementDay);
+
+    if (!nextDay || isNaN(nextDay) || nextDay < 1 || nextDay > 31) {
+      nextDay = defaultDay;
+      changed = true;
+    } else if (!alreadyMigrated) {
+      // 기존에 정산일 설정 UI가 없어 일괄 31일로 들어가 있던 공급사들을 케이엘제이 제외 25일로 일괄 보정
+      if (!isKlj && nextDay === 31) {
+        nextDay = 25;
+        changed = true;
+      } else if (isKlj && nextDay !== 31) {
+        nextDay = 31;
+        changed = true;
+      }
+    }
+
+    if (nextDay !== s.settlementDay) {
+      return { ...s, settlementDay: nextDay };
+    }
+    return s;
+  });
+
+  if (!alreadyMigrated) {
+    try {
+      localStorage.setItem(SUPPLIER_SETTLEMENT_DAY_MIGRATED_KEY, 'true');
+    } catch (e) {}
+  }
+
+  return { result, changed };
+};
 
 // 초기값
 export const INITIAL_SUPPLIERS: SupplierItem[] = [];
@@ -93,39 +139,57 @@ export const syncSuppliersToSheetSilent = async (suppliers: SupplierItem[]): Pro
 // 로컬 스토리지에서 공급사 로드 (3중 복구 장치: 마스터 -> 백업 -> 스냅샷)
 export const loadSuppliersFromStorage = (): SupplierItem[] => {
   try {
+    let rawLoaded: SupplierItem[] | null = null;
+
     // 1) 1차 마스터 키 확인
     const saved = localStorage.getItem(SUPPLIER_STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        rawLoaded = parsed;
       }
     }
 
     // 2) 2차 백업 키에서 복구 시도
-    const backup = localStorage.getItem(SUPPLIER_BACKUP_KEY);
-    if (backup) {
-      const parsedBackup = JSON.parse(backup);
-      if (Array.isArray(parsedBackup) && parsedBackup.length > 0) {
-        console.warn('⚠️ [공급사 복구] 마스터 저장소가 비어있어 백업 저장소에서 복원했습니다.');
-        localStorage.setItem(SUPPLIER_STORAGE_KEY, backup);
-        return parsedBackup;
+    if (!rawLoaded) {
+      const backup = localStorage.getItem(SUPPLIER_BACKUP_KEY);
+      if (backup) {
+        const parsedBackup = JSON.parse(backup);
+        if (Array.isArray(parsedBackup) && parsedBackup.length > 0) {
+          console.warn('⚠️ [공급사 복구] 마스터 저장소가 비어있어 백업 저장소에서 복원했습니다.');
+          localStorage.setItem(SUPPLIER_STORAGE_KEY, backup);
+          rawLoaded = parsedBackup;
+        }
       }
     }
 
     // 3) 3차 스냅샷 히스토리에서 가장 최근 유효 데이터 복구 시도
-    const rawSnapshots = localStorage.getItem(SUPPLIER_SNAPSHOTS_KEY);
-    if (rawSnapshots) {
-      const history = JSON.parse(rawSnapshots);
-      if (Array.isArray(history) && history.length > 0) {
-        for (const snap of history) {
-          if (Array.isArray(snap.data) && snap.data.length > 0) {
-            console.warn(`⚠️ [공급사 복구] 스냅샷(${snap.timestamp})에서 ${snap.data.length}개 공급사를 안전하게 복구했습니다.`);
-            localStorage.setItem(SUPPLIER_STORAGE_KEY, JSON.stringify(snap.data));
-            return snap.data;
+    if (!rawLoaded) {
+      const rawSnapshots = localStorage.getItem(SUPPLIER_SNAPSHOTS_KEY);
+      if (rawSnapshots) {
+        const history = JSON.parse(rawSnapshots);
+        if (Array.isArray(history) && history.length > 0) {
+          for (const snap of history) {
+            if (Array.isArray(snap.data) && snap.data.length > 0) {
+              console.warn(`⚠️ [공급사 복구] 스냅샷(${snap.timestamp})에서 ${snap.data.length}개 공급사를 안전하게 복구했습니다.`);
+              localStorage.setItem(SUPPLIER_STORAGE_KEY, JSON.stringify(snap.data));
+              rawLoaded = snap.data;
+              break;
+            }
           }
         }
       }
+    }
+
+    if (rawLoaded && rawLoaded.length > 0) {
+      const { result, changed } = normalizeSuppliersSettlementDay(rawLoaded);
+      if (changed) {
+        const jsonStr = JSON.stringify(result);
+        localStorage.setItem(SUPPLIER_STORAGE_KEY, jsonStr);
+        localStorage.setItem(SUPPLIER_BACKUP_KEY, jsonStr);
+        syncSuppliersToSheetSilent(result);
+      }
+      return result;
     }
   } catch (e) {
     console.error('Failed to load suppliers:', e);
@@ -214,7 +278,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     bankName: '',
     accountNumber: '',
     accountHolder: '',
-    settlementDay: 31,
+    settlementDay: 25,
     memo: '',
     isActive: true,
   });
@@ -516,8 +580,27 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
         throw new Error(err.error || '구글 시트 연동 실패');
       }
       const data = await res.json();
-      const loadedSuppliers: SupplierItem[] = Array.isArray(data.suppliers) ? data.suppliers : [];
-      
+      let loadedSuppliers: SupplierItem[] = Array.isArray(data.suppliers) ? data.suppliers : [];
+
+      // 최초 1회: 구글 시트에 기존 기본값(31일)으로 저장되어 있던 공급사들을 케이엘제이 제외 25일로 자동 보정 후 시트 동기화
+      const sheetMigratedKey = 'erp_suppliers_sheet_settlement_day_25_migrated_v1';
+      if (loadedSuppliers.length > 0 && localStorage.getItem(sheetMigratedKey) !== 'true') {
+        let sheetChanged = false;
+        loadedSuppliers = loadedSuppliers.map(s => {
+          const isKlj = String(s.name || '').includes('케이엘제이');
+          const curDay = Number(s.settlementDay) || 31;
+          if (!isKlj && curDay === 31) {
+            sheetChanged = true;
+            return { ...s, settlementDay: 25 };
+          }
+          return { ...s, settlementDay: isKlj ? 31 : curDay };
+        });
+        localStorage.setItem(sheetMigratedKey, 'true');
+        if (sheetChanged) {
+          syncSuppliersToSheetSilent(loadedSuppliers);
+        }
+      }
+
       setSuppliers(loadedSuppliers);
       saveSuppliersToStorage(loadedSuppliers);
       onSuppliersUpdated?.(loadedSuppliers);
@@ -581,12 +664,27 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     setIsEditingSupplier(false);
   };
 
+  // 공급사 정산일 즉시 변경 핸들러 (상세 헤더에서 원클릭 변경 지원)
+  const handleQuickChangeSettlementDay = (supplierId: string, newDay: number) => {
+    const validDay = Math.min(31, Math.max(1, Number(newDay) || 25));
+    const updatedList = suppliers.map(s => (s.id === supplierId ? { ...s, settlementDay: validDay } : s));
+    setSuppliers(updatedList);
+    saveSuppliersToStorage(updatedList);
+    onSuppliersUpdated?.(updatedList);
+    syncSuppliersToSheetSilent(updatedList);
+  };
+
   // 공급사 저장
   const handleSaveSupplier = () => {
     if (!supplierForm.name?.trim()) {
       alert('공급사명을 입력해주세요.');
       return;
     }
+
+    const trimmedName = supplierForm.name.trim();
+    const rawDay = Number(supplierForm.settlementDay);
+    const resolvedDay =
+      rawDay >= 1 && rawDay <= 31 ? rawDay : getDefaultSupplierSettlementDay(trimmedName);
 
     let updatedList: SupplierItem[];
     if (isEditingSupplier && selectedSupplierId) {
@@ -596,7 +694,8 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
           return {
             ...s,
             ...supplierForm,
-            name: supplierForm.name!.trim(),
+            name: trimmedName,
+            settlementDay: resolvedDay,
             products: s.products || []
           } as SupplierItem;
         }
@@ -606,7 +705,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
       // 신규 추가
       const newSupplier: SupplierItem = {
         id: `supp-${Date.now()}`,
-        name: supplierForm.name.trim(),
+        name: trimmedName,
         businessNo: supplierForm.businessNo || '',
         ceoName: supplierForm.ceoName || '',
         managerName: supplierForm.managerName || '',
@@ -615,7 +714,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
         bankName: supplierForm.bankName || '',
         accountNumber: supplierForm.accountNumber || '',
         accountHolder: supplierForm.accountHolder || '',
-        settlementDay: supplierForm.settlementDay || 31,
+        settlementDay: resolvedDay,
         memo: supplierForm.memo || '',
         isActive: true,
         createdAt: new Date().toISOString().slice(0, 10),
@@ -628,6 +727,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     setSuppliers(updatedList);
     saveSuppliersToStorage(updatedList);
     onSuppliersUpdated?.(updatedList);
+    syncSuppliersToSheetSilent(updatedList);
     setIsEditingSupplier(false);
   };
 
@@ -1085,7 +1185,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                     bankName: '',
                     accountNumber: '',
                     accountHolder: '',
-                    settlementDay: 31,
+                    settlementDay: 25,
                     memo: '',
                     isActive: true
                   });
@@ -1113,6 +1213,7 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
               ) : (
                 filteredSuppliers.map((s) => {
                   const isSelected = s.id === selectedSupplierId && !isEditingSupplier;
+                  const sDay = s.settlementDay || getDefaultSupplierSettlementDay(s.name);
                   return (
                     <div
                       key={s.id}
@@ -1123,14 +1224,23 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                           : 'bg-white border-slate-200/70 hover:bg-slate-50'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-1">
                         <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5 truncate">
                           <span className={`w-2 h-2 rounded-full shrink-0 ${s.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                           <span className="truncate">{s.name}</span>
                         </div>
-                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 shrink-0 ml-1">
-                          제품 {s.products?.length || 0}종
-                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${
+                            sDay === 25
+                              ? 'bg-indigo-50 text-indigo-700 border-indigo-200/70'
+                              : 'bg-amber-50 text-amber-700 border-amber-200/70'
+                          }`}>
+                            {sDay}일
+                          </span>
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
+                            제품 {s.products?.length || 0}종
+                          </span>
+                        </div>
                       </div>
                       <div className="mt-1.5 text-xs text-slate-500 space-y-0.5">
                         {s.managerName && (
@@ -1273,6 +1383,53 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:ring-2 focus:ring-indigo-100 outline-none"
                     />
                   </div>
+                  <div className="sm:col-span-2 lg:col-span-3 bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Calendar size={15} className="text-indigo-600 shrink-0" />
+                      <span className="font-bold text-slate-800">정산 지급일 (매월)</span>
+                      <span className="text-[11px] text-slate-500">
+                        * 공급사 대금/수수료 정산 기준일 (기본 25일, 말일 정산 시 31일)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {[10, 15, 25, 31].map((dayOption) => {
+                        const curDay = Number(supplierForm.settlementDay) || getDefaultSupplierSettlementDay(supplierForm.name);
+                        const isSelectedDay = curDay === dayOption;
+                        return (
+                          <button
+                            key={dayOption}
+                            type="button"
+                            onClick={() => setSupplierForm({ ...supplierForm, settlementDay: dayOption })}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                              isSelectedDay
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            {dayOption === 31 ? '말일 (31일)' : `매월 ${dayOption}일`}
+                          </button>
+                        );
+                      })}
+                      <div className="flex items-center gap-1 ml-1 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+                        <span className="text-[11px] text-slate-500 font-semibold">직접입력:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={31}
+                          value={supplierForm.settlementDay ?? getDefaultSupplierSettlementDay(supplierForm.name)}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            setSupplierForm({
+                              ...supplierForm,
+                              settlementDay: isNaN(val) ? 25 : Math.min(31, Math.max(1, val))
+                            });
+                          }}
+                          className="w-12 text-right font-bold text-indigo-700 outline-none text-xs"
+                        />
+                        <span className="text-xs font-bold text-slate-600">일</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div>
@@ -1309,14 +1466,28 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-x-5 gap-y-1 mt-2 text-xs text-slate-600">
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mt-2 text-xs text-slate-600">
                       {activeSupplier.managerName && (
                         <span>담당자: <strong className="text-slate-800">{activeSupplier.managerName}</strong> ({activeSupplier.managerPhone || '-'})</span>
                       )}
                       {activeSupplier.bankName && (
                         <span>정산계좌: <strong className="font-mono text-slate-800">{activeSupplier.bankName} {activeSupplier.accountNumber}</strong> ({activeSupplier.accountHolder})</span>
                       )}
-                      <span>정산일: <strong>매월 {activeSupplier.settlementDay || 31}일</strong></span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span>정산일:</span>
+                        <select
+                          value={activeSupplier.settlementDay || getDefaultSupplierSettlementDay(activeSupplier.name)}
+                          onChange={(e) => handleQuickChangeSettlementDay(activeSupplier.id, parseInt(e.target.value, 10))}
+                          className="px-2 py-0.5 bg-indigo-50 hover:bg-indigo-100/80 text-indigo-800 font-extrabold rounded-lg border border-indigo-200 outline-none focus:ring-2 focus:ring-indigo-300 cursor-pointer text-xs transition-colors"
+                          title="클릭하여 정산 지급일을 즉시 변경할 수 있습니다"
+                        >
+                          {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                            <option key={d} value={d}>
+                              매월 {d}일{d === 31 ? ' (말일)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </span>
                     </div>
                     {activeSupplier.memo && (
                       <p className="text-xs text-slate-400 mt-1.5 italic truncate">메모: {activeSupplier.memo}</p>
@@ -1326,7 +1497,10 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => {
-                        setSupplierForm({ ...activeSupplier });
+                        setSupplierForm({
+                          ...activeSupplier,
+                          settlementDay: activeSupplier.settlementDay || getDefaultSupplierSettlementDay(activeSupplier.name)
+                        });
                         setIsEditingSupplier(true);
                       }}
                       className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap"

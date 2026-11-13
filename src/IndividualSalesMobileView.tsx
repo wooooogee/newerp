@@ -62,6 +62,82 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
   // 모바일 계약 상세 전체보기 모달 상태
   const [selectedDetailItem, setSelectedDetailItem] = useState<any | null>(null);
+  const [copyToast, setCopyToast] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const copyTextToClipboard = (text: string, toastMsg: string, key?: string) => {
+    const clean = String(text || '').trim();
+    if (!clean || clean === '-') return;
+
+    const onSuccess = () => {
+      setCopyToast(toastMsg);
+      if (key) setCopiedKey(key);
+      setTimeout(() => {
+        setCopyToast(prev => (prev === toastMsg ? null : prev));
+        if (key) setCopiedKey(prev => (prev === key ? null : prev));
+      }, 2000);
+    };
+
+    const fallbackCopy = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = clean;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        onSuccess();
+      } catch (err) {
+        console.error('Copy failed:', err);
+      }
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(clean).then(onSuccess).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
+    }
+  };
+
+  const getMemberNosForMobileItem = (item: any): string[] => {
+    if (!item) return [];
+    const rNo = String(item.rentalNo || '').trim();
+    if (rNo && rNo !== '-') {
+      const matched = data
+        .filter(d => String(d.rentalNo || '').trim() === rNo && d.memNo && d.memNo !== '-')
+        .map(d => String(d.memNo).trim());
+      const unique = Array.from(new Set(matched));
+      if (unique.length > 0) return unique;
+    }
+    return item.memNo && item.memNo !== '-' ? [String(item.memNo).trim()] : [];
+  };
+
+  const handleCopyMobileMemberInfo = (e: React.MouseEvent | undefined, item: any, key?: string) => {
+    if (e) e.stopPropagation();
+    if (!item) return;
+    const orgInfo = [item.hq || item.hqName, item.branch || item.branchName, item.empName]
+      .filter(Boolean)
+      .join(' ');
+    const memNos = getMemberNosForMobileItem(item);
+    const lines = [
+      `계약일자 - ${formatDate(item.contractDate) || ''}`,
+      memNos.length > 0 ? `회원번호 - ${memNos.join(', ')}` : '',
+      `렌탈계약번호 - ${item.rentalNo || ''}`,
+      `회원명 - ${item.memName || ''}`,
+      item.phone && item.phone !== '-' ? `연락처 - ${item.phone}` : '',
+      `상품명 - ${item.prodName || ''}`,
+      item.rentalProd || '',
+      orgInfo
+    ].filter(line => line.trim() !== '');
+
+    copyTextToClipboard(
+      lines.join('\n'),
+      `${item.memName || '회원'}님의 회원정보가 복사되었습니다.`,
+      key || `info-${item.uniqueKey || item.rentalNo || item.memNo}`
+    );
+  };
 
   // 요약 보고서 계약월별 상세 펼침 상태
   const [expandedReportMonth, setExpandedReportMonth] = useState<string | null>(null);
@@ -961,6 +1037,21 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
 
   return (
     <div className="flex flex-col h-screen bg-slate-100 text-slate-900 font-sans overflow-hidden max-w-md mx-auto shadow-2xl relative border-x border-slate-200">
+      {/* 복사 완료 토스트 배너 */}
+      <AnimatePresence>
+        {copyToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-[200] bg-slate-900/95 text-white px-4 py-2 rounded-full shadow-lg text-xs font-bold flex items-center gap-1.5 border border-slate-700 pointer-events-none whitespace-nowrap"
+          >
+            <Check size={14} className="text-emerald-400 shrink-0" />
+            <span>{copyToast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="h-14 bg-white border-b border-slate-200 px-4 flex justify-between items-center z-50 shrink-0 shadow-sm">
         <div className="flex items-center gap-2">
@@ -1428,7 +1519,7 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                         transition={{ duration: 0.2 }}
                         className="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-2.5"
                       >
-                        {/* Card Title Line: 고객명 / 가입상태 / 렌탈번호 / 배송상태 */}
+                        {/* Card Title Line: 고객명 / 가입상태 / 렌탈번호 / 회원정보복사 / 배송상태 */}
                         <div 
                           onClick={() => setSelectedDetailItem(item)}
                           className="flex items-center justify-between gap-2 cursor-pointer select-none active:opacity-80 transition-opacity"
@@ -1440,15 +1531,35 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
                               {item.status || '가입'}
                             </span>
                             {item.rentalNo ? (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0" title="렌탈번호">
-                                {item.rentalNo}
-                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyTextToClipboard(String(item.rentalNo), '렌탈번호', `rental-${item.id || idx}`);
+                                }}
+                                className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0 flex items-center gap-1 active:scale-95 transition-transform"
+                                title="클릭하여 렌탈번호 복사"
+                              >
+                                <span>{item.rentalNo}</span>
+                                {copiedKey === `rental-${item.id || idx}` ? <Check size={10} className="text-emerald-600" /> : <Copy size={10} className="opacity-70" />}
+                              </button>
                             ) : null}
                           </div>
 
-                          <span className={`text-[10px] px-2.5 py-0.5 rounded font-semibold border shrink-0 ${getDeliveryBadgeClass(item.deliveryStatus)}`}>
-                            {item.deliveryStatus || '배송대기'}
-                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopyMobileMemberInfo(e, item, `card-${item.id || idx}`)}
+                              className="text-[10px] px-2 py-0.5 rounded font-bold bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 flex items-center gap-1 active:scale-95 transition-all"
+                              title="회원정보 복사"
+                            >
+                              {copiedKey === `card-${item.id || idx}` ? <Check size={10} className="text-emerald-600" /> : <Copy size={10} className="text-blue-600" />}
+                              <span>정보복사</span>
+                            </button>
+                            <span className={`text-[10px] px-2.5 py-0.5 rounded font-semibold border shrink-0 ${getDeliveryBadgeClass(item.deliveryStatus)}`}>
+                              {item.deliveryStatus || '배송대기'}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Card Body Details: 각 항목 클릭 시 전체보기 상태창 열림 */}
@@ -2125,28 +2236,64 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
             >
               {/* Modal Header */}
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
                     <FileText size={18} />
                   </div>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                      {selectedDetailItem.memName || '고객 정보'}
+                  <div className="min-w-0">
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 flex-wrap">
+                      <span>{selectedDetailItem.memName || '고객 정보'}</span>
                       <span className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${getStatusBadgeClass(selectedDetailItem.status)}`}>
                         {selectedDetailItem.status || '가입'}
                       </span>
                     </h3>
-                    <p className="text-xs text-slate-500">
-                      렌탈번호: {selectedDetailItem.rentalNo || '-'}
-                    </p>
+                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                      {getMemberNosForMobileItem(selectedDetailItem).length > 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const allMemNos = getMemberNosForMobileItem(selectedDetailItem);
+                            copyTextToClipboard(allMemNos.join('\n'), `회원번호 복사 완료: ${allMemNos.join(', ')}`, 'modal-memno');
+                          }}
+                          className="text-[11px] text-blue-600 font-bold flex items-center gap-1 hover:underline active:scale-95 text-left"
+                        >
+                          <span>회원번호: {getMemberNosForMobileItem(selectedDetailItem).join(', ')}</span>
+                          {copiedKey === 'modal-memno' ? <Check size={11} className="text-emerald-600 shrink-0" /> : <Copy size={11} className="shrink-0" />}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (selectedDetailItem.rentalNo) {
+                            copyTextToClipboard(String(selectedDetailItem.rentalNo), `렌탈번호 복사 완료: ${selectedDetailItem.rentalNo}`, 'modal-rentalno');
+                          }
+                        }}
+                        className="text-[11px] text-slate-600 font-semibold flex items-center gap-1 hover:text-indigo-600 active:scale-95"
+                      >
+                        <span>렌탈번호: {selectedDetailItem.rentalNo || '-'}</span>
+                        {selectedDetailItem.rentalNo && (copiedKey === 'modal-rentalno' ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />)}
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => setSelectedDetailItem(null)}
-                  className="w-8 h-8 rounded-full bg-slate-200/70 hover:bg-slate-300 text-slate-600 flex items-center justify-center transition-colors"
-                >
-                  <X size={16} />
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopyMobileMemberInfo(e, selectedDetailItem, 'modal-all')}
+                    className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold text-[11px] flex items-center gap-1 transition-all active:scale-95"
+                  >
+                    {copiedKey === 'modal-all' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                    <span>회원정보 복사</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedDetailItem(null)}
+                    className="w-8 h-8 rounded-full bg-slate-200/70 hover:bg-slate-300 text-slate-600 flex items-center justify-center transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
 
               {/* Modal Body */}
@@ -2239,10 +2386,18 @@ export const IndividualSalesMobileView: React.FC<IndividualSalesMobileViewProps>
               </div>
 
               {/* Modal Footer */}
-              <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <div className="p-3 bg-slate-50 border-t border-slate-200 flex gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => handleCopyMobileMemberInfo(e, selectedDetailItem, 'modal-footer')}
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-[0.98]"
+                >
+                  {copiedKey === 'modal-footer' ? <Check size={14} /> : <Copy size={14} />}
+                  <span>회원정보 전체 복사</span>
+                </button>
                 <button
                   onClick={() => setSelectedDetailItem(null)}
-                  className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs transition-colors"
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs transition-colors"
                 >
                   닫기
                 </button>

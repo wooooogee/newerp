@@ -1325,7 +1325,7 @@ const ERP_Dashboard = () => {
   const [topDashboardMonth, setTopDashboardMonth] = useState<string>(new Date().toISOString().substring(0, 7));
   const [contractMonthFilter, setContractMonthFilter] = useState<string>('전체');
   const [topDashboardMode, setTopDashboardMode] = useState<'구좌수' | '상품개수'>('상품개수');
-  const [tableDisplayMode, setTableDisplayMode] = useState<'구좌수' | '상품개수'>('구좌수');
+  const [tableDisplayMode, setTableDisplayMode] = useState<'구좌수' | '상품개수'>('상품개수');
   const [pcViewMode, setPcViewMode] = useState<'contracts' | 'settlement'>('contracts');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -1556,6 +1556,31 @@ const ERP_Dashboard = () => {
     const doSuccess = () => {
       setIsCopiedRentalNo(true);
       setTimeout(() => setIsCopiedRentalNo(false), 2000);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(doSuccess).catch(() => {
+        fallbackCopyText(text, doSuccess);
+      });
+    } else {
+      fallbackCopyText(text, doSuccess);
+    }
+  };
+
+  // 첫화면 테이블에서 회원번호/렌탈번호 원클릭 복사 헬퍼
+  const handleQuickCopyCellText = (e: React.MouseEvent, rawVal: string | undefined, label: string) => {
+    e.stopPropagation();
+    const text = String(rawVal || '').trim();
+    if (!text || text === '-') return;
+
+    const preview = text.includes('\n') ? text.split('\n').join(', ') : text;
+    const msg = `${label} 복사 완료: ${preview}`;
+
+    const doSuccess = () => {
+      setNotification({ message: msg, type: 'success' });
+      setTimeout(() => {
+        setNotification(prev => (prev?.message === msg ? null : prev));
+      }, 2000);
     };
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -8217,16 +8242,23 @@ const ERP_Dashboard = () => {
   }, [data, isHQStaff, userHqNames]);
 
   const uniqueBranches = React.useMemo(() => {
-    let filtered = hqFilter.length === 0 || hqFilter.includes('전체')
-      ? data
-      : data.filter(item => hqFilter.includes(item.hq));
-    
-    const rawBranches = Array.from(new Set(filtered.map(item => item.branch).filter(Boolean)));
     if (isBranchStaff && userBranchNames.length > 0) {
+      let filtered = hqFilter.length === 0 || hqFilter.includes('전체')
+        ? data
+        : data.filter(item => hqFilter.includes(item.hq));
+      const rawBranches = Array.from(new Set(filtered.map(item => item.branch).filter(Boolean)));
       const normalize = (s: string) => (s || '').replace(/[\s()지사지점]/g, '');
       const matched = rawBranches.filter(b => userBranchNames.includes(normalize(String(b))));
       return ['전체', ...matched];
     }
+
+    // 본부를 선택했을 때만 해당 본부의 지사 리스트 노출
+    if (hqFilter.length === 0 || hqFilter.includes('전체')) {
+      return ['전체'];
+    }
+
+    const filtered = data.filter(item => hqFilter.includes(item.hq));
+    const rawBranches = Array.from(new Set(filtered.map(item => item.branch).filter(Boolean))).sort();
     return ['전체', ...rawBranches];
   }, [data, hqFilter, isBranchStaff, userBranchNames]);
 
@@ -8235,12 +8267,14 @@ const ERP_Dashboard = () => {
   }, [data]);
 
   const uniqueEmpNames = React.useMemo(() => {
-    let filtered = data;
+    // 지사를 선택했을 때만 해당 지사의 영업사원 리스트 노출
+    if (branchFilter.length === 0 || branchFilter.includes('전체')) {
+      return ['전체'];
+    }
+
+    let filtered = data.filter(item => branchFilter.includes(item.branch));
     if (hqFilter.length > 0 && !hqFilter.includes('전체')) {
       filtered = filtered.filter(item => hqFilter.includes(item.hq));
-    }
-    if (branchFilter.length > 0 && !branchFilter.includes('전체')) {
-      filtered = filtered.filter(item => branchFilter.includes(item.branch));
     }
     const names = Array.from(new Set(filtered.map(item => String(item.empName || item.salesperson || '')).filter(Boolean))).sort();
     return ['전체', ...names];
@@ -10197,25 +10231,73 @@ const ERP_Dashboard = () => {
                     label="상품" 
                     options={uniqueProducts.filter(p => p !== '전체')} 
                     selectedOptions={productFilter} 
-                    onChange={setProductFilter} 
+                    onChange={setProductFilter}
+                    searchable={true}
+                    searchPlaceholder="상품명 검색..."
                   />
                   <MultiSelectDropdown 
                     label="본부" 
                     options={uniqueHqs.filter(h => h !== '전체')} 
                     selectedOptions={hqFilter} 
-                    onChange={setHqFilter} 
+                    onChange={(newHqs) => {
+                      setHqFilter(newHqs);
+                      if (newHqs.length === 0) {
+                        setBranchFilter([]);
+                        setEmpNameFilter([]);
+                      } else {
+                        const validBranches = new Set(
+                          data.filter(item => newHqs.includes(item.hq)).map(item => item.branch).filter(Boolean)
+                        );
+                        setBranchFilter(prev => {
+                          const nextBranches = prev.filter(b => validBranches.has(b));
+                          if (nextBranches.length === 0) {
+                            setEmpNameFilter([]);
+                          } else {
+                            const validEmps = new Set(
+                              data
+                                .filter(item => newHqs.includes(item.hq) && nextBranches.includes(item.branch))
+                                .map(item => String(item.empName || item.salesperson || ''))
+                                .filter(Boolean)
+                            );
+                            setEmpNameFilter(prevEmps => prevEmps.filter(e => validEmps.has(e)));
+                          }
+                          return nextBranches;
+                        });
+                      }
+                    }}
+                    searchable={true}
+                    searchPlaceholder="본부명 검색..."
                   />
                   <MultiSelectDropdown 
                     label="지사" 
                     options={uniqueBranches.filter(b => b !== '전체')} 
                     selectedOptions={branchFilter} 
-                    onChange={setBranchFilter} 
+                    onChange={(newBranches) => {
+                      setBranchFilter(newBranches);
+                      if (newBranches.length === 0) {
+                        setEmpNameFilter([]);
+                      } else {
+                        const validEmps = new Set(
+                          data
+                            .filter(item => (hqFilter.length === 0 || hqFilter.includes(item.hq)) && newBranches.includes(item.branch))
+                            .map(item => String(item.empName || item.salesperson || ''))
+                            .filter(Boolean)
+                        );
+                        setEmpNameFilter(prevEmps => prevEmps.filter(e => validEmps.has(e)));
+                      }
+                    }}
+                    searchable={true}
+                    searchPlaceholder="지사명 검색..."
+                    emptyMessage="본부를 먼저 선택해주세요"
                   />
                   <MultiSelectDropdown 
                     label="영업사원" 
                     options={uniqueEmpNames.filter(e => e !== '전체')} 
                     selectedOptions={empNameFilter} 
-                    onChange={setEmpNameFilter} 
+                    onChange={setEmpNameFilter}
+                    searchable={true}
+                    searchPlaceholder="영업사원명 검색..."
+                    emptyMessage="지사를 먼저 선택해주세요"
                   />
 
                   <TableSearchInput searchTerm={searchTerm} onSearch={setSearchTerm} />
@@ -10287,6 +10369,9 @@ const ERP_Dashboard = () => {
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원번호</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">회원명</th>
                     <th className="px-3 py-3 font-bold text-center border-r border-slate-700">상품명</th>
+                    {pcViewMode === 'contracts' && (
+                      <th className="px-3 py-3 font-bold text-center border-r border-slate-700">제품명</th>
+                    )}
                     {pcViewMode === 'settlement' && showCommissionInfo && (
                       <th className="px-3 py-3 font-bold text-center border-r border-slate-700 leading-tight whitespace-nowrap">
                         전체수수료<br/>
@@ -10369,7 +10454,17 @@ const ERP_Dashboard = () => {
                               </span>
                             )}
                           </td>
-                          <td className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold whitespace-nowrap">
+                          <td
+                            onClick={(e) => {
+                              const cellText =
+                                tableDisplayMode === '상품개수' && item.rentalNo
+                                  ? getMemberNosForRental(item.rentalNo, item.memNo).join('\n')
+                                  : item.memNo;
+                              handleQuickCopyCellText(e, cellText, '회원번호');
+                            }}
+                            title="클릭하여 회원번호 일괄 복사"
+                            className="px-3 py-3.5 text-center border-r border-slate-50 text-blue-600 font-bold whitespace-nowrap cursor-pointer hover:bg-blue-50/80 active:bg-blue-100/80 transition-colors select-none"
+                          >
                             {tableDisplayMode === '상품개수' && item.rentalNo ? (
                               <div className="flex flex-col justify-center items-center gap-0.5 leading-tight">
                                 {getMemberNosForRental(item.rentalNo, item.memNo).map((mNo, mIdx) => (
@@ -10377,15 +10472,39 @@ const ERP_Dashboard = () => {
                                 ))}
                               </div>
                             ) : (
-                              item.memNo
+                              <span>{item.memNo}</span>
                             )}
                           </td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-black text-slate-900">{item.memName}</td>
                           <td className="px-3 py-3.5 border-r border-slate-50 font-bold text-slate-600 truncate max-w-[150px]" title={item.prodName}>{item.prodName}</td>
+                          {pcViewMode === 'contracts' && (
+                            <td
+                              className="px-3 py-2.5 border-r border-slate-50 font-semibold text-slate-700 max-w-[260px] min-w-[180px]"
+                              title={item.rentalProd || '-'}
+                            >
+                              <div className="line-clamp-2 break-words whitespace-normal leading-snug text-[11.5px]">
+                                {item.rentalProd || '-'}
+                              </div>
+                            </td>
+                          )}
                           {pcViewMode === 'settlement' && showCommissionInfo && (
                             <td className="px-3 py-3.5 border-r border-slate-50 text-right font-black text-slate-700 bg-amber-50/10 whitespace-nowrap">{Math.floor(totalCommission).toLocaleString()}원</td>
                           )}
-                          <td className="px-3 py-3.5 text-center border-r border-slate-50 text-slate-500">{item.rentalNo}</td>
+                          <td
+                            onClick={(e) => {
+                              if (item.rentalNo && item.rentalNo !== '-') {
+                                handleQuickCopyCellText(e, item.rentalNo, '렌탈번호');
+                              }
+                            }}
+                            title={item.rentalNo && item.rentalNo !== '-' ? '클릭하여 렌탈번호 복사' : undefined}
+                            className={`px-3 py-3.5 text-center border-r border-slate-50 text-slate-600 font-semibold ${
+                              item.rentalNo && item.rentalNo !== '-'
+                                ? 'cursor-pointer hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200/80 transition-colors select-none'
+                                : ''
+                            }`}
+                          >
+                            {item.rentalNo || '-'}
+                          </td>
                         <td className="px-3 py-3.5 border-r border-slate-50 text-center whitespace-nowrap">
                           <span className={`px-2 py-1 rounded-md text-[10px] font-black border ${(item.deliveryStatus || '').includes('완료') ? 'bg-blue-50 text-blue-600 border-blue-100' :
                             (item.deliveryStatus || '').includes('취소') ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-orange-50 text-orange-600 border-orange-100'

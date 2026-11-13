@@ -6,7 +6,7 @@ import {
   Tag, Info, Layers, Receipt, Coins, FileText, TrendingUp, FileCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { SupplierItem, SupplierProductSetting, loadSuppliersFromStorage } from './SupplierManagementModal';
+import { SupplierItem, SupplierProductSetting, loadSuppliersFromStorage, getDefaultSupplierSettlementDay } from './SupplierManagementModal';
 import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo, getNextMonthStr, mergeManualOrderStores, isManualTargetProduct } from './manualOrderUtils';
 import { 
   CommissionSettlementDetailModal, 
@@ -550,7 +550,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
       const finalCertStatus: '등록' | '미등록' = isCertRegistered ? '등록' : '미등록';
 
       // 6. 공급사 정산일 및 지급일자/지급월 계산
-      const sDay = matchedSupplier.settlementDay || 31;
+      const sDay = matchedSupplier.settlementDay || getDefaultSupplierSettlementDay(matchedSupplier.name);
       let pMonth = '';
       let pDate = '';
 
@@ -696,7 +696,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
         bankName: s.bankName || '-',
         accountNumber: s.accountNumber || '-',
         accountHolder: s.accountHolder || '-',
-        settlementDay: s.settlementDay || 31,
+        settlementDay: s.settlementDay || getDefaultSupplierSettlementDay(s.name),
         productCount: 0,
         certRegisteredCount: 0,
         certUnregisteredCount: 0,
@@ -719,7 +719,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
             bankName: '-',
             accountNumber: '-',
             accountHolder: '-',
-            settlementDay: 31,
+            settlementDay: getDefaultSupplierSettlementDay(item.matchedSupplierName),
             productCount: 0,
             certRegisteredCount: 0,
             certUnregisteredCount: 0,
@@ -747,7 +747,7 @@ export const SupplierSettlementModal: React.FC<SupplierSettlementModalProps> = (
             bankName: '-',
             accountNumber: '-',
             accountHolder: '-',
-            settlementDay: 31,
+            settlementDay: getDefaultSupplierSettlementDay(item.matchedSupplierName),
             productCount: 0,
             certRegisteredCount: 0,
             certUnregisteredCount: 0,

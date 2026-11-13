@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChangePasswordModal } from './ChangePasswordModal';
-import { loadSuppliersFromStorage, SupplierItem } from './SupplierManagementModal';
+import { loadSuppliersFromStorage, SupplierItem, getDefaultSupplierSettlementDay } from './SupplierManagementModal';
 import { checkInstallCertEligibility, getManualOrderInfo, ManualOrderInfo, mergeManualOrderStores, isSupplyCommissionRule } from './manualOrderUtils';
 import { isHqMatchedForSpecialRule, isItemBasedSpecialRule } from './App';
 
@@ -790,7 +790,7 @@ export const CeoDashboardMobileView: React.FC<CeoDashboardMobileViewProps> = ({
         accounts: 0,
         totalSupplyPrice: 0,
         totalCommission: 0,
-        settlementDay: s.settlementDay || 31
+        settlementDay: s.settlementDay || getDefaultSupplierSettlementDay(s.name)
       });
     });
 

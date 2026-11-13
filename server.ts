@@ -7956,9 +7956,12 @@ app.get('/api/sheets/suppliers/load', async (req, res) => {
         }
       }
 
+      const suppName = String(r[nameCol] || '');
+      const defaultSettlementDay = suppName.includes('케이엘제이') ? 31 : 25;
+
       return {
         id: String(r[idCol] || `supp-${Date.now()}`),
-        name: String(r[nameCol] || ''),
+        name: suppName,
         businessNo: String(r[bNoCol] || ''),
         ceoName: String(r[ceoCol] || ''),
         managerName: String(r[mgrCol] || ''),
@@ -7967,7 +7970,7 @@ app.get('/api/sheets/suppliers/load', async (req, res) => {
         bankName: String(r[bankCol] || ''),
         accountNumber: String(r[accCol] || ''),
         accountHolder: String(r[holderCol] || ''),
-        settlementDay: parseInt(String(r[dayCol])) || 31,
+        settlementDay: parseInt(String(r[dayCol])) || defaultSettlementDay,
         isActive: r[activeCol] === undefined || r[activeCol] === '' || r[activeCol] === 'Y' || r[activeCol] === true,
         memo: String(r[memoCol] || ''),
         createdAt: new Date().toISOString().slice(0, 10),
@@ -8038,7 +8041,7 @@ app.post('/api/sheets/suppliers/save', async (req, res) => {
         s.bankName || '',
         s.accountNumber || '',
         s.accountHolder || '',
-        s.settlementDay || 31,
+        s.settlementDay || (String(s.name || '').includes('케이엘제이') ? 31 : 25),
         s.isActive !== false ? 'Y' : 'N',
         s.memo || '',
         JSON.stringify(s.products || [])
