@@ -3061,15 +3061,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
       const alreadyAddedHqs = new Set<string>();
 
-      // 본부 자체 영업/유지 실적이 있는 항목을 먼저 처리하여, 2단계 분배(예: 더금융비상 -> 방혜지, 정세환) 수령인이 등록된 후 특수수당 단독 항목의 중복 추가를 원천 차단
-      const sortedStatsForPayout = [...effectiveHqMonthlyStats].sort((a, b) => {
-        const aHasSales = ((a.items?.length || 0) + (a.maintenanceItems?.length || 0)) > 0 ? 0 : 1;
-        const bHasSales = ((b.items?.length || 0) + (b.maintenanceItems?.length || 0)) > 0 ? 0 : 1;
-        return aHasSales - bHasSales;
-      });
-
       // A) effectiveHqMonthlyStats 순회
-      sortedStatsForPayout.forEach(stat => {
+      effectiveHqMonthlyStats.forEach(stat => {
         const hqName = (stat.hqName || '').trim();
         if (!hqName) return;
         if (!canIncludeVendor(hqName)) return;
@@ -3196,9 +3189,6 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           });
 
           Array.from(pMap.values()).forEach(p => {
-            const normPerson = (p.name || '').replace(/[\s()주식회사]/g, '').toLowerCase();
-            if (normPerson) alreadyAddedHqs.add(normPerson);
-
             const gross = p.salesFee + p.branchFee;
             const tax = Math.floor(gross * 0.033);
             const net = gross - tax;
@@ -3223,8 +3213,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             });
           });
         } else {
-          // [케이스 2: 계좌번호만 등록되어 특별수당으로 정산되는 본부 또는 일반 사업자 본부]
+          // [케이스 2: 계좌번호만 등록되어 특별수당/특수수당으로 정산되는 대상 또는 일반 사업자 본부]
           const acc = getPayoutAccountInfo(hqName);
+          const isPureSpecial = (stat.specialSum || 0) > 0 && (stat.generalSum || 0) === 0 && (stat.maintenanceSum || 0) === 0;
           const applyTax = isPersonal || acc.settlementType.includes('개인');
           const tax = applyTax ? Math.round(totalCommission * 0.033) : 0;
           const net = totalCommission - tax;
@@ -3232,10 +3223,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           const finalBankName = (matchedHqSetting?.bankName && matchedHqSetting.bankName !== '-') ? matchedHqSetting.bankName : acc.bankName;
           const finalAccNum = (matchedHqSetting?.accountNumber && matchedHqSetting.accountNumber !== '-') ? matchedHqSetting.accountNumber : acc.accountNumber;
           const finalAccHolder = (matchedHqSetting?.accountHolder && matchedHqSetting.accountHolder !== '-') ? matchedHqSetting.accountHolder : acc.accountHolder;
+          const firstSpName = (stat.specialItems?.[0]?.incentiveName || '특수수당').trim();
 
           payoutList.push({
             targetName: hqName,
-            divisionType: isPersonal ? `${hqName} (특별수당)` : '사업단/본부',
+            divisionType: isPureSpecial ? '특수수당' : (isPersonal ? `${hqName} (특별수당)` : '사업단/본부'),
             settlementType: isPersonal ? '개인' : (acc.settlementType || '사업자'),
             count: totalCount,
             totalComm: totalCommission,
@@ -3244,7 +3236,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             bankName: finalBankName !== '-' ? finalBankName : '-',
             accountNumber: finalAccNum !== '-' ? finalAccNum : '-',
             accountHolder: finalAccHolder !== '-' ? finalAccHolder : hqName,
-            note: isPersonal ? `${hqName} 특별수당 (3.3% 원천징수)` : `${hqName} 본부 정산`
+            note: isPureSpecial
+              ? `${hqName} ${firstSpName} (특수수당)`
+              : (isPersonal ? `${hqName} 특별수당 (3.3% 원천징수)` : `${hqName} 본부 정산`)
           });
         }
       });
@@ -3357,9 +3351,6 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           });
 
           Array.from(pMap.values()).forEach(p => {
-            const normPerson = (p.name || '').replace(/[\s()주식회사]/g, '').toLowerCase();
-            if (normPerson) alreadyAddedHqs.add(normPerson);
-
             const gross = p.salesFee + p.branchFee;
             const tax = Math.floor(gross * 0.033);
             const net = gross - tax;
@@ -3384,8 +3375,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             });
           });
         } else {
-          // [케이스 2: 계좌번호만 등록되어 특별수당으로 정산되는 본부 또는 일반 사업자 본부]
+          // [케이스 2: 계좌번호만 등록되어 특별수당/특수수당으로 정산되는 본부 또는 일반 사업자 본부]
           const acc = getPayoutAccountInfo(target);
+          const isPureSpecial = String(row.id || '').startsWith('auto_special_dyn_') || String(row.itemName || '').includes('컨설팅');
           const applyTax = isPersonal || acc.settlementType.includes('개인');
           const tax = applyTax ? Math.round(totalComm * 0.033) : 0;
           const net = totalComm - tax;
@@ -3396,7 +3388,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
           payoutList.push({
             targetName: target,
-            divisionType: isPersonal ? `${target} (특별수당)` : '사업단/본부',
+            divisionType: isPureSpecial ? '특수수당' : (isPersonal ? `${target} (특별수당)` : '사업단/본부'),
             settlementType: isPersonal ? '개인' : (acc.settlementType || '사업자'),
             count,
             totalComm,
@@ -3405,7 +3397,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             bankName: finalBankName !== '-' ? finalBankName : '-',
             accountNumber: finalAccNum !== '-' ? finalAccNum : '-',
             accountHolder: finalAccHolder !== '-' ? finalAccHolder : target,
-            note: isPersonal ? `${target} 특별수당 (3.3% 원천징수)` : `${target} 정산`
+            note: isPureSpecial
+              ? `${target} ${row.itemName || '특수수당'}`
+              : (isPersonal ? `${target} 특별수당 (3.3% 원천징수)` : `${target} 정산`)
           });
         }
       });
@@ -3521,29 +3515,16 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         });
       }
 
-      // 최종 안전망: 동일 수령인(괄호 소속 표기 제외 기본 성명/상호 + 동일 계좌 또는 동일 발생수수료) 중복 행 제거
+      // 최종 안전망: 완전히 동일한 지급대상(예: 권성훈/조민경/조재윤 중복)만 제거하고,
+      // "정세환 (더금융비상)"(지점장수당) vs "정세환"(특수수당)처럼 서로 다른 지급 명목은 각각 모두 유지
       const dedupedPayoutList: typeof payoutList = [];
-      const seenBaseTargets = new Map<string, { accDigits: string; totalComm: number }>();
+      const seenTargetKeys = new Set<string>();
       payoutList.forEach(item => {
-        const rawTarget = (item.targetName || '').trim();
-        const isGoodlifeSpecialRow = rawTarget.includes('굿라이프') || rawTarget.includes('신동우');
-        const baseTarget = isGoodlifeSpecialRow
-          ? rawTarget.replace(/\s+/g, '').toLowerCase()
-          : rawTarget.replace(/\([^)]*\)/g, '').replace(/[\s주식회사]/g, '').toLowerCase();
-        const accDigits = (item.accountNumber || '').replace(/\D/g, '');
-
-        if (baseTarget && seenBaseTargets.has(baseTarget)) {
-          const prev = seenBaseTargets.get(baseTarget)!;
-          if (
-            prev.totalComm === item.totalComm ||
-            (accDigits.length >= 6 && prev.accDigits === accDigits)
-          ) {
-            return;
-          }
+        const key = (item.targetName || '').replace(/\s+/g, '').toLowerCase();
+        if (key && seenTargetKeys.has(key)) {
+          return;
         }
-        if (baseTarget) {
-          seenBaseTargets.set(baseTarget, { accDigits, totalComm: item.totalComm });
-        }
+        if (key) seenTargetKeys.add(key);
         dedupedPayoutList.push(item);
       });
       payoutList.length = 0;
