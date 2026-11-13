@@ -3032,13 +3032,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       const handledHqNames = new Set([
         '언바운드컴퍼니', '주식회사 언바운드컴퍼니',
         '꿈잇다', '주식회사 꿈잇다',
-        '굿라이프', '굿라이프(신동우)', '신동우',
+        '굿라이프', '굿라이프(신동우)', '신동우', '에스제이', '에스제이컨설팅',
         '피티엠에스', '주식회사피티엠에스',
         '맥스',
         '해랑인터내셔널', '해랑',
         '위더스앤씨',
         '다이렉트',
-        '더라이프앤'
+        '더라이프앤',
+        '조재윤', '조재은',
+        '조민경',
+        '이종연',
+        '권성훈'
       ]);
 
       // 굿라이프 사업단(꿈잇다 + 신동우) 소속 본부는 위 2/3번에서 이미 집계되므로 중복 합산 방지
@@ -3057,14 +3061,34 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
       const alreadyAddedHqs = new Set<string>();
 
+      // 본부 자체 영업/유지 실적이 있는 항목을 먼저 처리하여, 2단계 분배(예: 더금융비상 -> 방혜지, 정세환) 수령인이 등록된 후 특수수당 단독 항목의 중복 추가를 원천 차단
+      const sortedStatsForPayout = [...effectiveHqMonthlyStats].sort((a, b) => {
+        const aHasSales = ((a.items?.length || 0) + (a.maintenanceItems?.length || 0)) > 0 ? 0 : 1;
+        const bHasSales = ((b.items?.length || 0) + (b.maintenanceItems?.length || 0)) > 0 ? 0 : 1;
+        return aHasSales - bHasSales;
+      });
+
       // A) effectiveHqMonthlyStats 순회
-      effectiveHqMonthlyStats.forEach(stat => {
+      sortedStatsForPayout.forEach(stat => {
         const hqName = (stat.hqName || '').trim();
         if (!hqName) return;
         if (!canIncludeVendor(hqName)) return;
         if (isGoodlifeMemberHq(hqName)) return;
 
         const normHq = hqName.replace(/[\s()주식회사]/g, '').toLowerCase();
+        // 하단 8번/9번 섹션에서 별도 집계되는 외주/특수수당 대상(조재윤, 조민경, 이종연, 권성훈, 신동우 등) 중복 추가 원천 차단
+        if (
+          normHq.includes('조재윤') ||
+          normHq.includes('조재은') ||
+          normHq.includes('조민경') ||
+          normHq.includes('이종연') ||
+          normHq.includes('권성훈') ||
+          normHq.includes('신동우') ||
+          normHq.includes('에스제이')
+        ) {
+          return;
+        }
+
         const isHandled = Array.from(handledHqNames).some(h => {
           const nh = h.replace(/[\s()주식회사]/g, '').toLowerCase();
           return nh === normHq || (nh.length >= 2 && (nh.includes(normHq) || normHq.includes(nh)));
@@ -3172,6 +3196,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           });
 
           Array.from(pMap.values()).forEach(p => {
+            const normPerson = (p.name || '').replace(/[\s()주식회사]/g, '').toLowerCase();
+            if (normPerson) alreadyAddedHqs.add(normPerson);
+
             const gross = p.salesFee + p.branchFee;
             const tax = Math.floor(gross * 0.033);
             const net = gross - tax;
@@ -3330,6 +3357,9 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           });
 
           Array.from(pMap.values()).forEach(p => {
+            const normPerson = (p.name || '').replace(/[\s()주식회사]/g, '').toLowerCase();
+            if (normPerson) alreadyAddedHqs.add(normPerson);
+
             const gross = p.salesFee + p.branchFee;
             const tax = Math.floor(gross * 0.033);
             const net = gross - tax;
@@ -3490,6 +3520,34 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           note: `굿라이프 차액분(${Math.round(goodlifeSplitSummary.totalOverride / 10000).toLocaleString()}만) + 테라웨이브 물품대금수수료(${Math.round(therawaveAmount / 10000).toLocaleString()}만)`
         });
       }
+
+      // 최종 안전망: 동일 수령인(괄호 소속 표기 제외 기본 성명/상호 + 동일 계좌 또는 동일 발생수수료) 중복 행 제거
+      const dedupedPayoutList: typeof payoutList = [];
+      const seenBaseTargets = new Map<string, { accDigits: string; totalComm: number }>();
+      payoutList.forEach(item => {
+        const rawTarget = (item.targetName || '').trim();
+        const isGoodlifeSpecialRow = rawTarget.includes('굿라이프') || rawTarget.includes('신동우');
+        const baseTarget = isGoodlifeSpecialRow
+          ? rawTarget.replace(/\s+/g, '').toLowerCase()
+          : rawTarget.replace(/\([^)]*\)/g, '').replace(/[\s주식회사]/g, '').toLowerCase();
+        const accDigits = (item.accountNumber || '').replace(/\D/g, '');
+
+        if (baseTarget && seenBaseTargets.has(baseTarget)) {
+          const prev = seenBaseTargets.get(baseTarget)!;
+          if (
+            prev.totalComm === item.totalComm ||
+            (accDigits.length >= 6 && prev.accDigits === accDigits)
+          ) {
+            return;
+          }
+        }
+        if (baseTarget) {
+          seenBaseTargets.set(baseTarget, { accDigits, totalComm: item.totalComm });
+        }
+        dedupedPayoutList.push(item);
+      });
+      payoutList.length = 0;
+      payoutList.push(...dedupedPayoutList);
 
       payoutList.forEach((item, pIdx) => {
         const rowNo = pIdx + 5;
