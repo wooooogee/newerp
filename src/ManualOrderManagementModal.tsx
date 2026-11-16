@@ -2369,12 +2369,16 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 <select
                   defaultValue=""
                   onChange={async (e) => {
-                    const action = e.target.value;
+                    const selectEl = e.currentTarget;
+                    const action = selectEl.value;
                     if (!action) return;
                     if (action === 'register_today') {
                       handleBulkInstallCert('등록');
                     } else if (action === 'register_custom') {
-                      const inputMonth = await (window as any).customPrompt?.('마감월을 입력하세요 (예: 2026-10):') || window.prompt('마감월을 입력하세요 (예: 2026-10):', new Date().toISOString().slice(0, 7));
+                      const defaultMonth = new Date().toISOString().slice(0, 7);
+                      const inputMonth = (window as any).customPrompt
+                        ? await (window as any).customPrompt('마감월을 입력하세요 (예: 2026-10):', defaultMonth)
+                        : window.prompt('마감월을 입력하세요 (예: 2026-10):', defaultMonth);
                       if (inputMonth && inputMonth.trim()) {
                         const m = inputMonth.trim();
                         handleBulkInstallCert('등록', `${m}-01`, m);
@@ -2382,7 +2386,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     } else if (action === 'unregister') {
                       handleBulkInstallCert('미등록');
                     }
-                    e.target.value = '';
+                    selectEl.value = '';
                   }}
                   disabled={selectedKeys.size === 0}
                   className={`text-xs font-bold rounded-lg px-2.5 py-1 transition-all cursor-pointer border focus:outline-hidden ${

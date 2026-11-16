@@ -1221,6 +1221,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     // 6. 단 2회의 Google API 호출로 4개 탭 일괄 쓰기 (Batch Clear + Batch Update)
     const clearRanges: string[] = [];
     const updateData: { range: string; values: any[][] }[] = [];
+    const rawUpdateData: { range: string; values: any[][] }[] = [];
 
     if (settings && Array.isArray(settings)) {
       clearRanges.push('시스템설정');
@@ -1236,7 +1237,8 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
     if (extraRows.length > 1) {
       clearRanges.push('수기발주및기타설정');
-      updateData.push({ range: '수기발주및기타설정!A1', values: extraRows });
+      // JSON 및 청크 문자열이 '-' 등으로 시작할 때 수식으로 오인되지 않도록 RAW 옵션으로 기록
+      rawUpdateData.push({ range: '수기발주및기타설정!A1', values: extraRows });
     }
 
     // 1단계: 기존 영역 일괄 초기화 (단 1회 API 호출)
@@ -1247,7 +1249,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       }));
     }
 
-    // 2단계: 최신 데이터 일괄 업데이트 (단 1회 API 호출)
+    // 2단계: 최신 데이터 일괄 업데이트
     if (updateData.length > 0) {
       await withGoogleRetry(() => sheets.spreadsheets.values.batchUpdate({
         spreadsheetId: sheetId,
@@ -1257,7 +1259,16 @@ app.post('/api/sheets/settings/save', async (req, res) => {
         }
       }));
     }
-    console.log(`[CloudSync] All settings batch updated successfully (${updateData.length} sheets in 1 batch).`);
+    if (rawUpdateData.length > 0) {
+      await withGoogleRetry(() => sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          valueInputOption: 'RAW',
+          data: rawUpdateData
+        }
+      }));
+    }
+    console.log(`[CloudSync] All settings batch updated successfully (${updateData.length + rawUpdateData.length} sheets).`);
   };
 
   // Google Sheets 동시 쓰기 경합 방지: 순차 큐잉 실행
@@ -2386,13 +2397,56 @@ app.post('/api/sheets/batch-update', async (req, res) => {
     }
 
     if (batchData.length > 0) {
-      await withGoogleRetry(() => sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId: sheetId,
-        requestBody: {
-          valueInputOption: 'USER_ENTERED',
-          data: batchData
+      try {
+        await withGoogleRetry(() => sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            valueInputOption: 'USER_ENTERED',
+            data: batchData
+          }
+        }));
+      } catch (batchErr: any) {
+        const msg = String(batchErr?.message || '');
+        if (msg.includes('exceeds grid limits') || msg.includes('Unable to parse range')) {
+          // 시트의 행/열 크기가 부족해 Y·Z열 등 쓰기에 실패한 경우 그리드 자동 확장 후 재시도
+          const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+          const targetSheet = (meta.data.sheets || []).find((s: any) => s.properties?.title === sheetName);
+          if (targetSheet?.properties?.sheetId !== undefined) {
+            const curRows = targetSheet.properties.gridProperties?.rowCount || 1000;
+            const curCols = targetSheet.properties.gridProperties?.columnCount || 26;
+            const maxTargetRow = Math.max(curRows, ...updates.map((u) => Number(u.rowIdx) || 1)) + 20;
+            const maxTargetCol = Math.max(curCols, ...updates.map((u) => (Number(u.colIdx) || 0) + 1)) + 5;
+            await sheets.spreadsheets.batchUpdate({
+              spreadsheetId: sheetId,
+              requestBody: {
+                requests: [{
+                  updateSheetProperties: {
+                    properties: {
+                      sheetId: targetSheet.properties.sheetId,
+                      gridProperties: {
+                        rowCount: maxTargetRow,
+                        columnCount: maxTargetCol
+                      }
+                    },
+                    fields: 'gridProperties(rowCount,columnCount)'
+                  }
+                }]
+              }
+            });
+            await withGoogleRetry(() => sheets.spreadsheets.values.batchUpdate({
+              spreadsheetId: sheetId,
+              requestBody: {
+                valueInputOption: 'USER_ENTERED',
+                data: batchData
+              }
+            }));
+          } else {
+            throw batchErr;
+          }
+        } else {
+          throw batchErr;
         }
-      }));
+      }
     }
 
     // 수정된 시트 인메모리 캐시 즉시 무효화
