@@ -42,6 +42,17 @@ interface ManualOrderManagementModalProps {
 }
 
 export type DeliveryState = '발주대기' | '발주완료' | '배송중' | '배송완료' | '발주취소';
+const VALID_DELIVERY_STATES: ReadonlySet<string> = new Set([
+  '발주대기',
+  '발주완료',
+  '배송중',
+  '배송완료',
+  '발주취소',
+]);
+const toValidDeliveryState = (val: unknown): DeliveryState | undefined => {
+  const trimmed = String(val ?? '').trim();
+  return VALID_DELIVERY_STATES.has(trimmed) ? (trimmed as DeliveryState) : undefined;
+};
 export type SortField = 'contractDate' | 'requestDate' | 'rentalProdClean' | 'orderDate' | 'deliveryDate';
 export type SortDirection = 'asc' | 'desc';
 
@@ -483,7 +494,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     return new Map();
   });
 
-  const fetchOrderSheetData = useCallback(async () => {
+  const fetchOrderSheetData = useCallback(async (options?: { preserveStore?: Record<string, any>; preserveKeys?: Set<string> }) => {
+    const preserveStore = options && 'preserveStore' in options ? options.preserveStore : undefined;
+    const preserveKeys = options && options.preserveKeys instanceof Set ? options.preserveKeys : undefined;
+
     // 캐시가 이미 존재하면 로딩 스피너를 띄우지 않고 0ms 즉시 표시
     let hasExisting = false;
     try {
@@ -494,7 +508,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     if (!hasExisting) setLoading(true);
     try {
       const timestamp = Date.now();
-      const res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('수기발주')}&t=${timestamp}`);
+      const res = await fetch(`/api/sheets/sheetData?sheetName=${encodeURIComponent('수기발주')}&fresh=true&t=${timestamp}`);
       if (!res.ok) throw new Error('수기발주 시트 로드 실패');
       const rows: any[][] = await res.json();
       if (Array.isArray(rows) && rows.length >= 2) {
@@ -507,12 +521,23 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
 
       // 클라우드 저장소(구글 시트 '수기발주및기타설정' 시트)에서 최신 수기발주 상태 불러와 다른 PC/IP 동기화
       try {
-        const cloudRes = await fetch('/api/sheets/settings/load');
+        const cloudRes = await fetch(`/api/sheets/settings/load?t=${timestamp}`);
         if (cloudRes.ok) {
           const cloudData = await cloudRes.json();
           if (cloudData.manualOrderStores && typeof cloudData.manualOrderStores === 'object') {
             setSavedOrderStore((prev) => {
               const merged = mergeManualOrderStores(prev, cloudData.manualOrderStores);
+              // 방금 저장한 계약건은 클라우드 반영 지연/캐시로 인해 과거 상태(발주완료 등)로 되돌아가지 않도록 보호
+              if (preserveStore && preserveKeys && preserveKeys.size > 0) {
+                preserveKeys.forEach((cNo) => {
+                  const variants = [cNo, cNo.toUpperCase(), cNo.replace(/[^0-9]/g, '')].filter(Boolean);
+                  variants.forEach((k) => {
+                    if (preserveStore[k]) {
+                      merged[k] = { ...preserveStore[k] };
+                    }
+                  });
+                });
+              }
               try {
                 localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(merged));
               } catch (e) {}
@@ -637,7 +662,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const courier = normalizeCourierName(rawCourier);
       const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : (sheetMatch?.trackingNo || '');
 
-      const explicitState = savedData?.deliveryState || (sheetMatch?.raw?.[23] as DeliveryState);
+      const explicitState = toValidDeliveryState(savedData?.deliveryState) || toValidDeliveryState(sheetMatch?.raw?.[23]);
       let dState: DeliveryState = '발주대기';
       
       if (explicitState) {
@@ -720,7 +745,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         const delDate = savedData?.deliveryDate !== undefined ? savedData.deliveryDate : String(row[20] || '').trim();
         const courier = normalizeCourierName(savedData?.courier !== undefined ? savedData.courier : String(row[21] || '').trim());
         const tracking = savedData?.trackingNo !== undefined ? savedData.trackingNo : String(row[22] || '').trim();
-        const explicitState = savedData?.deliveryState || (row[23] as DeliveryState);
+        const explicitState = toValidDeliveryState(savedData?.deliveryState) || toValidDeliveryState(row[23]);
 
         let dState: DeliveryState = explicitState || '발주대기';
         if (!explicitState) {
@@ -866,6 +891,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         [contractNo]: cur,
       };
     });
+
+    // 송장번호 입력 시 아직 발주대기/발주완료 상태라면 자동으로 '배송중'으로 전환
+    if (field === 'trackingNo' && value.trim()) {
+      const currentOrder = extractedOrders.find((o) => o.contractNo === contractNo);
+      setEditedStates((prev) => {
+        const curState = prev[contractNo] ?? currentOrder?.deliveryState ?? '발주대기';
+        if (curState === '발주대기' || curState === '발주완료') {
+          return { ...prev, [contractNo]: '배송중' };
+        }
+        return prev;
+      });
+    }
   };
 
   const getFieldValue = (row: OrderRow, field: 'orderDate' | 'deliveryDate' | 'courier' | 'trackingNo' | 'installCertStatus' | 'installCertDate' | 'installCertMonth') => {
@@ -1364,13 +1401,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         let newDelDate = editedVal?.deliveryDate !== undefined ? editedVal.deliveryDate : (existing.deliveryDate ?? row.deliveryDate ?? '');
         let newCourier = editedVal?.courier !== undefined ? normalizeCourierName(editedVal.courier.trim()) : (existing.courier ?? row.courier ?? '');
         let newTracking = editedVal?.trackingNo !== undefined ? editedVal.trackingNo.trim() : (existing.trackingNo ?? row.trackingNo ?? '');
-        let newDState = editedSt !== undefined ? editedSt : (existing.deliveryState ?? row.deliveryState ?? '발주대기');
+        let newDState: DeliveryState =
+          editedSt !== undefined
+            ? editedSt
+            : toValidDeliveryState(existing.deliveryState) ?? row.deliveryState ?? '발주대기';
 
-        // 사용자가 배송상태를 수동 선택(editedSt)하지 않았고 기존 명시 지정 상태도 없을 때만 보조 추론
-        if (editedSt === undefined && !existing.deliveryState && !row.deliveryState) {
-          if (newDelDate.trim()) {
-            newDState = '배송완료';
-          } else if (newCourier.trim() || newTracking.trim()) {
+        // 송장번호를 입력/수정한 뒤 저장할 때 사용자가 별도로 배송상태를 고정하지 않았고 아직 발주대기/발주완료 상태면 자동으로 '배송중' 저장
+        if (editedSt === undefined) {
+          const isTrackingEntered = editedVal?.trackingNo !== undefined && newTracking.trim().length > 0;
+          if (isTrackingEntered && (newDState === '발주대기' || newDState === '발주완료')) {
             newDState = '배송중';
           }
         }
@@ -1414,20 +1453,29 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         }
       });
 
+      let sheetSaveError: string | null = null;
+      let cloudSaveError: string | null = null;
+
       // 1. 구글 시트 '수기발주' 시트에 배치 업데이트 (X열 배송상태 포함)
       if (sheetUpdates.length > 0) {
-        const res = await fetch('/api/sheets/batch-update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sheetName: '수기발주',
-            updates: sheetUpdates,
-          }),
-        });
+        try {
+          const res = await fetch('/api/sheets/batch-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sheetName: '수기발주',
+              updates: sheetUpdates,
+            }),
+          });
 
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          console.warn('구글 시트 저장 응답 이상:', errData);
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            sheetSaveError = errData.details || errData.error || `구글 시트 반영 오류 (${res.status})`;
+            console.warn('구글 시트 저장 응답 이상:', errData);
+          }
+        } catch (sheetErr: any) {
+          sheetSaveError = sheetErr?.message || '구글 시트 반영 중 네트워크 오류';
+          console.warn('구글 시트 저장 네트워크 오류:', sheetErr);
         }
       }
 
@@ -1436,7 +1484,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       localStorage.setItem('erp_manual_orders_saved_store_v1', JSON.stringify(nextStore));
 
       try {
-        await fetch('/api/sheets/settings/save', {
+        const cloudRes = await fetch('/api/sheets/settings/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1444,17 +1492,31 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             manualOrderProducts: targetProducts,
           }),
         });
-      } catch (cloudErr) {
+        if (!cloudRes.ok) {
+          const errData = await cloudRes.json().catch(() => ({}));
+          cloudSaveError = errData.details || errData.error || `클라우드 설정 저장 오류 (${cloudRes.status})`;
+          console.warn('클라우드 동기화 저장 응답 이상:', errData);
+        }
+      } catch (cloudErr: any) {
+        cloudSaveError = cloudErr?.message || '클라우드 동기화 저장 네트워크 오류';
         console.warn('클라우드 동기화 저장 오류:', cloudErr);
       }
 
-      // 3. 최신 시트 데이터 동기화
-      await fetchOrderSheetData();
+      // 3. 최신 시트 데이터 동기화 (방금 저장한 계약건은 클라우드 지연으로 과거 상태가 덮어쓰이지 않도록 보호)
+      await fetchOrderSheetData({ preserveStore: nextStore, preserveKeys: allEditedContractNos });
 
-      setNotification({
-        message: `성공적으로 ${allEditedContractNos.size}건의 배송정보 및 배송상태가 구글 시트와 저장소에 저장되었습니다!`,
-        type: 'success',
-      });
+      if (sheetSaveError || cloudSaveError) {
+        const reason = [sheetSaveError, cloudSaveError].filter(Boolean).join(' / ');
+        setNotification({
+          message: `로컬 저장소에는 반영되었으나 서버 동기화 중 일부 오류가 발생했습니다: ${reason}`,
+          type: 'error',
+        });
+      } else {
+        setNotification({
+          message: `성공적으로 ${allEditedContractNos.size}건의 배송정보 및 배송상태가 구글 시트와 저장소에 저장되었습니다!`,
+          type: 'success',
+        });
+      }
 
       setEditedValues({});
       setEditedStates({});

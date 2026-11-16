@@ -1086,6 +1086,26 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       }
     } catch (e) {}
 
+    const extractChunkedManualOrderStores = (extraMap: Record<string, string>): Record<string, any> => {
+      const chunkKeys = Object.keys(extraMap)
+        .filter((k) => /^MANUAL_ORDER_STORES_CHUNK_\d+$/.test(k))
+        .sort((a, b) => Number(a.replace('MANUAL_ORDER_STORES_CHUNK_', '')) - Number(b.replace('MANUAL_ORDER_STORES_CHUNK_', '')));
+      if (chunkKeys.length > 0) {
+        try {
+          const combined = chunkKeys.map((k) => extraMap[k] || '').join('');
+          if (combined) return JSON.parse(combined) || {};
+        } catch (e) {
+          console.error('[CloudSync] Parse chunked MANUAL_ORDER_STORES error:', e);
+        }
+      }
+      if (extraMap['MANUAL_ORDER_STORES'] && extraMap['MANUAL_ORDER_STORES'] !== '__CHUNKED__') {
+        try {
+          return JSON.parse(extraMap['MANUAL_ORDER_STORES']) || {};
+        } catch (e) {}
+      }
+      return {};
+    };
+
     const extraCachePath = path.join(process.cwd(), '.settings_cache.json');
     let extraCacheBackup: any = {};
     if (fs.existsSync(extraCachePath)) {
@@ -1109,10 +1129,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
     if (!targetManualProducts && extraCacheBackup.manualOrderProducts) targetManualProducts = extraCacheBackup.manualOrderProducts;
 
-    let baseStores: Record<string, any> = {};
-    if (existingExtraMap['MANUAL_ORDER_STORES']) {
-      try { baseStores = JSON.parse(existingExtraMap['MANUAL_ORDER_STORES']) || {}; } catch (e) {}
-    }
+    let baseStores: Record<string, any> = extractChunkedManualOrderStores(existingExtraMap);
     if (extraCacheBackup.manualOrderStores && typeof extraCacheBackup.manualOrderStores === 'object') {
       for (const [k, v] of Object.entries(extraCacheBackup.manualOrderStores)) {
         if (!baseStores[k]) baseStores[k] = v;
@@ -1175,7 +1192,16 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       extraRows.push(['MANUAL_ORDER_PRODUCTS', JSON.stringify(targetManualProducts), nowStr]);
     }
     if (targetManualStores && Object.keys(targetManualStores).length > 0) {
-      extraRows.push(['MANUAL_ORDER_STORES', JSON.stringify(targetManualStores), nowStr]);
+      const storesJson = JSON.stringify(targetManualStores);
+      const CHUNK_SIZE = 40000;
+      if (storesJson.length <= CHUNK_SIZE) {
+        extraRows.push(['MANUAL_ORDER_STORES', storesJson, nowStr]);
+      } else {
+        extraRows.push(['MANUAL_ORDER_STORES', '__CHUNKED__', nowStr]);
+        for (let offset = 0, idx = 0; offset < storesJson.length; offset += CHUNK_SIZE, idx++) {
+          extraRows.push([`MANUAL_ORDER_STORES_CHUNK_${idx}`, storesJson.slice(offset, offset + CHUNK_SIZE), nowStr]);
+        }
+      }
     }
     if (targetReportSettings) {
       extraRows.push(['REPORT_SETTINGS', JSON.stringify(targetReportSettings), nowStr]);
@@ -1713,13 +1739,17 @@ app.get('/api/sheets/settings/load', async (req, res) => {
       });
       const extraRows = extraResponse.data.values;
       if (extraRows && extraRows.length >= 2) {
+        const manualStoreChunks: { idx: number; val: string }[] = [];
         extraRows.slice(1).forEach((row: string[]) => {
           const key = row[0];
           const valStr = row[1];
           if (!key || !valStr) return;
           try {
             if (key === 'MANUAL_ORDER_PRODUCTS') manualOrderProducts = JSON.parse(valStr);
-            if (key === 'MANUAL_ORDER_STORES') manualOrderStores = JSON.parse(valStr);
+            if (key === 'MANUAL_ORDER_STORES' && valStr !== '__CHUNKED__') manualOrderStores = JSON.parse(valStr);
+            if (/^MANUAL_ORDER_STORES_CHUNK_\d+$/.test(key)) {
+              manualStoreChunks.push({ idx: Number(key.replace('MANUAL_ORDER_STORES_CHUNK_', '')), val: valStr });
+            }
             if (key === 'REPORT_SETTINGS') reportSettings = JSON.parse(valStr);
             if (key === 'BUSINESS_DIVISIONS') divisions = JSON.parse(valStr);
             if (key === 'HEALTHCARE_PRODUCTS') healthcareProducts = JSON.parse(valStr);
@@ -1727,6 +1757,15 @@ app.get('/api/sheets/settings/load', async (req, res) => {
             console.error(`[CloudSync] Parse ${key} error:`, e);
           }
         });
+        if (manualStoreChunks.length > 0) {
+          try {
+            manualStoreChunks.sort((a, b) => a.idx - b.idx);
+            const combinedStoresJson = manualStoreChunks.map((c) => c.val).join('');
+            if (combinedStoresJson) manualOrderStores = JSON.parse(combinedStoresJson);
+          } catch (e) {
+            console.error('[CloudSync] Parse chunked MANUAL_ORDER_STORES error:', e);
+          }
+        }
         console.log(`[CloudSync] Loaded extra settings (manual orders, report, divisions, healthcare) from cloud.`);
       }
     } catch (e: any) {
@@ -2313,6 +2352,7 @@ app.post('/api/sheets/batch-update', async (req, res) => {
 
     console.log(`[batch-update] Updating ${updates.length} items in sheet: '${sheetName}'`);
     const successfulRowUpdates: { rowIdx: number; newStatus: string }[] = [];
+    const batchData: { range: string; values: string[][] }[] = [];
 
     for (const u of updates) {
       let targetRow = Number(u.rowIdx);
@@ -2330,18 +2370,31 @@ app.post('/api/sheets/batch-update', async (req, res) => {
       }
 
       const range = `'${sheetName}'!${getColLetter(u.colIdx)}${targetRow}`;
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: sheetId,
+      batchData.push({
         range,
-        valueInputOption: 'USER_ENTERED',
-        requestBody: {
-          values: [[u.newValue]]
-        }
+        values: [[u.newValue]]
       });
 
       if (u.colIdx === 1) {
         successfulRowUpdates.push({ rowIdx: targetRow, newStatus: u.newValue });
       }
+    }
+
+    if (batchData.length > 0) {
+      await withGoogleRetry(() => sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          valueInputOption: 'USER_ENTERED',
+          data: batchData
+        }
+      }));
+    }
+
+    // 수정된 시트 인메모리 캐시 즉시 무효화
+    sheetDataCache.delete(sheetName);
+    if (sheetName === '관리대장' || sheetName.includes('회원현황')) {
+      sheetDataCache.delete('관리대장');
+      sheetDataCache.delete('시트1');
     }
 
     // 계약상태(colIdx === 1)가 취소 또는 해약으로 변경된 항목들 취소해약내역 시트에 일괄 로그 기록
