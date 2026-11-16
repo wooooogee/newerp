@@ -861,6 +861,11 @@ app.post('/api/sheets/settings/save', async (req, res) => {
   
   if (!sheetId) return res.status(400).json({ error: 'GOOGLE_SHEET_ID missing' });
 
+  let sanitizedGlobalIncentives: any[] | undefined =
+    globalIncentives && Array.isArray(globalIncentives)
+      ? sanitizeServerGlobalIncentives(globalIncentives, divisions || [])
+      : undefined;
+
   // 로컬 파일 캐시 백업 동기 저장 (즉시 반영)
   try {
     const cachePath = path.join(process.cwd(), '.settings_cache.json');
@@ -870,7 +875,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
     if (settings && Array.isArray(settings) && settings.length > 0) cacheData.settings = settings;
     if (divisions && Array.isArray(divisions) && divisions.length > 0) cacheData.divisions = divisions;
-    const sanitizedGlobalIncentives =
+    sanitizedGlobalIncentives =
       globalIncentives && Array.isArray(globalIncentives)
         ? sanitizeServerGlobalIncentives(globalIncentives, cacheData.divisions || divisions || [])
         : undefined;
