@@ -4584,36 +4584,21 @@ const ERP_Dashboard = () => {
     let totalPendingCount = 0;
 
     filteredData.forEach(item => {
-      if ((item.status.includes('취소') || item.status.includes('해약')) && !item.payDate?.trim()) return; // B열(status)에 '취소'나 '해약'이 있어도 지급일자가 있으면 포함
+      // [정산 기준 통일] 월별 본부 정산서와 동일하게 '가입'/'정상' 상태만 인정하고 취소/해약/철회/반품/실효는 지급일자 유무와 무관하게 제외
+      const st = String(item.status || '').trim();
+      const isJoined = st === '가입' || st === '정상' || st.includes('가입') || (st === '' && !item.cancelDate);
+      if (!isJoined) return;
+      if (st.includes('취소') || st.includes('해약') || st.includes('철회') || st.includes('반품') || st.includes('실효')) return;
+
       const date = item.payDate || '미지정';
-      const hqSetting = hqSettings.find(h => h.hqName === item.hq);
       const normalize = (s: string) => s.replace(/[\s()]/g, '').toLowerCase();
-      let rule = hqSetting?.productRules?.find(r => normalize(r.productName) === normalize(item.prodName));
-
-      if (!rule && normalize(item.prodName).includes('헬스케어580')) {
-        rule = hqSetting?.productRules?.find(r =>
-          normalize(r.productName).includes('1회차')
-        ) || hqSetting?.productRules?.find(r =>
-          normalize(r.productName).includes('유지')
-        ) || hqSetting?.productRules?.[0];
-      } else if (!rule && hqSetting?.productRules) {
-        if (hqSetting.productRules.length === 1) rule = hqSetting.productRules[0];
-        else if (hqSetting.productRules.length > 0) rule = hqSetting.productRules[0];
-      }
-
-      let amount = rule?.totalAmount || 0;
-
       const normalizedProd = normalize(item.prodName);
       const isExcluded = normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360') || normalizedProd.includes('에이모바일');
-
-      if (normalizedProd.includes('통신결합240') || normalizedProd.includes('결합360')) {
-        amount = 50000;
-      }
-
       if (isExcluded) return;
 
       const isPaid = item.paymentStatus === '지급완료' || (item.hc && item.hc.includes('지급완료'));
       const comm = calculateCommissionDetails(item, statsMap);
+      const amount = comm.totalCommission;
       const salesPayable = comm.finalPayable || comm.totalCommission;
 
       if (!isPaid) {
@@ -15097,7 +15082,7 @@ const ERP_Dashboard = () => {
                           const specialSum = specialAdditions[hqName] || 0;
                           if (items.length === 0 && maintenanceSum === 0 && specialSum === 0) return null;
                           const setting = hqSettings.find(h => h.hqName === hqName);
-                          const stats = buildHqCountMap(filteredData);
+                          const stats = buildHqCountMap(data);
                           let generalSum = 0;
                           items.forEach(item => {
                             const { totalCommission } = calculateCommissionDetails(item, stats);
@@ -15156,7 +15141,7 @@ const ERP_Dashboard = () => {
                       if (items.length === 0 && maintenanceSum === 0 && specialSum === 0) return null;
 
                       const setting = hqSettings.find(h => h.hqName === hqName);
-                      const stats = buildHqCountMap(filteredData);
+                      const stats = buildHqCountMap(data);
 
                       let generalSum = 0;
                       let salesSum = 0;

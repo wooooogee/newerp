@@ -578,23 +578,23 @@ export function PresidentReportModal({
   // ----------------------------------------------------
   const computeMonthEndDefaults = (overrideSuppliers?: SupplierItem[]) => {
     const targetMonthClean = selectedMonth.replace(/[^0-9]/g, '');
+    const targetMonthKey = targetMonthClean.length >= 6
+      ? `${targetMonthClean.substring(0, 4)}-${targetMonthClean.substring(4, 6)}`
+      : selectedMonth;
+
     const validItems = (data || []).filter(item => {
-      // 1) 계약상태 검증: 오직 '가입'(또는 '정상') 상태만 엄격히 카운트 (취소, 해약, 철회, 반품, 실효 등 비가입 상태 제외)
+      // 1) 계약상태 검증: 월별 본부 정산서와 동일하게 '가입'/'정상' 상태만 엄격히 카운트 (취소, 해약, 철회, 반품, 실효 제외)
       const st = String(item.status || '').trim();
-      const isJoined = st === '가입' || st === '정상' || st.includes('가입');
+      const isJoined = st === '가입' || st === '정상' || st.includes('가입') || (st === '' && !item.cancelDate);
       if (!isJoined) return false;
       if (st.includes('취소') || st.includes('해약') || st.includes('철회') || st.includes('반품') || st.includes('실효')) return false;
 
-      // 2) 배송완료 검증: 배송완료 상태이거나 유효한 배송일자가 있는 건만 인정
-      const isDelivered = (item.deliveryStatus && item.deliveryStatus.includes('완료')) ||
-                          (item.deliveryDate && item.deliveryDate !== '-' && item.deliveryDate.trim() !== '');
-      if (!isDelivered) return false;
-      
+      // 2) 지급일자(payDate) 기준 월 매칭 (월별 본부 정산서와 동일 기준)
       const pDate = item.payDate || '';
-      const dDate = item.deliveryDate || '';
-      const matchMonth = (pDate && pDate.replace(/[^0-9]/g, '').startsWith(targetMonthClean)) ||
-                         (!pDate && dDate && dDate.replace(/[^0-9]/g, '').startsWith(targetMonthClean));
-      return matchMonth;
+      const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+      const itemMonth = m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+      if (itemMonth) return itemMonth === targetMonthKey;
+      return Boolean(pDate && pDate.replace(/[^0-9]/g, '').startsWith(targetMonthClean));
     });
 
     // -----------------------------------------------------------------
@@ -647,70 +647,105 @@ export function PresidentReportModal({
       } catch (e) {}
     }
 
-    const getUnitComm = (normHq: string, prod: string, rawHq?: string): number => {
-      const cleanProd = prod.replace(/\s+/g, '');
+    // 월별 실적 건수 맵 (구간 Tier 단가 판정용 - App.tsx / MonthlySettlementModal과 동일 기준)
+    const hqMonthCountMap = new Map<string, number>();
+    (data || []).forEach(item => {
+      const isCancelled = item.status && (item.status.includes('취소') || item.status.includes('해약') || item.status.includes('철회') || item.status.includes('반품'));
+      if (isCancelled && !item.payDate?.trim()) return;
+      if (!item.hq) return;
+      const pDate = item.payDate || '';
+      const m = pDate.match(/(\d{4})[-./](\d{1,2})/);
+      const month = m ? `${m[1]}-${m[2].padStart(2, '0')}` : 'ALL';
+      const prod = item.prodName || '';
+      hqMonthCountMap.set(`${item.hq}|${prod}|${month}`, (hqMonthCountMap.get(`${item.hq}|${prod}|${month}`) || 0) + 1);
+      hqMonthCountMap.set(`${item.hq}|__ALL__|${month}`, (hqMonthCountMap.get(`${item.hq}|__ALL__|${month}`) || 0) + 1);
+      hqMonthCountMap.set(`${item.hq}|${prod}`, (hqMonthCountMap.get(`${item.hq}|${prod}`) || 0) + 1);
+      hqMonthCountMap.set(`${item.hq}|__ALL__`, (hqMonthCountMap.get(`${item.hq}|__ALL__`) || 0) + 1);
+    });
 
-      // 1) 굿라이프: 실버 71만원, 골드 75만원, 올인원 75만원
-      if (normHq === '굿라이프') {
-        if (cleanProd.includes('실버')) return 710000;
-        if (cleanProd.includes('골드')) return 750000;
-        if (cleanProd.includes('올인원')) return 750000;
-        return 750000;
+    const getUnitComm = (rawHq: string, prod: string, itemPayDate?: string): number => {
+      const norm = (s: string) => (s || '').replace(/[\s()]/g, '').toLowerCase();
+      const normProd = norm(prod);
+
+      // 특수 고정 수수료 상품 (더좋은통신결합240/360)
+      if (normProd.includes('통신결합240') || normProd.includes('결합360')) {
+        return 50000;
       }
 
-      // 2) 언바운드컴퍼니: 540플러스 74만원, 540 75만원
-      if (normHq === '언바운드컴퍼니') {
-        if (cleanProd.includes('540플러스') || cleanProd.includes('540plus')) return 740000;
-        if (cleanProd.includes('540')) return 750000;
-      }
+      const normHq = normalizeHq(rawHq);
 
-      // 3) hqSettings의 productRules 조회
+      // 1) hqSettings 본부별 수수료 설정 최우선 조회 (구간 Tier 단가 포함)
       if (Array.isArray(allHqSettings) && allHqSettings.length > 0) {
-        const targetHq = allHqSettings.find((s: any) =>
-          (s.hqName && normHq.includes(s.hqName)) ||
-          (s.hqName && s.hqName.includes(normHq)) ||
-          (rawHq && s.hqName && rawHq.includes(s.hqName))
-        );
-        if (targetHq && Array.isArray(targetHq.productRules)) {
-          const matched = targetHq.productRules.find((r: any) => {
-            const rProd = (r.productName || '').replace(/\s+/g, '');
-            return rProd && (cleanProd.includes(rProd) || rProd.includes(cleanProd));
-          });
-          if (matched && typeof matched.totalAmount === 'number' && matched.totalAmount > 0) {
-            return matched.totalAmount;
+        const targetHq =
+          allHqSettings.find((s: any) => s.hqName === rawHq) ||
+          allHqSettings.find((s: any) => s.hqName && (normHq.includes(s.hqName) || s.hqName.includes(normHq) || (rawHq && rawHq.includes(s.hqName))));
+
+        if (targetHq && Array.isArray(targetHq.productRules) && targetHq.productRules.length > 0) {
+          let pRule = targetHq.productRules.find((r: any) => norm(r.productName) === normProd);
+          if (!pRule && normProd.includes('헬스케어580')) {
+            pRule = targetHq.productRules.find((r: any) => norm(r.productName).includes('1회차')) ||
+              targetHq.productRules.find((r: any) => norm(r.productName).includes('유지')) ||
+              targetHq.productRules[0];
+          }
+          if (!pRule) {
+            pRule = targetHq.productRules.find((r: any) => {
+              const rProd = norm(r.productName);
+              return rProd && (normProd.includes(rProd) || rProd.includes(normProd));
+            }) || targetHq.productRules[0];
+          }
+
+          if (pRule) {
+            const m = (itemPayDate || '').match(/(\d{4})[-./](\d{1,2})/);
+            const month = m ? `${m[1]}-${m[2].padStart(2, '0')}` : targetMonthKey;
+            const basis = pRule.tierCountBasis || 'self';
+            let count = 1;
+            if (basis === 'all') {
+              count = hqMonthCountMap.get(`${rawHq}|__ALL__|${month}`) ?? hqMonthCountMap.get(`${rawHq}|__ALL__`) ?? 1;
+            } else if (basis === 'group' && Array.isArray(pRule.tierGroupProducts) && pRule.tierGroupProducts.length > 0) {
+              const groupSum = pRule.tierGroupProducts.reduce((sum: number, gProd: string) => {
+                return sum + (hqMonthCountMap.get(`${rawHq}|${gProd}|${month}`) ?? hqMonthCountMap.get(`${rawHq}|${gProd}`) ?? 0);
+              }, 0);
+              count = groupSum > 0 ? groupSum : 1;
+            } else {
+              count = hqMonthCountMap.get(`${rawHq}|${prod}|${month}`) ?? hqMonthCountMap.get(`${rawHq}|${prod}`) ?? 1;
+            }
+
+            let unitPrice = pRule.totalAmount || 0;
+            if (pRule.tier3Count > 0 && count >= pRule.tier3Count) unitPrice = pRule.tier3Price;
+            else if (pRule.tier2Count > 0 && count >= pRule.tier2Count) unitPrice = pRule.tier2Price;
+            else if (pRule.tier1Count > 0 && count >= pRule.tier1Count) unitPrice = pRule.tier1Price;
+
+            // 언바운드 300건 이상 특별 단가
+            if ((rawHq || '').replace(/\s+/g, '').includes('언바운드')) {
+              const unboundAllCount = hqMonthCountMap.get(`${rawHq}|__ALL__|${month}`) ?? hqMonthCountMap.get(`${rawHq}|__ALL__`) ?? 0;
+              if (unboundAllCount >= 300 || count >= 300) {
+                if (normProd.includes('540플러스') || normProd.includes('540plus')) unitPrice = 740000;
+                else if (normProd.includes('540')) unitPrice = 750000;
+              }
+            }
+
+            return unitPrice;
           }
         }
       }
 
-      // 4) 5대 본부 기본값 보정
-      if (normHq === '피티엠에스') {
-        if (cleanProd.includes('698')) return 680000;
-        if (cleanProd.includes('540')) return 580000;
-      }
-      if (normHq === '해랑인터내셔널') {
-        if (cleanProd.includes('698')) return 650000;
-        if (cleanProd.includes('540')) return 600000;
-      }
-      if (normHq === '맥스') {
-        if (cleanProd.includes('698')) return 680000;
-        if (cleanProd.includes('540')) return 650000;
-      }
-
-      return 750000;
+      // 2) hqSettings에 설정이 없는 경우 미설정 확인용으로 0 반환
+      return 0;
     };
 
     // -----------------------------------------------------------------
-    // 3. 실제 ERP 데이터 기반 본부·사업단별 / 상품별 실적 집계
+    // 3. 실제 ERP 데이터 기반 본부·사업단별 / 상품별 실적 집계 (개별 본부 설정 단가 기준 합산)
     // -----------------------------------------------------------------
-    const hqProdMap = new Map<string, { hqName: string; prodName: string; count: number; rawHqs: Set<string> }>();
+    const hqProdMap = new Map<string, { hqName: string; prodName: string; count: number; totalCommission: number }>();
     if (validItems.length > 0) {
       validItems.forEach(it => {
         const normHq = normalizeHq(it.hq);
         const prod = (it.prodName || '더좋은프리미엄540').trim();
         const key = `${normHq}___${prod}`;
-        const existing = hqProdMap.get(key) || { hqName: normHq, prodName: prod, count: 0, rawHqs: new Set() };
+        const existing = hqProdMap.get(key) || { hqName: normHq, prodName: prod, count: 0, totalCommission: 0 };
+        const unit = getUnitComm(it.hq || normHq, prod, it.payDate);
         existing.count++;
-        if (it.hq) existing.rawHqs.add(it.hq.trim());
+        existing.totalCommission += unit;
         hqProdMap.set(key, existing);
       });
     }
@@ -718,16 +753,15 @@ export function PresidentReportModal({
     const calculatedHqProdList: typeof hqProductSalesList = [];
     if (hqProdMap.size > 0) {
       Array.from(hqProdMap.values()).forEach((item, idx) => {
-        const firstRaw = Array.from(item.rawHqs)[0];
-        const unit = getUnitComm(item.hqName, item.prodName, firstRaw);
+        const unit = item.count > 0 ? Math.round(item.totalCommission / item.count) : 0;
         calculatedHqProdList.push({
           id: `hp-calc-${idx}`,
           hqName: item.hqName,
           prodName: item.prodName,
           count: item.count,
           unitCommission: unit,
-          totalCommission: item.count * unit,
-          note: item.hqName === '굿라이프' ? '신동우/꿈잇다 통합 정산' : '정상 정산'
+          totalCommission: item.totalCommission,
+          note: item.hqName === '굿라이프' ? '신동우/꿈잇다 통합 정산 (본부 설정 기준)' : '정상 정산'
         });
       });
 

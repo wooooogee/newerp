@@ -1437,6 +1437,27 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
     const useDetected = divisionHqStats.detectedCount > 0;
 
+    // 본부별 수수료 설정(hqSettings)에서 해당 사업단 소속 본부의 상품 단가 조회 헬퍼 (없으면 기본값 폴백)
+    const getConfiguredOfficialFee = (hqCandidates: string[], prodKeyword: string, fallback: number): number => {
+      const norm = (s: string) => (s || '').replace(/[\s()]/g, '').toLowerCase();
+      const kw = norm(prodKeyword);
+      for (const candidate of hqCandidates) {
+        const setting = (hqSettings || []).find(s => norm(s.hqName) === norm(candidate) || norm(s.hqName).includes(norm(candidate)));
+        if (setting?.productRules) {
+          const rule = setting.productRules.find(r => norm(r.productName).includes(kw));
+          if (rule && rule.totalAmount > 0) return rule.totalAmount;
+        }
+      }
+      return fallback;
+    };
+
+    const kkumAllinoneFee = getConfiguredOfficialFee(kkumHqNames, '올인원', 0);
+    const kkumGoldFee = getConfiguredOfficialFee(kkumHqNames, '골드', 0);
+    const kkumSilverFee = getConfiguredOfficialFee(kkumHqNames, '실버', 0);
+    const shinAllinoneFee = getConfiguredOfficialFee(shinHqNames, '올인원', 0);
+    const shinGoldFee = getConfiguredOfficialFee(shinHqNames, '골드', 0);
+    const shinSilverFee = getConfiguredOfficialFee(shinHqNames, '실버', 0);
+
     const newRows: GoodlifeSplitItem[] = [
       // 1. 꿈잇다 상품군 (직송금 71만 / 차액 4만 or 0원)
       {
@@ -1445,13 +1466,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         hqName: '꿈잇다 사업단',
         itemName: '굿라이프헬스케어올인원',
         count: useDetected ? divisionHqStats.kkumTotals.allinone : 162,
-        officialUnitFee: 750000,
+        officialUnitFee: kkumAllinoneFee,
         directRecipient: '(주)꿈잇다',
         directUnitFee: 710000,
         bankName: '기업은행',
         accountNumber: '115-131758-01-017',
         accountHolder: '주식회사 꿈잇다',
-        memo: '꿈잇다 직송금 71만 / 신동우 차액 4만'
+        memo: `꿈잇다 직송금 71만 / 신동우 차액 ${Math.round((kkumAllinoneFee - 710000) / 10000)}만`
       },
       {
         id: 'gl_split_kkum_2',
@@ -1459,13 +1480,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         hqName: '꿈잇다 사업단',
         itemName: '굿라이프헬스케어골드',
         count: useDetected ? divisionHqStats.kkumTotals.gold : 1,
-        officialUnitFee: 750000,
+        officialUnitFee: kkumGoldFee,
         directRecipient: '(주)꿈잇다',
         directUnitFee: 710000,
         bankName: '기업은행',
         accountNumber: '115-131758-01-017',
         accountHolder: '주식회사 꿈잇다',
-        memo: '꿈잇다 직송금 71만 / 신동우 차액 4만'
+        memo: `꿈잇다 직송금 71만 / 신동우 차액 ${Math.round((kkumGoldFee - 710000) / 10000)}만`
       },
       {
         id: 'gl_split_kkum_3',
@@ -1473,13 +1494,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         hqName: '꿈잇다 사업단',
         itemName: '굿라이프헬스케어실버',
         count: useDetected ? (divisionHqStats.kkumTotals.silver + divisionHqStats.kkumTotals.hybrid) : 1,
-        officialUnitFee: 710000,
+        officialUnitFee: kkumSilverFee,
         directRecipient: '(주)꿈잇다',
         directUnitFee: 710000,
         bankName: '기업은행',
         accountNumber: '115-131758-01-017',
         accountHolder: '주식회사 꿈잇다',
-        memo: '꿈잇다 직송금 71만 / 신동우 차액 0원'
+        memo: `꿈잇다 직송금 71만 / 신동우 차액 ${Math.round((kkumSilverFee - 710000) / 10000)}만`
       },
 
       // 2. 신동우사업단 산하본부 (본부 직송금 55만 / 차액 20만 or 16만)
@@ -1489,13 +1510,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         hqName: '신동우사업단 산하본부',
         itemName: '굿라이프헬스케어올인원',
         count: useDetected ? divisionHqStats.shinTotals.allinone : 39,
-        officialUnitFee: 750000,
+        officialUnitFee: shinAllinoneFee,
         directRecipient: '소속 본부',
         directUnitFee: 550000,
         bankName: shinAcc.bankName !== '-' ? shinAcc.bankName : '국민은행',
         accountNumber: shinAcc.accountNumber !== '-' ? shinAcc.accountNumber : '164501-04-161888',
         accountHolder: shinAcc.accountHolder !== '-' ? shinAcc.accountHolder : '김애숙(에스제이컨설팅)',
-        memo: '본부 직송금 55만 / 신동우 차액 20만'
+        memo: `본부 직송금 55만 / 신동우 차액 ${Math.round((shinAllinoneFee - 550000) / 10000)}만`
       },
       {
         id: 'gl_split_shindw_2',
@@ -1503,13 +1524,13 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         hqName: '신동우사업단 산하본부',
         itemName: '굿라이프헬스케어골드',
         count: useDetected ? divisionHqStats.shinTotals.gold : 7,
-        officialUnitFee: 750000,
+        officialUnitFee: shinGoldFee,
         directRecipient: '소속 본부',
         directUnitFee: 550000,
         bankName: shinAcc.bankName !== '-' ? shinAcc.bankName : '국민은행',
         accountNumber: shinAcc.accountNumber !== '-' ? shinAcc.accountNumber : '164501-04-161888',
         accountHolder: shinAcc.accountHolder !== '-' ? shinAcc.accountHolder : '김애숙(에스제이컨설팅)',
-        memo: '본부 직송금 55만 / 신동우 차액 20만'
+        memo: `본부 직송금 55만 / 신동우 차액 ${Math.round((shinGoldFee - 550000) / 10000)}만`
       },
       {
         id: 'gl_split_shindw_3',
@@ -1517,18 +1538,18 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         hqName: '신동우사업단 산하본부',
         itemName: '굿라이프헬스케어실버',
         count: useDetected ? (divisionHqStats.shinTotals.silver + divisionHqStats.shinTotals.hybrid) : 0,
-        officialUnitFee: 710000,
+        officialUnitFee: shinSilverFee,
         directRecipient: '소속 본부',
         directUnitFee: 550000,
         bankName: shinAcc.bankName !== '-' ? shinAcc.bankName : '국민은행',
         accountNumber: shinAcc.accountNumber !== '-' ? shinAcc.accountNumber : '164501-04-161888',
         accountHolder: shinAcc.accountHolder !== '-' ? shinAcc.accountHolder : '김애숙(에스제이컨설팅)',
-        memo: '본부 직송금 55만 / 신동우 차액 16만'
+        memo: `본부 직송금 55만 / 신동우 차액 ${Math.round((shinSilverFee - 550000) / 10000)}만`
       }
     ];
 
     saveGoodlifeSplitRows(newRows);
-  }, [divisionHqStats, getPayoutAccountInfo]);
+  }, [divisionHqStats, getPayoutAccountInfo, hqSettings, kkumHqNames, shinHqNames]);
 
   // 사업단 관리(divisionSettings) 소속 본부 목록이 변경되거나 새 본부가 추가되었을 때, 또는 실적이 감지되었을 때 자동 동기화
   const prevSyncKeyRef = useRef<string>('');
@@ -5087,6 +5108,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                 {groupByDivision && (
                   <span className="w-1.5 h-1.5 rounded-full bg-white ml-0.5 animate-pulse" />
                 )}
+              </button>
+
+              {/* 굿라이프 사업단 통합 분배 명세 전용 페이지 버튼 (어느 탭에서든 바로 조회 가능) */}
+              <button
+                type="button"
+                onClick={() => setIsGoodlifeSplitModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                title="굿라이프 사업단만 통합으로 분배 명세(직송금 및 차액)를 조회합니다"
+              >
+                <Layers size={14} className="text-emerald-600" />
+                <span>굿라이프 사업단 명세</span>
+                <span className="px-1.5 py-0.2 bg-emerald-200 text-emerald-900 rounded text-[10px] font-black">
+                  {goodlifeSplitSummary.totalCount}건
+                </span>
               </button>
 
               {/* 순서 변경됨 표시 및 초기화 버튼 */}
