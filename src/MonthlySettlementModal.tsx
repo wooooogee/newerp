@@ -1279,6 +1279,41 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
     return pureSalesCount > 0 ? pureSalesCount : 632;
   }, [selectedMonth, effectiveHqMonthlyStats]);
 
+  // 신동우 대표 특수수당(차액 컨설팅 수수료 + 테라웨이브 공급수수료 등) 실제 집계
+  const shinSpecialInfo = useMemo(() => {
+    const shinStats = effectiveHqMonthlyStats.filter(s => (s.hqName || '').includes('신동우'));
+    let overrideAmount = 0;
+    let overrideCount = 0;
+    let supplyAmount = 0;
+    let supplyCount = 0;
+    let totalAmount = 0;
+
+    shinStats.forEach(s => {
+      totalAmount += (s.specialSum || 0);
+      (s.specialItems || []).forEach((sp: any) => {
+        const incName = (sp.incentiveName || '').trim();
+        const amt = Number(sp.amount) || 0;
+        const cnt = sp.effectiveAccounts || sp.accountCount || 1;
+        if (incName.includes('공급') || incName.includes('테라웨이브')) {
+          supplyAmount += amt;
+          supplyCount += cnt;
+        } else {
+          overrideAmount += amt;
+          overrideCount += cnt;
+        }
+      });
+    });
+
+    return {
+      hasDynamic: shinStats.length > 0 && totalAmount > 0,
+      overrideAmount,
+      overrideCount,
+      supplyAmount,
+      supplyCount,
+      totalAmount
+    };
+  }, [effectiveHqMonthlyStats]);
+
   // =========================================================================
   // [사업단 관리 (divisionSettings) 연동] 굿라이프(꿈잇다) vs 굿라이프(신동우) 소속 본부 마스터 및 실적 분석
   // =========================================================================
@@ -1438,8 +1473,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
     const useDetected = divisionHqStats.detectedCount > 0;
 
-    // 본부별 수수료 설정(hqSettings)에서 해당 사업단 소속 본부의 상품 단가 조회 헬퍼 (없으면 기본값 폴백)
-    const getConfiguredOfficialFee = (hqCandidates: string[], prodKeyword: string, fallback: number): number => {
+    // 1) 본부별 수수료 설정(hqSettings)에서 직송금 단가 조회 헬퍼
+    const getConfiguredDirectFee = (hqCandidates: string[], prodKeyword: string, fallback: number): number => {
       const norm = (s: string) => (s || '').replace(/[\s()]/g, '').toLowerCase();
       const kw = norm(prodKeyword);
       for (const candidate of hqCandidates) {
@@ -1452,15 +1487,54 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       return fallback;
     };
 
-    const kkumAllinoneFee = getConfiguredOfficialFee(kkumHqNames, '올인원', 0);
-    const kkumGoldFee = getConfiguredOfficialFee(kkumHqNames, '골드', 0);
-    const kkumSilverFee = getConfiguredOfficialFee(kkumHqNames, '실버', 0);
-    const shinAllinoneFee = getConfiguredOfficialFee(shinHqNames, '올인원', 0);
-    const shinGoldFee = getConfiguredOfficialFee(shinHqNames, '골드', 0);
-    const shinSilverFee = getConfiguredOfficialFee(shinHqNames, '실버', 0);
+    // 2) 특수수당 설정(globalIncentiveRules)에서 신동우 대표 차액 단가 조회 헬퍼 (없으면 기본값 폴백)
+    const getShinOverrideFee = (divIdKeywords: string[], prodKeyword: string, fallback: number): number => {
+      const norm = (s: string) => (s || '').replace(/[\s()]/g, '').toLowerCase();
+      const kw = norm(prodKeyword);
+      const matched = (globalIncentiveRules || []).find(r => {
+        if (!(r.targetName || '').includes('신동우')) return false;
+        const incName = (r.incentiveName || '').trim();
+        if (incName.includes('공급') || incName.includes('테라웨이브')) return false;
+        const tDivs = r.targetDivisions || [];
+        const divMatch = tDivs.some(td => {
+          const tdClean = norm(td);
+          return divIdKeywords.some(k => {
+            const kClean = norm(k);
+            if (kClean.includes('꿈잇다')) return tdClean.includes('1791444906611') || tdClean.includes('꿈잇다');
+            if (kClean.includes('신동우')) return td === 'div-goodlife' || tdClean.includes('신동우');
+            return tdClean.includes(kClean);
+          });
+        });
+        if (!divMatch) return false;
+        const tProds = r.targetProducts || [];
+        return tProds.includes('ALL') || tProds.some(p => norm(p).includes(kw));
+      });
+      return matched && matched.commissionPerUnit > 0 ? matched.commissionPerUnit : fallback;
+    };
+
+    const kkumAllinoneDirect = getConfiguredDirectFee(kkumHqNames, '올인원', 710000);
+    const kkumGoldDirect = getConfiguredDirectFee(kkumHqNames, '골드', 710000);
+    const kkumSilverDirect = getConfiguredDirectFee(kkumHqNames, '실버', 710000);
+    const shinAllinoneDirect = getConfiguredDirectFee(shinHqNames, '올인원', 550000);
+    const shinGoldDirect = getConfiguredDirectFee(shinHqNames, '골드', 550000);
+    const shinSilverDirect = getConfiguredDirectFee(shinHqNames, '실버', 550000);
+
+    const kkumAllinoneDiff = getShinOverrideFee(['꿈잇다'], '올인원', 40000);
+    const kkumGoldDiff = getShinOverrideFee(['꿈잇다'], '골드', 40000);
+    const kkumSilverDiff = getShinOverrideFee(['꿈잇다'], '실버', 0);
+    const shinAllinoneDiff = getShinOverrideFee(['신동우'], '올인원', 200000);
+    const shinGoldDiff = getShinOverrideFee(['신동우'], '골드', 200000);
+    const shinSilverDiff = getShinOverrideFee(['신동우'], '실버', 160000);
+
+    const kkumAllinoneFee = kkumAllinoneDirect + kkumAllinoneDiff;
+    const kkumGoldFee = kkumGoldDirect + kkumGoldDiff;
+    const kkumSilverFee = kkumSilverDirect + kkumSilverDiff;
+    const shinAllinoneFee = shinAllinoneDirect + shinAllinoneDiff;
+    const shinGoldFee = shinGoldDirect + shinGoldDiff;
+    const shinSilverFee = shinSilverDirect + shinSilverDiff;
 
     const newRows: GoodlifeSplitItem[] = [
-      // 1. 꿈잇다 상품군 (직송금 71만 / 차액 4만 or 0원)
+      // 1. 꿈잇다 상품군
       {
         id: 'gl_split_kkum_1',
         category: '꿈잇다',
@@ -1469,11 +1543,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         count: useDetected ? divisionHqStats.kkumTotals.allinone : 162,
         officialUnitFee: kkumAllinoneFee,
         directRecipient: '(주)꿈잇다',
-        directUnitFee: 710000,
+        directUnitFee: kkumAllinoneDirect,
         bankName: '기업은행',
         accountNumber: '115-131758-01-017',
         accountHolder: '주식회사 꿈잇다',
-        memo: `꿈잇다 직송금 71만 / 신동우 차액 ${Math.round((kkumAllinoneFee - 710000) / 10000)}만`
+        memo: `꿈잇다 ${Math.round(kkumAllinoneDirect / 10000)}만 직송금 / 신동우 차액 ${Math.round(kkumAllinoneDiff / 10000)}만`
       },
       {
         id: 'gl_split_kkum_2',
@@ -1483,11 +1557,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         count: useDetected ? divisionHqStats.kkumTotals.gold : 1,
         officialUnitFee: kkumGoldFee,
         directRecipient: '(주)꿈잇다',
-        directUnitFee: 710000,
+        directUnitFee: kkumGoldDirect,
         bankName: '기업은행',
         accountNumber: '115-131758-01-017',
         accountHolder: '주식회사 꿈잇다',
-        memo: `꿈잇다 직송금 71만 / 신동우 차액 ${Math.round((kkumGoldFee - 710000) / 10000)}만`
+        memo: `꿈잇다 ${Math.round(kkumGoldDirect / 10000)}만 직송금 / 신동우 차액 ${Math.round(kkumGoldDiff / 10000)}만`
       },
       {
         id: 'gl_split_kkum_3',
@@ -1497,14 +1571,14 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         count: useDetected ? (divisionHqStats.kkumTotals.silver + divisionHqStats.kkumTotals.hybrid) : 1,
         officialUnitFee: kkumSilverFee,
         directRecipient: '(주)꿈잇다',
-        directUnitFee: 710000,
+        directUnitFee: kkumSilverDirect,
         bankName: '기업은행',
         accountNumber: '115-131758-01-017',
         accountHolder: '주식회사 꿈잇다',
-        memo: `꿈잇다 직송금 71만 / 신동우 차액 ${Math.round((kkumSilverFee - 710000) / 10000)}만`
+        memo: `꿈잇다 ${Math.round(kkumSilverDirect / 10000)}만 직송금 / 신동우 차액 ${Math.round(kkumSilverDiff / 10000)}만`
       },
 
-      // 2. 신동우사업단 산하본부 (본부 직송금 55만 / 차액 20만 or 16만)
+      // 2. 신동우사업단 산하본부
       {
         id: 'gl_split_shindw_1',
         category: '신동우사업단',
@@ -1513,11 +1587,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         count: useDetected ? divisionHqStats.shinTotals.allinone : 39,
         officialUnitFee: shinAllinoneFee,
         directRecipient: '소속 본부',
-        directUnitFee: 550000,
+        directUnitFee: shinAllinoneDirect,
         bankName: shinAcc.bankName !== '-' ? shinAcc.bankName : '국민은행',
         accountNumber: shinAcc.accountNumber !== '-' ? shinAcc.accountNumber : '164501-04-161888',
         accountHolder: shinAcc.accountHolder !== '-' ? shinAcc.accountHolder : '김애숙(에스제이컨설팅)',
-        memo: `본부 직송금 55만 / 신동우 차액 ${Math.round((shinAllinoneFee - 550000) / 10000)}만`
+        memo: `본부 ${Math.round(shinAllinoneDirect / 10000)}만 직송금 / 신동우 차액 ${Math.round(shinAllinoneDiff / 10000)}만`
       },
       {
         id: 'gl_split_shindw_2',
@@ -1527,11 +1601,11 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         count: useDetected ? divisionHqStats.shinTotals.gold : 7,
         officialUnitFee: shinGoldFee,
         directRecipient: '소속 본부',
-        directUnitFee: 550000,
+        directUnitFee: shinGoldDirect,
         bankName: shinAcc.bankName !== '-' ? shinAcc.bankName : '국민은행',
         accountNumber: shinAcc.accountNumber !== '-' ? shinAcc.accountNumber : '164501-04-161888',
         accountHolder: shinAcc.accountHolder !== '-' ? shinAcc.accountHolder : '김애숙(에스제이컨설팅)',
-        memo: `본부 직송금 55만 / 신동우 차액 ${Math.round((shinGoldFee - 550000) / 10000)}만`
+        memo: `본부 ${Math.round(shinGoldDirect / 10000)}만 직송금 / 신동우 차액 ${Math.round(shinGoldDiff / 10000)}만`
       },
       {
         id: 'gl_split_shindw_3',
@@ -1541,28 +1615,32 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         count: useDetected ? (divisionHqStats.shinTotals.silver + divisionHqStats.shinTotals.hybrid) : 0,
         officialUnitFee: shinSilverFee,
         directRecipient: '소속 본부',
-        directUnitFee: 550000,
+        directUnitFee: shinSilverDirect,
         bankName: shinAcc.bankName !== '-' ? shinAcc.bankName : '국민은행',
         accountNumber: shinAcc.accountNumber !== '-' ? shinAcc.accountNumber : '164501-04-161888',
         accountHolder: shinAcc.accountHolder !== '-' ? shinAcc.accountHolder : '김애숙(에스제이컨설팅)',
-        memo: `본부 직송금 55만 / 신동우 차액 ${Math.round((shinSilverFee - 550000) / 10000)}만`
+        memo: `본부 ${Math.round(shinSilverDirect / 10000)}만 직송금 / 신동우 차액 ${Math.round(shinSilverDiff / 10000)}만`
       }
     ];
 
     saveGoodlifeSplitRows(newRows);
-  }, [divisionHqStats, getPayoutAccountInfo, hqSettings, kkumHqNames, shinHqNames]);
+  }, [divisionHqStats, getPayoutAccountInfo, hqSettings, kkumHqNames, shinHqNames, globalIncentiveRules]);
 
   // 사업단 관리(divisionSettings) 소속 본부 목록이 변경되거나 새 본부가 추가되었을 때, 또는 실적이 감지되었을 때 자동 동기화
   const prevSyncKeyRef = useRef<string>('');
   useEffect(() => {
-    const currentKey = `${kkumHqNames.join(',')}|${shinHqNames.join(',')}|${divisionHqStats.detectedCount}|${selectedMonth}`;
+    const rulesKey = (globalIncentiveRules || [])
+      .filter(r => (r.targetName || '').includes('신동우'))
+      .map(r => `${r.id}:${r.commissionPerUnit}`)
+      .join(',');
+    const currentKey = `${kkumHqNames.join(',')}|${shinHqNames.join(',')}|${divisionHqStats.detectedCount}|${selectedMonth}|${rulesKey}`;
     if (prevSyncKeyRef.current !== currentKey) {
       prevSyncKeyRef.current = currentKey;
       if (divisionHqStats.detectedCount > 0) {
         handleSyncGoodlifeWithDivisions();
       }
     }
-  }, [kkumHqNames, shinHqNames, divisionHqStats.detectedCount, selectedMonth, handleSyncGoodlifeWithDivisions]);
+  }, [kkumHqNames, shinHqNames, divisionHqStats.detectedCount, selectedMonth, globalIncentiveRules, handleSyncGoodlifeWithDivisions]);
 
   // 3-1. 현재 월의 전체 고유 본부 목록
   const allAvailableHqs = useMemo(() => {
@@ -6553,11 +6631,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                       </div>
                       <div>
                         <h4 className="text-base font-black tracking-tight whitespace-nowrap">
-                          굿라이프 사업단 내부 실송금 및 신동우 대표 오버라이딩 차액 분배 명세
+                          굿라이프 상세 명세서
                         </h4>
-                        <p className="text-xs text-slate-400 mt-0.5 whitespace-nowrap">
-                          본사 보고용 총수수료(71만/75만)와 내부 계좌별 직송금(꿈잇다 71만, 신동우 산하 본부 55만, 신동우 대표 차액 귀속) 분배 구조
-                        </p>
                       </div>
                     </div>
                     <button
@@ -6672,63 +6747,77 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                     </div>
 
                     {/* 상단 5대 핵심 지표 요약 카드 */}
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs whitespace-nowrap">
-                        <span className="text-xs text-slate-500 font-bold block">본사 총 발생수수료</span>
-                        <div className="mt-1 text-lg font-black text-slate-900 font-mono">
-                          {goodlifeSplitSummary.totalOfficial.toLocaleString()}<span className="text-xs font-normal text-slate-500 ml-0.5">원</span>
-                        </div>
-                        <span className="text-[11px] text-blue-600 font-bold mt-0.5 block">총 {goodlifeSplitSummary.totalCount}건 집계</span>
-                      </div>
+                    {(() => {
+                      const shinOverrideAmt = shinSpecialInfo.hasDynamic ? shinSpecialInfo.overrideAmount : goodlifeSplitSummary.totalOverride;
+                      const shinSupplyAmt = shinSpecialInfo.hasDynamic ? shinSpecialInfo.supplyAmount : currentTherawaveInfo.amount;
+                      const shinSupplyCnt = shinSpecialInfo.hasDynamic ? shinSpecialInfo.supplyCount : currentTherawaveInfo.count;
+                      const shinTotalAmt = shinSpecialInfo.hasDynamic ? shinSpecialInfo.totalAmount : (goodlifeSplitSummary.totalOverride + currentTherawaveInfo.amount);
+                      const grandTotalAmt = goodlifeSplitSummary.totalDirect + shinTotalAmt;
 
-                      <div className="bg-emerald-50/60 p-4 rounded-xl border border-emerald-200 shadow-2xs whitespace-nowrap">
-                        <span className="text-xs text-emerald-800 font-bold block">(주)꿈잇다 직송금</span>
-                        <div className="mt-1 text-lg font-black text-emerald-700 font-mono">
-                          {goodlifeSplitSummary.kkumDirect.toLocaleString()}<span className="text-xs font-normal text-emerald-600 ml-0.5">원</span>
-                        </div>
-                        <span className="text-[11px] text-emerald-600 font-medium mt-0.5 block">전 상품 건당 710,000원 ({goodlifeSplitSummary.kkumCount}건)</span>
-                      </div>
+                      return (
+                        <>
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs whitespace-nowrap">
+                              <span className="text-xs text-slate-500 font-bold block">굿라이프 총 발생수수료 (총합계)</span>
+                              <div className="mt-1 text-lg font-black text-slate-900 font-mono">
+                                {grandTotalAmt.toLocaleString()}<span className="text-xs font-normal text-slate-500 ml-0.5">원</span>
+                              </div>
+                              <span className="text-[11px] text-blue-600 font-bold mt-0.5 block">
+                                총 {goodlifeSplitSummary.totalCount}건 (직송금 + 신동우 대표 특수수당 포함)
+                              </span>
+                            </div>
 
-                      <div className="bg-blue-50/60 p-4 rounded-xl border border-blue-200 shadow-2xs whitespace-nowrap">
-                        <span className="text-xs text-blue-800 font-bold block">신동우 산하 본부 직송금</span>
-                        <div className="mt-1 text-lg font-black text-blue-700 font-mono">
-                          {goodlifeSplitSummary.hqDirect.toLocaleString()}<span className="text-xs font-normal text-blue-600 ml-0.5">원</span>
-                        </div>
-                        <span className="text-[11px] text-blue-600 font-medium mt-0.5 block">소속 본부 건당 550,000원 ({goodlifeSplitSummary.hqCount}건)</span>
-                      </div>
+                            <div className="bg-emerald-50/60 p-4 rounded-xl border border-emerald-200 shadow-2xs whitespace-nowrap">
+                              <span className="text-xs text-emerald-800 font-bold block">(주)꿈잇다 직송금</span>
+                              <div className="mt-1 text-lg font-black text-emerald-700 font-mono">
+                                {goodlifeSplitSummary.kkumDirect.toLocaleString()}<span className="text-xs font-normal text-emerald-600 ml-0.5">원</span>
+                              </div>
+                              <span className="text-[11px] text-emerald-600 font-medium mt-0.5 block">전 상품 건당 710,000원 ({goodlifeSplitSummary.kkumCount}건)</span>
+                            </div>
 
-                      <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200 shadow-2xs whitespace-nowrap">
-                        <span className="text-xs text-amber-800 font-bold block">신동우 대표 차액분</span>
-                        <div className="mt-1 text-lg font-black text-amber-700 font-mono">
-                          {goodlifeSplitSummary.totalOverride.toLocaleString()}<span className="text-xs font-normal text-amber-600 ml-0.5">원</span>
-                        </div>
-                        <span className="text-[11px] text-amber-600 font-medium mt-0.5 block">꿈잇다 4만 / 사업단 16~20만</span>
-                      </div>
+                            <div className="bg-blue-50/60 p-4 rounded-xl border border-blue-200 shadow-2xs whitespace-nowrap">
+                              <span className="text-xs text-blue-800 font-bold block">신동우 산하 본부 직송금</span>
+                              <div className="mt-1 text-lg font-black text-blue-700 font-mono">
+                                {goodlifeSplitSummary.hqDirect.toLocaleString()}<span className="text-xs font-normal text-blue-600 ml-0.5">원</span>
+                              </div>
+                              <span className="text-[11px] text-blue-600 font-medium mt-0.5 block">소속 본부 건당 550,000원 ({goodlifeSplitSummary.hqCount}건)</span>
+                            </div>
 
-                      <div className="bg-purple-50/60 p-4 rounded-xl border border-purple-200 shadow-2xs whitespace-nowrap">
-                        <span className="text-xs text-purple-800 font-bold block">신동우 대표 최종 실송금</span>
-                        <div className="mt-1 text-lg font-black text-purple-700 font-mono">
-                          {(goodlifeSplitSummary.totalOverride + currentTherawaveInfo.amount).toLocaleString()}<span className="text-xs font-normal text-purple-600 ml-0.5">원</span>
-                        </div>
-                        <span className="text-[11px] text-purple-600 font-medium mt-0.5 block">
-                          차액 + 테라웨이브({Math.round(currentTherawaveInfo.amount / 10000).toLocaleString()}만{currentTherawaveInfo.count > 0 ? ` / ${currentTherawaveInfo.count}건` : ''})
-                        </span>
-                      </div>
-                    </div>
+                            <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200 shadow-2xs whitespace-nowrap">
+                              <span className="text-xs text-amber-800 font-bold block">신동우 대표 차액분</span>
+                              <div className="mt-1 text-lg font-black text-amber-700 font-mono">
+                                {shinOverrideAmt.toLocaleString()}<span className="text-xs font-normal text-amber-600 ml-0.5">원</span>
+                              </div>
+                              <span className="text-[11px] text-amber-600 font-medium mt-0.5 block">꿈잇다 4만 / 사업단 16~20만</span>
+                            </div>
 
-                    {/* 검증 배너 */}
-                    <div className="px-5 py-3 rounded-xl bg-emerald-100/70 border border-emerald-300 flex items-center justify-between text-xs whitespace-nowrap">
-                      <div className="flex items-center gap-2 text-emerald-900 font-bold">
-                        <CheckCircle size={16} className="text-emerald-600 shrink-0" />
-                        <span>정산 합계 일치 검증:</span>
-                        <span className="font-mono text-emerald-800">
-                          본사 수수료({goodlifeSplitSummary.totalOfficial.toLocaleString()}원) = 직송금합계({goodlifeSplitSummary.totalDirect.toLocaleString()}원) + 신동우 대표 차액({goodlifeSplitSummary.totalOverride.toLocaleString()}원)
-                        </span>
-                      </div>
-                      <span className="px-3 py-1 bg-emerald-600 text-white font-black rounded-lg text-xs shadow-2xs">
-                        오차 0원 정상 일치
-                      </span>
-                    </div>
+                            <div className="bg-purple-50/60 p-4 rounded-xl border border-purple-200 shadow-2xs whitespace-nowrap">
+                              <span className="text-xs text-purple-800 font-bold block">신동우 대표 특수수당 합계</span>
+                              <div className="mt-1 text-lg font-black text-purple-700 font-mono">
+                                {shinTotalAmt.toLocaleString()}<span className="text-xs font-normal text-purple-600 ml-0.5">원</span>
+                              </div>
+                              <span className="text-[11px] text-purple-600 font-medium mt-0.5 block">
+                                차액 + 공급수수료({Math.round(shinSupplyAmt / 10000).toLocaleString()}만{shinSupplyCnt > 0 ? ` / ${shinSupplyCnt}건` : ''})
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* 검증 배너 */}
+                          <div className="px-5 py-3 rounded-xl bg-emerald-100/70 border border-emerald-300 flex items-center justify-between text-xs whitespace-nowrap">
+                            <div className="flex items-center gap-2 text-emerald-900 font-bold">
+                              <CheckCircle size={16} className="text-emerald-600 shrink-0" />
+                              <span>정산 합계 일치 검증:</span>
+                              <span className="font-mono text-emerald-800">
+                                총합계({grandTotalAmt.toLocaleString()}원) = 직송금합계({goodlifeSplitSummary.totalDirect.toLocaleString()}원) + 신동우 대표 특수수당({shinTotalAmt.toLocaleString()}원)
+                              </span>
+                            </div>
+                            <span className="px-3 py-1 bg-emerald-600 text-white font-black rounded-lg text-xs shadow-2xs">
+                              오차 0원 정상 일치
+                            </span>
+                          </div>
+                        </>
+                      );
+                    })()}
 
                     {/* 분배 상세 테이블 */}
                     <div className="bg-white rounded-xl border border-slate-300 overflow-hidden shadow-2xs">
