@@ -1713,10 +1713,10 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       }));
     }
 
-    // 2) 특수수당 설정에서 추가된 신규 수급자(예: 정세환 등) 동적 항목 생성 헬퍼
+    // 2) 특수수당 설정에서 추가된 수급자(신동우 대표 및 신규 수급자 포함) 동적 항목 생성 헬퍼
     const buildDynamicSpecialRows = (): DetailedSettlementRow[] => {
       const dynamicRows: DetailedSettlementRow[] = [];
-      const hardcodedSpecialTargets = ['조재윤', '조재은', '조민경', '이종연', '권성훈', '신동우', '에스제이'];
+      const hardcodedSpecialTargets = ['조재윤', '조재은', '조민경', '이종연', '권성훈', '에스제이'];
 
       effectiveHqMonthlyStats.forEach(stat => {
         const tName = (stat.hqName || '').trim();
@@ -1823,9 +1823,12 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         return r;
       });
 
-      // 특수수당 설정에서 새로 추가된 대상자(예: 정세환)가 캐시에 빠져있으면 자동으로 하단에 병합
+      // 특수수당 설정에서 새로 추가된 대상자/항목이 캐시에 빠져있으면 자동으로 하단에 병합
       const missingSpecialRows = dynamicSpecialRows.filter(
-        spRow => !baseCached.some(r => (r.targetName || '').trim() === (spRow.targetName || '').trim())
+        spRow => !baseCached.some(r =>
+          (r.targetName || '').trim() === (spRow.targetName || '').trim() &&
+          (r.itemName || '').trim() === (spRow.itemName || '').trim()
+        )
       );
       if (missingSpecialRows.length > 0) {
         baseCached = [...baseCached, ...missingSpecialRows];
@@ -2081,36 +2084,40 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       });
     }
 
-    // 신동우 굿라이프 오버라이딩 차액분 (사업단 분배 명세 기준 귀속)
-    const glOverrideAmount = goodlifeSplitSummary.totalOverride;
-    const glOverrideCount = goodlifeSplitSummary.totalCount;
-    if (glOverrideAmount > 0) {
-      result.push({
-        id: `auto_goodlife_diff_shin_${selectedMonth}`,
-        targetName: '신동우',
-        itemName: '굿라이프 오버라이딩 차액분',
-        count: glOverrideCount,
-        unitFee: 0,
-        salesCommission: 0,
-        promoCommission: 0,
-        totalCommission: glOverrideAmount,
-        isHeaderGroup: true
-      });
-    }
+    // 특수수당 설정(globalIncentiveRules)에서 신동우 대표 내역이 동적 집계되지 않은 경우에만 기본 분배 명세/테라웨이브 폴백 추가 (이중 합산 방지)
+    const hasDynamicShinSpecial = dynamicSpecialRows.some(r => (r.targetName || '').includes('신동우'));
+    if (!hasDynamicShinSpecial) {
+      // 신동우 굿라이프 오버라이딩 차액분 (사업단 분배 명세 기준 귀속)
+      const glOverrideAmount = goodlifeSplitSummary.totalOverride;
+      const glOverrideCount = goodlifeSplitSummary.totalCount;
+      if (glOverrideAmount > 0) {
+        result.push({
+          id: `auto_goodlife_diff_shin_${selectedMonth}`,
+          targetName: '신동우',
+          itemName: '굿라이프 오버라이딩 차액분',
+          count: glOverrideCount,
+          unitFee: 0,
+          salesCommission: 0,
+          promoCommission: 0,
+          totalCommission: glOverrideAmount,
+          isHeaderGroup: true
+        });
+      }
 
-    // 신동우 물품대금 수수료(테라웨이브) - 계약번호 중복 제거 및 월별 실적 동적 연동 (10월 2건 100만, 11월 5건 250만, 기타 월 연동)
-    if (currentTherawaveInfo.count > 0) {
-      result.push({
-        id: `auto_therawave_shin_${selectedMonth}`,
-        targetName: '신동우',
-        itemName: '물품대금 수수료(테라웨이브)',
-        count: currentTherawaveInfo.count,
-        unitFee: currentTherawaveInfo.unitFee,
-        salesCommission: 0,
-        promoCommission: 0,
-        totalCommission: currentTherawaveInfo.amount,
-        isHeaderGroup: glOverrideAmount <= 0
-      });
+      // 신동우 물품대금 수수료(테라웨이브) - 계약번호 중복 제거 및 월별 실적 동적 연동 (10월 2건 100만, 11월 5건 250만, 기타 월 연동)
+      if (currentTherawaveInfo.count > 0) {
+        result.push({
+          id: `auto_therawave_shin_${selectedMonth}`,
+          targetName: '신동우',
+          itemName: '물품대금 수수료(테라웨이브)',
+          count: currentTherawaveInfo.count,
+          unitFee: currentTherawaveInfo.unitFee,
+          salesCommission: 0,
+          promoCommission: 0,
+          totalCommission: currentTherawaveInfo.amount,
+          isHeaderGroup: glOverrideAmount <= 0
+        });
+      }
     }
 
     // 권성훈 홈페이지 유지비
