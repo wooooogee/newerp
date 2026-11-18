@@ -433,14 +433,15 @@ export const isHqMatchedForSpecialRule = (
       const isTargetDiv = targetDivisions.some(td => {
         if (!td) return false;
         if (td === div.id || td === div.name) return true;
-        // td가 ID이거나 사업단 이름일 수 있으므로 정규화 비교
+        // 'div-'로 시작하는 사업단 ID는 정확한 ID 일치만 허용 (div-goodlife가 굿라이프(꿈잇다)에 오매칭되는 것 방지)
+        if (td.startsWith('div-')) return false;
+        // td가 사업단 이름인 경우 정규화 비교
         const divCleanName = (div.name || '').replace(/\s+/g, '');
         const tdClean = (td || '').replace(/\s+/g, '');
         if (divCleanName && tdClean) {
           // '꿈잇다'와 '신동우'가 서로 교차 오매칭되지 않도록 방지
           if (tdClean.includes('꿈잇다') && !divCleanName.includes('꿈잇다')) return false;
           if (tdClean.includes('신동우') && !divCleanName.includes('신동우')) return false;
-          if ((tdClean.includes('goodlife') || tdClean === '굿라이프') && divCleanName.includes('굿라이프')) return true;
           if (divCleanName === tdClean || divCleanName.includes(tdClean) || tdClean.includes(divCleanName)) return true;
         }
         return false;

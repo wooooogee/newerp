@@ -312,14 +312,15 @@ const isHqMatchedForSpecialRule = (
       const isTargetDiv = targetDivisions.some((td: string) => {
         if (!td) return false;
         if (td === div.id || td === div.name) return true;
-        // td가 ID이거나 사업단 이름일 수 있으므로 정규화 비교
+        // 'div-'로 시작하는 사업단 ID는 정확한 ID 일치만 허용 (div-goodlife가 굿라이프(꿈잇다)에 오매칭되는 것 방지)
+        if (td.startsWith('div-')) return false;
+        // td가 사업단 이름인 경우 정규화 비교
         const divCleanName = (div.name || '').replace(/\s+/g, '');
         const tdClean = (td || '').replace(/\s+/g, '');
         if (divCleanName && tdClean) {
           // '꿈잇다'와 '신동우'가 서로 교차 오매칭되지 않도록 방지
           if (tdClean.includes('꿈잇다') && !divCleanName.includes('꿈잇다')) return false;
           if (tdClean.includes('신동우') && !divCleanName.includes('신동우')) return false;
-          if ((tdClean.includes('goodlife') || tdClean === '굿라이프') && divCleanName.includes('굿라이프')) return true;
           if (divCleanName === tdClean || divCleanName.includes(tdClean) || tdClean.includes(divCleanName)) return true;
         }
         return false;
@@ -1724,8 +1725,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         if (hardcodedSpecialTargets.some(k => tName.includes(k))) return;
         if ((stat.specialSum || 0) <= 0 && (!stat.specialItems || stat.specialItems.length === 0)) return;
 
-        // specialItems를 수당종류 + 상품명 + 원소속본부 단위로 그룹화
-        const spGroups = new Map<string, { label: string; count: number; total: number }>();
+        // specialItems를 수당종류 + 상품명 + 단가(및 소속 사업단) 단위로 깔끔하게 그룹화 (본부별 과도한 행 분할 및 단가 평균 왜곡 방지)
+        const spGroups = new Map<string, { label: string; unitFee: number; count: number; total: number }>();
         if (stat.specialItems && stat.specialItems.length > 0) {
           stat.specialItems.forEach((sp: any) => {
             const incName = (sp.incentiveName || '컨설팅 수수료').trim();
@@ -1733,20 +1734,29 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             const origHq = (sp.contractHq && sp.contractHq !== '-' && sp.contractHq !== tName)
               ? sp.contractHq.trim()
               : (sp.originHq && sp.originHq !== '-' && sp.originHq !== tName ? sp.originHq.trim() : '');
+            const origDiv = origHq ? getDivisionForHq(origHq) : null;
+            const scopeName = origDiv ? origDiv.name : origHq;
+            const cnt = sp.effectiveAccounts || sp.accountCount || 1;
+            const amt = Number(sp.amount) || 0;
+            const unitAmt = cnt > 0 ? Math.round(amt / cnt) : amt;
+
             const label = prod
-              ? `${incName}(${prod}${origHq ? ` - ${origHq}` : ''})`
-              : (origHq ? `${incName}(${origHq})` : incName);
-            const cur = spGroups.get(label) || { label, count: 0, total: 0 };
-            cur.count += (sp.effectiveAccounts || sp.accountCount || 1);
-            cur.total += (Number(sp.amount) || 0);
-            spGroups.set(label, cur);
+              ? `${incName}(${prod}${scopeName ? ` · ${scopeName}` : ''})`
+              : (scopeName ? `${incName}(${scopeName})` : incName);
+            const groupKey = `${label}__${unitAmt}`;
+            const cur = spGroups.get(groupKey) || { label, unitFee: unitAmt, count: 0, total: 0 };
+            cur.count += cnt;
+            cur.total += amt;
+            spGroups.set(groupKey, cur);
           });
         } else if (stat.specialSum > 0) {
           const matchedRule = (globalIncentiveRules || []).find(r => (r.targetName || '').trim() === tName);
           const incName = matchedRule?.incentiveName || '컨설팅 수수료';
+          const cnt = stat.count || 1;
           spGroups.set(incName, {
             label: incName,
-            count: stat.count || 1,
+            unitFee: cnt > 0 ? Math.round(stat.specialSum / cnt) : stat.specialSum,
+            count: cnt,
             total: stat.specialSum
           });
         }
@@ -1757,7 +1767,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
         let subCount = 0;
         let subTotal = 0;
         entries.forEach((g, idx) => {
-          const unitFee = g.count > 0 ? Math.round(g.total / g.count) : g.total;
+          const unitFee = g.unitFee > 0 ? g.unitFee : (g.count > 0 ? Math.round(g.total / g.count) : g.total);
           subCount += g.count;
           subTotal += g.total;
           dynamicRows.push({
