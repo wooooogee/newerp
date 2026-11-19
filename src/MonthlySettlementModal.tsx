@@ -349,6 +349,19 @@ const isHqMatchedForSpecialRule = (
 const isDetailExcludedTarget = (name: string): boolean =>
   ['조재윤', '조민경', '권성훈'].some(target => (name || '').includes(target));
 
+// 계약 아이템 목록을 상품명별 건수로 집계
+const getProductBreakdown = (items: any[]): Array<{ prodName: string; count: number }> => {
+  if (!items || items.length === 0) return [];
+  const map = new Map<string, number>();
+  items.forEach(item => {
+    const pName = (item.prodName || '기타').trim();
+    map.set(pName, (map.get(pName) || 0) + 1);
+  });
+  return Array.from(map.entries())
+    .map(([prodName, count]) => ({ prodName, count }))
+    .sort((a, b) => b.count - a.count || a.prodName.localeCompare(b.prodName, 'ko'));
+};
+
 export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
   isOpen,
   onClose,
@@ -376,6 +389,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
   // 뷰 모드 탭: 'summary' (본부별 총괄 집계) | 'detailed' (수수료 정산 상세 내역)
   const [settlementViewTab, setSettlementViewTab] = useState<'summary' | 'detailed'>('summary');
+  const [showProductBreakdown, setShowProductBreakdown] = useState<boolean>(true);
 
   // 굿라이프 사업단 총무(굿라이프 / 꿈잇다 / 신동우) 여부 판별
   const isGoodlifeStaff = useMemo(() => {
@@ -4652,7 +4666,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       XLSX.utils.book_append_sheet(wb, wsSummary, makeUniqueSheetName('본부별정산집계'));
 
       // =========================================================================
-      // [시트 2] 은행이체_지급계좌집계 (동일 입금은행/계좌번호/예금주 묶기)
+      // [시트 2] 은행이체_지급계좌집계 (개인/지점장/유지 사원계좌 반영 + 동일 계좌 묶기)
       // =========================================================================
       interface BankGroupItem {
         targets: string[];
@@ -4666,41 +4680,169 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       }
       const bankGroupMap = new Map<string, BankGroupItem>();
 
-      const orderedForBank = [
-        ...excelDivGroups.flatMap(g => g.stats),
-        ...excelIndependentStats
-      ];
-
-      orderedForBank.forEach(stat => {
-        const bank = (stat.bankName || '-').trim();
-        const acct = (stat.accountNumber || '-').trim();
-        const holder = (stat.accountHolder || '-').trim();
+      const addBankEntry = (params: {
+        targetLabel: string;
+        divName?: string;
+        grossTotal: number;
+        tax: number;
+        netTotal: number;
+        bankName: string;
+        accountNumber: string;
+        accountHolder: string;
+      }) => {
+        const bank = (params.bankName || '-').trim();
+        const acct = (params.accountNumber || '-').trim();
+        const holder = (params.accountHolder || '-').trim();
         const normAcct = acct.replace(/[-\s]/g, '');
         const hasValidAcct = normAcct !== '' && normAcct !== '-';
         const key = hasValidAcct
           ? `${bank.replace(/\s/g, '')}|${normAcct}|${holder.replace(/\s/g, '')}`
-          : `__NO_ACCT__${stat.hqName}`;
+          : `__NO_ACCT__${params.targetLabel}`;
 
-        const div = getDivisionForHq(stat.hqName);
         if (!bankGroupMap.has(key)) {
           bankGroupMap.set(key, {
-            targets: [stat.hqName],
-            divNames: new Set(div ? [div.name] : []),
-            grossTotal: stat.grossTotal,
-            tax: stat.tax,
-            netTotal: stat.netTotal,
+            targets: [params.targetLabel],
+            divNames: new Set(params.divName ? [params.divName] : []),
+            grossTotal: params.grossTotal,
+            tax: params.tax,
+            netTotal: params.netTotal,
             bankName: bank,
             accountNumber: acct,
             accountHolder: holder
           });
         } else {
           const existing = bankGroupMap.get(key)!;
-          existing.targets.push(stat.hqName);
-          if (div) existing.divNames.add(div.name);
-          existing.grossTotal += stat.grossTotal;
-          existing.tax += stat.tax;
-          existing.netTotal += stat.netTotal;
+          if (!existing.targets.includes(params.targetLabel)) {
+            existing.targets.push(params.targetLabel);
+          }
+          if (params.divName) existing.divNames.add(params.divName);
+          existing.grossTotal += params.grossTotal;
+          existing.tax += params.tax;
+          existing.netTotal += params.netTotal;
         }
+      };
+
+      const orderedForBank = [
+        ...excelDivGroups.flatMap(g => g.stats),
+        ...excelIndependentStats
+      ];
+
+      orderedForBank.forEach(stat => {
+        const div = getDivisionForHq(stat.hqName);
+        const isPersonalHq = stat.settlementType.includes('개인');
+        const hasValidHqAcct = Boolean(stat.accountNumber && stat.accountNumber !== '-' && stat.accountNumber.replace(/[-\s]/g, '') !== '');
+        const hasContractOrMaint = (stat.items && stat.items.length > 0) || (stat.maintenanceItems && stat.maintenanceItems.length > 0);
+
+        // 개인 본부(더금융비상 등) 또는 본부 계좌가 없는 직접지급 본부(다이렉트 유지수수료 등)는 사원/지점장별 계좌로 분리 집계
+        if ((isPersonalHq || !hasValidHqAcct) && hasContractOrMaint) {
+          const personMap = new Map<string, {
+            name: string;
+            roles: Set<string>;
+            gross: number;
+            bankInfo: EmployeeBankInfo | null;
+          }>();
+
+          (stat.items || []).forEach(item => {
+            if (item.status && item.status.includes('취소')) return;
+            const details = calculateCommissionDetails(item, globalStatsMap);
+            const spName = (item.empName || '').trim();
+            const bmName = (details.branchManagerName || '').trim();
+            const spFee = details.salespersonFee ?? details.salesComm ?? 0;
+            const bmFee = details.branchManagerFee ?? Math.max(0, details.totalCommission - spFee);
+
+            if (spName && spFee > 0) {
+              if (!personMap.has(spName)) {
+                personMap.set(spName, {
+                  name: spName,
+                  roles: new Set(['영업사원']),
+                  gross: 0,
+                  bankInfo: details.salespersonBankInfo || findEmployeeInfo(spName, item.branch, stat.hqName, parsedEmployees)
+                });
+              }
+              const entry = personMap.get(spName)!;
+              entry.roles.add('영업사원');
+              entry.gross += spFee;
+            }
+
+            if (bmName && bmName !== '지점장미지정' && bmFee > 0) {
+              if (!personMap.has(bmName)) {
+                personMap.set(bmName, {
+                  name: bmName,
+                  roles: new Set(['지점장']),
+                  gross: 0,
+                  bankInfo: details.branchManagerBankInfo || findEmployeeInfo(bmName, item.branch, stat.hqName, parsedEmployees)
+                });
+              }
+              const entry = personMap.get(bmName)!;
+              entry.roles.add('지점장');
+              entry.gross += bmFee;
+            }
+          });
+
+          (stat.maintenanceItems || []).forEach(mItem => {
+            const originContract = (data || []).find(d => d.resNo && d.resNo === mItem.resNo);
+            const empName = (mItem.empName || originContract?.empName || '').trim();
+            const branchName = mItem.branch || originContract?.branch || '';
+            const amt = mItem.amount || 0;
+            if (empName && amt > 0) {
+              if (!personMap.has(empName)) {
+                personMap.set(empName, {
+                  name: empName,
+                  roles: new Set(['영업사원']),
+                  gross: 0,
+                  bankInfo: findEmployeeInfo(empName, branchName, stat.hqName, parsedEmployees)
+                });
+              }
+              personMap.get(empName)!.gross += amt;
+            }
+          });
+
+          if (personMap.size > 0) {
+            Array.from(personMap.values()).forEach(p => {
+              const pTax = isPersonalHq ? Math.floor(p.gross * 0.033) : 0;
+              const pNet = p.gross - pTax;
+              const roleStr = Array.from(p.roles).join('·');
+              addBankEntry({
+                targetLabel: `${p.name} (${stat.hqName} ${roleStr})`,
+                divName: div?.name,
+                grossTotal: p.gross,
+                tax: pTax,
+                netTotal: pNet,
+                bankName: p.bankInfo?.bankName || stat.bankName || '-',
+                accountNumber: p.bankInfo?.accountNumber || stat.accountNumber || '-',
+                accountHolder: p.bankInfo?.accountHolder || p.name
+              });
+            });
+
+            // 특수수당 금액이 별도로 있으면 본부 계좌로 추가
+            if (stat.specialSum > 0) {
+              const spTax = isPersonalHq ? Math.floor(stat.specialSum * 0.033) : 0;
+              addBankEntry({
+                targetLabel: `${stat.hqName} (특수수당)`,
+                divName: div?.name,
+                grossTotal: stat.specialSum,
+                tax: spTax,
+                netTotal: stat.specialSum - spTax,
+                bankName: stat.bankName,
+                accountNumber: stat.accountNumber,
+                accountHolder: stat.accountHolder
+              });
+            }
+            return;
+          }
+        }
+
+        // 일반 본부 또는 순수 특수수당 대상
+        addBankEntry({
+          targetLabel: stat.hqName,
+          divName: div?.name,
+          grossTotal: stat.grossTotal,
+          tax: stat.tax,
+          netTotal: stat.netTotal,
+          bankName: stat.bankName,
+          accountNumber: stat.accountNumber,
+          accountHolder: stat.accountHolder
+        });
       });
 
       const bankGroupList = Array.from(bankGroupMap.values());
@@ -4927,13 +5069,17 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
       }) => {
         const {
           sheetTitle, displayTargetName, settlementType, bankName, accountNumber, accountHolder,
-          businessName, businessNo, items, maintenanceItems, specialItems,
-          salesSum, promoSum, generalSum, maintenanceSum, specialSum, grossTotal, isDivisionSheet
+          businessName, businessNo, items, maintenanceItems,
+          salesSum, promoSum, generalSum, maintenanceSum, isDivisionSheet
         } = params;
+
+        // 일반수수료·유지수수료 내역이 모두 없으면 상세 시트 생성 생략 (특수수당은 3시트 참조)
+        if (items.length === 0 && maintenanceItems.length === 0) return;
 
         const rows: any[][] = [];
         const isIndiv = (settlementType || '').includes('개인') || displayTargetName === '글로씨';
-        const netTotal = isIndiv ? grossTotal - Math.round(grossTotal * 0.033) : grossTotal;
+        const grossTotalForDetail = salesSum + promoSum + maintenanceSum;
+        const netTotal = isIndiv ? grossTotalForDetail - Math.round(grossTotalForDetail * 0.033) : grossTotalForDetail;
 
         // Row 0: 타이틀
         rows.push([`${yearPart || new Date().getFullYear()}년 ${monthInt}월 [${displayTargetName}] 수수료 정산 내역서`]);
@@ -4963,8 +5109,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           if (salesSum > 0) rows.push(['판매 수수료', { v: salesSum, t: 'n', z: '#,##0' }, { v: Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }, { v: salesSum - Math.floor(salesSum * 0.033), t: 'n', z: '#,##0' }]);
           if (promoSum > 0) rows.push(['판매 촉진비', { v: promoSum, t: 'n', z: '#,##0' }, { v: Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }, { v: promoSum - Math.floor(promoSum * 0.033), t: 'n', z: '#,##0' }]);
           if (maintenanceSum > 0) rows.push(['유지 수수료', { v: maintenanceSum, t: 'n', z: '#,##0' }, { v: Math.floor(maintenanceSum * 0.033), t: 'n', z: '#,##0' }, { v: maintenanceSum - Math.floor(maintenanceSum * 0.033), t: 'n', z: '#,##0' }]);
-          if (specialSum > 0) rows.push(['특수수당', { v: specialSum, t: 'n', z: '#,##0' }, { v: Math.floor(specialSum * 0.033), t: 'n', z: '#,##0' }, { v: specialSum - Math.floor(specialSum * 0.033), t: 'n', z: '#,##0' }]);
-          rows.push(['합계', { v: grossTotal, t: 'n', z: '#,##0' }, { v: Math.round(grossTotal * 0.033), t: 'n', z: '#,##0' }, { v: netTotal, t: 'n', z: '#,##0' }]);
+          rows.push(['합계', { v: grossTotalForDetail, t: 'n', z: '#,##0' }, { v: Math.round(grossTotalForDetail * 0.033), t: 'n', z: '#,##0' }, { v: netTotal, t: 'n', z: '#,##0' }]);
         } else {
           rows.push([`[본부 세금계산서 발행] - ${bizLabel}`]);
           rows.push(['구분', '공급가액', '부가세(10%)', '합계금액(실지급액)']);
@@ -4981,86 +5126,123 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
             const sup = toSupply(maintenanceSum);
             rows.push(['유지 수수료', { v: sup, t: 'n', z: '#,##0' }, { v: maintenanceSum - sup, t: 'n', z: '#,##0' }, { v: maintenanceSum, t: 'n', z: '#,##0' }]);
           }
-          if (specialSum > 0) {
-            const sup = toSupply(specialSum);
-            rows.push(['특수수당', { v: sup, t: 'n', z: '#,##0' }, { v: specialSum - sup, t: 'n', z: '#,##0' }, { v: specialSum, t: 'n', z: '#,##0' }]);
+          const totSup = toSupply(grossTotalForDetail);
+          rows.push(['합계', { v: totSup, t: 'n', z: '#,##0' }, { v: grossTotalForDetail - totSup, t: 'n', z: '#,##0' }, { v: grossTotalForDetail, t: 'n', z: '#,##0' }]);
+        }
+        rows.push([]);
+
+        // 상품별 수수료 집계 (사업단 시트면 본부별+상품별로 정리)
+        if (isDivisionSheet) {
+          rows.push(['본부명', '상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계']);
+          const hqProdMap = new Map<string, { hqName: string; prodName: string; count: number; sales: number; promo: number; total: number }>();
+          items.forEach(item => {
+            const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, globalStatsMap);
+            const hName = item.hq || item.branch || '기타본부';
+            const pName = item.prodName || '기타상품';
+            const key = `${hName}||${pName}`;
+            if (!hqProdMap.has(key)) hqProdMap.set(key, { hqName: hName, prodName: pName, count: 0, sales: 0, promo: 0, total: 0 });
+            const entry = hqProdMap.get(key)!;
+            entry.count += 1;
+            entry.sales += salesComm;
+            entry.promo += promoFee;
+            entry.total += totalCommission;
+          });
+
+          Array.from(hqProdMap.values())
+            .sort((a, b) => a.hqName.localeCompare(b.hqName, 'ko') || a.prodName.localeCompare(b.prodName, 'ko'))
+            .forEach(entry => {
+              rows.push([
+                entry.hqName,
+                entry.prodName,
+                entry.count,
+                { v: Math.floor(entry.sales), t: 'n', z: '#,##0' },
+                { v: Math.floor(entry.promo), t: 'n', z: '#,##0' },
+                { v: Math.floor(entry.total), t: 'n', z: '#,##0' }
+              ]);
+            });
+
+          if (maintenanceSum > 0) {
+            rows.push([
+              '전체',
+              '유지수수료 합계',
+              maintenanceItems.length,
+              { v: 0, t: 'n', z: '#,##0' },
+              { v: maintenanceSum, t: 'n', z: '#,##0' },
+              { v: maintenanceSum, t: 'n', z: '#,##0' }
+            ]);
           }
-          const totSup = toSupply(grossTotal);
-          rows.push(['합계', { v: totSup, t: 'n', z: '#,##0' }, { v: grossTotal - totSup, t: 'n', z: '#,##0' }, { v: grossTotal, t: 'n', z: '#,##0' }]);
+          const totalItemsCount = items.length + (maintenanceSum > 0 ? maintenanceItems.length : 0);
+          rows.push([
+            '계',
+            '',
+            totalItemsCount,
+            { v: Math.floor(salesSum), t: 'n', z: '#,##0' },
+            { v: Math.floor(promoSum + maintenanceSum), t: 'n', z: '#,##0' },
+            { v: Math.floor(grossTotalForDetail), t: 'n', z: '#,##0' }
+          ]);
+        } else {
+          rows.push(['상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계']);
+          const prodMap: Record<string, { count: number; sales: number; promo: number; total: number }> = {};
+          items.forEach(item => {
+            const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, globalStatsMap);
+            const pName = item.prodName || '기타상품';
+            if (!prodMap[pName]) prodMap[pName] = { count: 0, sales: 0, promo: 0, total: 0 };
+            prodMap[pName].count += 1;
+            prodMap[pName].sales += salesComm;
+            prodMap[pName].promo += promoFee;
+            prodMap[pName].total += totalCommission;
+          });
+
+          Object.entries(prodMap).forEach(([pName, prStat]) => {
+            rows.push([
+              pName,
+              prStat.count,
+              { v: Math.floor(prStat.sales), t: 'n', z: '#,##0' },
+              { v: Math.floor(prStat.promo), t: 'n', z: '#,##0' },
+              { v: Math.floor(prStat.total), t: 'n', z: '#,##0' }
+            ]);
+          });
+          if (maintenanceSum > 0) {
+            rows.push([
+              '유지수수료 합계',
+              maintenanceItems.length,
+              { v: 0, t: 'n', z: '#,##0' },
+              { v: maintenanceSum, t: 'n', z: '#,##0' },
+              { v: maintenanceSum, t: 'n', z: '#,##0' }
+            ]);
+          }
+          const totalItemsCount = items.length + (maintenanceSum > 0 ? maintenanceItems.length : 0);
+          rows.push([
+            '계',
+            totalItemsCount,
+            { v: Math.floor(salesSum), t: 'n', z: '#,##0' },
+            { v: Math.floor(promoSum + maintenanceSum), t: 'n', z: '#,##0' },
+            { v: Math.floor(grossTotalForDetail), t: 'n', z: '#,##0' }
+          ]);
         }
         rows.push([]);
 
-        // 상품별 수수료 집계
-        rows.push(['상품명', '계약 건', '판매수수료', '판매촉진비', '수수료계']);
-        const prodMap: Record<string, { count: number; sales: number; promo: number; total: number }> = {};
-        items.forEach(item => {
-          const { totalCommission, salesComm, promoFee } = calculateCommissionDetails(item, globalStatsMap);
-          const pName = item.prodName || '기타상품';
-          if (!prodMap[pName]) prodMap[pName] = { count: 0, sales: 0, promo: 0, total: 0 };
-          prodMap[pName].count += 1;
-          prodMap[pName].sales += salesComm;
-          prodMap[pName].promo += promoFee;
-          prodMap[pName].total += totalCommission;
-        });
-
-        Object.entries(prodMap).forEach(([pName, prStat]) => {
-          rows.push([
-            pName,
-            prStat.count,
-            { v: Math.floor(prStat.sales), t: 'n', z: '#,##0' },
-            { v: Math.floor(prStat.promo), t: 'n', z: '#,##0' },
-            { v: Math.floor(prStat.total), t: 'n', z: '#,##0' }
-          ]);
-        });
-        if (maintenanceSum > 0) {
-          rows.push([
-            '유지수수료 합계',
-            maintenanceItems.length,
-            { v: 0, t: 'n', z: '#,##0' },
-            { v: maintenanceSum, t: 'n', z: '#,##0' },
-            { v: maintenanceSum, t: 'n', z: '#,##0' }
-          ]);
-        }
-        if (specialSum > 0) {
-          rows.push([
-            '특수수당 합계',
-            specialItems.length,
-            { v: 0, t: 'n', z: '#,##0' },
-            { v: specialSum, t: 'n', z: '#,##0' },
-            { v: specialSum, t: 'n', z: '#,##0' }
-          ]);
-        }
-        const totalItemsCount = items.length + (maintenanceSum > 0 ? maintenanceItems.length : 0) + (specialSum > 0 ? specialItems.length : 0);
-        rows.push([
-          '계',
-          totalItemsCount,
-          { v: Math.floor(salesSum), t: 'n', z: '#,##0' },
-          { v: Math.floor(promoSum + maintenanceSum + specialSum), t: 'n', z: '#,##0' },
-          { v: Math.floor(grossTotal), t: 'n', z: '#,##0' }
-        ]);
-        rows.push([]);
-
-        // [일반수수료 상세 내역]
+        // [일반수수료 상세 내역] (사업단 시트면 본부별로만 묶어서 소계 처리)
+        const totalItemsCount = items.length + (maintenanceSum > 0 ? maintenanceItems.length : 0);
         rows.push(['[일반수수료 상세 내역]']);
-        rows.push(['No', '지사', '사원명', '고객명', '상품명', '제품명', '계약일자', '배송일자', '수수료']);
+        rows.push(['No', isDivisionSheet ? '본부명' : '지사', '사원명', '고객명', '상품명', '제품명', '계약일자', '배송일자', '수수료']);
 
-        const getBranchLabel = (item: any) => {
-          if (isDivisionSheet) {
-            if (item.hq && item.branch && item.hq !== item.branch) return `${item.hq}(${item.branch})`;
-            return item.hq || item.branch || '-';
-          }
+        const getGroupLabel = (item: any) => {
+          if (isDivisionSheet) return item.hq || item.branch || '-';
           return item.branch || '-';
         };
 
         const sortedItems = [...items].sort((a, b) => {
-          const bDiff = getBranchLabel(a).localeCompare(getBranchLabel(b), 'ko');
-          if (bDiff !== 0) return bDiff;
-          const pDiff = (a.prodName || '').localeCompare(b.prodName || '', 'ko');
-          if (pDiff !== 0) return pDiff;
+          const gDiff = getGroupLabel(a).localeCompare(getGroupLabel(b), 'ko');
+          if (gDiff !== 0) return gDiff;
+          if (!isDivisionSheet) {
+            const pDiff = (a.prodName || '').localeCompare(b.prodName || '', 'ko');
+            if (pDiff !== 0) return pDiff;
+          }
           return (a.contractDate || '').localeCompare(b.contractDate || '', 'ko');
         });
 
-        let currBranch = '';
+        let currGroup = '';
         let currProd = '';
         let subCount = 0;
         let subComm = 0;
@@ -5068,19 +5250,24 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
         sortedItems.forEach((item, idx) => {
           const { totalCommission } = calculateCommissionDetails(item, globalStatsMap);
-          const bLabel = getBranchLabel(item);
+          const gLabel = getGroupLabel(item);
           const pLabel = item.prodName || '';
 
-          if (idx > 0 && (currBranch !== bLabel || currProd !== pLabel)) {
+          const isBoundary = isDivisionSheet
+            ? (idx > 0 && currGroup !== gLabel)
+            : (idx > 0 && (currGroup !== gLabel || currProd !== pLabel));
+
+          if (isBoundary) {
             rows.push([
-              `[${currBranch}] ${currProd} 소계`, '', '', '', '', '', '',
+              isDivisionSheet ? `[${currGroup}] 소계` : `[${currGroup}] ${currProd} 소계`,
+              '', '', '', '', '', '',
               `${subCount}건`,
               { v: Math.floor(subComm), t: 'n', z: '#,##0' }
             ]);
             subCount = 0;
             subComm = 0;
           }
-          currBranch = bLabel;
+          currGroup = gLabel;
           currProd = pLabel;
           subCount++;
           subComm += totalCommission;
@@ -5089,7 +5276,7 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           const prodModel = item.rentalProd || item.modelName || item.productModel || item.prodName || '-';
           rows.push([
             dataRowNo,
-            bLabel,
+            gLabel,
             item.empName || '-',
             item.memName || item.customerName || '-',
             item.prodName || '-',
@@ -5102,7 +5289,8 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
 
         if (subCount > 0) {
           rows.push([
-            `[${currBranch}] ${currProd} 소계`, '', '', '', '', '', '',
+            isDivisionSheet ? `[${currGroup}] 소계` : `[${currGroup}] ${currProd} 소계`,
+            '', '', '', '', '', '',
             `${subCount}건`,
             { v: Math.floor(subComm), t: 'n', z: '#,##0' }
           ]);
@@ -5145,33 +5333,6 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
           rows.push([
             '합계', '', '', '', '', `${maintenanceItems.length}건`, '', '', '',
             { v: maintenanceSum, t: 'n', z: '#,##0' }
-          ]);
-        }
-
-        // [특수수당 상세 내역]
-        if (specialItems.length > 0) {
-          rows.push([]);
-          rows.push(['[특수수당 상세 내역]']);
-          rows.push(['No', '계약일자', '지급일자', '본부명', '지사명', '사원명', '고객명', '렌탈계약번호', '배송일자', '수당 종류', '제품명(렌탈상품명)', '수수료']);
-          specialItems.forEach((sp, idx) => {
-            rows.push([
-              idx + 1,
-              sp.contractDate || '-',
-              sp.payDate || payDateStr,
-              sp.contractHq || sp.hq || displayTargetName,
-              sp.branch || '-',
-              sp.empName || '-',
-              sp.memName || '-',
-              sp.rentalNo || '-',
-              sp.deliveryDate || '-',
-              sp.incentiveName || '특수수당',
-              sp.rentalProd || sp.prodName || '-',
-              { v: Math.floor(sp.amount || 0), t: 'n', z: '#,##0' }
-            ]);
-          });
-          rows.push([
-            '특수수당 소계', '', '', '', '', `${specialItems.length}건`, '', '', '', '', '',
-            { v: Math.floor(specialSum), t: 'n', z: '#,##0' }
           ]);
         }
 
@@ -5720,6 +5881,20 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                 <span className="px-1.5 py-0.2 bg-emerald-200 text-emerald-900 rounded text-[10px] font-black">
                   {goodlifeSplitSummary.totalCount}건
                 </span>
+              </button>
+
+              {/* 상품별 건수 표시 토글 버튼 */}
+              <button
+                type="button"
+                onClick={() => setShowProductBreakdown(prev => !prev)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-2xs ${
+                  showProductBreakdown
+                    ? 'bg-sky-600 text-white border-sky-600'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                }`}
+                title="각 본부 및 사업단의 상품별 건수를 함께 표시합니다"
+              >
+                <span>상품별 건수</span>
               </button>
 
               {/* 순서 초기화 및 검색창 (우측 컴팩트 배치) */}
@@ -6346,10 +6521,27 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                             </div>
                           </div>
                         </td>
-                        <td className={`px-3 py-2.5 font-bold text-slate-900 border-r border-slate-100 flex items-center gap-1.5 flex-wrap ${isSubRow ? 'pl-6' : ''}`}>
-                          {isSubRow && <span className="text-slate-400 text-xs select-none">└</span>}
-                          <Building2 size={13} className="text-blue-500 opacity-70 shrink-0" />
-                          <span className="group-hover:text-blue-600 transition-colors whitespace-nowrap">{stat.hqName}</span>
+                        <td className={`px-3 py-2.5 font-bold text-slate-900 border-r border-slate-100 ${isSubRow ? 'pl-6' : ''}`}>
+                          <div className="flex flex-col items-start gap-1">
+                            <div className="flex items-center gap-1.5">
+                              {isSubRow && <span className="text-slate-400 text-xs select-none">└</span>}
+                              <Building2 size={13} className="text-blue-500 opacity-70 shrink-0" />
+                              <span className="group-hover:text-blue-600 transition-colors whitespace-nowrap">{stat.hqName}</span>
+                            </div>
+                            {showProductBreakdown && !hideDetailBtn && stat.items && stat.items.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {getProductBreakdown(stat.items).map(pb => (
+                                  <span
+                                    key={pb.prodName}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-medium whitespace-nowrap"
+                                  >
+                                    <span>{pb.prodName}</span>
+                                    <span className="font-bold text-blue-700">{pb.count}건</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2.5 text-center border-r border-slate-100">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${stat.settlementType.includes('개인') ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'}`}>
@@ -6443,13 +6635,32 @@ export const MonthlySettlementModal: React.FC<MonthlySettlementModalProps> = ({
                                     </button>
                                   </td>
                                   <td className="border-r border-slate-700 px-3 py-2.5 text-left">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-amber-300 font-black text-xs">
-                                        🏢 {group.division.name} 사업단
-                                      </span>
-                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-900/80 text-indigo-200 border border-indigo-700">
-                                        {group.stats.length}개 본부
-                                      </span>
+                                    <div className="flex flex-col items-start gap-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-amber-300 font-black text-xs">
+                                          🏢 {group.division.name} 사업단
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-900/80 text-indigo-200 border border-indigo-700">
+                                          {group.stats.length}개 본부
+                                        </span>
+                                      </div>
+                                      {showProductBreakdown && (() => {
+                                        const divProdBreakdown = getProductBreakdown(group.stats.flatMap(s => s.items || []));
+                                        if (divProdBreakdown.length === 0) return null;
+                                        return (
+                                          <div className="flex flex-wrap gap-1 whitespace-normal">
+                                            {divProdBreakdown.map(pb => (
+                                              <span
+                                                key={pb.prodName}
+                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-900/70 text-indigo-100 border border-indigo-700/80 text-[10px] font-medium whitespace-nowrap"
+                                              >
+                                                <span>{pb.prodName}</span>
+                                                <span className="font-bold text-amber-300">{pb.count}건</span>
+                                              </span>
+                                            ))}
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
                                   </td>
                                   <td className="border-r border-slate-700 px-3 py-2.5 text-center">
