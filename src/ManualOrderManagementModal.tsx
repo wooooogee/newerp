@@ -570,11 +570,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   const certVal = String(certIdx >= 0 ? r[certIdx] : '').trim();
                   const certDateVal = String(certDateIdx >= 0 ? r[certDateIdx] : '').trim();
                   const delDateVal = String(delDateIdx >= 0 ? r[delDateIdx] : '').trim();
-                  if (cNo && (certVal || certDateVal)) {
+                  const isCertRegisteredInRecon =
+                    (!!certVal && !certVal.includes('미등록') && certVal !== '-' && certVal.toUpperCase() !== 'X' && certVal.toUpperCase() !== 'N') ||
+                    !!certDateVal;
+                  if (cNo && isCertRegisteredInRecon) {
                     const actualDate = certDateVal || delDateVal;
                     const actualMonth = actualDate ? actualDate.substring(0, 7) : '';
                     const existing = updated[cNo] || {};
-                    if (existing.installCertStatus !== '등록' || !existing.installCertDate) {
+                    // 이미 명시적으로 '미등록' 해제된 건은 덮어쓰지 않고, 상태가 없거나 '등록'인데 일자가 누락된 경우만 보완
+                    if (!existing.installCertStatus || (existing.installCertStatus === '등록' && !existing.installCertDate)) {
                       updated[cNo] = {
                         ...existing,
                         deliveryDate: delDateVal || existing.deliveryDate || '',

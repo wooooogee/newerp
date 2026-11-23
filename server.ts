@@ -884,33 +884,39 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
     if (maintenanceRules && Array.isArray(maintenanceRules) && maintenanceRules.length > 0) cacheData.maintenanceRules = maintenanceRules;
     if (manualOrderProducts) cacheData.manualOrderProducts = manualOrderProducts;
+    const mergeManualStoreEntry = (ex: any, inc: any) => {
+      if (!ex) return { ...inc };
+      let certStatus = inc.installCertStatus;
+      let certDate = inc.installCertDate;
+      let certMonth = inc.installCertMonth;
+
+      if (certStatus === '미등록') {
+        certDate = '';
+        certMonth = '';
+      } else if (!certStatus) {
+        if (ex.installCertStatus === '등록' || ex.installCertDate || ex.installCertMonth) {
+          certStatus = '등록';
+          certDate = certDate || ex.installCertDate;
+          certMonth = certMonth || ex.installCertMonth;
+        }
+      }
+
+      const finalCertStatus = certStatus || ex.installCertStatus || '미등록';
+      return {
+        ...ex,
+        ...inc,
+        installCertStatus: finalCertStatus,
+        installCertDate: finalCertStatus === '미등록' ? '' : (certDate || ex.installCertDate || ''),
+        installCertMonth: finalCertStatus === '미등록' ? '' : (certMonth || ex.installCertMonth || ''),
+      };
+    };
+
     if (manualOrderStores && typeof manualOrderStores === 'object') {
       const existingStores = cacheData.manualOrderStores || {};
       const mergedStores: Record<string, any> = { ...existingStores };
       for (const [key, inc] of Object.entries(manualOrderStores)) {
         if (!inc || typeof inc !== 'object') continue;
-        const ex = mergedStores[key];
-        if (!ex) {
-          mergedStores[key] = { ...(inc as any) };
-        } else {
-          let certStatus = (inc as any).installCertStatus;
-          let certDate = (inc as any).installCertDate;
-          let certMonth = (inc as any).installCertMonth;
-          if (!certStatus || certStatus === '미등록') {
-            if (ex.installCertStatus === '등록' || ex.installCertDate || ex.installCertMonth) {
-              certStatus = '등록';
-              certDate = certDate || ex.installCertDate;
-              certMonth = certMonth || ex.installCertMonth;
-            }
-          }
-          mergedStores[key] = {
-            ...ex,
-            ...(inc as any),
-            installCertStatus: certStatus || ex.installCertStatus || '미등록',
-            installCertDate: certDate || ex.installCertDate || '',
-            installCertMonth: certMonth || ex.installCertMonth || '',
-          };
-        }
+        mergedStores[key] = mergeManualStoreEntry(mergedStores[key], inc);
       }
       cacheData.manualOrderStores = mergedStores;
     }
@@ -1139,7 +1145,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
       for (const [k, v] of Object.entries(extraCacheBackup.manualOrderStores)) {
         if (!baseStores[k]) baseStores[k] = v;
         else if (v && typeof v === 'object') {
-          if ((v as any).installCertStatus === '등록' && baseStores[k].installCertStatus !== '등록') {
+          if ((v as any).installCertStatus === '등록' && !baseStores[k].installCertStatus) {
             baseStores[k].installCertStatus = '등록';
             baseStores[k].installCertDate = (v as any).installCertDate || baseStores[k].installCertDate;
             baseStores[k].installCertMonth = (v as any).installCertMonth || baseStores[k].installCertMonth;
@@ -1152,28 +1158,7 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     if (manualOrderStores && typeof manualOrderStores === 'object') {
       for (const [key, inc] of Object.entries(manualOrderStores)) {
         if (!inc || typeof inc !== 'object') continue;
-        const ex = targetManualStores[key];
-        if (!ex) {
-          targetManualStores[key] = { ...(inc as any) };
-        } else {
-          let certStatus = (inc as any).installCertStatus;
-          let certDate = (inc as any).installCertDate;
-          let certMonth = (inc as any).installCertMonth;
-          if (!certStatus || certStatus === '미등록') {
-            if (ex.installCertStatus === '등록' || ex.installCertDate || ex.installCertMonth) {
-              certStatus = '등록';
-              certDate = certDate || ex.installCertDate;
-              certMonth = certMonth || ex.installCertMonth;
-            }
-          }
-          targetManualStores[key] = {
-            ...ex,
-            ...(inc as any),
-            installCertStatus: certStatus || ex.installCertStatus || '미등록',
-            installCertDate: certDate || ex.installCertDate || '',
-            installCertMonth: certMonth || ex.installCertMonth || '',
-          };
-        }
+        targetManualStores[key] = mergeManualStoreEntry(targetManualStores[key], inc);
       }
     }
 
