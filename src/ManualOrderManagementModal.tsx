@@ -110,27 +110,49 @@ const COURIER_OPTIONS = [
 const LOCAL_STORAGE_KEY = 'erp_manual_order_target_products_v1';
 const SHEET_ORDER_ROWS_CACHE_KEY = 'erp_manual_order_sheet_rows_cache_v2';
 
+export const getSheetColumnIndexes = (rows: any[][]) => {
+  const headerRow = (Array.isArray(rows) && rows[0] ? rows[0] : []).map((h: any) => String(h || '').trim());
+  const findCol = (keywords: string[], defaultIdx: number) => {
+    if (headerRow.length === 0) return defaultIdx;
+    const exact = headerRow.findIndex((h: string) => keywords.some((kw) => h === kw));
+    if (exact !== -1) return exact;
+    const partial = headerRow.findIndex((h: string) => keywords.some((kw) => h.includes(kw)));
+    return partial !== -1 ? partial : defaultIdx;
+  };
+
+  return {
+    contractNoCol: findCol(['계약번호', '렌탈계약번호', '회원번호'], 1),
+    recipientNameCol: findCol(['고객명', '수취인', '수취인명', '받는분'], 7),
+    recipientPhoneCol: findCol(['연락처', '수취인연락처', '핸드폰', 'CTN'], 9),
+    zipCodeCol: findCol(['우편번호'], 10),
+    addressCol: findCol(['주소', '배송지', '수취인주소', '받는분주소'], 11),
+    reqDateCol: findCol(['요청일', '요청일자', '발주일자'], 14),
+    delDateCol: findCol(['배송일', '배송일자', '설치일'], 20),
+    courierCol: findCol(['택배사', '배송업체'], 21),
+    trackingCol: findCol(['송장번호', '운송장번호'], 22),
+    stateCol: findCol(['배송상태', '진행상태', '발주상태'], 23),
+    installCertDateCol: findCol(['설치확인서등록일', '설치확인서등록', '설치확인서일자', '설치확인일자', '설치확인일'], 24),
+    installCertMonthCol: findCol(['설치확인서마감월', '설치확인서마감', '확인서마감월', '정산마감월', '마감월'], 25),
+  };
+};
+
 export const parseSheetRowsToMap = (rows: any[][]) => {
   const map = new Map<string, { rowIdx: number; requestDate: string; recipientName: string; recipientPhone: string; deliveryDate: string; courier: string; trackingNo: string; address: string; zipCode: string; installCertDate: string; installCertMonth: string; installCertStatus: '등록' | '미등록'; raw: any[] }>();
   if (!Array.isArray(rows) || rows.length < 2) return map;
 
-  const headerRow = (rows[0] || []).map((h: any) => String(h || '').trim());
-  const findCol = (keywords: string[], defaultIdx: number) => {
-    const found = headerRow.findIndex((h: string) => keywords.some((kw) => h === kw || h.includes(kw)));
-    return found !== -1 ? found : defaultIdx;
-  };
-
-  const contractNoCol = findCol(['계약번호', '렌탈계약번호', '회원번호'], 1);
-  const recipientNameCol = findCol(['고객명', '수취인', '수취인명', '받는분'], 7); // H열 (Col 7)
-  const recipientPhoneCol = findCol(['연락처', '수취인연락처', '핸드폰', 'CTN'], 9); // J열 (Col 9)
-  const zipCodeCol = findCol(['우편번호'], 10); // K열 (Col 10)
-  const addressCol = findCol(['주소', '배송지', '수취인주소', '받는분주소'], 11); // L열 (Col 11)
-  const reqDateCol = findCol(['요청일', '요청일자', '발주일자'], 14);
-  const delDateCol = findCol(['배송일', '배송일자', '설치일'], 20);
-  const courierCol = findCol(['택배사', '배송업체'], 21);
-  const trackingCol = findCol(['송장번호', '운송장번호'], 22);
-  const installCertDateCol = findCol(['설치확인서등록일', '설치확인서등록', '설치확인서일자', '설치확인일자', '설치확인일', '설치확인서'], 24);
-  const installCertMonthCol = findCol(['설치확인서마감월', '설치확인서마감', '확인서마감월', '정산마감월', '마감월'], 25);
+  const {
+    contractNoCol,
+    recipientNameCol,
+    recipientPhoneCol,
+    zipCodeCol,
+    addressCol,
+    reqDateCol,
+    delDateCol,
+    courierCol,
+    trackingCol,
+    installCertDateCol,
+    installCertMonthCol,
+  } = getSheetColumnIndexes(rows);
 
   rows.slice(1).forEach((row, idx) => {
     const rowIdx = idx + 2;
@@ -995,6 +1017,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
       const today = new Date().toISOString().slice(0, 10);
       const nextStore = { ...savedOrderStore };
       const sheetUpdates: { rowIdx: number; colIdx: number; newValue: string }[] = [];
+      const colIndexes = getSheetColumnIndexes(sheetOrderRows);
 
       unregisteredDeliveredOrders.forEach((row) => {
         const cNo = row.contractNo;
@@ -1022,10 +1045,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         if (cDigits) nextStore[cDigits] = valObj;
 
         if (row.rowIdx) {
-          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 20, newValue: delDate });
-          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 23, newValue: '배송완료' });
-          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 24, newValue: certDate });
-          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 25, newValue: certMonth });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.delDateCol, newValue: delDate });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.stateCol, newValue: '배송완료' });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.installCertDateCol, newValue: certDate });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.installCertMonthCol, newValue: certMonth });
         }
       });
 
@@ -1390,6 +1413,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
     try {
       const nextStore = { ...savedOrderStore };
       const sheetUpdates: { rowIdx: number; colIdx: number; newValue: string }[] = [];
+      const colIndexes = getSheetColumnIndexes(sheetOrderRows);
 
       allEditedContractNos.forEach((cNo) => {
         const row = extractedOrders.find((o) => o.contractNo === cNo);
@@ -1445,15 +1469,15 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
         const cDigits = cNo.replace(/[^0-9]/g, '');
         if (cDigits) nextStore[cDigits] = valObj;
 
-        // 구글 시트 업데이트 객체 생성 (rowIdx가 존재하는 수기발주 건 - 발주일 O열/14, 배송일 U열/20, 택배사 V열/21, 송장 W열/22, 상태 X열/23, 확인서등록일 Y열/24, 확인서마감월 Z열/25)
+        // 구글 시트 업데이트 객체 생성 (시트 헤더 동적 인덱스 기준)
         if (row.rowIdx) {
-          if (newOrdDate) sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 14, newValue: newOrdDate });
-          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 20, newValue: newDelDate });
-          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 21, newValue: newCourier });
-          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 22, newValue: newTracking });
-          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 23, newValue: newDState });
-          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 24, newValue: newCertDate });
-          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: 25, newValue: newCertMonth });
+          if (newOrdDate) sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.reqDateCol, newValue: newOrdDate });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.delDateCol, newValue: newDelDate });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.courierCol, newValue: newCourier });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.trackingCol, newValue: newTracking });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.stateCol, newValue: newDState });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.installCertDateCol, newValue: newCertDate });
+          sheetUpdates.push({ rowIdx: row.rowIdx, colIdx: colIndexes.installCertMonthCol, newValue: newCertMonth });
         }
       });
 
@@ -1986,11 +2010,11 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             )}
           </AnimatePresence>
 
-          {/* Row 0: 공급사별 전용 탭 바 (원클릭 모아보기) */}
-          <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 mr-1 shrink-0">
-              <Building size={14} className="text-indigo-600" />
-              <span>공급사별:</span>
+          {/* Row 0: 공급사별 전용 탭 바 (슬림) */}
+          <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap custom-scrollbar">
+            <div className="flex items-center gap-1 text-xs font-bold text-slate-700 mr-1 shrink-0">
+              <Building size={13} className="text-indigo-600" />
+              <span>공급사:</span>
             </div>
             <button
               type="button"
@@ -1998,7 +2022,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 setSupplierFilter('all');
                 setCurrentPage(1);
               }}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
                 supplierFilter === 'all'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
@@ -2015,7 +2039,6 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   onClick={() => {
                     setSupplierFilter(s.name);
                     setCurrentPage(1);
-                    // 만약 바꾼 공급사에 현재 선택된 배송상태의 건수가 0건이면 전체로 자동 전환
                     if (stateFilter !== 'all') {
                       const suppOrders = extractedOrders.filter(
                         (o) => getMatchedSupplierName(o.rentalProdRaw || o.rentalProdClean) === s.name
@@ -2026,7 +2049,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       }
                     }
                   }}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
                     supplierFilter === s.name
                       ? 'bg-indigo-600 text-white shadow-xs'
                       : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
@@ -2043,7 +2066,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   setSupplierFilter('-');
                   setCurrentPage(1);
                 }}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
                   supplierFilter === '-'
                     ? 'bg-slate-700 text-white shadow-xs'
                     : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-100'
@@ -2054,54 +2077,52 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
             )}
           </div>
 
-          {/* Filter Bar (Row 1: 필터 영역) */}
-          <div className="p-3.5 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2.5">
+          {/* Row 1: 필터 + 검색 + 초기화 통합 바 (1줄 컴팩트) */}
+          <div className="px-4 py-2 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               {/* O열 요청일자 1클릭 탭 필터 */}
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold whitespace-nowrap">
+              <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px] font-semibold whitespace-nowrap">
                 <button
                   type="button"
                   onClick={() => setRequestDateFilter('all')}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
                     requestDateFilter === 'all' ? 'bg-white text-blue-700 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  전체 요청일
+                  요청일 전체
                 </button>
                 <button
                   type="button"
                   onClick={() => setRequestDateFilter('has_value')}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
                     requestDateFilter === 'has_value' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  요청일자 있음 ({ordersFilteredByMonthsAndProd.filter((o) => !!o.requestDate?.trim()).length})
+                  있음 ({ordersFilteredByMonthsAndProd.filter((o) => !!o.requestDate?.trim()).length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setRequestDateFilter('no_value')}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
                     requestDateFilter === 'no_value' ? 'bg-slate-700 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  요청일자 없음 ({ordersFilteredByMonthsAndProd.filter((o) => !o.requestDate?.trim()).length})
+                  없음 ({ordersFilteredByMonthsAndProd.filter((o) => !o.requestDate?.trim()).length})
                 </button>
               </div>
 
-              {/* 계약월 필터 드롭다운 */}
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
-                <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
-                  <Calendar size={13} className={contractMonthFilter !== 'all' ? 'text-blue-600' : 'text-slate-400'} />
-                  <span>계약월</span>
-                </div>
+              {/* 계약월 필터 */}
+              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px]">
+                <Calendar size={12} className={`ml-1.5 ${contractMonthFilter !== 'all' ? 'text-blue-600' : 'text-slate-400'}`} />
                 <select
                   value={contractMonthFilter}
                   onChange={(e) => setContractMonthFilter(e.target.value)}
-                  className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
+                  className={`px-1.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
                     contractMonthFilter !== 'all' ? 'text-blue-600 font-bold' : 'text-slate-700'
                   }`}
+                  title="계약월 필터"
                 >
-                  <option value="all">전체 계약월</option>
+                  <option value="all">계약월: 전체</option>
                   {availableContractMonths.map((m) => (
                     <option key={m} value={m}>
                       {m.replace('-', '년 ')}월
@@ -2110,20 +2131,18 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </select>
               </div>
 
-              {/* 배송일/설치일 월 필터 드롭다운 */}
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
-                <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
-                  <Truck size={13} className={deliveryMonthFilter !== 'all' ? 'text-blue-600' : 'text-slate-400'} />
-                  <span>배송/설치월</span>
-                </div>
+              {/* 배송/설치월 필터 */}
+              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px]">
+                <Truck size={12} className={`ml-1.5 ${deliveryMonthFilter !== 'all' ? 'text-blue-600' : 'text-slate-400'}`} />
                 <select
                   value={deliveryMonthFilter}
                   onChange={(e) => setDeliveryMonthFilter(e.target.value)}
-                  className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
+                  className={`px-1.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
                     deliveryMonthFilter !== 'all' ? 'text-blue-600 font-bold' : 'text-slate-700'
                   }`}
+                  title="배송/설치월 필터"
                 >
-                  <option value="all">전체 배송월</option>
+                  <option value="all">배송월: 전체</option>
                   {availableDeliveryMonths.map((m) => (
                     <option key={m} value={m}>
                       {m.replace('-', '년 ')}월
@@ -2133,147 +2152,52 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 </select>
               </div>
 
-              {/* 가입상태 필터 드롭다운 */}
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
-                <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
-                  <ShieldCheck size={13} className={joinStatusFilter === 'active' ? 'text-emerald-600' : 'text-slate-400'} />
-                  <span>가입상태</span>
-                </div>
+              {/* 가입상태 필터 */}
+              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px]">
+                <ShieldCheck size={12} className={`ml-1.5 ${joinStatusFilter === 'active' ? 'text-emerald-600' : 'text-slate-400'}`} />
                 <select
                   value={joinStatusFilter}
                   onChange={(e) => setJoinStatusFilter(e.target.value as any)}
-                  className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
+                  className={`px-1.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
                     joinStatusFilter === 'active' ? 'text-emerald-600 font-bold' : 'text-slate-700'
                   }`}
+                  title="가입상태 필터"
                 >
-                  <option value="active">정상 가입만 (기본)</option>
-                  <option value="all">전체 가입상태</option>
+                  <option value="active">정상 가입만</option>
+                  <option value="all">가입: 전체</option>
                   <option value="cancelled">취소/해약/철회</option>
                 </select>
               </div>
 
-              {/* 설치확인서 필터 드롭다운 */}
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
-                <div className="flex items-center gap-1 pl-1 text-slate-600 font-semibold whitespace-nowrap">
-                  <FileSpreadsheet size={13} className={installCertFilter !== 'all' ? 'text-indigo-600' : 'text-slate-400'} />
-                  <span>설치확인서</span>
-                </div>
+              {/* 설치확인서 필터 */}
+              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px]">
+                <FileSpreadsheet size={12} className={`ml-1.5 ${installCertFilter !== 'all' ? 'text-indigo-600' : 'text-slate-400'}`} />
                 <select
                   value={installCertFilter}
                   onChange={(e) => setInstallCertFilter(e.target.value as any)}
-                  className={`px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
+                  className={`px-1.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border-0 bg-white shadow-2xs focus:outline-hidden ${
                     installCertFilter !== 'all' ? 'text-indigo-600 font-bold' : 'text-slate-700'
                   }`}
+                  title="설치확인서 필터"
                 >
-                  <option value="all">전체 (확인서)</option>
+                  <option value="all">확인서: 전체</option>
                   <option value="registered">📄 등록 완료</option>
-                  <option value="unregistered">❌ 미등록 (지급보류)</option>
+                  <option value="unregistered">❌ 미등록 (보류)</option>
                 </select>
               </div>
-
-              {/* 렌탈상품 다중 선택 드롭다운 */}
-              {/* 배송상태 탭 필터 */}
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold whitespace-nowrap">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStateFilter('all');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    stateFilter === 'all' ? 'bg-white text-blue-700 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  전체 ({ordersFilteredForTabCounts.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStateFilter('발주대기');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    stateFilter === '발주대기' ? 'bg-amber-500 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  발주대기 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '발주대기').length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStateFilter('발주완료');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    stateFilter === '발주완료' ? 'bg-purple-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  발주완료 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '발주완료').length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStateFilter('배송중');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    stateFilter === '배송중' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  배송중 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '배송중').length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStateFilter('배송완료');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    stateFilter === '배송완료' ? 'bg-emerald-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  배송완료 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '배송완료').length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStateFilter('발주취소');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    stateFilter === '발주취소' ? 'bg-rose-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  발주취소 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '발주취소').length})
-                </button>
-              </div>
-
-              {/* 필터 및 정렬 조건 초기화 버튼 */}
-              {isAnyFilterActive && (
-                <button
-                  type="button"
-                  onClick={handleResetAllFilters}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs"
-                  title="월별, 요청일, 공급사, 검색어 및 정렬 초기화"
-                >
-                  <RotateCcw size={12} />
-                  <span>초기화</span>
-                </button>
-              )}
             </div>
 
-            {/* 검색어 (제일 우측 끝에 배치, Enter 또는 검색 버튼 클릭 시 검색) */}
-            <div className="relative min-w-[280px] max-w-sm sm:w-80 ml-auto flex items-center gap-1.5">
-              <div className="relative flex-1">
-                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            {/* 우측: 검색창 + 초기화 버튼 한 줄 통합 */}
+            <div className="flex items-center gap-1.5 ml-auto">
+              <div className="relative w-56 sm:w-64">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="계약번호, 회원명, 핸드폰, 상품명... (Enter)"
+                  placeholder="계약번호, 회원명, 연락처, 상품명..."
                   value={searchInput}
                   onChange={(e) => {
                     const val = e.target.value;
                     setSearchInput(val);
-                    // 검색창이 비워지면 숨겨진 검색 필터도 즉시 해제
                     if (!val.trim()) {
                       setSearchTerm('');
                       setCurrentPage(1);
@@ -2285,7 +2209,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       setCurrentPage(1);
                     }
                   }}
-                  className="w-full pl-8.5 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 transition-all"
+                  className="w-full pl-8 pr-6 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 transition-all"
                 />
                 {(searchInput || searchTerm) && (
                   <button
@@ -2295,10 +2219,10 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                       setSearchTerm('');
                       setCurrentPage(1);
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
                     title="검색어 지우기"
                   >
-                    <X size={13} />
+                    <X size={12} />
                   </button>
                 )}
               </div>
@@ -2308,26 +2232,113 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   setSearchTerm(searchInput.trim());
                   setCurrentPage(1);
                 }}
-                className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-2xs whitespace-nowrap cursor-pointer shrink-0"
+                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-xs font-bold transition-all shadow-2xs whitespace-nowrap cursor-pointer shrink-0"
               >
                 검색
               </button>
+              {isAnyFilterActive && (
+                <button
+                  type="button"
+                  onClick={handleResetAllFilters}
+                  className="flex items-center gap-1 px-2 py-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-2xs whitespace-nowrap shrink-0"
+                  title="월별, 요청일, 공급사, 검색어 및 정렬 초기화"
+                >
+                  <RotateCcw size={11} />
+                  <span>초기화</span>
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Action Bar (Row 2: 일괄 작업 및 액션 버튼) */}
-          <div className="px-4 py-2 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-500">
-                선택 항목: <strong className="text-blue-600 font-bold">{selectedKeys.size}</strong>건
+          {/* Row 2: 배송상태 탭 + 일괄 작업 및 액션 버튼 통합 바 */}
+          <div className="px-4 py-2 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* 배송상태 탭 필터 */}
+              <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px] font-semibold whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStateFilter('all');
+                    setSelectedKeys(new Set());
+                  }}
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                    stateFilter === 'all' ? 'bg-white text-blue-700 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  전체 ({ordersFilteredForTabCounts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStateFilter('발주대기');
+                    setSelectedKeys(new Set());
+                  }}
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                    stateFilter === '발주대기' ? 'bg-amber-500 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  발주대기 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '발주대기').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStateFilter('발주완료');
+                    setSelectedKeys(new Set());
+                  }}
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                    stateFilter === '발주완료' ? 'bg-purple-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  발주완료 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '발주완료').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStateFilter('배송중');
+                    setSelectedKeys(new Set());
+                  }}
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                    stateFilter === '배송중' ? 'bg-blue-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  배송중 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '배송중').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStateFilter('배송완료');
+                    setSelectedKeys(new Set());
+                  }}
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                    stateFilter === '배송완료' ? 'bg-emerald-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  배송완료 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '배송완료').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStateFilter('발주취소');
+                    setSelectedKeys(new Set());
+                  }}
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                    stateFilter === '발주취소' ? 'bg-rose-600 text-white shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  발주취소 ({ordersFilteredForTabCounts.filter((o) => o.deliveryState === '발주취소').length})
+                </button>
+              </div>
+
+              <span className="text-[11px] font-medium text-slate-500 px-1.5 py-0.5 bg-white border border-slate-200 rounded-md">
+                선택 <strong className="text-blue-600 font-bold">{selectedKeys.size}</strong>건
               </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              {/* 선택항목 배송상태 일괄 변경 (발주하기 바로 좌측) */}
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
-                <span className="text-xs font-bold text-slate-700 whitespace-nowrap">
-                  선택항목 상태 일괄변경:
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* 선택항목 배송상태 일괄 변경 */}
+              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-2xs">
+                <span className="text-[11px] font-bold text-slate-700 whitespace-nowrap">
+                  상태 일괄:
                 </span>
                 <select
                   defaultValue=""
@@ -2338,14 +2349,14 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     }
                   }}
                   disabled={selectedKeys.size === 0}
-                  className={`text-xs font-bold rounded-lg px-2.5 py-1 transition-all cursor-pointer border focus:outline-hidden ${
+                  className={`text-[11px] font-bold rounded-md px-2 py-0.5 transition-all cursor-pointer border focus:outline-hidden ${
                     selectedKeys.size > 0
                       ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-2xs'
                       : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                   }`}
                 >
                   <option value="" disabled>
-                    상태 선택...
+                    선택...
                   </option>
                   <option value="발주대기" className="bg-white text-slate-800 font-medium">
                     발주대기
@@ -2366,9 +2377,9 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
               </div>
 
               {/* 설치확인서 일괄 변경 */}
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
-                <span className="text-xs font-bold text-indigo-700 whitespace-nowrap">
-                  설치확인서 일괄:
+              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-2xs">
+                <span className="text-[11px] font-bold text-indigo-700 whitespace-nowrap">
+                  확인서 일괄:
                 </span>
                 <select
                   defaultValue=""
@@ -2393,13 +2404,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                     selectEl.value = '';
                   }}
                   disabled={selectedKeys.size === 0}
-                  className={`text-xs font-bold rounded-lg px-2.5 py-1 transition-all cursor-pointer border focus:outline-hidden ${
+                  className={`text-[11px] font-bold rounded-md px-2 py-0.5 transition-all cursor-pointer border focus:outline-hidden ${
                     selectedKeys.size > 0
                       ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700 shadow-2xs'
                       : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                   }`}
                 >
-                  <option value="" disabled>설치확인서 선택...</option>
+                  <option value="" disabled>선택...</option>
                   <option value="register_today" className="bg-white text-slate-800 font-medium">📄 당월 일자로 등록 (당월 마감)</option>
                   <option value="register_custom" className="bg-white text-slate-800 font-medium">🗓️ 마감월 직접 지정 등록...</option>
                   <option value="unregister" className="bg-white text-rose-700 font-medium">❌ 미등록으로 일괄 해제</option>
@@ -2412,44 +2423,44 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   type="button"
                   onClick={handleAutoRegisterDeliveredCert}
                   disabled={saving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-amber-500/25 ring-2 ring-amber-200"
+                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg shadow-xs transition-all cursor-pointer bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-amber-500/25 ring-1 ring-amber-200"
                   title="배송완료되었으나 설치확인서가 미등록인 주문 건을 배송일자 기준으로 일괄 자동 등록하고 저장합니다."
                 >
-                  <Sparkles size={14} />
-                  <span>⚡ 배송완료 확인서 자동등록 ({unregisteredDeliveredOrders.length}건)</span>
+                  <Sparkles size={13} />
+                  <span>배송완료 자동등록 ({unregisteredDeliveredOrders.length})</span>
                 </button>
               )}
 
-              {/* 발주하기 버튼 (기존 4개 필드 발주서 모달) */}
+              {/* 발주하기 버튼 */}
               <button
                 type="button"
                 onClick={handleOpenOrderModal}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer ${
+                className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg shadow-xs transition-all cursor-pointer ${
                   selectedKeys.size > 0
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-indigo-500/25 ring-2 ring-indigo-200'
+                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-indigo-500/25 ring-1 ring-indigo-200'
                     : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                 }`}
               >
-                <FileSpreadsheet size={15} />
-                발주하기 ({selectedKeys.size}건 선택)
+                <FileSpreadsheet size={13} />
+                발주하기 ({selectedKeys.size})
               </button>
 
               {/* 에넥스 업로드 파일 버튼 */}
               <button
                 type="button"
                 onClick={handleDownloadEnexExcel}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer ring-2 ring-emerald-200 shadow-emerald-500/25"
+                className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-xs transition-all cursor-pointer"
               >
-                <Download size={15} />
-                에넥스 업로드 파일
+                <Download size={13} />
+                에넥스 업로드
               </button>
 
               <button
                 type="button"
                 onClick={handleExportMainExcel}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-300 transition-all cursor-pointer shadow-2xs"
+                className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 text-[11px] font-semibold rounded-lg border border-slate-300 transition-all cursor-pointer shadow-2xs"
               >
-                <Download size={14} />
+                <Download size={13} />
                 목록 엑셀
               </button>
 
@@ -2461,13 +2472,13 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                   handleSaveChanges();
                 }}
                 disabled={saving || !isChanged}
-                className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer ${
+                className={`flex items-center gap-1 px-3 py-1 text-[11px] font-bold rounded-lg shadow-xs transition-all cursor-pointer ${
                   isChanged
                     ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/25 animate-pulse'
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
                 }`}
               >
-                <Save size={15} />
+                <Save size={13} />
                 {saving ? '저장 중...' : '저장하기'}
               </button>
             </div>
@@ -2493,7 +2504,7 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
           )}
 
           {/* Table Area */}
-          <div className="flex-1 overflow-auto p-4 custom-scrollbar bg-slate-50/50">
+          <div className="flex-1 overflow-auto p-3 custom-scrollbar bg-slate-50/50">
             {loading ? (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-400">
                 <RefreshCw size={28} className="animate-spin text-blue-600" />
@@ -2584,131 +2595,131 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-slate-100/90 text-slate-700 sticky top-0 backdrop-blur-md z-10 font-bold border-b border-slate-200">
                     <tr>
-                      <th className="py-3 px-2.5 w-10 text-center border-r border-slate-200">
+                      <th className="py-2.5 px-1.5 w-8 text-center border-r border-slate-200">
                         <button
                           onClick={handleToggleSelectAll}
                           className="text-slate-500 hover:text-blue-600 transition-colors cursor-pointer"
                         >
                           {isAllSelected ? (
-                            <CheckSquare size={16} className="text-blue-600" />
+                            <CheckSquare size={15} className="text-blue-600" />
                           ) : (
-                            <Square size={16} />
+                            <Square size={15} />
                           )}
                         </button>
                       </th>
                       <th
                         onClick={() => handleSort('contractDate')}
-                        className="py-3 px-2 w-[90px] min-w-[90px] border-r border-slate-200 text-slate-800 bg-slate-200/50 text-center cursor-pointer select-none hover:bg-slate-300/70 transition-colors group whitespace-nowrap"
+                        className="py-2.5 px-1.5 w-[82px] min-w-[82px] border-r border-slate-200 text-slate-800 bg-slate-200/50 text-center cursor-pointer select-none hover:bg-slate-300/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
-                        <div className="inline-flex items-center justify-center gap-1 w-full">
+                        <div className="inline-flex items-center justify-center gap-0.5 w-full">
                           <span>계약일</span>
                           {sortField === 'contractDate' ? (
                             sortDirection === 'desc' ? (
-                              <ChevronDown size={14} className="text-blue-600 font-bold shrink-0" />
+                              <ChevronDown size={13} className="text-blue-600 font-bold shrink-0" />
                             ) : (
-                              <ChevronUp size={14} className="text-blue-600 font-bold shrink-0" />
+                              <ChevronUp size={13} className="text-blue-600 font-bold shrink-0" />
                             )
                           ) : (
-                            <ArrowUpDown size={12} className="text-slate-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                            <ArrowUpDown size={11} className="text-slate-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
                           )}
                         </div>
                       </th>
                       <th
                         onClick={() => handleSort('requestDate')}
-                        className="py-3 px-2 w-[90px] min-w-[90px] border-r border-slate-200 text-blue-800 bg-blue-50/60 text-center cursor-pointer select-none hover:bg-blue-100/70 transition-colors group whitespace-nowrap"
+                        className="py-2.5 px-1.5 w-[82px] min-w-[82px] border-r border-slate-200 text-blue-800 bg-blue-50/60 text-center cursor-pointer select-none hover:bg-blue-100/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
-                        <div className="inline-flex items-center justify-center gap-1 w-full">
+                        <div className="inline-flex items-center justify-center gap-0.5 w-full">
                           <span>요청일</span>
                           {sortField === 'requestDate' ? (
                             sortDirection === 'desc' ? (
-                              <ChevronDown size={14} className="text-blue-600 font-bold shrink-0" />
+                              <ChevronDown size={13} className="text-blue-600 font-bold shrink-0" />
                             ) : (
-                              <ChevronUp size={14} className="text-blue-600 font-bold shrink-0" />
+                              <ChevronUp size={13} className="text-blue-600 font-bold shrink-0" />
                             )
                           ) : (
-                            <ArrowUpDown size={12} className="text-blue-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                            <ArrowUpDown size={11} className="text-blue-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-2.5 w-28 min-w-[100px] border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono whitespace-nowrap">
+                      <th className="py-2.5 px-2 w-[90px] min-w-[88px] border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono whitespace-nowrap">
                         계약번호
                       </th>
-                      <th className="py-3 px-2.5 w-28 min-w-[105px] border-r border-slate-200 text-blue-800 bg-blue-50/60 whitespace-nowrap">
-                        회원명 / 수취인
+                      <th className="py-2.5 px-2 w-[92px] min-w-[90px] border-r border-slate-200 text-blue-800 bg-blue-50/60 whitespace-nowrap">
+                        회원명/수취인
                       </th>
-                      <th className="py-3 px-2.5 w-32 min-w-[120px] border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono whitespace-nowrap">
-                        핸드폰 / 연락처
+                      <th className="py-2.5 px-2 w-[108px] min-w-[105px] border-r border-slate-200 text-blue-800 bg-blue-50/60 font-mono whitespace-nowrap">
+                        연락처
                       </th>
-                      <th className="py-3 px-3 min-w-[200px] max-w-[280px] border-r border-slate-200 text-blue-800 bg-blue-50/60 whitespace-nowrap">
+                      <th className="py-2.5 px-2 min-w-[165px] max-w-[220px] border-r border-slate-200 text-blue-800 bg-blue-50/60 whitespace-nowrap">
                         배송지 주소
                       </th>
                       <th
                         onClick={() => handleSort('rentalProdClean')}
-                        className="py-3 px-2.5 min-w-[160px] border-r border-slate-200 text-blue-800 bg-blue-50/60 cursor-pointer select-none hover:bg-blue-100/70 transition-colors group whitespace-nowrap"
+                        className="py-2.5 px-2 min-w-[140px] max-w-[190px] border-r border-slate-200 text-blue-800 bg-blue-50/60 cursor-pointer select-none hover:bg-blue-100/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
                         <div className="inline-flex items-center gap-1">
                           <span>렌탈상품명</span>
                           {sortField === 'rentalProdClean' ? (
                             sortDirection === 'desc' ? (
-                              <ChevronDown size={14} className="text-blue-600 font-bold shrink-0" />
+                              <ChevronDown size={13} className="text-blue-600 font-bold shrink-0" />
                             ) : (
-                              <ChevronUp size={14} className="text-blue-600 font-bold shrink-0" />
+                              <ChevronUp size={13} className="text-blue-600 font-bold shrink-0" />
                             )
                           ) : (
-                            <ArrowUpDown size={12} className="text-blue-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                            <ArrowUpDown size={11} className="text-blue-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-2 w-20 min-w-[70px] text-center border-r border-slate-200 whitespace-nowrap">
-                        가입상태
+                      <th className="py-2.5 px-1.5 w-14 min-w-[56px] text-center border-r border-slate-200 whitespace-nowrap">
+                        가입
                       </th>
-                      <th className="py-3 px-2 w-24 min-w-[85px] text-center border-r border-slate-200 whitespace-nowrap">
+                      <th className="py-2.5 px-1.5 w-20 min-w-[78px] text-center border-r border-slate-200 whitespace-nowrap">
                         배송상태
                       </th>
                       <th
                         onClick={() => handleSort('orderDate')}
-                        className="py-3 px-2 w-28 min-w-[110px] text-purple-900 bg-purple-50/60 border-r border-slate-200 text-center cursor-pointer select-none hover:bg-purple-100/70 transition-colors group whitespace-nowrap"
+                        className="py-2.5 px-1.5 w-[108px] min-w-[105px] text-purple-900 bg-purple-50/60 border-r border-slate-200 text-center cursor-pointer select-none hover:bg-purple-100/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
-                        <div className="inline-flex items-center justify-center gap-1 w-full">
+                        <div className="inline-flex items-center justify-center gap-0.5 w-full">
                           <span>발주일</span>
                           {sortField === 'orderDate' ? (
                             sortDirection === 'desc' ? (
-                              <ChevronDown size={14} className="text-purple-700 font-bold shrink-0" />
+                              <ChevronDown size={13} className="text-purple-700 font-bold shrink-0" />
                             ) : (
-                              <ChevronUp size={14} className="text-purple-700 font-bold shrink-0" />
+                              <ChevronUp size={13} className="text-purple-700 font-bold shrink-0" />
                             )
                           ) : (
-                            <ArrowUpDown size={12} className="text-purple-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                            <ArrowUpDown size={11} className="text-purple-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
                           )}
                         </div>
                       </th>
                       <th
                         onClick={() => handleSort('deliveryDate')}
-                        className="py-3 px-2 w-28 min-w-[110px] text-amber-900 bg-amber-50/60 border-r border-slate-200 text-center cursor-pointer select-none hover:bg-amber-100/70 transition-colors group whitespace-nowrap"
+                        className="py-2.5 px-1.5 w-[108px] min-w-[105px] text-amber-900 bg-amber-50/60 border-r border-slate-200 text-center cursor-pointer select-none hover:bg-amber-100/70 transition-colors group whitespace-nowrap"
                         title="클릭 시 내림차순/올림차순 정렬"
                       >
-                        <div className="inline-flex items-center justify-center gap-1 w-full">
+                        <div className="inline-flex items-center justify-center gap-0.5 w-full">
                           <span>배송일</span>
                           {sortField === 'deliveryDate' ? (
                             sortDirection === 'desc' ? (
-                              <ChevronDown size={14} className="text-amber-700 font-bold shrink-0" />
+                              <ChevronDown size={13} className="text-amber-700 font-bold shrink-0" />
                             ) : (
-                              <ChevronUp size={14} className="text-amber-700 font-bold shrink-0" />
+                              <ChevronUp size={13} className="text-amber-700 font-bold shrink-0" />
                             )
                           ) : (
-                            <ArrowUpDown size={12} className="text-amber-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                            <ArrowUpDown size={11} className="text-amber-400 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
                           )}
                         </div>
                       </th>
-                      <th className="py-3 px-2.5 w-48 min-w-[190px] text-amber-800 bg-amber-50/60 text-center whitespace-nowrap border-r border-slate-200">
+                      <th className="py-2.5 px-2 w-40 min-w-[162px] text-amber-800 bg-amber-50/60 text-center whitespace-nowrap border-r border-slate-200">
                         택배사 / 송장번호
                       </th>
-                      <th className="py-3 px-2.5 w-52 min-w-[200px] text-indigo-900 bg-indigo-50/70 text-center whitespace-nowrap">
-                        설치확인서 (등록유무)
+                      <th className="py-2.5 px-2 w-48 min-w-[190px] text-indigo-900 bg-indigo-50/70 text-center whitespace-nowrap">
+                        설치확인서
                       </th>
                     </tr>
                   </thead>
@@ -3052,8 +3063,8 @@ export const ManualOrderManagementModal: React.FC<ManualOrderManagementModalProp
                           </td>
 
                           {/* 설치확인서 (등록일 / 마감월 / 공급수수료 정산예정) */}
-                          <td className="py-2 px-2 bg-indigo-50/20 min-w-[200px] w-52">
-                            <div className="flex flex-col gap-1.5 min-w-[190px]">
+                          <td className="py-2 px-1.5 bg-indigo-50/20 min-w-[185px] w-48">
+                            <div className="flex flex-col gap-1 min-w-[178px]">
                               <div className="flex items-center gap-1.5 justify-between">
                                 <select
                                   value={certStatus}
