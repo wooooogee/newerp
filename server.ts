@@ -840,6 +840,33 @@ app.post('/api/sheets/settings/sync-cache', async (req, res) => {
 
 let settingsCloudSaveQueue: Promise<any> = Promise.resolve();
 
+const mergeManualStoreEntry = (ex: any, inc: any) => {
+  if (!ex) return { ...inc };
+  let certStatus = inc.installCertStatus;
+  let certDate = inc.installCertDate;
+  let certMonth = inc.installCertMonth;
+
+  if (certStatus === '미등록') {
+    certDate = '';
+    certMonth = '';
+  } else if (!certStatus) {
+    if (ex.installCertStatus === '등록' || ex.installCertDate || ex.installCertMonth) {
+      certStatus = '등록';
+      certDate = certDate || ex.installCertDate;
+      certMonth = certMonth || ex.installCertMonth;
+    }
+  }
+
+  const finalCertStatus = certStatus || ex.installCertStatus || '미등록';
+  return {
+    ...ex,
+    ...inc,
+    installCertStatus: finalCertStatus,
+    installCertDate: finalCertStatus === '미등록' ? '' : (certDate || ex.installCertDate || ''),
+    installCertMonth: finalCertStatus === '미등록' ? '' : (certMonth || ex.installCertMonth || ''),
+  };
+};
+
 app.post('/api/sheets/settings/save', async (req, res) => {
   const client = await getAuthenticatedClient(req, res);
   if (!client) return res.status(401).json({ error: '인증되지 않았습니다.' });
@@ -884,32 +911,6 @@ app.post('/api/sheets/settings/save', async (req, res) => {
     }
     if (maintenanceRules && Array.isArray(maintenanceRules) && maintenanceRules.length > 0) cacheData.maintenanceRules = maintenanceRules;
     if (manualOrderProducts) cacheData.manualOrderProducts = manualOrderProducts;
-    const mergeManualStoreEntry = (ex: any, inc: any) => {
-      if (!ex) return { ...inc };
-      let certStatus = inc.installCertStatus;
-      let certDate = inc.installCertDate;
-      let certMonth = inc.installCertMonth;
-
-      if (certStatus === '미등록') {
-        certDate = '';
-        certMonth = '';
-      } else if (!certStatus) {
-        if (ex.installCertStatus === '등록' || ex.installCertDate || ex.installCertMonth) {
-          certStatus = '등록';
-          certDate = certDate || ex.installCertDate;
-          certMonth = certMonth || ex.installCertMonth;
-        }
-      }
-
-      const finalCertStatus = certStatus || ex.installCertStatus || '미등록';
-      return {
-        ...ex,
-        ...inc,
-        installCertStatus: finalCertStatus,
-        installCertDate: finalCertStatus === '미등록' ? '' : (certDate || ex.installCertDate || ''),
-        installCertMonth: finalCertStatus === '미등록' ? '' : (certMonth || ex.installCertMonth || ''),
-      };
-    };
 
     if (manualOrderStores && typeof manualOrderStores === 'object') {
       const existingStores = cacheData.manualOrderStores || {};
